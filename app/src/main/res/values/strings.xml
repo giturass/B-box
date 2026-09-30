@@ -68,6 +68,8 @@
     <string name="status_started">Started</string>
 
     <!-- Dashboard -->
+    <string name="dashboard_active_connections">Connections</string>
+    <string name="dashboard_proxy_groups">Proxy groups</string>
     <string name="dashboard_items">Dashboard Items</string>
     <string name="memory">Memory</string>
     <string name="goroutines">Goroutines</string>

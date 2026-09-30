@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.ProfileContent
@@ -229,6 +230,7 @@ fun ProfilesCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Row(
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
@@ -242,61 +244,15 @@ fun ProfilesCard(
                         text = stringResource(R.string.title_configuration),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 
-                Surface(
-                    onClick = onShowAddProfileSheet,
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isSystemInDarkTheme()) {
-                        lerp(
-                            MaterialTheme.colorScheme.surfaceContainerHighest,
-                            MaterialTheme.colorScheme.surfaceContainerHigh,
-                            0.5f,
-                        )
-                    } else {
-                        MaterialTheme.colorScheme.surfaceDim
-                    },
-                    modifier = Modifier.size(44.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = stringResource(R.string.add_profile),
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (profiles.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.no_profiles),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(vertical = 16.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                ProfileSelectorButton(
-                    selectedProfile = selectedProfile,
-                    onClick = onShowProfilePickerSheet,
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                ProfileInfoRow(profile = selectedProfile)
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                ProfileActionRow(
+                ProfileHeaderActions(
                     profile = selectedProfile,
-                    isUpdating = selectedProfile?.id == updatingProfileId,
-                    showUpdateSuccess = selectedProfile?.id == updatedProfileId,
                     onEdit = { selectedProfile?.let { onProfileEdit(it) } },
-                    onUpdate = { selectedProfile?.let { onProfileUpdate(it) } },
+                    onAdd = onShowAddProfileSheet,
                     onShareFile = {
                         selectedProfile?.let {
                             coroutineScope.launch(Dispatchers.IO) {
@@ -358,6 +314,45 @@ fun ProfilesCard(
                         }
                     },
                 )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (profiles.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.no_profiles),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(vertical = 16.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                ProfileSelectorButton(
+                    selectedProfile = selectedProfile,
+                    onClick = onShowProfilePickerSheet,
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        ProfileInfoRow(profile = selectedProfile)
+                    }
+                    if (selectedProfile?.typed?.type == TypedProfile.Type.Remote) {
+                        val isUpdating = selectedProfile.id == updatingProfileId
+                        val showUpdateSuccess = selectedProfile.id == updatedProfileId
+                        ActionButton(
+                            icon = if (showUpdateSuccess) Icons.Default.Check else Icons.Default.Refresh,
+                            contentDescription = stringResource(R.string.update_profile),
+                            onClick = { onProfileUpdate(selectedProfile) },
+                            enabled = !isUpdating && !showUpdateSuccess,
+                            isLoading = isUpdating,
+                        )
+                    }
+                }
             }
         }
     }
@@ -695,12 +690,10 @@ private fun ProfileInfoRow(profile: Profile?) {
 }
 
 @Composable
-private fun ProfileActionRow(
+private fun ProfileHeaderActions(
     profile: Profile?,
-    isUpdating: Boolean,
-    showUpdateSuccess: Boolean,
     onEdit: () -> Unit,
-    onUpdate: () -> Unit,
+    onAdd: () -> Unit,
     onShareFile: () -> Unit,
     onSaveFile: () -> Unit,
     onSaveJson: () -> Unit,
@@ -708,39 +701,30 @@ private fun ProfileActionRow(
     onShareURL: () -> Unit,
     onShareQRS: () -> Unit,
 ) {
-    if (profile == null) return
-
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        ActionButton(
-            icon = Icons.Default.Edit,
-            contentDescription = stringResource(R.string.edit),
-            onClick = onEdit,
-        )
-
-        if (profile.typed.type == TypedProfile.Type.Remote) {
+        if (profile != null) {
+            ShareButton(
+                profile = profile,
+                onShareFile = onShareFile,
+                onSaveFile = onSaveFile,
+                onSaveJson = onSaveJson,
+                onShareJson = onShareJson,
+                onShareURL = onShareURL,
+                onShareQRS = onShareQRS,
+            )
             ActionButton(
-                icon = when {
-                    showUpdateSuccess -> Icons.Default.Check
-                    else -> Icons.Default.Refresh
-                },
-                contentDescription = stringResource(R.string.update_profile),
-                onClick = onUpdate,
-                enabled = !isUpdating && !showUpdateSuccess,
-                isLoading = isUpdating,
+                icon = Icons.Default.Edit,
+                contentDescription = stringResource(R.string.edit),
+                onClick = onEdit,
             )
         }
-
-        ShareButton(
-            profile = profile,
-            onShareFile = onShareFile,
-            onSaveFile = onSaveFile,
-            onSaveJson = onSaveJson,
-            onShareJson = onShareJson,
-            onShareURL = onShareURL,
-            onShareQRS = onShareQRS,
+        ActionButton(
+            icon = Icons.Default.Add,
+            contentDescription = stringResource(R.string.add_profile),
+            onClick = onAdd,
         )
     }
 }

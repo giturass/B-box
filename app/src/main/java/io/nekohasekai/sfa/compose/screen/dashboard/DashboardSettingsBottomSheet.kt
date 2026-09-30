@@ -28,7 +28,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.outlined.BugReport
-import androidx.compose.material.icons.outlined.Cable
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Route
@@ -161,7 +160,6 @@ fun DashboardSettingsBottomSheet(
                                 CardGroup.UploadTraffic,
                                 CardGroup.DownloadTraffic,
                                 CardGroup.Debug,
-                                CardGroup.Connections,
                                 CardGroup.SystemProxy,
                                 CardGroup.ClashMode,
                                 CardGroup.Profiles,
@@ -172,7 +170,6 @@ fun DashboardSettingsBottomSheet(
                                 CardGroup.UploadTraffic,
                                 CardGroup.DownloadTraffic,
                                 CardGroup.Debug,
-                                CardGroup.Connections,
                                 CardGroup.SystemProxy,
                                 CardGroup.Profiles,
                             )
@@ -382,7 +379,6 @@ fun DashboardItemCard(
                 imageVector =
                 when (cardGroup) {
                     CardGroup.Debug -> Icons.Outlined.BugReport
-                    CardGroup.Connections -> Icons.Outlined.Cable
                     CardGroup.UploadTraffic -> Icons.Outlined.Upload
                     CardGroup.DownloadTraffic -> Icons.Outlined.Download
                     CardGroup.ClashMode -> Icons.Outlined.Route
@@ -413,7 +409,6 @@ fun DashboardItemCard(
                     text =
                     when (cardGroup) {
                         CardGroup.Debug -> stringResource(R.string.title_debug)
-                        CardGroup.Connections -> stringResource(R.string.title_connections)
                         CardGroup.UploadTraffic -> stringResource(R.string.upload)
                         CardGroup.DownloadTraffic -> stringResource(R.string.download)
                         CardGroup.ClashMode -> stringResource(R.string.clash_mode)
