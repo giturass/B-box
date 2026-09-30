@@ -68,7 +68,7 @@
     <string name="status_started">已启动</string>
 
     <!-- Dashboard -->
-    <string name="dashboard_active_connections">活动连接</string>
+    <string name="dashboard_active_connections">连接</string>
     <string name="dashboard_proxy_groups">代理组</string>
     <string name="dashboard_items">仪表项</string>
     <string name="memory">内存</string>

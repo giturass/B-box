@@ -23,11 +23,12 @@
 
 | ID | 状态 | 修改 | 主要文件/符号 |
 | --- | --- | --- | --- |
-| MOD-001 | 已实现 | 仪表盘底部浮动控制按钮，仅首页显示 | `compose/MainActivity.kt`：`isDashboardRoute`、`showStatusBar`、`showStartFab`；`compose/component/ServiceStatusBar.kt`；`dashboard/DashboardScreen.kt` |
+| MOD-001 | 已实现 | 仪表盘底部浮动控制按钮，仅首页显示 | `compose/MainActivity.kt`：`isDashboardRoute`、`showStatusBar`、`showStartFab`；`compose/component/ServiceStatusBar.kt`、`ServiceStartButton.kt`；`dashboard/DashboardScreen.kt` |
 | MOD-002 | 已实现 | 配置卡片操作重新布局 | `dashboard/ProfilesCard.kt`：`ProfilesCard`、`ProfileHeaderActions` |
 | MOD-003 | 已实现 | 移除独立连接统计卡片 | `dashboard/DashboardViewModel.kt`、`DashboardCardRenderer.kt`、`DashboardSettingsBottomSheet.kt`、`DashboardScreen.kt`；删除 `ConnectionsCard.kt` |
-| MOD-004 | 已实现 | Clash 模式独立矩形按钮 | `dashboard/ClashModeCard.kt`：`ClashModeCard` |
+| MOD-004 | 已回退 | Clash 模式恢复上游分段按钮/下拉菜单 | `dashboard/ClashModeCard.kt`：`ClashModeCard` |
 | MOD-005 | 已实现 | 项目命名与 MOD 文档 | `README.md`、`MODIFICATIONS.md`、`settings.gradle.kts`、`app/build.gradle.kts`、五个语言目录的 `strings.xml` |
+| MOD-007 | 已实现，debug/release 构建通过 | FlClash 风格启动按钮与配套快捷入口 | `compose/component/ServiceStartButton.kt`、`ServiceStatusBar.kt`、`compose/MainActivity.kt` |
 | MOD-006 | 本地构建配置 | 独立签名与 Termux 低内存构建 | `.gitignore`；未提交的 `.local-signing/`、`.gradle/sfa-termux-release.init.gradle` |
 
 ## 2. MOD-001：仪表盘底部控制
@@ -36,12 +37,12 @@
 
 **当前行为：**
 
-- 手机底部布局改为三块浮动控件：活动连接、代理组、服务启动/停止。前两块用文字标签替代数字计数。
+- 手机底部布局改为三块浮动控件：连接、代理组、服务启动/停止。前两块用文字标签替代数字计数。
 - 控件限制在真正的仪表盘 route；配置子页面、其他一级页不显示。远程会话状态条也限制在仪表盘。
 - 活动连接仅在 `Status.Started` 时显示；代理组还要求 `hasGroups`。没有对应入口时保留占位，稳定服务按钮位置。
-- 服务按钮停止时宽 56dp，其余状态宽 112dp；宽度动画 220ms。按钮高 56dp、圆角 16dp。
-- 停止时启动服务；其他状态调用现有服务切换逻辑；`Stopping` 时禁用按钮。运行时显示运行时长。
-- 大屏导航栏布局保留原有独立控件分支，限制首页显示，运行状态文字改为“停止”。不要将手机三按钮布局误描述成所有屏幕统一布局。
+- 原先固定宽度的服务按钮已由 MOD-007 的 FlClash 风格按钮替代。停止时 56dp 方形悬浮按钮，运行时按计时内容展开，最多 220dp，并根据手机剩余空间收窄。高度 56dp、圆角 16dp。
+- 停止时启动服务；其他状态调用现有服务切换逻辑；`Stopping` 时禁用按钮。已启动时显示暂停双竖线和 `HH:MM:SS`；图标与时间的内部位置不受当前秒数长度影响。实际点击行为仍为停止，不新增暂停核心功能。
+- 大屏导航栏保留原有远程会话分支，本地启动/运行按钮改用同一 `ServiceStartButton`。不要将手机三个按钮描述成所有屏幕统一布局。
 - 仪表盘为底部控件预留 88dp，避免列表尾部被遮挡。
 - 新资源键：`dashboard_active_connections`、`dashboard_proxy_groups`；提供英文和简体中文，其他语言使用默认资源回退。
 
@@ -69,21 +70,13 @@
 
 **回归：** 从包含 `Connections` 的旧卡片顺序/隐藏项升级；重置仪表项；拖动排序；显示/隐藏 Debug；流量卡片配对；打开活动连接列表。
 
-## 5. MOD-004：Clash 模式按钮
+## 5. MOD-004：Clash 模式按钮（已回退）
 
-**上游行为：** `SingleChoiceSegmentedButtonRow` 分段胶囊按钮，根据文字宽度判断是否切换下拉菜单，选中项有勾选图标。
+**当前行为：** 按用户要求撤回旧版独立矩形按钮，`ClashModeCard.kt` 完整恢复为比较基线 `8e42c63` 的上游实现：`SingleChoiceSegmentedButtonRow` 分段按钮，文字宽度超出时自动显示下拉菜单，选中项显示勾选图标。此文件当前相对上游无差异。
 
-**当前行为：**
+**历史：** `118c2fe` 曾引入 4dp 圆角、1dp 描边、每行最多三个的旧式按钮。该修改已撤回，后续同步不得按旧文档重新引入。历史参考来自 1.12.13 时期源码，并未直接核验 1.12.25。
 
-- 使用 `Column` + 等宽 `Row`，每行最多三个；不足三个的末行用占位保持列宽。
-- 按钮圆角 4dp、边框 1dp，横/纵间距 16dp，文字上下内边距 8dp。
-- 选中：`primary` 背景、`onPrimary` 文字；未选中：透明背景、`onPrimaryContainer` 边框和文字。
-- 保留当前卡片标题；取消分段胶囊、勾选图标和宽度触发下拉菜单；长文本可以换行。
-- 使用 `selectableGroup` / `Role.RadioButton` 表达单选语义。点击已选模式不再次发送切换回调，选中状态仍由传入的 `selectedMode` 驱动。
-
-**历史证据边界：** 用户目标为“1.12.25 时期样式”。未找到可直接核验的 `1.12.25` 标签；实际参考的是 Compose 重构前 `f3763ba71da7fe1e61fa9b6b5d1f4ab42969d606`（当时 version.properties 为 1.12.13）的 `view_clash_mode_button.xml`、`bg_rounded_rectangle*.xml` 及 `OverviewFragment` 三列布局。不要声称已像素级对照 1.12.25 完成验证。
-
-**回归：** 0/1/2/3/4+ 模式、长文本、中文/英文、窄屏、大字体、深浅主题、重复点击选中项、后端变更模式与切换失败后的实际状态。是否展示卡片仍由现有调用层控制。
+**回归：** 普通模式名称显示分段按钮；窄屏/长模式名切换下拉菜单；选中模式与后端状态一致；深浅主题正常。
 
 ## 6. MOD-005：品牌和开源归属
 
@@ -127,8 +120,8 @@ gradle -I .gradle/sfa-termux-release.init.gradle :app:assembleOtherRelease \
 ### 验证记录与限制
 
 - 改名前的 UI 修改已完成 `assembleOtherRelease`（包含 R8 和 release Lint），并通过 `apksigner verify`：RSA 3072、自有签名、v2 校验成功，ARM64 APK 约 35MB。
-- Clash 文件经过定向 Spotless 检查，差异经过 `git diff --check`。这不表示所有上游文件均通过全库格式检查。
-- 改名后已通过 `:app:processOtherReleaseResources`，五个 locale 的 `app_name` XML 检查一致；尚未重新生成改名后的 APK。此前生成的 `SFA-1.15.0-alpha.9-arm64-v8a.apk` 不包含本次名称调整，不能作为已改名版本发布。
+- 历史 Clash 修改经过定向 Spotless 检查，差异经过 `git diff --check`。这不表示所有上游文件均通过全库格式检查。
+- 改名后已通过 `:app:processOtherReleaseResources`，五个 locale 的 `app_name` XML 检查一致；已在后续维护中生成包含 MOD-007 的 debug/release APK（见第 10 节）。此前生成的 `SFA-1.15.0-alpha.9-arm64-v8a.apk` 不包含本次名称调整，不能作为已改名版本发布。
 - 尚无本次 UI 的实机安装/点击回归或截图证据；编译成功不能替代上述各 MOD 的人工回归。
 - 此次 GitHub 发布范围是源码和维护文档；密钥、密码、本地配置、构建日志、SDK 和 APK 不随源码提交。
 
@@ -151,3 +144,35 @@ git merge upstream/dev
 ```
 
 后续每次行为变更至少补充：MOD ID、上游前后差异、入口文件/符号、兼容性约束、实际验证结果、剩余限制。不要把假设、计划或仅成功编译的结果写成已经过设备验证的事实。
+
+## 9. MOD-007：FlClash 风格启动按钮
+
+**来源：** [chen08209/FlClash](https://github.com/chen08209/FlClash)，参考提交 `c7be7023d33615cb624148d41414f80a7d96cede` 的 [`lib/views/dashboard/widgets/start_button.dart`](https://github.com/chen08209/FlClash/blob/c7be7023d33615cb624148d41414f80a7d96cede/lib/views/dashboard/widgets/start_button.dart) 和 `test/widgets/start_button_test.dart`。参考项目采用 GPL-3.0，原许可见其 [LICENSE](https://github.com/chen08209/FlClash/blob/c7be7023d33615cb624148d41414f80a7d96cede/LICENSE)。本实现为原生 Compose 适配，不引入 Flutter 依赖或 FlClash 核心。
+
+**取代历史：** 用户明确选择“跟随 flclash”，因此暂停双竖线取代此前要求的正方形运行图标。MOD-004 的 Clash 模式回退仍然保留；不要混淆 Clash 模式选择和 FlClash 风格服务按钮。
+
+**移植内容与平台差异：**
+
+- 新组件 `ServiceStartButton`：56dp 高、16dp 圆角，停止时 56dp 宽。图标起点固定在左侧 16dp；运行时图标槽从 56dp 收到 48dp，右边计时区在 200ms 内展开。
+- 播放三角与暂停双竖线用 Compose Canvas 两个多边形插值形变。并非 Flutter `AnimatedIcons` 矢量资源的逐帧复制；Compose 使用平滑缓动，不照搬 Flutter 的回弹曲线。
+- 计时采用 `HH:MM:SS`、`titleMedium` 中等字重和等宽数字特性，测量小时位数对应的数字样本保留空间，三位/更多小时可扩展，高位小时用当前主题 `primary` 强调。停止时保留最后计时直到 200ms 收起完成，防止收起中跳回零。
+- 启动/停止中的 Android 服务状态显示 24dp 进度圈；停止中禁用重复点击。无障碍信息继续表达“启动/停止”和真实服务状态，不能因为暂停外观而虚构暂停能力。
+- 颜色保留本项目 `primaryContainer/onPrimaryContainer`；快捷入口保留 `secondaryContainer/onSecondaryContainer`，均支持动态配色和深浅主题。没有导入 FlClash 的固定颜色。
+- “连接”“代理组”保持 56dp 高和相同圆角，主按钮阴影 4dp、快捷入口 1dp，按钮间距 12dp。按最长标签和主按钮预留宽度统一判断：两个入口有足够宽度时都使用居中的横向图标/文字；窄屏时一起切为图标在上、文字在下，以保留入口标签，极端大字体允许省略。
+- 手机根据快捷入口数量为主按钮限制最大宽度，保留快捷入口的最小空间；大屏本地服务按钮复用同一组件。远程会话仍使用原有远程控件。
+
+**定位：** `ServiceStartButton` 负责动画/计时/服务按钮语义；`PlayPauseIcon` 负责形变；`ServiceStatusBar` 分配手机宽度；`DashboardShortcut` 负责横排/上下排自适应；`MainActivity` 负责服务回调和手机/大屏分支。
+
+**回归矩阵：** 停止、启动中、运行、停止中；开始时间暂缺；59秒/1小时/100小时跨位；动画中状态反转；短时间重复点击；有无代理组；320/360dp 窄屏、大字体、平板；主题动态色和深浅模式；无障碍动作。已提供 Compose 预览入口（浅色、深色、窄屏大字体、停止），预览声明不等于已渲染或设备验证。
+
+## 10. 后续维护记录
+
+- 2026-09-30：回退 MOD-004 至上游；MOD-001 的已启动按钮改为左侧已启动图标、右侧时间（手机与大屏），保留点击停止行为。已通过 `:app:compileOtherReleaseKotlin` 与 `git diff --check`，并核对 Clash 文件与上游基线完全一致；后续已完成 debug 打包及签名验证；未执行实机 UI 回归。
+
+- 2026-09-30：`assembleOtherDebug` 成功（7m 7s），产物 `sing-box-mod-1.15.0-alpha.9-arm64-v8a-debug.apk` 约 64MB，包含改名、Clash 回退及已启动图标。使用 `.gradle/sfa-termux-debug.init.gradle` 将 debug 签名指向既有本地密钥；单 worker、禁用并行、2GB 堆、`ActiveProcessorCount=2`、Kotlin 进程内编译。`apksigner verify` 通过，证书与此前本地 release 一致。
+
+- 2026-09-30：运行图标恢复原正方形 `Stop`；手机三个已运行控件统一左侧 8dp 内边距、20dp 图标及 4dp 图文间距，避免短计时文本将图标推向中间。未启动时的启动图标仍居中。按钮标签简化为“连接”/“Connections”，资源键保持不变。单 worker 的 `compileOtherDebugKotlin` 与 `processOtherDebugResources` 检查通过；随后已完成 `assembleOtherDebug` 打包（1m 1s），ARM64 debug APK 约 66MB，签名校验通过；未进行实机布局验证。
+
+- 2026-09-30：新增 MOD-007，用户选择播放/暂停图标，替代此前正方形方案；保留现有配色并调整快捷入口。低并发 `assembleOtherDebug` 通过（最终增量构建 1m 35s），APK 签名校验通过；当前无连接的 ADB 设备，未做实机交互或截图验证。
+
+- 2026-09-30：包含 MOD-007 的 `assembleOtherRelease` 成功（11m 37s），完成 R8 压缩及 release Lint；产物 `sing-box-mod-1.15.0-alpha.9-arm64-v8a.apk` 约 35MB。使用既有本地签名、单 worker、禁用并行、2GB 堆、`ActiveProcessorCount=2`、Serial GC、`CICompilerCount=2` 和 Kotlin 进程内编译，未发生线程或内存崩溃。`apksigner verify` 通过（v2、RSA 3072）；核对应用标签 `sing-box mod`、版本 `1.15.0-alpha.9`（741）及 ARM64 架构。未执行实机 UI 回归。

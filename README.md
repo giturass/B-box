@@ -2,14 +2,17 @@
 
 基于 [SagerNet/sing-box-for-android](https://github.com/SagerNet/sing-box-for-android) 的非官方 Android 客户端分支，主要调整仪表盘交互和布局。此项目独立维护，不代表上游官方发布。
 
-- 仪表盘底部改为活动连接、代理组、启动/停止按钮。
+- 仪表盘底部改为连接、代理组、启动/停止按钮。
 - 配置卡片操作移至标题栏，远程配置更新按钮移至信息行。
 - 移除独立连接统计卡片，保留活动连接列表入口。
-- Clash 模式改为旧版独立圆角描边按钮，每行最多三个。
+- 启动按钮采用 FlClash 风格的播放/暂停形变与展开计时，保留现有配色；连接和代理组入口自适应窄屏。
+- Clash 模式保持上游分段按钮及自适应下拉菜单。
 
 维护与构建入口：**[MODIFICATIONS.md](MODIFICATIONS.md)**。该文档记录准确的上游基线、逐项差异、文件定位、AI 维护约束与回归检查。
 
 应用显示名称为 `sing-box mod`，Android 包名仍为 `io.nekohasekai.sfa`。使用自有签名密钥构建；与不同签名的已安装版本不能直接覆盖安装。
+
+启动按钮布局与交互参考 [FlClash](https://github.com/chen08209/FlClash)，Compose 适配及具体差异见维护清单 MOD-007。
 
 ## Documentation
 

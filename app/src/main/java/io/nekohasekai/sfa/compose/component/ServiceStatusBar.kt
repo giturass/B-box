@@ -1,13 +1,13 @@
 package io.nekohasekai.sfa.compose.component
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,8 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Cable
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,13 +31,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import io.nekohasekai.sfa.R
+import io.nekohasekai.sfa.compose.theme.Theme
 import io.nekohasekai.sfa.constant.Status
 import kotlinx.coroutines.delay
 
@@ -60,114 +61,89 @@ fun ServiceStatusBar(
         exit = slideOutVertically { it } + fadeOut(),
         modifier = modifier,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (serviceStatus == Status.Started) {
-                Surface(
-                    onClick = onConnectionsClick,
-                    modifier = Modifier.weight(1.2f).height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Cable,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = stringResource(R.string.dashboard_active_connections),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            } else {
-                Spacer(modifier = Modifier.weight(1.2f))
-            }
-
-            if (serviceStatus == Status.Started && hasGroups) {
-                Surface(
-                    onClick = onGroupsClick,
-                    modifier = Modifier.weight(1f).height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Folder,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = stringResource(R.string.dashboard_proxy_groups),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            } else {
-                Spacer(modifier = Modifier.weight(1f))
-            }
-
-            val serviceButtonWidth by animateDpAsState(
-                targetValue = if (serviceStatus == Status.Stopped) 56.dp else 112.dp,
-                animationSpec = tween(durationMillis = 220),
-                label = "Service button width",
-            )
-            val serviceDescription = stringResource(
-                when (serviceStatus) {
-                    Status.Stopped -> R.string.action_start
-                    Status.Starting -> R.string.status_starting
-                    Status.Stopping -> R.string.status_stopping
-                    Status.Started -> R.string.stop
-                },
-            )
-            Surface(
-                onClick = onServiceClick,
-                enabled = serviceStatus != Status.Stopping,
-                modifier = Modifier
-                    .width(serviceButtonWidth)
-                    .height(56.dp)
-                    .semantics { contentDescription = serviceDescription },
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            val showShortcuts = serviceStatus == Status.Started
+            val shortcutCount = if (showShortcuts) { if (hasGroups) 2 else 1 } else 0
+            val maxStartWidth = (maxWidth - 68.dp * shortcutCount).coerceIn(56.dp, 220.dp)
+            val connectionsLabel = stringResource(R.string.dashboard_active_connections)
+            val groupsLabel = stringResource(R.string.dashboard_proxy_groups)
+            val textMeasurer = rememberTextMeasurer()
+            val labelStyle = MaterialTheme.typography.labelLarge
+            val widestLabel = listOfNotNull(connectionsLabel, groupsLabel.takeIf { hasGroups })
+                .maxOf { textMeasurer.measure(it, labelStyle).size.width }
+            val inlineShortcutWidth = with(LocalDensity.current) { widestLabel.toDp() } + 52.dp
+            // Decide for both shortcuts before the start button animates, so their
+            // labels do not alternate between horizontal and stacked layouts.
+            val compactShortcuts = maxWidth < maxStartWidth + (inlineShortcutWidth + 12.dp) * shortcutCount
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    if (serviceStatus == Status.Started && startTime != null) {
-                        UptimeText(startTime = startTime, modifier = Modifier.weight(1f, fill = false))
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-                    Icon(
-                        imageVector = if (serviceStatus == Status.Stopped) Icons.Default.PlayArrow else Icons.Default.Stop,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
+                if (showShortcuts) {
+                    DashboardShortcut(
+                        icon = Icons.Outlined.Cable,
+                        label = connectionsLabel,
+                        compact = compactShortcuts,
+                        onClick = onConnectionsClick,
+                        modifier = Modifier.weight(1f),
                     )
+                    if (hasGroups) {
+                        DashboardShortcut(
+                            icon = Icons.Default.Folder,
+                            label = groupsLabel,
+                            compact = compactShortcuts,
+                            onClick = onGroupsClick,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
                 }
+                ServiceStartButton(
+                    serviceStatus = serviceStatus,
+                    startTime = startTime,
+                    onClick = onServiceClick,
+                    maxWidth = maxStartWidth,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashboardShortcut(icon: ImageVector, label: String, compact: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(56.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shadowElevation = 1.dp,
+    ) {
+        if (!compact) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+            }
+        } else {
+            Column(
+                modifier = Modifier.padding(horizontal = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
+            ) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -204,4 +180,29 @@ fun UptimeText(startTime: Long, modifier: Modifier = Modifier) {
         color = MaterialTheme.colorScheme.onPrimaryContainer,
         modifier = modifier,
     )
+}
+
+@Preview(name = "Running · light", widthDp = 360, showBackground = true, locale = "zh")
+@Preview(name = "Running · large type", widthDp = 320, fontScale = 1.5f, showBackground = true, locale = "zh")
+@Composable
+private fun RunningControlsPreview() {
+    Theme(dynamicColor = false) {
+        ServiceStatusBar(true, Status.Started, System.currentTimeMillis() - 3661000, true, {}, {}, {})
+    }
+}
+
+@Preview(name = "Running · dark", widthDp = 360, showBackground = true, backgroundColor = 0xFF151515, locale = "zh")
+@Composable
+private fun DarkControlsPreview() {
+    Theme(darkTheme = true, dynamicColor = false) {
+        ServiceStatusBar(true, Status.Started, System.currentTimeMillis() - 3661000, true, {}, {}, {})
+    }
+}
+
+@Preview(name = "Stopped", widthDp = 360, showBackground = true)
+@Composable
+private fun StoppedControlsPreview() {
+    Theme(dynamicColor = false) {
+        ServiceStatusBar(true, Status.Stopped, null, false, {}, {}, {})
+    }
 }
