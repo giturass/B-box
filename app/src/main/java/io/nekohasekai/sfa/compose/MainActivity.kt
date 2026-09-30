@@ -830,6 +830,7 @@ class MainActivity :
                 isProfileRoute -> Screen.Dashboard.route
                 else -> currentRoute
             }
+        val isDashboardRoute = currentRoute == Screen.Dashboard.route
         val isConnectionsRoute = currentRootRoute == Screen.Connections.route
         val isGroupsRoute = currentRootRoute == Screen.Groups.route
         val isLogRoute = currentRootRoute == Screen.Log.route
@@ -1026,12 +1027,12 @@ class MainActivity :
                 Box(
                     modifier = Modifier.fillMaxSize().consumeWindowInsets(paddingValues),
                 ) {
-                    // Service Status Bar (shown when service is running or stopping);
-                    // remote control replaces it with the remote session bar.
+                    // Dashboard controls float above the navigation bar.
                     val serviceRunning =
                         currentServiceStatus == Status.Started || currentServiceStatus == Status.Starting
-                    val showStatusBar = isRemote || serviceRunning || currentServiceStatus == Status.Stopping
-                    val showStartFab = !isRemote && !serviceRunning && dashboardUiState.selectedProfileId != -1L
+                    val showStatusBar = isDashboardRoute && (isRemote || serviceRunning || currentServiceStatus == Status.Stopping)
+                    val showStartFab = isDashboardRoute && !isRemote &&
+                        currentServiceStatus == Status.Stopped && dashboardUiState.selectedProfileId != -1L
                     val bottomOverlayPadding = paddingValues.calculateBottomPadding()
 
                     NavHost(
@@ -1056,7 +1057,7 @@ class MainActivity :
                     if (!useNavigationRail) {
                         if (isRemote) {
                             RemoteStatusBar(
-                                visible = !isSubScreen,
+                                visible = isDashboardRoute,
                                 serverName = remoteServer?.displayName ?: "",
                                 isConnected = remoteConnected,
                                 startTime = remoteStartedAt,
@@ -1070,21 +1071,25 @@ class MainActivity :
                             )
                         } else {
                             ServiceStatusBar(
-                                visible = showStatusBar && !isSubScreen,
+                                visible = showStartFab || showStatusBar,
                                 serviceStatus = currentServiceStatus,
                                 startTime = dashboardUiState.serviceStartTime,
-                                groupsCount = dashboardUiState.groupsCount,
                                 hasGroups = dashboardUiState.hasGroups,
                                 onGroupsClick = { showGroupsSheet = true },
-                                connectionsCount = dashboardUiState.connectionsCount,
                                 onConnectionsClick = { showConnectionsSheet = true },
-                                onStopClick = { dashboardViewModel.toggleService() },
+                                onServiceClick = {
+                                    if (currentServiceStatus == Status.Stopped) {
+                                        startService()
+                                    } else {
+                                        dashboardViewModel.toggleService()
+                                    }
+                                },
                                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomOverlayPadding),
                             )
                         }
                     }
 
-                    val showPadFab = useNavigationRail && !isSubScreen && (showStartFab || showStatusBar)
+                    val showPadFab = useNavigationRail && isDashboardRoute && (showStartFab || showStatusBar)
                     if (useNavigationRail) {
                         androidx.compose.animation.AnimatedVisibility(
                             visible = showPadFab,
@@ -1169,7 +1174,7 @@ class MainActivity :
                                             }
                                             currentServiceStatus == Status.Started -> {
                                                 Text(
-                                                    text = stringResource(R.string.status_started),
+                                                    text = stringResource(R.string.stop),
                                                     style = MaterialTheme.typography.labelLarge,
                                                 )
                                             }
@@ -1196,31 +1201,6 @@ class MainActivity :
                                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                     modifier = Modifier.height(64.dp),
-                                )
-                            }
-                        }
-                    } else {
-                        // Start FAB (shown when service is stopped and a profile is selected)
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = !isRemote &&
-                                currentServiceStatus == Status.Stopped &&
-                                dashboardUiState.selectedProfileId != -1L &&
-                                !isSubScreen,
-                            enter = scaleIn(),
-                            exit = scaleOut(),
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(bottom = bottomOverlayPadding)
-                                .padding(16.dp),
-                        ) {
-                            FloatingActionButton(
-                                onClick = { startService() },
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = stringResource(R.string.action_start),
                                 )
                             }
                         }

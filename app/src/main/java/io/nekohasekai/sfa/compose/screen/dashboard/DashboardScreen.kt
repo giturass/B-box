@@ -141,7 +141,7 @@ fun DashboardScreen(
     ) {
         val bottomPadding = when {
             showStartFab -> 88.dp
-            showStatusBar -> 74.dp
+            showStatusBar -> 88.dp
             else -> 0.dp
         }
         LazyColumn(
@@ -310,7 +310,6 @@ fun isCardAvailableWhenServiceRunning(cardGroup: CardGroup, uiState: DashboardUi
     CardGroup.UploadTraffic -> uiState.trafficVisible
     CardGroup.DownloadTraffic -> uiState.trafficVisible
     CardGroup.Debug -> true // Debug info is always available when service is running
-    CardGroup.Connections -> uiState.trafficVisible
     CardGroup.SystemProxy -> uiState.systemProxyVisible
     CardGroup.Profiles -> true // This shouldn't be called for Profiles, but return true for safety
 }

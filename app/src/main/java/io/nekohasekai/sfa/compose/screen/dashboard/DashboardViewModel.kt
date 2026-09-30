@@ -36,15 +36,13 @@ enum class CardGroup(val pairGroup: CardPairGroup? = null) {
     ClashMode,
     UploadTraffic(CardPairGroup.Traffic),
     DownloadTraffic(CardPairGroup.Traffic),
-    Debug(CardPairGroup.Statistics),
-    Connections(CardPairGroup.Statistics),
+    Debug,
     SystemProxy,
     Profiles,
 }
 
 enum class CardPairGroup {
     Traffic,
-    Statistics,
 }
 
 data class DashboardUiState(
@@ -69,8 +67,6 @@ data class DashboardUiState(
     val isStatusVisible: Boolean = false,
     // Traffic
     val trafficVisible: Boolean = false,
-    val connectionsIn: String = "0",
-    val connectionsOut: String = "0",
     val uplink: String = "0 B/s",
     val downlink: String = "0 B/s",
     val uplinkTotal: String = "0 B",
@@ -92,7 +88,6 @@ data class DashboardUiState(
             CardGroup.UploadTraffic,
             CardGroup.DownloadTraffic,
             CardGroup.Debug,
-            CardGroup.Connections,
             CardGroup.SystemProxy,
             CardGroup.Profiles,
         ),
@@ -101,7 +96,6 @@ data class DashboardUiState(
             CardGroup.UploadTraffic,
             CardGroup.DownloadTraffic,
             CardGroup.Debug,
-            CardGroup.Connections,
             CardGroup.SystemProxy,
             CardGroup.ClashMode,
             CardGroup.Profiles,
@@ -485,8 +479,6 @@ class DashboardViewModel :
                         trafficVisible = false,
                         memory = "",
                         goroutines = "",
-                        connectionsIn = "0",
-                        connectionsOut = "0",
                         uplink = "0 B/s",
                         downlink = "0 B/s",
                         uplinkTotal = "0 B",
@@ -615,8 +607,6 @@ class DashboardViewModel :
                     // Only set trafficVisible to true, never back to false from status updates
                     trafficVisible = if (status.trafficAvailable) true else trafficVisible,
                     connectionsCount = status.connectionsIn,
-                    connectionsIn = status.connectionsIn.toString(),
-                    connectionsOut = status.connectionsOut.toString(),
                     uplink = "${Libbox.formatBytes(status.uplink)}/s",
                     downlink = "${Libbox.formatBytes(status.downlink)}/s",
                     // Only update total values if they've actually changed
@@ -718,7 +708,6 @@ class DashboardViewModel :
         CardGroup.UploadTraffic,
         CardGroup.DownloadTraffic,
         CardGroup.Debug,
-        CardGroup.Connections,
         CardGroup.SystemProxy,
         CardGroup.ClashMode,
         CardGroup.Profiles,

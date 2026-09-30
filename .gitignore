@@ -13,3 +13,9 @@ local.properties
 /service-account-credentials.json
 /CLAUDE.md
 /.claude/
+/.local-signing/
+
+# Private signing material (upstream-tracked files are unaffected)
+*.jks
+*.p12
+*.keystore

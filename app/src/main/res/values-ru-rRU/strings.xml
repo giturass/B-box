@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
     <!-- App -->
-    <string name="app_name" translatable="false">sing-box</string>
+    <string name="app_name" translatable="false">sing-box mod</string>
     <string name="app_version_title">Версия приложения</string>
     <string name="language">Язык</string>
     <string name="system_default">Системный по умолчанию</string>

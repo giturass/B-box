@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
     <!-- App -->
-    <string name="app_name" translatable="false">sing-box</string>
+    <string name="app_name" translatable="false">sing-box mod</string>
     <string name="app_version_title">App version</string>
     <string name="language">Language</string>
     <string name="system_default">System default</string>
@@ -68,6 +68,8 @@
     <string name="status_started">Started</string>
 
     <!-- Dashboard -->
+    <string name="dashboard_active_connections">Active connections</string>
+    <string name="dashboard_proxy_groups">Proxy groups</string>
     <string name="dashboard_items">Dashboard Items</string>
     <string name="memory">Memory</string>
     <string name="goroutines">Goroutines</string>

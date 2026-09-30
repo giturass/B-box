@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
     <!-- App -->
-    <string name="app_name" translatable="false">sing-box</string>
+    <string name="app_name" translatable="false">sing-box mod</string>
     <string name="app_version_title">应用版本</string>
     <string name="language">语言</string>
     <string name="system_default">跟随系统</string>
@@ -68,6 +68,8 @@
     <string name="status_started">已启动</string>
 
     <!-- Dashboard -->
+    <string name="dashboard_active_connections">活动连接</string>
+    <string name="dashboard_proxy_groups">代理组</string>
     <string name="dashboard_items">仪表项</string>
     <string name="memory">内存</string>
     <string name="goroutines">协程</string>
