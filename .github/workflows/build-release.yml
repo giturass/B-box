@@ -1,0 +1,143 @@
+name: Build Release APK (arm64-v8a)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout app
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Prepare signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          ALIAS_NAME: ${{ secrets.ALIAS_NAME }}
+          ALIAS_PASS: ${{ secrets.ALIAS_PASS }}
+        run: |
+          for name in KEYSTORE_BASE64 KEYSTORE_PASS ALIAS_NAME ALIAS_PASS; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing repository secret: $name (see README.md)"
+              exit 1
+            fi
+          done
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > app/release.keystore
+          test -s app/release.keystore
+
+      - name: Read core and Go versions
+        id: versions
+        run: |
+          version=$(sed -n 's/^VERSION_NAME=//p' version.properties | tr -d '\r')
+          go_version=$(sed -n 's/^GO_VERSION=go//p' version.properties | tr -d '\r')
+          [[ "$version" =~ ^[0-9][0-9A-Za-z.+-]*$ ]]
+          [[ "$go_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "go_version=$go_version" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout matching sing-box core
+        uses: actions/checkout@v5
+        with:
+          repository: SagerNet/sing-box
+          ref: v${{ steps.versions.outputs.version }}
+          path: .core
+          persist-credentials: false
+
+      # The upstream libbox builder explicitly requires OpenJDK 17.
+      - name: Set up Java for libbox
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK and NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: >-
+            platform-tools
+            platforms;android-36
+            platforms;android-37.1
+            build-tools;36.0.0
+            build-tools;37.0.0
+            ndk;28.0.13004108
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.versions.outputs.go_version }}
+          cache-dependency-path: .core/go.sum
+
+      - name: Build arm64 libbox
+        working-directory: .core
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
+          make lib_install
+          go_bin="$(go env GOPATH)/bin"
+          export PATH="$PATH:$go_bin"
+          go run ./cmd/internal/build_libbox -target android -platform android/arm64
+          mkdir -p ../app/libs
+          cp libbox.aar ../app/libs/libbox.aar
+
+      - name: Set up Java for Gradle
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build signed Release APK
+        env:
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          ALIAS_NAME: ${{ secrets.ALIAS_NAME }}
+          ALIAS_PASS: ${{ secrets.ALIAS_PASS }}
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
+          ./gradlew :app:assembleOtherRelease -Parm64Only=true \
+            --no-daemon --console=plain --max-workers=2 \
+            '-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8' \
+            -Pkotlin.compiler.execution.strategy=in-process
+
+      - name: Verify APK architecture and signature
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          apks = list(Path('app/build/outputs/apk/other/release').glob('*.apk'))
+          if len(apks) != 1 or not apks[0].name.endswith('-arm64-v8a.apk'):
+              raise SystemExit(f'Expected exactly one arm64-v8a APK, found: {apks}')
+          with ZipFile(apks[0]) as apk:
+              abis = {name.split('/')[1] for name in apk.namelist()
+                      if name.startswith('lib/') and name.endswith('.so')}
+          if abis != {'arm64-v8a'}:
+              raise SystemExit(f'Unexpected native ABIs: {abis}')
+          print(f'Verified ARM64 APK: {apks[0]}')
+          PY
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose \
+            app/build/outputs/apk/other/release/*-arm64-v8a.apk
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sing-box-mod-${{ steps.versions.outputs.version }}-arm64-v8a-release
+          path: app/build/outputs/apk/other/release/*-arm64-v8a.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f app/release.keystore

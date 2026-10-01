@@ -23,6 +23,7 @@ configurations.configureEach {
 }
 
 fun getProps(propName: String): String {
+    System.getenv(propName)?.let { return it }
     val propsInEnv = System.getenv("LOCAL_PROPERTIES")
     if (propsInEnv != null) {
         val props = Properties()
@@ -133,10 +134,15 @@ android {
 
     splits {
         abi {
+            val arm64Only = providers.gradleProperty("arm64Only").orNull.toBoolean()
             isEnable = true
-            isUniversalApk = true
+            isUniversalApk = !arm64Only
             reset()
-            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            if (arm64Only) {
+                include("arm64-v8a")
+            } else {
+                include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            }
         }
     }
 

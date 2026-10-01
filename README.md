@@ -14,6 +14,31 @@
 
 启动按钮布局与交互参考 [FlClash](https://github.com/chen08209/FlClash)，Compose 适配及具体差异见维护清单 MOD-007。
 
+## GitHub Actions 手动构建
+
+工作流 [Build Release APK (arm64-v8a)](.github/workflows/build-release.yml) 仅支持手动触发，构建 Android 7.0+ 的 `otherRelease` 签名 APK，仅包含 `arm64-v8a`，不生成 universal APK。
+
+首次使用，在仓库 **Settings → Secrets and variables → Actions** 添加以下 Repository secrets：
+
+| Secret | 内容 |
+| --- | --- |
+| `KEYSTORE_BASE64` | 自有 JKS/PKCS12 签名文件的 Base64 内容 |
+| `KEYSTORE_PASS` | 签名文件密码 |
+| `ALIAS_NAME` | 签名密钥 alias |
+| `ALIAS_PASS` | 对应密钥密码 |
+
+应使用现有发布密钥，以便后续 APK 覆盖升级；本机密钥说明见 [MOD-006](MODIFICATIONS.md#7-mod-006构建签名和二进制边界)。例如在本机生成用于填写 `KEYSTORE_BASE64` 的文件：
+
+```sh
+base64 -w 0 .local-signing/sfa-release.p12 > .local-signing/keystore.base64
+```
+
+该文件包含私钥，仅用于配置 Secret，不要提交或分享。本机 alias 为 `sfa-release`，PKCS12 的两个密码均使用既有密钥密码。
+
+将工作流提交到 GitHub 默认分支后，打开 **Actions → Build Release APK (arm64-v8a) → Run workflow**，选择分支并运行。完成后在该次运行页面的 **Artifacts** 下载 `sing-box-mod-<版本>-arm64-v8a-release`，解压即可获得 APK；产物保留 30 天。
+
+CI 根据 `version.properties` 的 `VERSION_NAME` 检出上游核心对应的 `v<版本>` 标签，使用 `GO_VERSION` 和上游构建脚本编译 ARM64 `libbox.aar`，然后执行 `:app:assembleOtherRelease -Parm64Only=true`，保留 R8 和 release Lint，并校验 APK 签名与架构。更新版本时需确认对应核心标签已经发布且接口兼容。工作流不自动创建 GitHub Release。
+
 ## Documentation
 
 https://sing-box.sagernet.org/installation/clients/sfa/

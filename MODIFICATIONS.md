@@ -29,7 +29,7 @@
 | MOD-004 | 已回退 | Clash 模式恢复上游分段按钮/下拉菜单 | `dashboard/ClashModeCard.kt`：`ClashModeCard` |
 | MOD-005 | 已实现 | 项目命名与 MOD 文档 | `README.md`、`MODIFICATIONS.md`、`settings.gradle.kts`、`app/build.gradle.kts`、五个语言目录的 `strings.xml` |
 | MOD-007 | 已实现，debug/release 构建通过 | FlClash 风格启动按钮与配套快捷入口 | `compose/component/ServiceStartButton.kt`、`ServiceStatusBar.kt`、`compose/MainActivity.kt` |
-| MOD-006 | 本地构建配置 | 独立签名与 Termux 低内存构建 | `.gitignore`；未提交的 `.local-signing/`、`.gradle/sfa-termux-release.init.gradle` |
+| MOD-006 | 本地及 CI 构建配置 | 独立签名、Termux 低内存构建、手动 ARM64 Release 工作流 | `.github/workflows/build-release.yml`、`app/build.gradle.kts`、`.gitignore`；未提交的 `.local-signing/`、`.gradle/sfa-termux-release.init.gradle` |
 
 ## 2. MOD-001：仪表盘底部控制
 
@@ -93,13 +93,22 @@
 
 以仓库 Gradle 文件为准安装 JDK/Android SDK/NDK。当前 compileSdk 37（minor 1）、JVM 17 字节码，本机使用 JDK 21。先准备与版本及接口匹配的 `app/libs/libbox.aar`；legacy flavor 另需 `libbox-legacy.aar`。这些文件被忽略，单独 clone 此仓库不能立即构建。上游资料入口见 README 的 Documentation。
 
-标准 Gradle release 签名读取 `local.properties` 或环境变量 `LOCAL_PROPERTIES` 中的 `KEYSTORE_PASS`、`ALIAS_NAME`、`ALIAS_PASS`，默认 keystore 路径为 `app/release.keystore`。仓库中的该文件继承自上游，不是本 MOD 新生成的签名密钥；本机使用下面的独立签名覆盖，不复用上游凭据。
+标准 Gradle release 签名依次读取直接环境变量、Base64 环境变量 `LOCAL_PROPERTIES`、`local.properties` 中的 `KEYSTORE_PASS`、`ALIAS_NAME`、`ALIAS_PASS`，默认 keystore 路径为 `app/release.keystore`。仓库中的该文件继承自上游，不是本 MOD 新生成的签名密钥；本机使用下面的独立签名覆盖，不复用上游凭据。
 
 ```sh
 ./gradlew :app:assembleOtherRelease
 ```
 
 该命令以 SDK、核心 AAR 和签名配置均已准备好为前提。首次解析依赖需联网。不要将密码提交到 Git 或打印到构建日志。
+
+### GitHub Actions 手动 ARM64 Release
+
+- 入口为 `.github/workflows/build-release.yml`，仅 `workflow_dispatch` 触发；Secret 配置与下载步骤见 README。运行前需配置自有签名文件及密码，缺失时立即失败。
+- 核心来源为 `SagerNet/sing-box` 的 `v${VERSION_NAME}` 标签，Go 版本取自 `version.properties`；按上游 `make lib_install` 和 `build_libbox -target android -platform android/arm64` 构建。上游脚本会额外生成 legacy AAR，但 CI 只使用标准 `libbox.aar`，仅生成 `otherRelease` APK。此 CI 核心来源不等同于此前本地 AAR 的来源或二进制可复现性证明。
+- 上游 libbox 脚本明确要求 JDK 17，应用 Gradle 阶段使用 JDK 21；安装 SDK 36、37.1，Build Tools 36.0.0、37.0.0 和 NDK 28.0.13004108。升级构建配置时同步核对工作流。
+- 新增 `-Parm64Only=true` 开关，启用时只拆分 `arm64-v8a` 并关闭 universal；未设置时保留原有多 ABI 与 universal 行为。直接环境变量优先用于签名，原有 `LOCAL_PROPERTIES`/本地配置继续支持。
+- 保留 R8 和 release Lint；上传前检查 APK 数量、名称、原生 ABI 集合及签名，只上传一个 ARM64 APK 到 Actions Artifacts（30 天），不自动创建 GitHub Release。密钥仅在 runner 解码并于结束时清理，不上传密钥或核心 AAR。
+- 回归：默认/ARM64 开关的 ABI 配置、签名 Secret 缺失时的失败、核心版本匹配、单个 APK 及签名验证；未实际运行 GitHub 工作流前不能声明云端构建通过。
 
 ### 已使用的 Termux 构建方式
 
@@ -166,6 +175,8 @@ git merge upstream/dev
 **回归矩阵：** 停止、启动中、运行、停止中；开始时间暂缺；59秒/1小时/100小时跨位；动画中状态反转；短时间重复点击；有无代理组；320/360dp 窄屏、大字体、平板；主题动态色和深浅模式；无障碍动作。已提供 Compose 预览入口（浅色、深色、窄屏大字体、停止），预览声明不等于已渲染或设备验证。
 
 ## 10. 后续维护记录
+
+- 2026-10-01：扩展 MOD-006，新增手动 ARM64 Release 工作流及签名 Secret 文档。actionlint 1.7.12、Bash 语法、ShellCheck、`git diff --check` 通过；签名缺失处理、Base64 解码、版本读取及既有 APK 的 ABI 校验通过。本机 Gradle 9.7.1 的 Release `--dry-run` 通过；独立配置检查确认 ARM64 模式仅 1 个输出、关闭开关时保留 4 个 ABI 加 universal 共 5 个输出，直接环境变量签名配置生效。未运行 GitHub 云端工作流，未重新编译核心或生成新 APK。
 
 - 2026-09-30：回退 MOD-004 至上游；MOD-001 的已启动按钮改为左侧已启动图标、右侧时间（手机与大屏），保留点击停止行为。已通过 `:app:compileOtherReleaseKotlin` 与 `git diff --check`，并核对 Clash 文件与上游基线完全一致；后续已完成 debug 打包及签名验证；未执行实机 UI 回归。
 
