@@ -1,37 +1,35 @@
-# sing-box mod：差异清单与 AI 维护指南
+# MyBox：修改清单与维护指南
 
-## 0. 文档范围与比较基线
+## 基线与范围
 
-| 字段 | 值 |
+| 项目 | 当前值 |
 | --- | --- |
-| 项目显示名称 | `sing-box mod` |
-| GitHub 仓库 | `https://github.com/giturass/sing-box-mod` |
-| 上游 | `https://github.com/SagerNet/sing-box-for-android` |
-| 上游分支 | `dev` |
-| 本次比较基线 | `8e42c63c4771de10b20dd2562704850c604518d8`（Remove remote control retries） |
-| 上游应用版本 | `1.15.0-alpha.9`，versionCode `741` |
-| 核对日期 | 2026-09-30 |
-| 差异来源 | 已拉取的上游基线与本地工作树逐文件比较，包含此前未提交的 UI 修改 |
+| 应用名称 / APK 前缀 | `MyBox` |
+| 仓库 | https://github.com/giturass/sing-box-mod |
+| 上游 | https://github.com/SagerNet/sing-box-for-android ，`dev` 分支 |
+| 比较基线 | `8e42c63c4771de10b20dd2562704850c604518d8` |
+| 版本 / versionCode | `1.15.0-alpha.9` / `741` |
+| 包名 | `io.nekohasekai.sfa` |
+| 更新日期 | 2026-10-02 |
 
-这是维护规范和实际改动索引，不是功能愿望清单。未标为已实现的内容不能当作已有功能。后续修改每项行为时，同步更新对应 MOD 编号；同步上游后更新基线 SHA，并重新检查所有 MOD 的约束。
+本文只描述当前有效改动；已撤回的外观方案和逐次构建流水记录已移除。协议、路由、VPN、远程控制、配置导入导出及特权能力继承上游。核心 AAR 不在 Git 中，本地构建与 CI 核心来源应分别核验。
 
-**继承关系：** VPN/代理核心、路由、协议支持、远程控制、配置导入导出、Xposed/Shizuku/Root 能力等来自上游，本次没有为它们增加新功能。不能将这些上游能力列为本 MOD 独创功能。`app/libs/libbox.aar` 是本机构建输入，不在 Git 中；应用源码差异不代表已审计或可复现核心二进制差异。
+## 修改索引
 
-## 1. 修改索引
+路径前缀为 `app/src/main/java/io/nekohasekai/sfa/`。
 
-下表中的 `dashboard/` 指 `app/src/main/java/io/nekohasekai/sfa/compose/screen/dashboard/`，`compose/` 指 `app/src/main/java/io/nekohasekai/sfa/compose/`。
+| ID | 修改 | 主要文件 |
+| --- | --- | --- |
+| MOD-001 | 首页浮动控制入口 | `compose/MainActivity.kt`、`compose/component/ServiceStatusBar.kt`、`compose/screen/dashboard/DashboardScreen.kt` |
+| MOD-002 | 配置卡片操作布局 | `compose/screen/dashboard/ProfilesCard.kt` |
+| MOD-003 | 移除独立连接统计卡片 | `DashboardViewModel.kt`、`DashboardCardRenderer.kt`、`DashboardSettingsBottomSheet.kt` |
+| MOD-004 | 1.12.23 样式的模式按钮 | `compose/screen/dashboard/ClashModeCard.kt` |
+| MOD-005 | MyBox 名称与产物命名 | 语言资源、Gradle、README、构建工作流 |
+| MOD-006 | ARM64 Release 构建 | `.github/workflows/build-release.yml`、`app/build.gradle.kts` |
+| MOD-007 | FlClash 风格服务按钮 | `compose/component/ServiceStartButton.kt`、`ServiceStatusBar.kt` |
 
-| ID | 状态 | 修改 | 主要文件/符号 |
-| --- | --- | --- | --- |
-| MOD-001 | 已实现 | 仪表盘底部浮动控制按钮，仅首页显示 | `compose/MainActivity.kt`：`isDashboardRoute`、`showStatusBar`、`showStartFab`；`compose/component/ServiceStatusBar.kt`、`ServiceStartButton.kt`；`dashboard/DashboardScreen.kt` |
-| MOD-002 | 已实现 | 配置卡片操作重新布局 | `dashboard/ProfilesCard.kt`：`ProfilesCard`、`ProfileHeaderActions` |
-| MOD-003 | 已实现 | 移除独立连接统计卡片 | `dashboard/DashboardViewModel.kt`、`DashboardCardRenderer.kt`、`DashboardSettingsBottomSheet.kt`、`DashboardScreen.kt`；删除 `ConnectionsCard.kt` |
-| MOD-004 | 已回退 | Clash 模式恢复上游分段按钮/下拉菜单 | `dashboard/ClashModeCard.kt`：`ClashModeCard` |
-| MOD-005 | 已实现 | 项目命名与 MOD 文档 | `README.md`、`MODIFICATIONS.md`、`settings.gradle.kts`、`app/build.gradle.kts`、五个语言目录的 `strings.xml` |
-| MOD-007 | 已实现，debug/release 构建通过 | FlClash 风格启动按钮与配套快捷入口 | `compose/component/ServiceStartButton.kt`、`ServiceStatusBar.kt`、`compose/MainActivity.kt` |
-| MOD-006 | 本地及 CI 构建配置 | 独立签名、Termux 低内存构建、手动 ARM64 Release 工作流 | `.github/workflows/build-release.yml`、`app/build.gradle.kts`、`.gitignore`；未提交的 `.local-signing/`、`.gradle/sfa-termux-release.init.gradle` |
 
-## 2. MOD-001：仪表盘底部控制
+## MOD-001：仪表盘底部控制
 
 **上游行为：** 运行时显示整条服务状态栏，连接/代理组按钮显示数量；停止时显示单独启动 FAB。状态栏可出现在多个一级页面。
 
@@ -50,7 +48,7 @@
 
 **回归：** 未选配置、已选配置且停止、启动中、已运行、停止中；有/无代理组；切到日志/连接/设置/配置子页；返回首页；远程会话；手机/平板布局；计时器与底部遮挡。
 
-## 3. MOD-002：配置卡片
+## MOD-002：配置卡片
 
 **上游行为：** 标题栏只有添加按钮；编辑、更新、分享操作位于卡片底部。
 
@@ -60,7 +58,7 @@
 
 **回归：** 空列表、本地/远程配置、超长名称、更新成功/失败、各类分享导出、配置选择和编辑。
 
-## 4. MOD-003：连接统计卡片移除
+## MOD-003：连接统计卡片移除
 
 **上游行为：** 仪表盘有独立入站/出站连接数量卡片，与 Debug 卡片组成 Statistics 双列分组。
 
@@ -70,52 +68,48 @@
 
 **回归：** 从包含 `Connections` 的旧卡片顺序/隐藏项升级；重置仪表项；拖动排序；显示/隐藏 Debug；流量卡片配对；打开活动连接列表。
 
-## 5. MOD-004：Clash 模式按钮（已回退）
+## MOD-004：1.12.23 模式按钮
 
-**当前行为：** 按用户要求撤回旧版独立矩形按钮，`ClashModeCard.kt` 完整恢复为比较基线 `8e42c63` 的上游实现：`SingleChoiceSegmentedButtonRow` 分段按钮，文字宽度超出时自动显示下拉菜单，选中项显示勾选图标。此文件当前相对上游无差异。
+**核验基线：** sing-box `v1.12.23` 的 `clients/android` 子模块指向 `eb87216961321de1802e1355c470242f2ed5faa8`。按钮参考该提交的 `view_clash_mode_button.xml`、`bg_rounded_rectangle*.xml` 和 `OverviewFragment.kt`。
 
-**历史：** `118c2fe` 曾引入 4dp 圆角、1dp 描边、每行最多三个的旧式按钮。该修改已撤回，后续同步不得按旧文档重新引入。历史参考来自 1.12.13 时期源码，并未直接核验 1.12.25。
+**当前行为：** 仅模式选择按钮（rule/global/direct）使用旧版独立矩形样式：4dp 圆角、1dp 描边、16dp 间距、选中项填充主题主色，无勾选图标。保留现有 Card 的背景、形状、Tune 图标、加粗 titleMedium 标题、16dp 内边距和标题下方 12dp 间距。模式仍由后端提供，保留每行最多三个按钮和长名称换行的兼容处理。系统 HTTP 代理已完整恢复修改前实现。
 
-**回归：** 普通模式名称显示分段按钮；窄屏/长模式名切换下拉菜单；选中模式与后端状态一致；深浅主题正常。
+**回归：** 深浅主题；模式选中状态与后端同步；多模式及长名称换行；卡片标题和系统 HTTP 代理保持原样。
 
-## 6. MOD-005：品牌和开源归属
+## MOD-005：品牌和开源归属
 
-- README 标题、应用所有现有语言资源的 `app_name` 使用 `sing-box mod`。
-- Gradle 根项目名和 APK 名称前缀使用不带空格的 `sing-box-mod`。
+- README 标题、应用所有现有语言资源的 `app_name` 使用 `MyBox`。
+- Gradle 根项目名和 APK 名称前缀使用不带空格的 `MyBox`。
 - 保留 `io.nekohasekai.sfa` applicationId/namespace、上游版本号、上游代码包路径，避免无关迁移。包名相同意味着不同签名的安装包不能直接覆盖，也不能并行安装。
 - 保留 `LICENSE` 和 README 原有版权/许可文本，明确非官方分支；维护者发布前应阅读其中名称与关联声明。本文不替换原许可，也不将其简化为另一份授权。
 
 **回归：** 五个现有 locale 的应用标签一致；安装器/启动器显示新名称；APK 文件名使用新前缀；不修改数据库、ContentProvider、VPN 或 Xposed 标识。
 
-## 7. MOD-006：构建、签名和二进制边界
+## MOD-006：构建与签名
 
-### 通用构建
+### GitHub Actions
 
-以仓库 Gradle 文件为准安装 JDK/Android SDK/NDK。当前 compileSdk 37（minor 1）、JVM 17 字节码，本机使用 JDK 21。先准备与版本及接口匹配的 `app/libs/libbox.aar`；legacy flavor 另需 `libbox-legacy.aar`。这些文件被忽略，单独 clone 此仓库不能立即构建。上游资料入口见 README 的 Documentation。
+入口为 `.github/workflows/build-release.yml`，仅手动触发，生成 Android 7.0+ 的 ARM64 `otherRelease` APK。`-Parm64Only=true` 限定一个 ABI 并关闭 universal；不传该参数时保留原有多 ABI 行为。
 
-标准 Gradle release 签名依次读取直接环境变量、Base64 环境变量 `LOCAL_PROPERTIES`、`local.properties` 中的 `KEYSTORE_PASS`、`ALIAS_NAME`、`ALIAS_PASS`，默认 keystore 路径为 `app/release.keystore`。仓库中的该文件继承自上游，不是本 MOD 新生成的签名密钥；本机使用下面的独立签名覆盖，不复用上游凭据。
+- 核心取自 `SagerNet/sing-box` 的 `v${VERSION_NAME}` 标签，Go 版本来自 `version.properties`。执行上游 `make lib_install` 和 `build_libbox -target android -platform android/arm64`，复制标准 `libbox.aar`。
+- 核心使用 JDK 17，应用使用 JDK 21；SDK 36/37.1、Build Tools 36.0.0/37.0.0、NDK 28.0.13004108。
+- 保留 R8 和 Release Lint；上传前验证唯一 APK、ARM64 架构和签名。Artifact 为 `MyBox-<版本>-arm64-v8a-release`，保留 30 天，不自动创建 GitHub Release。
+- 修改版本时确认对应核心标签已发布且接口兼容。检查运行的 head SHA，只有实际成功的运行才可作为验证依据。
 
-```sh
-./gradlew :app:assembleOtherRelease
-```
+仓库 Actions Secrets：
 
-该命令以 SDK、核心 AAR 和签名配置均已准备好为前提。首次解析依赖需联网。不要将密码提交到 Git 或打印到构建日志。
+| Secret | 用途 |
+| --- | --- |
+| `KEYSTORE_BASE64` | 发布密钥文件的 Base64 内容 |
+| `KEYSTORE_PASS` | 密钥文件密码 |
+| `ALIAS_NAME` | 发布密钥 alias |
+| `ALIAS_PASS` | 对应密钥密码 |
 
-### GitHub Actions 手动 ARM64 Release
+沿用既有发布密钥。工作流在 runner 上解码，并在结束时清理，不上传密钥。Gradle 签名配置优先读取直接环境变量，再回退 `LOCAL_PROPERTIES` 和 `local.properties`，默认文件为 `app/release.keystore`。
 
-- 入口为 `.github/workflows/build-release.yml`，仅 `workflow_dispatch` 触发；Secret 配置与下载步骤见 README。运行前需配置自有签名文件及密码，缺失时立即失败。
-- 核心来源为 `SagerNet/sing-box` 的 `v${VERSION_NAME}` 标签，Go 版本取自 `version.properties`；按上游 `make lib_install` 和 `build_libbox -target android -platform android/arm64` 构建。上游脚本会额外生成 legacy AAR，但 CI 只使用标准 `libbox.aar`，仅生成 `otherRelease` APK。此 CI 核心来源不等同于此前本地 AAR 的来源或二进制可复现性证明。
-- 上游 libbox 脚本明确要求 JDK 17，应用 Gradle 阶段使用 JDK 21；安装 SDK 36、37.1，Build Tools 36.0.0、37.0.0 和 NDK 28.0.13004108。升级构建配置时同步核对工作流。
-- 新增 `-Parm64Only=true` 开关，启用时只拆分 `arm64-v8a` 并关闭 universal；未设置时保留原有多 ABI 与 universal 行为。直接环境变量优先用于签名，原有 `LOCAL_PROPERTIES`/本地配置继续支持。
-- 保留 R8 和 release Lint；上传前检查 APK 数量、名称、原生 ABI 集合及签名，只上传一个 ARM64 APK 到 Actions Artifacts（30 天），不自动创建 GitHub Release。密钥仅在 runner 解码并于结束时清理，不上传密钥或核心 AAR。
-- 回归：默认/ARM64 开关的 ABI 配置、签名 Secret 缺失时的失败、核心版本匹配、单个 APK 及签名验证；未实际运行 GitHub 工作流前不能声明云端构建通过。
+### 本地 Termux
 
-### 已使用的 Termux 构建方式
-
-- 本机 Build Tools 37.0.0，NDK 29.0.14206865；Termux 原生 aapt2/aidl，不能直接执行 SDK 自带的 Linux x86_64 二进制。
-- 本地 init script 覆盖 Build Tools/NDK 路径、仅构建 ARM64、关闭 universal APK，并给 release 指定独立签名配置。
-- 密钥位于 `.local-signing/sfa-release.p12`，alias `sfa-release`，密码文件 `.local-signing/release-password.txt`；目录已忽略。后续更新必须保留同一密钥，不能每次构建重新生成。
-- `.gradle/sfa-termux-release.init.gradle` 和机器 SDK 路径不会上传；新机器需自行建立等价本地配置。本文记录环境，不承诺一键跨设备复现。
+先准备匹配的核心 AAR；legacy flavor 另需 `libbox-legacy.aar`。本机使用 Termux 原生 aapt2/aidl，Build Tools 37.0.0、NDK 29.0.14206865；本地 init script 覆盖工具路径和签名，不能把本机路径写进 CI。
 
 ```sh
 gradle -I .gradle/sfa-termux-release.init.gradle :app:assembleOtherRelease \
@@ -124,41 +118,12 @@ gradle -I .gradle/sfa-termux-release.init.gradle :app:assembleOtherRelease \
   -Pkotlin.compiler.execution.strategy=in-process
 ```
 
-`--offline` 仅在依赖已完整缓存后使用。曾先后遇到：默认 Build Tools 36.0.0 缺失；构建进程无明确异常退出；release/Lint 依赖离线缺失；Lint 在线版本查询等待。处理方式分别为使用本机 SDK 覆盖、2GB 堆/单 worker、联网补齐依赖、缓存完整后离线检查。不要直接禁用压缩或跳过 Lint 来掩盖错误。
+`--offline` 仅适用于依赖已缓存的环境。本地密钥和密码保存在忽略的 `.local-signing/`，沿用原文件；不要重新生成或提交。新机器需自行配置等价环境，不能靠关闭 R8/Lint 掩盖构建问题。
 
-### 验证记录与限制
 
-- 改名前的 UI 修改已完成 `assembleOtherRelease`（包含 R8 和 release Lint），并通过 `apksigner verify`：RSA 3072、自有签名、v2 校验成功，ARM64 APK 约 35MB。
-- 历史 Clash 修改经过定向 Spotless 检查，差异经过 `git diff --check`。这不表示所有上游文件均通过全库格式检查。
-- 改名后已通过 `:app:processOtherReleaseResources`，五个 locale 的 `app_name` XML 检查一致；已在后续维护中生成包含 MOD-007 的 debug/release APK（见第 10 节）。此前生成的 `SFA-1.15.0-alpha.9-arm64-v8a.apk` 不包含本次名称调整，不能作为已改名版本发布。
-- 尚无本次 UI 的实机安装/点击回归或截图证据；编译成功不能替代上述各 MOD 的人工回归。
-- 此次 GitHub 发布范围是源码和维护文档；密钥、密码、本地配置、构建日志、SDK 和 APK 不随源码提交。
-
-## 8. AI 接手流程与上游同步
-
-1. 先读此文档、README、适用的 AGENTS.md，运行 `git status --short`；保留用户未提交改动，不执行清理式 reset。
-2. 以固定 SHA 对比，不能把“上游最新版本”当作稳定基线。使用 `git diff <baseline>..HEAD`，未提交改动另看 `git diff`。
-3. 修改前定位 MOD ID 和具体符号；没有需求时，不改核心协议、服务生命周期、包名、签名或其他上游功能。
-4. 同步时获取上游 `dev`，在单独分支合并、解决冲突并检查 MOD-001 至 MOD-006，尤其是 `CardGroup` 枚举/设置序列化和 `MainActivity` 本地/远程分支。
-5. 完成必要编译、资源检查和受影响 UI 回归；更新文档基线与验证范围，保留“未验证”事实。
-6. 发布前审查 staged diff，确认不含 `.local-signing/`、密码、`local.properties` 或核心 AAR；仅推送自己的 fork，不能 force-push 上游。
-
-本仓库发布后的 remote 约定：`origin` 指向 MOD fork，`upstream` 指向 SagerNet。可参考：
-
-```sh
-git fetch upstream
-git switch -c maintenance/sync-upstream
-git merge upstream/dev
-# 解决冲突，验证各 MOD，更新本文件基线后，再按项目流程发布。
-```
-
-后续每次行为变更至少补充：MOD ID、上游前后差异、入口文件/符号、兼容性约束、实际验证结果、剩余限制。不要把假设、计划或仅成功编译的结果写成已经过设备验证的事实。
-
-## 9. MOD-007：FlClash 风格启动按钮
+## MOD-007：FlClash 风格启动按钮
 
 **来源：** [chen08209/FlClash](https://github.com/chen08209/FlClash)，参考提交 `c7be7023d33615cb624148d41414f80a7d96cede` 的 [`lib/views/dashboard/widgets/start_button.dart`](https://github.com/chen08209/FlClash/blob/c7be7023d33615cb624148d41414f80a7d96cede/lib/views/dashboard/widgets/start_button.dart) 和 `test/widgets/start_button_test.dart`。参考项目采用 GPL-3.0，原许可见其 [LICENSE](https://github.com/chen08209/FlClash/blob/c7be7023d33615cb624148d41414f80a7d96cede/LICENSE)。本实现为原生 Compose 适配，不引入 Flutter 依赖或 FlClash 核心。
-
-**取代历史：** 用户明确选择“跟随 flclash”，因此暂停双竖线取代此前要求的正方形运行图标。MOD-004 的 Clash 模式回退仍然保留；不要混淆 Clash 模式选择和 FlClash 风格服务按钮。
 
 **移植内容与平台差异：**
 
@@ -174,16 +139,17 @@ git merge upstream/dev
 
 **回归矩阵：** 停止、启动中、运行、停止中；开始时间暂缺；59秒/1小时/100小时跨位；动画中状态反转；短时间重复点击；有无代理组；320/360dp 窄屏、大字体、平板；主题动态色和深浅模式；无障碍动作。已提供 Compose 预览入口（浅色、深色、窄屏大字体、停止），预览声明不等于已渲染或设备验证。
 
-## 10. 后续维护记录
+## 维护与上游同步
 
-- 2026-10-01：扩展 MOD-006，新增手动 ARM64 Release 工作流及签名 Secret 文档。actionlint 1.7.12、Bash 语法、ShellCheck、`git diff --check` 通过；签名缺失处理、Base64 解码、版本读取及既有 APK 的 ABI 校验通过。本机 Gradle 9.7.1 的 Release `--dry-run` 通过；独立配置检查确认 ARM64 模式仅 1 个输出、关闭开关时保留 4 个 ABI 加 universal 共 5 个输出，直接环境变量签名配置生效。未运行 GitHub 云端工作流，未重新编译核心或生成新 APK。
+1. 先读 README、本文件及适用的 AGENTS.md，检查工作树并保留未提交改动。
+2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-007。
+3. 特别核对 `CardGroup` 设置兼容性、本地/远程分支、VPN 权限流程和服务状态；未授权时不改协议、包名、签名或服务生命周期。
+4. 完成必要编译、资源及受影响 UI 检查，记录实际验证范围。编译与预览声明不等于实机交互验证。
+5. 提交前审查差异，不提交密钥、密码、机器配置、SDK 或 AAR。`origin` 为个人 fork，`upstream` 为 SagerNet；仅推送授权仓库，不强推上游。
 
-- 2026-09-30：回退 MOD-004 至上游；MOD-001 的已启动按钮改为左侧已启动图标、右侧时间（手机与大屏），保留点击停止行为。已通过 `:app:compileOtherReleaseKotlin` 与 `git diff --check`，并核对 Clash 文件与上游基线完全一致；后续已完成 debug 打包及签名验证；未执行实机 UI 回归。
+## 验证记录
 
-- 2026-09-30：`assembleOtherDebug` 成功（7m 7s），产物 `sing-box-mod-1.15.0-alpha.9-arm64-v8a-debug.apk` 约 64MB，包含改名、Clash 回退及已启动图标。使用 `.gradle/sfa-termux-debug.init.gradle` 将 debug 签名指向既有本地密钥；单 worker、禁用并行、2GB 堆、`ActiveProcessorCount=2`、Kotlin 进程内编译。`apksigner verify` 通过，证书与此前本地 release 一致。
-
-- 2026-09-30：运行图标恢复原正方形 `Stop`；手机三个已运行控件统一左侧 8dp 内边距、20dp 图标及 4dp 图文间距，避免短计时文本将图标推向中间。未启动时的启动图标仍居中。按钮标签简化为“连接”/“Connections”，资源键保持不变。单 worker 的 `compileOtherDebugKotlin` 与 `processOtherDebugResources` 检查通过；随后已完成 `assembleOtherDebug` 打包（1m 1s），ARM64 debug APK 约 66MB，签名校验通过；未进行实机布局验证。
-
-- 2026-09-30：新增 MOD-007，用户选择播放/暂停图标，替代此前正方形方案；保留现有配色并调整快捷入口。低并发 `assembleOtherDebug` 通过（最终增量构建 1m 35s），APK 签名校验通过；当前无连接的 ADB 设备，未做实机交互或截图验证。
-
-- 2026-09-30：包含 MOD-007 的 `assembleOtherRelease` 成功（11m 37s），完成 R8 压缩及 release Lint；产物 `sing-box-mod-1.15.0-alpha.9-arm64-v8a.apk` 约 35MB。使用既有本地签名、单 worker、禁用并行、2GB 堆、`ActiveProcessorCount=2`、Serial GC、`CICompilerCount=2` 和 Kotlin 进程内编译，未发生线程或内存崩溃。`apksigner verify` 通过（v2、RSA 3072）；核对应用标签 `sing-box mod`、版本 `1.15.0-alpha.9`（741）及 ARM64 架构。未执行实机 UI 回归。
+- 既有 Release 工作流：[36887951093](https://github.com/giturass/sing-box-mod/actions/runs/36887951093)，2026-10-01 成功；该产物仍使用旧应用名。
+- 当前模式按钮及系统代理回退已通过本地 Debug 构建和签名验证；Clash 文件定向 Spotless 检查通过。全库仍有既有格式问题，不代表全库检查通过。
+- MyBox 改名后的 GitHub Release APK 构建待本次运行验证。
+- 尚未完成本次 UI 的实机点击、深浅主题、大字体或截图回归。
