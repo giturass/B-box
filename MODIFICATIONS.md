@@ -151,5 +151,6 @@ gradle -I .gradle/sfa-termux-release.init.gradle :app:assembleOtherRelease \
 
 - 既有 Release 工作流：[36887951093](https://github.com/giturass/sing-box-mod/actions/runs/36887951093)，2026-10-01 成功；该产物仍使用旧应用名。
 - 当前模式按钮及系统代理回退已通过本地 Debug 构建和签名验证；Clash 文件定向 Spotless 检查通过。全库仍有既有格式问题，不代表全库检查通过。
-- MyBox 改名后的 GitHub Release APK 构建待本次运行验证。
+- MyBox Release：[36955861455](https://github.com/giturass/sing-box-mod/actions/runs/36955861455)，2026-10-02 成功，构建源码提交 `ee3890d`。R8、Release Lint、ARM64 架构和签名检查通过；下载产物后确认所有应用标签均为 `MyBox`，版本 `1.15.0-alpha.9`（741）。
+- 产物：`MyBox-1.15.0-alpha.9-arm64-v8a.apk`；SHA-256：`9bf47a9cbdc26ccd9f1b3e39edaa30ca09149f349b389773fd4f4d40ccbcb19a`。
 - 尚未完成本次 UI 的实机点击、深浅主题、大字体或截图回归。
