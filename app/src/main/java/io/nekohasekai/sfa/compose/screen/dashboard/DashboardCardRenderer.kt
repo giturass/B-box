@@ -49,23 +49,11 @@ fun DashboardCardRenderer(
             }
         }
 
-        CardGroup.UploadTraffic -> {
+        CardGroup.Traffic -> {
             if (uiState.trafficVisible) {
-                UploadTrafficCard(
-                    uplink = uiState.uplink,
+                TrafficCard(
                     uplinkTotal = uiState.uplinkTotal,
-                    uplinkHistory = uiState.uplinkHistory,
-                    modifier = modifier,
-                )
-            }
-        }
-
-        CardGroup.DownloadTraffic -> {
-            if (uiState.trafficVisible) {
-                DownloadTrafficCard(
-                    downlink = uiState.downlink,
                     downlinkTotal = uiState.downlinkTotal,
-                    downlinkHistory = uiState.downlinkHistory,
                     modifier = modifier,
                 )
             }

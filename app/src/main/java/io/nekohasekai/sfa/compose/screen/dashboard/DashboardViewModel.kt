@@ -34,15 +34,14 @@ import java.util.Date
 
 enum class CardGroup(val pairGroup: CardPairGroup? = null) {
     ClashMode,
-    UploadTraffic(CardPairGroup.Traffic),
-    DownloadTraffic(CardPairGroup.Traffic),
-    Debug,
+    Traffic(CardPairGroup.Statistics),
+    Debug(CardPairGroup.Statistics),
     SystemProxy,
     Profiles,
 }
 
 enum class CardPairGroup {
-    Traffic,
+    Statistics,
 }
 
 data class DashboardUiState(
@@ -67,12 +66,8 @@ data class DashboardUiState(
     val isStatusVisible: Boolean = false,
     // Traffic
     val trafficVisible: Boolean = false,
-    val uplink: String = "0 B/s",
-    val downlink: String = "0 B/s",
     val uplinkTotal: String = "0 B",
     val downlinkTotal: String = "0 B",
-    val uplinkHistory: List<Float> = List(30) { 0f },
-    val downlinkHistory: List<Float> = List(30) { 0f },
     // Clash Mode
     val clashModeVisible: Boolean = false,
     val clashModes: List<String> = emptyList(),
@@ -82,24 +77,8 @@ data class DashboardUiState(
     val systemProxyEnabled: Boolean = false,
     val systemProxySwitching: Boolean = false,
     // Card visibility settings
-    val visibleCards: Set<CardGroup> =
-        setOf(
-            CardGroup.ClashMode,
-            CardGroup.UploadTraffic,
-            CardGroup.DownloadTraffic,
-            CardGroup.Debug,
-            CardGroup.SystemProxy,
-            CardGroup.Profiles,
-        ),
-    val cardOrder: List<CardGroup> =
-        listOf(
-            CardGroup.UploadTraffic,
-            CardGroup.DownloadTraffic,
-            CardGroup.Debug,
-            CardGroup.SystemProxy,
-            CardGroup.ClashMode,
-            CardGroup.Profiles,
-        ),
+    val visibleCards: Set<CardGroup> = CardGroup.entries.toSet(),
+    val cardOrder: List<CardGroup> = defaultDashboardCardOrder,
     val showCardSettingsDialog: Boolean = false,
 ) {
     data class DeprecatedNote(val message: String, val migrationLink: String?)
@@ -479,12 +458,8 @@ class DashboardViewModel :
                         trafficVisible = false,
                         memory = "",
                         goroutines = "",
-                        uplink = "0 B/s",
-                        downlink = "0 B/s",
                         uplinkTotal = "0 B",
                         downlinkTotal = "0 B",
-                        uplinkHistory = List(30) { 0f },
-                        downlinkHistory = List(30) { 0f },
                     )
                 }
             }
@@ -593,10 +568,6 @@ class DashboardViewModel :
     override fun updateStatus(status: StatusMessage) {
         viewModelScope.launch(Dispatchers.Main) {
             updateState {
-                // Update history by adding new values and removing old ones
-                val newUplinkHistory = (uplinkHistory.drop(1) + status.uplink.toFloat())
-                val newDownlinkHistory = (downlinkHistory.drop(1) + status.downlink.toFloat())
-
                 // Format the total values
                 val newUplinkTotal = Libbox.formatBytes(status.uplinkTotal)
                 val newDownlinkTotal = Libbox.formatBytes(status.downlinkTotal)
@@ -607,13 +578,9 @@ class DashboardViewModel :
                     // Only set trafficVisible to true, never back to false from status updates
                     trafficVisible = if (status.trafficAvailable) true else trafficVisible,
                     connectionsCount = status.connectionsIn,
-                    uplink = "${Libbox.formatBytes(status.uplink)}/s",
-                    downlink = "${Libbox.formatBytes(status.downlink)}/s",
                     // Only update total values if they've actually changed
                     uplinkTotal = if (newUplinkTotal != uplinkTotal) newUplinkTotal else uplinkTotal,
                     downlinkTotal = if (newDownlinkTotal != downlinkTotal) newDownlinkTotal else downlinkTotal,
-                    uplinkHistory = newUplinkHistory,
-                    downlinkHistory = newDownlinkHistory,
                 )
             }
         }
@@ -697,46 +664,24 @@ class DashboardViewModel :
 
         updateState {
             copy(
-                cardOrder = getDefaultItemOrder(),
+                cardOrder = defaultDashboardCardOrder,
                 visibleCards = CardGroup.values().toSet(),
             )
         }
     }
 
     // Helper functions for serialization
-    private fun getDefaultItemOrder() = listOf(
-        CardGroup.UploadTraffic,
-        CardGroup.DownloadTraffic,
-        CardGroup.Debug,
-        CardGroup.SystemProxy,
-        CardGroup.ClashMode,
-        CardGroup.Profiles,
-    )
-
     private fun loadItemOrder(): List<CardGroup> {
         val savedOrder = Settings.dashboardItemOrder
         if (savedOrder.isBlank()) {
-            return getDefaultItemOrder()
+            return defaultDashboardCardOrder
         }
 
         return try {
             val jsonArray = JSONArray(savedOrder)
-            val order = mutableListOf<CardGroup>()
-
-            for (i in 0 until jsonArray.length()) {
-                val itemName = jsonArray.getString(i)
-                stringToCardGroup(itemName)?.let { order.add(it) }
-            }
-
-            // Add any new items that aren't in the saved order
-            val allItems = CardGroup.values().toSet()
-            val savedItems = order.toSet()
-            val newItems = allItems - savedItems
-
-            order.addAll(newItems)
-            order
+            restoreDashboardCardOrder(List(jsonArray.length()) { jsonArray.getString(it) })
         } catch (e: JSONException) {
-            getDefaultItemOrder()
+            defaultDashboardCardOrder
         }
     }
 
@@ -748,13 +693,7 @@ class DashboardViewModel :
         Settings.dashboardItemOrder = jsonArray.toString()
     }
 
-    private fun loadDisabledItems(): Set<CardGroup> {
-        val savedDisabled = Settings.dashboardDisabledItems
-        // Filter out Profiles from disabled items (it cannot be disabled)
-        return savedDisabled.mapNotNull { stringToCardGroup(it) }
-            .filter { it != CardGroup.Profiles }
-            .toSet()
-    }
+    private fun loadDisabledItems(): Set<CardGroup> = restoreDashboardDisabledCards(Settings.dashboardDisabledItems)
 
     private fun saveDisabledItems(visibleCards: Set<CardGroup>) {
         val allItems = CardGroup.values().toSet()
@@ -765,10 +704,4 @@ class DashboardViewModel :
     }
 
     private fun cardGroupToString(card: CardGroup): String = card.name
-
-    private fun stringToCardGroup(name: String): CardGroup? = try {
-        CardGroup.valueOf(name)
-    } catch (e: IllegalArgumentException) {
-        null
-    }
 }

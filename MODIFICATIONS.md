@@ -1,10 +1,10 @@
-# MyBox：修改清单与维护指南
+# B-box：修改清单与维护指南
 
 ## 基线与范围
 
 | 项目 | 当前值 |
 | --- | --- |
-| 应用名称 / APK 前缀 | `MyBox` |
+| 应用名称 / APK 前缀 | `B-box` |
 | 仓库 | https://github.com/giturass/sing-box-mod |
 | 上游 | https://github.com/SagerNet/sing-box-for-android ，`dev` 分支 |
 | 比较基线 | `8e42c63c4771de10b20dd2562704850c604518d8` |
@@ -24,9 +24,10 @@
 | MOD-002 | 配置卡片操作布局 | `compose/screen/dashboard/ProfilesCard.kt` |
 | MOD-003 | 移除独立连接统计卡片 | `DashboardViewModel.kt`、`DashboardCardRenderer.kt`、`DashboardSettingsBottomSheet.kt` |
 | MOD-004 | 1.12.23 样式的模式按钮 | `compose/screen/dashboard/ClashModeCard.kt` |
-| MOD-005 | MyBox 名称与产物命名 | 语言资源、Gradle、README、构建工作流 |
+| MOD-005 | B-box 名称与产物命名 | 语言资源、Gradle、README、构建工作流 |
 | MOD-006 | ARM64 Release 构建 | `.github/workflows/build-release.yml`、`app/build.gradle.kts` |
 | MOD-007 | FlClash 风格服务按钮 | `compose/component/ServiceStartButton.kt`、`ServiceStatusBar.kt` |
+| MOD-008 | 合并流量统计并与调试卡片配对 | `TrafficCard.kt`、`DashboardCardSettings.kt`、仪表盘渲染与设置 |
 
 
 ## MOD-001：仪表盘底部控制
@@ -62,9 +63,9 @@
 
 **上游行为：** 仪表盘有独立入站/出站连接数量卡片，与 Debug 卡片组成 Statistics 双列分组。
 
-**当前行为：** 删除独立 `ConnectionsCard`、`CardGroup.Connections`、`CardPairGroup.Statistics` 及卡片专用 `connectionsIn`/`connectionsOut` UI 字段。同步移除渲染、默认顺序、可见性及仪表项设置入口。Debug 不再属于 Statistics 配对。
+**当前行为：** 删除独立 `ConnectionsCard`、`CardGroup.Connections` 及卡片专用 `connectionsIn`/`connectionsOut` UI 字段。同步移除渲染、默认顺序、可见性及仪表项设置入口。`CardPairGroup.Statistics` 当前用于 Debug 与合并后的流量统计配对，见 MOD-008。
 
-**兼容性：** 现有 `stringToCardGroup()` 捕获未知枚举名，旧设置中的 `Connections` 在加载顺序和禁用项时被忽略；没有新增数据库迁移。活动连接页面/弹层、`connectionsCount` 和底层连接数据仍保留。
+**兼容性：** `DashboardCardSettings.kt` 只接受当前枚举名及两种旧流量卡片名，旧设置中的 `Connections` 在加载顺序和禁用项时被忽略；没有新增数据库迁移。活动连接页面/弹层、`connectionsCount` 和底层连接数据仍保留。
 
 **回归：** 从包含 `Connections` 的旧卡片顺序/隐藏项升级；重置仪表项；拖动排序；显示/隐藏 Debug；流量卡片配对；打开活动连接列表。
 
@@ -78,8 +79,9 @@
 
 ## MOD-005：品牌和开源归属
 
-- README 标题、应用所有现有语言资源的 `app_name` 使用 `MyBox`。
-- Gradle 根项目名和 APK 名称前缀使用不带空格的 `MyBox`。
+- README 标题、应用所有现有语言资源的 `app_name` 使用 `B-box`。
+- Gradle 根项目名和 APK 名称前缀使用 `B-box`。
+- 应用图标使用用户提供的 `/sdcard/bbox.png`，原图保存为 `artwork/bbox.png`。执行 `java tools/GenerateLauncherIcons.java` 可重建五种密度的普通/圆形启动器图标、自适应前景、主题单色图标及通知图标；自适应前景使用 108dp 画布中央 72dp 区域、白色背景，避免图案被系统遮罩裁切。
 - 保留 `io.nekohasekai.sfa` applicationId/namespace、上游版本号、上游代码包路径，避免无关迁移。包名相同意味着不同签名的安装包不能直接覆盖，也不能并行安装。
 - 保留 `LICENSE` 和 README 原有版权/许可文本，明确非官方分支；维护者发布前应阅读其中名称与关联声明。本文不替换原许可，也不将其简化为另一份授权。
 
@@ -93,7 +95,7 @@
 
 - 核心取自 `SagerNet/sing-box` 的 `v${VERSION_NAME}` 标签，Go 版本来自 `version.properties`。执行上游 `make lib_install` 和 `build_libbox -target android -platform android/arm64`，复制标准 `libbox.aar`。
 - 核心使用 JDK 17，应用使用 JDK 21；SDK 36/37.1、Build Tools 36.0.0/37.0.0、NDK 28.0.13004108。
-- 保留 R8 和 Release Lint；上传前验证唯一 APK、ARM64 架构和签名。Artifact 为 `MyBox-<版本>-arm64-v8a-release`，保留 30 天，不自动创建 GitHub Release。
+- 保留 R8 和 Release Lint；上传前验证唯一 APK、ARM64 架构和签名。Artifact 为 `B-box-<版本>-arm64-v8a-release`，保留 30 天，不自动创建 GitHub Release。
 - 修改版本时确认对应核心标签已发布且接口兼容。检查运行的 head SHA，只有实际成功的运行才可作为验证依据。
 
 仓库 Actions Secrets：
@@ -139,10 +141,25 @@ gradle -I .gradle/sfa-termux-release.init.gradle :app:assembleOtherRelease \
 
 **回归矩阵：** 停止、启动中、运行、停止中；开始时间暂缺；59秒/1小时/100小时跨位；动画中状态反转；短时间重复点击；有无代理组；320/360dp 窄屏、大字体、平板；主题动态色和深浅模式；无障碍动作。已提供 Compose 预览入口（浅色、深色、窄屏大字体、停止），预览声明不等于已渲染或设备验证。
 
+## MOD-008：流量统计卡片
+
+**当前行为：**
+
+- 上传、下载两张卡片合并为单张“流量统计”，只显示核心提供的累计上传量 `uplinkTotal`、累计下载量 `downlinkTotal`；不显示实时网速和折线图，删除仪表盘专用速率/历史序列状态及更新计算。数值沿用当前核心会话统计，未增加跨会话累计或计费周期。
+- 沿用其他卡片的 Material 3 `Card`、主题颜色和形状；16dp 内边距、20dp 主题色图标、加粗 `titleMedium` 标题、标题下 12dp 间距，数据行使用 `bodyMedium` 标签和 `bodyLarge` 数值，两行间隔 8dp。
+- `CardGroup.Traffic` 与 `Debug` 属于 `CardPairGroup.Statistics`，默认相邻并排、等宽等高，间隔 16dp。遵循原有排序：相邻可配对，隐藏一张或移到不相邻位置时单张占满宽度。可用宽度不足 360dp 或字体缩放超过 1.3 时使用单列，避免文字拥挤。
+- 仪表项设置只保留一个“流量统计”入口；默认顺序集中定义于 `DashboardCardSettings.kt`，重置与首次加载一致。
+
+**设置兼容：** 旧 `UploadTraffic` / `DownloadTraffic` 在顺序中映射为 `Traffic`，取首次出现位置并去重，保留其他卡片顺序。旧两张流量卡片都隐藏时才隐藏新卡片；只隐藏其中一张时继续显示统计。新 `Traffic` 隐藏设置正常保存/恢复，未知卡片和已删除的 `Connections` 被忽略，`Profiles` 始终可见。无需数据库迁移。
+
+**维护约束：** 保留本地/远程数据来源和服务停止时的原有清零行为；连接列表、通知及 Tailscale 工具的速率/图表不属于本项，不得误删共享 `LineChart`。
+
+**回归：** 升级旧排序与隐藏项、重复/未知名称、重置、拖动、单独隐藏/显示、远程会话、停止/重启；普通宽度并排、窄屏/大字体单列、深浅主题。`DashboardCardSettingsTest` 覆盖设置兼容与配对规则。
+
 ## 维护与上游同步
 
 1. 先读 README、本文件及适用的 AGENTS.md，检查工作树并保留未提交改动。
-2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-007。
+2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-008。本次按用户要求暂不合并上游，继续保持 `8e42c63` / `1.15.0-alpha.9`；已撤回临时合并，不包含 `1.15.0-alpha.10`。
 3. 特别核对 `CardGroup` 设置兼容性、本地/远程分支、VPN 权限流程和服务状态；未授权时不改协议、包名、签名或服务生命周期。
 4. 完成必要编译、资源及受影响 UI 检查，记录实际验证范围。编译与预览声明不等于实机交互验证。
 5. 提交前审查差异，不提交密钥、密码、机器配置、SDK 或 AAR。`origin` 为个人 fork，`upstream` 为 SagerNet；仅推送授权仓库，不强推上游。
@@ -153,4 +170,7 @@ gradle -I .gradle/sfa-termux-release.init.gradle :app:assembleOtherRelease \
 - 当前模式按钮及系统代理回退已通过本地 Debug 构建和签名验证；Clash 文件定向 Spotless 检查通过。全库仍有既有格式问题，不代表全库检查通过。
 - MyBox Release：[36955861455](https://github.com/giturass/sing-box-mod/actions/runs/36955861455)，2026-10-02 成功，构建源码提交 `ee3890d`。R8、Release Lint、ARM64 架构和签名检查通过；下载产物后确认所有应用标签均为 `MyBox`，版本 `1.15.0-alpha.9`（741）。
 - 产物：`MyBox-1.15.0-alpha.9-arm64-v8a.apk`；SHA-256：`9bf47a9cbdc26ccd9f1b3e39edaa30ca09149f349b389773fd4f4d40ccbcb19a`。
+- B-box 本地验证（2026-10-02）：`testOtherDebugUnitTest` 8 项设置兼容/配对测试全部通过；8 个受影响 Kotlin 文件定向 Spotless 检查均为 `IS CLEAN`；`assembleOtherRelease` 成功，R8 与 Release Lint Vital 通过。工作流 actionlint 通过（Termux 下禁用外部 shellcheck/pyflakes 调用），未运行 GitHub Actions。
+- 本地 APK：`app/build/outputs/apk/other/release/B-box-1.15.0-alpha.9-arm64-v8a.apk`，36,249,271 字节；SHA-256：`5cff43df19f9f1790501acac6e0da0886ff224e8d036dd704f55bf00d0bad09f`。确认包名 `io.nekohasekai.sfa`、版本 `1.15.0-alpha.9`（741）、全部应用标签 `B-box`、仅 ARM64、APK 签名验证通过；沿用本机 `.local-signing` 密钥。
+- 本地核心 AAR SHA-256：`9aea3c1f5291c417e7e10782e3031cc7434f55b0facd5d6db1e4992c010193e1`，与已有 `1.15.0-alpha.9` 副本一致。图标原图 SHA-256：`51599719baf1cc226d948107412729247eb7621c8714235f9cb7865f887d60cd`，与 `/sdcard/bbox.png` 一致。
 - 尚未完成本次 UI 的实机点击、深浅主题、大字体或截图回归。

@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
     <!-- App -->
-    <string name="app_name" translatable="false">MyBox</string>
+    <string name="app_name" translatable="false">B-box</string>
     <string name="app_version_title">Версия приложения</string>
     <string name="language">Язык</string>
     <string name="system_default">Системный по умолчанию</string>
@@ -71,6 +71,7 @@
     <string name="dashboard_items">Элементы главной страницы</string>
     <string name="memory">Память</string>
     <string name="goroutines">Горутины</string>
+    <string name="traffic_statistics">Статистика трафика</string>
     <string name="upload">Отправка</string>
     <string name="download">Получение</string>
     <string name="connections_in">Входящие</string>

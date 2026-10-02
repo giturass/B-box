@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
     <!-- App -->
-    <string name="app_name" translatable="false">MyBox</string>
+    <string name="app_name" translatable="false">B-box</string>
     <string name="app_version_title">應用程式版本</string>
     <string name="language">語言</string>
     <string name="system_default">跟隨系統</string>
@@ -71,6 +71,7 @@
     <string name="dashboard_items">儀表項</string>
     <string name="memory">記憶體</string>
     <string name="goroutines">協程</string>
+    <string name="traffic_statistics">流量統計</string>
     <string name="upload">上傳</string>
     <string name="download">下載</string>
     <string name="connections_in">入站</string>

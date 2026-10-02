@@ -28,11 +28,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.outlined.BugReport
-import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Route
 import androidx.compose.material.icons.outlined.SettingsEthernet
-import androidx.compose.material.icons.outlined.Upload
+import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -155,24 +154,8 @@ fun DashboardSettingsBottomSheet(
                 )
                 TextButton(
                     onClick = {
-                        val defaultOrder =
-                            listOfNotNull(
-                                CardGroup.UploadTraffic,
-                                CardGroup.DownloadTraffic,
-                                CardGroup.Debug,
-                                CardGroup.SystemProxy,
-                                CardGroup.ClashMode,
-                                CardGroup.Profiles,
-                            )
-                        val allCardsEnabled =
-                            setOfNotNull(
-                                CardGroup.ClashMode,
-                                CardGroup.UploadTraffic,
-                                CardGroup.DownloadTraffic,
-                                CardGroup.Debug,
-                                CardGroup.SystemProxy,
-                                CardGroup.Profiles,
-                            )
+                        val defaultOrder = defaultDashboardCardOrder
+                        val allCardsEnabled = CardGroup.entries.toSet()
                         reorderedList = defaultOrder
                         currentVisibleCards = allCardsEnabled
                         onResetOrder()
@@ -379,8 +362,7 @@ fun DashboardItemCard(
                 imageVector =
                 when (cardGroup) {
                     CardGroup.Debug -> Icons.Outlined.BugReport
-                    CardGroup.UploadTraffic -> Icons.Outlined.Upload
-                    CardGroup.DownloadTraffic -> Icons.Outlined.Download
+                    CardGroup.Traffic -> Icons.Outlined.SwapVert
                     CardGroup.ClashMode -> Icons.Outlined.Route
                     CardGroup.SystemProxy -> Icons.Outlined.SettingsEthernet
                     CardGroup.Profiles -> Icons.Outlined.Person
@@ -409,8 +391,7 @@ fun DashboardItemCard(
                     text =
                     when (cardGroup) {
                         CardGroup.Debug -> stringResource(R.string.title_debug)
-                        CardGroup.UploadTraffic -> stringResource(R.string.upload)
-                        CardGroup.DownloadTraffic -> stringResource(R.string.download)
+                        CardGroup.Traffic -> stringResource(R.string.traffic_statistics)
                         CardGroup.ClashMode -> stringResource(R.string.clash_mode)
                         CardGroup.SystemProxy -> stringResource(R.string.system_proxy)
                         CardGroup.Profiles -> stringResource(R.string.title_configuration)

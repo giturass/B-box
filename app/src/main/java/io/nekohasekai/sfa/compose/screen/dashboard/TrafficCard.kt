@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
 import io.nekohasekai.sfa.R
 
 @Composable
-fun DebugCard(memory: String, goroutines: String, modifier: Modifier = Modifier) {
+fun TrafficCard(uplinkTotal: String, downlinkTotal: String, modifier: Modifier = Modifier) {
     Card(
         modifier = modifier.fillMaxWidth(),
     ) {
@@ -38,34 +38,33 @@ fun DebugCard(memory: String, goroutines: String, modifier: Modifier = Modifier)
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.BugReport,
+                    imageVector = Icons.Outlined.SwapVert,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = stringResource(R.string.title_debug),
+                    text = stringResource(R.string.traffic_statistics),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
             }
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Memory item
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = stringResource(R.string.memory),
+                    text = stringResource(R.string.upload),
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = memory.ifEmpty { stringResource(R.string.loading) },
+                    text = uplinkTotal,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
                 )
@@ -73,20 +72,19 @@ fun DebugCard(memory: String, goroutines: String, modifier: Modifier = Modifier)
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Goroutines item
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = stringResource(R.string.goroutines),
+                    text = stringResource(R.string.download),
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = goroutines.ifEmpty { stringResource(R.string.loading) },
+                    text = downlinkTotal,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
                 )

@@ -132,7 +132,7 @@ jobs:
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: MyBox-${{ steps.versions.outputs.version }}-arm64-v8a-release
+          name: B-box-${{ steps.versions.outputs.version }}-arm64-v8a-release
           path: app/build/outputs/apk/other/release/*-arm64-v8a.apk
           if-no-files-found: error
           compression-level: 0

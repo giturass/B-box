@@ -19,7 +19,7 @@ dependencyResolutionManagement {
         maven { url = uri("https://api.xposed.info/") }
     }
 }
-rootProject.name = "MyBox"
+rootProject.name = "B-box"
 include(":app")
 include(":libxposed-api")
 project(":libxposed-api").projectDir = file("third_party/libxposed-api")

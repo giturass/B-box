@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
     <!-- App -->
-    <string name="app_name" translatable="false">MyBox</string>
+    <string name="app_name" translatable="false">B-box</string>
     <string name="app_version_title">نسخه برنامه</string>
     <string name="language">زبان</string>
     <string name="system_default">پیش‌فرض سیستم</string>
@@ -71,6 +71,7 @@
     <string name="dashboard_items">آیتم‌های داشبورد</string>
     <string name="memory">حافظه</string>
     <string name="goroutines">گوروتین‌ها</string>
+    <string name="traffic_statistics">آمار ترافیک</string>
     <string name="upload">آپلود</string>
     <string name="download">دانلود</string>
     <string name="connections_in">ورودی</string>

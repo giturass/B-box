@@ -2,10 +2,14 @@ package io.nekohasekai.sfa.compose.screen.dashboard
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -136,9 +141,11 @@ fun DashboardScreen(
 
     val scaffoldPadding = LocalScaffoldPadding.current
 
-    Box(
-        modifier = Modifier.fillMaxSize(),
+    val fontScale = LocalDensity.current.fontScale
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
     ) {
+        val pairCards = maxWidth >= 360.dp && fontScale <= 1.3f
         val bottomPadding = when {
             showStartFab -> 88.dp
             showStatusBar -> 88.dp
@@ -148,7 +155,6 @@ fun DashboardScreen(
             modifier =
             Modifier
                 .fillMaxSize()
-                .padding(scaffoldPadding)
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(bottom = bottomPadding),
@@ -183,10 +189,10 @@ fun DashboardScreen(
                 )
 
             items(cardRenderItems) { renderItem ->
-                if (renderItem.isRow && renderItem.cards.size >= 2) {
+                if (pairCards && renderItem.isRow && renderItem.cards.size >= 2) {
                     // Render two half-width cards in a row
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         renderItem.cards.forEach { cardGroup ->
@@ -219,7 +225,7 @@ fun DashboardScreen(
                                 modifier =
                                 Modifier
                                     .weight(1f)
-                                    .fillMaxWidth(),
+                                    .fillMaxHeight(),
                             )
                         }
                     }
@@ -307,8 +313,7 @@ fun processCardsForRendering(
  */
 fun isCardAvailableWhenServiceRunning(cardGroup: CardGroup, uiState: DashboardUiState): Boolean = when (cardGroup) {
     CardGroup.ClashMode -> uiState.clashModeVisible
-    CardGroup.UploadTraffic -> uiState.trafficVisible
-    CardGroup.DownloadTraffic -> uiState.trafficVisible
+    CardGroup.Traffic -> uiState.trafficVisible
     CardGroup.Debug -> true // Debug info is always available when service is running
     CardGroup.SystemProxy -> uiState.systemProxyVisible
     CardGroup.Profiles -> true // This shouldn't be called for Profiles, but return true for safety
