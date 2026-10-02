@@ -10,17 +10,7 @@
 
 维护与构建入口：**[MODIFICATIONS.md](MODIFICATIONS.md)**。该文档记录准确的上游基线、逐项差异、文件定位、AI 维护约束与回归检查。
 
-应用显示名称为 `MyBox`，Android 包名为 `io.nekohasekai.sfa`。
-
 启动按钮布局与交互参考 [FlClash](https://github.com/chen08209/FlClash)，Compose 适配及具体差异见维护清单 MOD-007。
-
-## GitHub Actions 手动构建
-
-工作流 [Build Release APK (arm64-v8a)](.github/workflows/build-release.yml) 仅支持手动触发，构建 Android 7.0+ 的 `otherRelease` APK，仅包含 `arm64-v8a`，不生成 universal APK。
-
-将工作流提交到 GitHub 默认分支后，打开 **Actions → Build Release APK (arm64-v8a) → Run workflow**，选择分支并运行。完成后在该次运行页面的 **Artifacts** 下载 `MyBox-<版本>-arm64-v8a-release`，解压即可获得 APK；产物保留 30 天。
-
-CI 根据 `version.properties` 的 `VERSION_NAME` 检出上游核心对应的 `v<版本>` 标签，使用 `GO_VERSION` 和上游构建脚本编译 ARM64 `libbox.aar`，然后执行 `:app:assembleOtherRelease -Parm64Only=true`，保留 R8 和 release Lint，并校验 APK 与架构。更新版本时需确认对应核心标签已经发布且接口兼容。工作流不自动创建 GitHub Release。
 
 ## Documentation
 
