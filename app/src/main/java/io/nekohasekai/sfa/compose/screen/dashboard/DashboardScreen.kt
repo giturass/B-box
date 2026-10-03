@@ -3,6 +3,7 @@ package io.nekohasekai.sfa.compose.screen.dashboard
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -145,7 +146,8 @@ fun DashboardScreen(
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
     ) {
-        val pairCards = maxWidth >= 360.dp && fontScale <= 1.3f
+        val cardAreaWidth = maxWidth - 32.dp
+        val pairCards = cardAreaWidth >= 360.dp && fontScale <= 1.3f
         val bottomPadding = when {
             showStartFab -> 88.dp
             showStatusBar -> 88.dp
@@ -231,35 +233,40 @@ fun DashboardScreen(
                     }
                 } else {
                     // Render single card (full-width or single half-width)
-                    renderItem.cards.forEach { cardGroup ->
-                        DashboardCardRenderer(
-                            cardGroup = cardGroup,
-                            uiState = uiState,
-                            serviceStatus = serviceStatus,
-                            onClashModeSelected = viewModel::selectClashMode,
-                            onSystemProxyToggle = viewModel::toggleSystemProxy,
-                            // Profile card specific props
-                            profiles = uiState.profiles,
-                            selectedProfileId = uiState.selectedProfileId,
-                            isLoading = uiState.isLoading,
-                            showAddProfileSheet = uiState.showAddProfileSheet,
-                            showProfilePickerSheet = uiState.showProfilePickerSheet,
-                            updatingProfileId = uiState.updatingProfileId,
-                            updatedProfileId = uiState.updatedProfileId,
-                            onProfileSelected = viewModel::selectProfile,
-                            onProfileEdit = viewModel::editProfile,
-                            onProfileDelete = viewModel::deleteProfile,
-                            onProfileShare = viewModel::shareProfile,
-                            onProfileShareURL = viewModel::shareProfileURL,
-                            onProfileUpdate = viewModel::updateProfile,
-                            onProfileMove = viewModel::moveProfile,
-                            onShowAddProfileSheet = viewModel::showAddProfileSheet,
-                            onHideAddProfileSheet = viewModel::hideAddProfileSheet,
-                            onShowProfilePickerSheet = viewModel::showProfilePickerSheet,
-                            onHideProfilePickerSheet = viewModel::hideProfilePickerSheet,
-                            onOpenNewProfile = onOpenNewProfile,
-                            commandClient = viewModel.commandClient,
-                        )
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        renderItem.cards.forEach { cardGroup ->
+                            DashboardCardRenderer(
+                                cardGroup = cardGroup,
+                                uiState = uiState,
+                                serviceStatus = serviceStatus,
+                                onClashModeSelected = viewModel::selectClashMode,
+                                onSystemProxyToggle = viewModel::toggleSystemProxy,
+                                // Profile card specific props
+                                profiles = uiState.profiles,
+                                selectedProfileId = uiState.selectedProfileId,
+                                isLoading = uiState.isLoading,
+                                showAddProfileSheet = uiState.showAddProfileSheet,
+                                showProfilePickerSheet = uiState.showProfilePickerSheet,
+                                updatingProfileId = uiState.updatingProfileId,
+                                updatedProfileId = uiState.updatedProfileId,
+                                onProfileSelected = viewModel::selectProfile,
+                                onProfileEdit = viewModel::editProfile,
+                                onProfileDelete = viewModel::deleteProfile,
+                                onProfileShare = viewModel::shareProfile,
+                                onProfileShareURL = viewModel::shareProfileURL,
+                                onProfileUpdate = viewModel::updateProfile,
+                                onProfileMove = viewModel::moveProfile,
+                                onShowAddProfileSheet = viewModel::showAddProfileSheet,
+                                onHideAddProfileSheet = viewModel::hideAddProfileSheet,
+                                onShowProfilePickerSheet = viewModel::showProfilePickerSheet,
+                                onHideProfilePickerSheet = viewModel::hideProfilePickerSheet,
+                                onOpenNewProfile = onOpenNewProfile,
+                                commandClient = viewModel.commandClient,
+                            )
+                        }
                     }
                 }
             }

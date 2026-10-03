@@ -7,10 +7,11 @@
 | 应用名称 / APK 前缀 | `B-box` |
 | 仓库 | https://github.com/giturass/sing-box-mod |
 | 上游 | https://github.com/SagerNet/sing-box-for-android ，`dev` 分支 |
-| 比较基线 | `8e42c63c4771de10b20dd2562704850c604518d8` |
-| 版本 / versionCode | `1.15.0-alpha.9` / `741` |
-| 包名 | `io.nekohasekai.sfa` |
-| 更新日期 | 2026-10-02 |
+| 比较基线 | `5c7b4ce969b926063737d059edf7b256c8f56ed0` |
+| 版本 / versionCode | `1.15.0-alpha.10` / `742` |
+| 安装包名 / applicationId | `io.ericlee.sfa.mod` |
+| 源码 namespace | `io.nekohasekai.sfa` |
+| 更新日期 | 2026-10-03 |
 
 本文只描述当前有效改动；已撤回的外观方案和逐次构建流水记录已移除。协议、路由、VPN、远程控制、配置导入导出及特权能力继承上游。核心 AAR 不在 Git 中，本地构建与 CI 核心来源应分别核验。
 
@@ -28,6 +29,7 @@
 | MOD-006 | ARM64 Release 构建 | `.github/workflows/build-release.yml`、`app/build.gradle.kts` |
 | MOD-007 | FlClash 风格服务按钮 | `compose/component/ServiceStartButton.kt`、`ServiceStatusBar.kt` |
 | MOD-008 | 合并流量统计并与调试卡片配对 | `TrafficCard.kt`、`DashboardCardSettings.kt`、仪表盘渲染与设置 |
+| MOD-009 | 独立安装包名与分支更新源 | `app/build.gradle.kts`、Manifest、服务/安装广播、`GitHubUpdateChecker.kt` |
 
 
 ## MOD-001：仪表盘底部控制
@@ -82,20 +84,21 @@
 - README 标题、应用所有现有语言资源的 `app_name` 使用 `B-box`。
 - Gradle 根项目名和 APK 名称前缀使用 `B-box`。
 - 应用图标使用用户提供的 `/sdcard/bbox.png`，原图保存为 `artwork/bbox.png`。执行 `java tools/GenerateLauncherIcons.java` 可重建五种密度的普通/圆形启动器图标、自适应前景、主题单色图标及通知图标；自适应前景使用 108dp 画布中央 72dp 区域、白色背景，避免图案被系统遮罩裁切。
-- 保留 `io.nekohasekai.sfa` applicationId/namespace、上游版本号、上游代码包路径，避免无关迁移。包名相同意味着不同签名的安装包不能直接覆盖，也不能并行安装。
+- 安装包名按用户要求改为 `io.ericlee.sfa.mod`；保留 `io.nekohasekai.sfa` namespace、上游版本号与源码包路径。新包可与原包并行安装，应用私有数据独立，旧包配置需通过导出/导入迁移，详见 MOD-009。
 - 保留 `LICENSE` 和 README 原有版权/许可文本，明确非官方分支；维护者发布前应阅读其中名称与关联声明。本文不替换原许可，也不将其简化为另一份授权。
 
-**回归：** 五个现有 locale 的应用标签一致；安装器/启动器显示新名称；APK 文件名使用新前缀；不修改数据库、ContentProvider、VPN 或 Xposed 标识。
+**回归：** 五个现有 locale 的应用标签一致；安装器/启动器显示新名称；APK 文件名使用新前缀；安装身份与组件标识按 MOD-009 核验。
 
 ## MOD-006：构建与签名
 
 ### GitHub Actions
 
-入口为 `.github/workflows/build-release.yml`，仅手动触发，生成 Android 7.0+ 的 ARM64 `otherRelease` APK。`-Parm64Only=true` 限定一个 ABI 并关闭 universal；不传该参数时保留原有多 ABI 行为。
+入口为 `.github/workflows/build-release.yml`，仅手动触发，生成 Android 7.0+ 的 ARM64 `otherRelease` APK。Release 构建与发布统一在 GitHub Actions 执行。`-Parm64Only=true` 限定一个 ABI 并关闭 universal；不传该参数时保留原有多 ABI 行为。
 
 - 核心取自 `SagerNet/sing-box` 的 `v${VERSION_NAME}` 标签，Go 版本来自 `version.properties`。执行上游 `make lib_install` 和 `build_libbox -target android -platform android/arm64`，复制标准 `libbox.aar`。
 - 核心使用 JDK 17，应用使用 JDK 21；SDK 36/37.1、Build Tools 36.0.0/37.0.0、NDK 28.0.13004108。
-- 保留 R8 和 Release Lint；上传前验证唯一 APK、ARM64 架构和签名。Artifact 为 `B-box-<版本>-arm64-v8a-release`，保留 30 天，不自动创建 GitHub Release。
+- Release 前运行 `testOtherDebugUnitTest`，保留 R8 和 Release Lint；上传前验证唯一 APK、ARM64 架构、签名、新包名、版本、启动 Activity 与全部应用标签。Artifact 为 `B-box-<版本>-arm64-v8a-release`，保留 30 天。
+- 校验成功后发布到本仓库 GitHub Release：tag 严格等于 `VERSION_NAME`（例如 `1.15.0-alpha.10`，不加 `v`），指向构建的源码 SHA；alpha/beta/rc 标记为预发布。发布 APK 及 `B-box-version-metadata.json`，供应用内更新读取。已有 tag 指向不同提交时应报错，不移动既有版本标签；同一提交重跑可重新上传产物。
 - 修改版本时确认对应核心标签已发布且接口兼容。检查运行的 head SHA，只有实际成功的运行才可作为验证依据。
 
 仓库 Actions Secrets：
@@ -109,18 +112,11 @@
 
 沿用既有发布密钥。工作流在 runner 上解码，并在结束时清理，不上传密钥。Gradle 签名配置优先读取直接环境变量，再回退 `LOCAL_PROPERTIES` 和 `local.properties`，默认文件为 `app/release.keystore`。
 
-### 本地 Termux
+### 本地 Termux 检查
 
-先准备匹配的核心 AAR；legacy flavor 另需 `libbox-legacy.aar`。本机使用 Termux 原生 aapt2/aidl，Build Tools 37.0.0、NDK 29.0.14206865；本地 init script 覆盖工具路径和签名，不能把本机路径写进 CI。
+本地仅运行静态检查、Debug 编译或单元测试；Release 交给上述 GitHub Actions。编译前准备匹配的核心 AAR，legacy flavor 另需 `libbox-legacy.aar`。本机使用 Termux 原生 aapt2/aidl，Build Tools 37.0.0、NDK 29.0.14206865；本地 init script 覆盖工具路径和签名，不能把本机路径写进 CI。
 
-```sh
-gradle -I .gradle/sfa-termux-release.init.gradle :app:assembleOtherRelease \
-  --offline --console=plain --max-workers=1 --no-daemon \
-  '-Dorg.gradle.jvmargs=-Xmx2048m -XX:ActiveProcessorCount=2 -Dfile.encoding=UTF-8' \
-  -Pkotlin.compiler.execution.strategy=in-process
-```
-
-`--offline` 仅适用于依赖已缓存的环境。本地密钥和密码保存在忽略的 `.local-signing/`，沿用原文件；不要重新生成或提交。新机器需自行配置等价环境，不能靠关闭 R8/Lint 掩盖构建问题。
+`--offline` 仅适用于依赖已缓存的环境。本地密钥和密码保存在忽略的 `.local-signing/`，沿用原文件；不要重新生成或提交。新机器需自行配置等价环境。
 
 
 ## MOD-007：FlClash 风格启动按钮
@@ -147,7 +143,7 @@ gradle -I .gradle/sfa-termux-release.init.gradle :app:assembleOtherRelease \
 
 - 上传、下载两张卡片合并为单张“流量统计”，只显示核心提供的累计上传量 `uplinkTotal`、累计下载量 `downlinkTotal`；不显示实时网速和折线图，删除仪表盘专用速率/历史序列状态及更新计算。数值沿用当前核心会话统计，未增加跨会话累计或计费周期。
 - 沿用其他卡片的 Material 3 `Card`、主题颜色和形状；16dp 内边距、20dp 主题色图标、加粗 `titleMedium` 标题、标题下 12dp 间距，数据行使用 `bodyMedium` 标签和 `bodyLarge` 数值，两行间隔 8dp。
-- `CardGroup.Traffic` 与 `Debug` 属于 `CardPairGroup.Statistics`，默认相邻并排、等宽等高，间隔 16dp。遵循原有排序：相邻可配对，隐藏一张或移到不相邻位置时单张占满宽度。可用宽度不足 360dp 或字体缩放超过 1.3 时使用单列，避免文字拥挤。
+- `CardGroup.Traffic` 与 `Debug` 属于 `CardPairGroup.Statistics`，默认相邻并排、等宽等高，间隔 16dp。遵循原有排序：相邻可配对，隐藏一张或移到不相邻位置时单张占满宽度。扣除左右各 16dp 内边距后，可用宽度不足 360dp 或字体缩放超过 1.3 时使用单列，拆开的卡片仍保持 16dp 间距，避免文字拥挤。
 - 仪表项设置只保留一个“流量统计”入口；默认顺序集中定义于 `DashboardCardSettings.kt`，重置与首次加载一致。
 
 **设置兼容：** 旧 `UploadTraffic` / `DownloadTraffic` 在顺序中映射为 `Traffic`，取首次出现位置并去重，保留其他卡片顺序。旧两张流量卡片都隐藏时才隐藏新卡片；只隐藏其中一张时继续显示统计。新 `Traffic` 隐藏设置正常保存/恢复，未知卡片和已删除的 `Connections` 被忽略，`Profiles` 始终可见。无需数据库迁移。
@@ -156,10 +152,19 @@ gradle -I .gradle/sfa-termux-release.init.gradle :app:assembleOtherRelease \
 
 **回归：** 升级旧排序与隐藏项、重复/未知名称、重置、拖动、单独隐藏/显示、远程会话、停止/重启；普通宽度并排、窄屏/大字体单列、深浅主题。`DashboardCardSettingsTest` 覆盖设置兼容与配对规则。
 
+## MOD-009：独立安装身份与更新
+
+- `applicationId` 为 `io.ericlee.sfa.mod`；`namespace`、Kotlin/Java 包、AIDL 描述符、Xposed 入口类及 RootServer 反射类名保留 `io.nekohasekai.sfa`，确保已声明组件可加载。
+- Provider authorities 使用 `${applicationId}`；服务控制、USB 权限、USBIP/Taildrop 停止与安装回执广播改由 `BuildConfig.APPLICATION_ID` 派生，Manifest 回执 action 同步使用占位符。文件分享 URI、显式服务 Intent、自身包过滤和 Xposed 调用者校验继续使用应用运行时包名。
+- GitHub 更新源使用 `giturass/sing-box-mod` 的 Releases，读取 `B-box-version-metadata.json` 中的 `version_code`，匹配当前版本的 B-box ARM64 APK。发布范围为 Android 7.0+ 的 `other` / ARM64；无兼容资产时不提供下载，避免把 Release 网页或官方 SFA 包当作更新。稳定/预发布通道沿用现有设置，F-Droid 源仍按当前包名查询。
+- 新旧包可并行安装，但私有配置与数据不会自动迁移。系统级 Xposed hook 的 Binder 协议及 `/data/system/sing-box/privilege_settings.conf` 仍继承上游；两个系统模块不保证同时启用时互不影响。
+
+**回归：** 新旧包安装共存；启动 Activity、VPN 授权、通知停止、USB 授权、文件分享、安装回执及 Xposed 自识别；稳定/预发布检查、无匹配架构、版本元数据与升级安装。`GitHubUpdateCheckerTest` 覆盖 B-box 资产筛选、版本标签及架构/flavor/API 兼容性。
+
 ## 维护与上游同步
 
 1. 先读 README、本文件及适用的 AGENTS.md，检查工作树并保留未提交改动。
-2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-008。本次按用户要求暂不合并上游，继续保持 `8e42c63` / `1.15.0-alpha.9`；已撤回临时合并，不包含 `1.15.0-alpha.10`。
+2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-009。当前已合并 `upstream/dev` 的 `5c7b4ce` / `1.15.0-alpha.10`；上游改写过部分提交历史，但与前一基线 `8e42c63` 的文件内容相比仅版本号变化，已有功能无需重复移植。
 3. 特别核对 `CardGroup` 设置兼容性、本地/远程分支、VPN 权限流程和服务状态；未授权时不改协议、包名、签名或服务生命周期。
 4. 完成必要编译、资源及受影响 UI 检查，记录实际验证范围。编译与预览声明不等于实机交互验证。
 5. 提交前审查差异，不提交密钥、密码、机器配置、SDK 或 AAR。`origin` 为个人 fork，`upstream` 为 SagerNet；仅推送授权仓库，不强推上游。
@@ -171,6 +176,6 @@ gradle -I .gradle/sfa-termux-release.init.gradle :app:assembleOtherRelease \
 - MyBox Release：[36955861455](https://github.com/giturass/sing-box-mod/actions/runs/36955861455)，2026-10-02 成功，构建源码提交 `ee3890d`。R8、Release Lint、ARM64 架构和签名检查通过；下载产物后确认所有应用标签均为 `MyBox`，版本 `1.15.0-alpha.9`（741）。
 - 产物：`MyBox-1.15.0-alpha.9-arm64-v8a.apk`；SHA-256：`9bf47a9cbdc26ccd9f1b3e39edaa30ca09149f349b389773fd4f4d40ccbcb19a`。
 - B-box 本地验证（2026-10-02）：`testOtherDebugUnitTest` 8 项设置兼容/配对测试全部通过；8 个受影响 Kotlin 文件定向 Spotless 检查均为 `IS CLEAN`；`assembleOtherRelease` 成功，R8 与 Release Lint Vital 通过。工作流 actionlint 通过（Termux 下禁用外部 shellcheck/pyflakes 调用），未运行 GitHub Actions。
-- 本地 APK：`app/build/outputs/apk/other/release/B-box-1.15.0-alpha.9-arm64-v8a.apk`，36,249,271 字节；SHA-256：`5cff43df19f9f1790501acac6e0da0886ff224e8d036dd704f55bf00d0bad09f`。确认包名 `io.nekohasekai.sfa`、版本 `1.15.0-alpha.9`（741）、全部应用标签 `B-box`、仅 ARM64、APK 签名验证通过；沿用本机 `.local-signing` 密钥。
-- 本地核心 AAR SHA-256：`9aea3c1f5291c417e7e10782e3031cc7434f55b0facd5d6db1e4992c010193e1`，与已有 `1.15.0-alpha.9` 副本一致。图标原图 SHA-256：`51599719baf1cc226d948107412729247eb7621c8714235f9cb7865f887d60cd`，与 `/sdcard/bbox.png` 一致。
+- 2026-10-02 本地产物记录：`B-box-1.15.0-alpha.9-arm64-v8a.apk`，36,249,271 字节；SHA-256：`5cff43df19f9f1790501acac6e0da0886ff224e8d036dd704f55bf00d0bad09f`。当时包名为 `io.nekohasekai.sfa`、版本 `1.15.0-alpha.9`（741）、全部应用标签 `B-box`、仅 ARM64、APK 签名验证通过；沿用本机 `.local-signing` 密钥。
+- 2026-10-02 核心 AAR SHA-256：`9aea3c1f5291c417e7e10782e3031cc7434f55b0facd5d6db1e4992c010193e1`，与当时 `1.15.0-alpha.9` 副本一致。图标原图 SHA-256：`51599719baf1cc226d948107412729247eb7621c8714235f9cb7865f887d60cd`，与 `/sdcard/bbox.png` 一致。
 - 尚未完成本次 UI 的实机点击、深浅主题、大字体或截图回归。

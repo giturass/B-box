@@ -9,7 +9,7 @@
             android:name=".vendor.InstallResultReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="io.nekohasekai.sfa.INSTALL_COMPLETE" />
+                <action android:name="${applicationId}.INSTALL_COMPLETE" />
             </intent-filter>
         </receiver>
     </application>

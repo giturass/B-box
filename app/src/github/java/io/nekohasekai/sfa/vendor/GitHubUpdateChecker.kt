@@ -14,8 +14,8 @@ import java.io.Closeable
 
 class GitHubUpdateChecker : Closeable {
     companion object {
-        private const val RELEASES_URL = "https://api.github.com/repos/SagerNet/sing-box/releases"
-        private const val METADATA_FILENAME = "SFA-version-metadata.json"
+        private const val RELEASES_URL = "https://api.github.com/repos/giturass/sing-box-mod/releases"
+        private const val METADATA_FILENAME = "B-box-version-metadata.json"
     }
 
     private val client = Libbox.newHTTPClient().apply {
@@ -50,23 +50,27 @@ class GitHubUpdateChecker : Closeable {
         if (!Libbox.compareSemver(release.version, BuildConfig.VERSION_NAME)) {
             return null
         }
+        val apkAsset = release.findCompatibleApk(
+            flavor = BuildConfig.FLAVOR,
+            sdkInt = Build.VERSION.SDK_INT,
+            supportedAbis = Build.SUPPORTED_ABIS.toList(),
+        ) ?: return null
         val metadata = downloadMetadata(release) ?: return null
-
-        val isLegacy = Build.VERSION.SDK_INT < Build.VERSION_CODES.M
-        val apkAsset = release.assets.find { asset ->
-            asset.name.endsWith(".apk") &&
-                !asset.name.contains("play") &&
-                asset.name.contains("legacy-android-5") == isLegacy
+        if (metadata.applicationId != BuildConfig.APPLICATION_ID ||
+            metadata.versionName != release.version ||
+            metadata.versionCode <= BuildConfig.VERSION_CODE
+        ) {
+            return null
         }
 
         return UpdateInfo(
             versionCode = metadata.versionCode,
             versionName = release.version,
-            downloadUrl = apkAsset?.browserDownloadUrl ?: release.htmlUrl,
+            downloadUrl = apkAsset.browserDownloadUrl,
             releaseUrl = release.htmlUrl,
             releaseNotes = release.body,
             isPrerelease = release.prerelease,
-            fileSize = apkAsset?.size ?: 0,
+            fileSize = apkAsset.size,
         )
     }
 
@@ -99,6 +103,13 @@ class GitHubUpdateChecker : Closeable {
         val assets: List<GitHubAsset> = emptyList(),
     ) {
         val version: String get() = tagName.removePrefix("v")
+
+        internal fun findCompatibleApk(flavor: String, sdkInt: Int, supportedAbis: List<String>): GitHubAsset? {
+            if (flavor != "other" || sdkInt < Build.VERSION_CODES.N || "arm64-v8a" !in supportedAbis) {
+                return null
+            }
+            return assets.find { it.name == "B-box-$version-arm64-v8a.apk" }
+        }
     }
 
     @Serializable
@@ -111,5 +122,7 @@ class GitHubUpdateChecker : Closeable {
     @Serializable
     data class VersionMetadata(
         @SerialName("version_code") val versionCode: Int = 0,
+        @SerialName("version_name") val versionName: String = "",
+        @SerialName("application_id") val applicationId: String = "",
     )
 }

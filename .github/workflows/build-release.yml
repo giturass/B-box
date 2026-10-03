@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -98,6 +98,14 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Run unit tests
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
+          ./gradlew :app:testOtherDebugUnitTest -Parm64Only=true \
+            --no-daemon --console=plain --max-workers=2 \
+            '-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8' \
+            -Pkotlin.compiler.execution.strategy=in-process
+
       - name: Build signed Release APK
         env:
           KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
@@ -110,21 +118,56 @@ jobs:
             '-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8' \
             -Pkotlin.compiler.execution.strategy=in-process
 
-      - name: Verify APK architecture and signature
+      - name: Verify APK identity, architecture and signature
         run: |
           python3 - <<'PY'
+          import os
+          import re
+          import subprocess
           from pathlib import Path
           from zipfile import ZipFile
 
+          properties = dict(
+              line.strip().split('=', 1)
+              for line in Path('version.properties').read_text().splitlines()
+              if line.strip() and not line.lstrip().startswith('#') and '=' in line
+          )
           apks = list(Path('app/build/outputs/apk/other/release').glob('*.apk'))
-          if len(apks) != 1 or not apks[0].name.endswith('-arm64-v8a.apk'):
-              raise SystemExit(f'Expected exactly one arm64-v8a APK, found: {apks}')
+          expected_name = f"B-box-{properties['VERSION_NAME']}-arm64-v8a.apk"
+          if len(apks) != 1 or apks[0].name != expected_name:
+              raise SystemExit(f'Expected exactly one {expected_name}, found: {apks}')
           with ZipFile(apks[0]) as apk:
               abis = {name.split('/')[1] for name in apk.namelist()
                       if name.startswith('lib/') and name.endswith('.so')}
           if abis != {'arm64-v8a'}:
               raise SystemExit(f'Unexpected native ABIs: {abis}')
-          print(f'Verified ARM64 APK: {apks[0]}')
+
+          aapt2 = Path(os.environ['ANDROID_HOME']) / 'build-tools/37.0.0/aapt2'
+          badging = subprocess.check_output(
+              [str(aapt2), 'dump', 'badging', str(apks[0])], text=True
+          )
+          package_line = next(
+              (line for line in badging.splitlines() if line.startswith('package: ')), ''
+          )
+          package = dict(re.findall(r"(\w+)='([^']*)'", package_line))
+          expected_package = {
+              'name': 'io.ericlee.sfa.mod',
+              'versionName': properties['VERSION_NAME'],
+              'versionCode': properties['VERSION_CODE'],
+          }
+          for key, expected in expected_package.items():
+              if package.get(key) != expected:
+                  raise SystemExit(f'Unexpected APK {key}: {package.get(key)!r}, expected {expected!r}')
+          launcher_line = next(
+              (line for line in badging.splitlines() if line.startswith('launchable-activity: ')), ''
+          )
+          launcher = dict(re.findall(r"(\w+)='([^']*)'", launcher_line))
+          if launcher.get('name') != 'io.nekohasekai.sfa.compose.MainActivity':
+              raise SystemExit(f'Unexpected launcher activity: {launcher.get("name")!r}')
+          labels = dict(re.findall(r"^(application-label(?:-[^:]+)?):'(.*)'$", badging, re.MULTILINE))
+          if 'application-label' not in labels or any(label != 'B-box' for label in labels.values()):
+              raise SystemExit(f'Unexpected application labels: {labels}')
+          print(f'Verified ARM64 APK identity and {len(labels)} application labels: {apks[0]}')
           PY
           "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose \
             app/build/outputs/apk/other/release/*-arm64-v8a.apk
@@ -137,6 +180,98 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_NAME: ${{ steps.versions.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+          from urllib.parse import quote
+
+          repository = os.environ['GITHUB_REPOSITORY']
+          commit = os.environ['GITHUB_SHA']
+          version = os.environ['VERSION_NAME']
+          properties = dict(
+              line.strip().split('=', 1)
+              for line in Path('version.properties').read_text().splitlines()
+              if line.strip() and not line.lstrip().startswith('#') and '=' in line
+          )
+          if version != properties['VERSION_NAME']:
+              raise SystemExit('Release tag must exactly match VERSION_NAME in version.properties')
+          ref = f'refs/tags/{version}'
+          encoded_version = quote(version, safe='')
+
+          def api(path, *arguments):
+              return json.loads(subprocess.check_output(
+                  ['gh', 'api', f'repos/{repository}/{path}', *arguments], text=True
+              ))
+
+          def find_tag():
+              refs = api(f'git/matching-refs/tags/{encoded_version}')
+              return next((entry for entry in refs if entry['ref'] == ref), None)
+
+          tag = find_tag()
+          if tag is None:
+              try:
+                  api('git/refs', '--method', 'POST', '-f', f'ref={ref}', '-f', f'sha={commit}')
+              except subprocess.CalledProcessError:
+                  # Another run may have created this tag in the meantime.
+                  if find_tag() is None:
+                      raise
+              tag = find_tag()
+          if tag is None:
+              raise SystemExit(f'Cannot read release tag after creation: {ref}')
+          target = tag['object']
+          while target['type'] == 'tag':
+              target = api(f"git/tags/{target['sha']}")['object']
+          if target['type'] != 'commit' or target['sha'] != commit:
+              raise SystemExit(
+                  f'Refusing to publish: {ref} points to {target["sha"]}, expected {commit}. '
+                  'Existing release tags are never moved.'
+              )
+
+          apk = Path('app/build/outputs/apk/other/release') / f'B-box-{version}-arm64-v8a.apk'
+          metadata = apk.parent / 'B-box-version-metadata.json'
+          metadata.write_text(json.dumps({
+              'version_code': int(properties['VERSION_CODE']),
+              'version_name': version,
+              'application_id': 'io.ericlee.sfa.mod',
+          }, indent=2) + '\n')
+          prerelease = bool(re.search(r'(alpha|beta|rc)', version, re.IGNORECASE))
+          release_options = [
+              '--repo', repository,
+              '--title', f'B-box {version}',
+              f'--prerelease={str(prerelease).lower()}',
+              f'--latest={str(not prerelease).lower()}',
+          ]
+          existing = subprocess.run(
+              ['gh', 'release', 'view', version, '--repo', repository, '--json', 'tagName'],
+              capture_output=True, text=True
+          )
+          if existing.returncode == 0:
+              subprocess.run(
+                  ['gh', 'release', 'upload', version, str(apk), str(metadata),
+                   '--repo', repository, '--clobber'],
+                  check=True
+              )
+              subprocess.run(
+                  ['gh', 'release', 'edit', version, '--draft=false', *release_options], check=True
+              )
+          else:
+              subprocess.run(
+                  ['gh', 'release', 'create', version, str(apk), str(metadata),
+                   '--verify-tag', '--target', commit,
+                   '--notes', f'Signed ARM64 APK built from {commit}.', *release_options],
+                  check=True
+              )
+          print(f'Published {version} from {commit}: {apk.name}')
+          PY
 
       - name: Remove signing key
         if: always()

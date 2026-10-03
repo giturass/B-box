@@ -11,6 +11,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import io.nekohasekai.sfa.Application
+import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.MainActivity
 import io.nekohasekai.sfa.compose.screen.tools.TaildropSendManager
@@ -129,7 +130,7 @@ class TaildropSendService : Service() {
     }
 
     companion object {
-        const val ACTION_STOP = "io.nekohasekai.sfa.action.TAILDROP_SEND_STOP"
+        const val ACTION_STOP = BuildConfig.APPLICATION_ID + ".action.TAILDROP_SEND_STOP"
         private const val NOTIFICATION_ID = 3
         private const val NOTIFICATION_CHANNEL = "taildrop"
 

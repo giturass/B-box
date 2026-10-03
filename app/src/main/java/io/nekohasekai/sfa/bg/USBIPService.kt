@@ -18,6 +18,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import io.nekohasekai.sfa.Application
+import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.MainActivity
 import io.nekohasekai.sfa.usbip.USBIPManager
@@ -135,7 +136,7 @@ class USBIPService : Service() {
     }
 
     companion object {
-        const val ACTION_STOP = "io.nekohasekai.sfa.action.USBIP_STOP"
+        const val ACTION_STOP = BuildConfig.APPLICATION_ID + ".action.USBIP_STOP"
         private const val NOTIFICATION_ID = 2
         private const val NOTIFICATION_CHANNEL = "usbip"
 

@@ -14,9 +14,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
+import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.usbip.USBIPManager
 
-private const val ACTION_USB_PERMISSION = "io.nekohasekai.sfa.action.USB_PERMISSION"
+private const val ACTION_USB_PERMISSION = BuildConfig.APPLICATION_ID + ".action.USB_PERMISSION"
 
 @Composable
 fun rememberUsbAttacher(serverTag: String): (UsbDevice) -> Unit {
