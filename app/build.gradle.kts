@@ -73,7 +73,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.ericlee.sfa.mod"
+        applicationId = "io.ericlee.bfa"
         minSdk = 24
         targetSdk = 37
         versionCode = getVersionProps("VERSION_CODE").toInt()

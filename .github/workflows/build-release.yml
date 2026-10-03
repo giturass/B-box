@@ -151,7 +151,7 @@ jobs:
           )
           package = dict(re.findall(r"(\w+)='([^']*)'", package_line))
           expected_package = {
-              'name': 'io.ericlee.sfa.mod',
+              'name': 'io.ericlee.bfa',
               'versionName': properties['VERSION_NAME'],
               'versionCode': properties['VERSION_CODE'],
           }
@@ -241,7 +241,7 @@ jobs:
           metadata.write_text(json.dumps({
               'version_code': int(properties['VERSION_CODE']),
               'version_name': version,
-              'application_id': 'io.ericlee.sfa.mod',
+              'application_id': 'io.ericlee.bfa',
           }, indent=2) + '\n')
           prerelease = bool(re.search(r'(alpha|beta|rc)', version, re.IGNORECASE))
           release_options = [

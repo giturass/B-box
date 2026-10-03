@@ -9,7 +9,7 @@
 | 上游 | https://github.com/SagerNet/sing-box-for-android ，`dev` 分支 |
 | 比较基线 | `5c7b4ce969b926063737d059edf7b256c8f56ed0` |
 | 版本 / versionCode | `1.15.0-alpha.10` / `742` |
-| 安装包名 / applicationId | `io.ericlee.sfa.mod` |
+| 安装包名 / applicationId | `io.ericlee.bfa` |
 | 源码 namespace | `io.nekohasekai.sfa` |
 | 更新日期 | 2026-10-03 |
 
@@ -84,7 +84,7 @@
 - README 标题、应用所有现有语言资源的 `app_name` 使用 `B-box`。
 - Gradle 根项目名和 APK 名称前缀使用 `B-box`。
 - 应用图标使用用户提供的 `/sdcard/bbox.png`，原图保存为 `artwork/bbox.png`。执行 `java tools/GenerateLauncherIcons.java` 可重建五种密度的普通/圆形启动器图标、自适应前景、主题单色图标及通知图标；自适应前景使用 108dp 画布中央 72dp 区域、白色背景，避免图案被系统遮罩裁切。
-- 安装包名按用户要求改为 `io.ericlee.sfa.mod`；保留 `io.nekohasekai.sfa` namespace、上游版本号与源码包路径。新包可与原包并行安装，应用私有数据独立，旧包配置需通过导出/导入迁移，详见 MOD-009。
+- 安装包名按用户要求改为 `io.ericlee.bfa`；保留 `io.nekohasekai.sfa` namespace、上游版本号与源码包路径。新包可与原包并行安装，应用私有数据独立，旧包配置需通过导出/导入迁移，详见 MOD-009。
 - 保留 `LICENSE` 和 README 原有版权/许可文本，明确非官方分支；维护者发布前应阅读其中名称与关联声明。本文不替换原许可，也不将其简化为另一份授权。
 
 **回归：** 五个现有 locale 的应用标签一致；安装器/启动器显示新名称；APK 文件名使用新前缀；安装身份与组件标识按 MOD-009 核验。
@@ -154,7 +154,7 @@
 
 ## MOD-009：独立安装身份与更新
 
-- `applicationId` 为 `io.ericlee.sfa.mod`；`namespace`、Kotlin/Java 包、AIDL 描述符、Xposed 入口类及 RootServer 反射类名保留 `io.nekohasekai.sfa`，确保已声明组件可加载。
+- `applicationId` 为 `io.ericlee.bfa`；`namespace`、Kotlin/Java 包、AIDL 描述符、Xposed 入口类及 RootServer 反射类名保留 `io.nekohasekai.sfa`，确保已声明组件可加载。
 - Provider authorities 使用 `${applicationId}`；服务控制、USB 权限、USBIP/Taildrop 停止与安装回执广播改由 `BuildConfig.APPLICATION_ID` 派生，Manifest 回执 action 同步使用占位符。文件分享 URI、显式服务 Intent、自身包过滤和 Xposed 调用者校验继续使用应用运行时包名。
 - GitHub 更新源使用 `giturass/sing-box-mod` 的 Releases，读取 `B-box-version-metadata.json` 中的 `version_code`，匹配当前版本的 B-box ARM64 APK。发布范围为 Android 7.0+ 的 `other` / ARM64；无兼容资产时不提供下载，避免把 Release 网页或官方 SFA 包当作更新。稳定/预发布通道沿用现有设置，F-Droid 源仍按当前包名查询。
 - 新旧包可并行安装，但私有配置与数据不会自动迁移。系统级 Xposed hook 的 Binder 协议及 `/data/system/sing-box/privilege_settings.conf` 仍继承上游；两个系统模块不保证同时启用时互不影响。
