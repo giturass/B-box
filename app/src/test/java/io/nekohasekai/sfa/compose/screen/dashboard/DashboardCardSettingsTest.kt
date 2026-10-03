@@ -58,12 +58,30 @@ class DashboardCardSettingsTest {
     }
 
     @Test
-    fun hiddenOrSeparatedCardsRemainFullWidth() {
+    fun separatedStatisticsCardsPairAtTheirFirstPosition() {
+        for (pair in listOf(listOf(CardGroup.Traffic, CardGroup.Debug), listOf(CardGroup.Debug, CardGroup.Traffic))) {
+            val order = listOf(CardGroup.SystemProxy, pair[0], CardGroup.Profiles, pair[1], CardGroup.ClashMode)
+            assertEquals(
+                listOf(
+                    CardRenderItem(listOf(CardGroup.SystemProxy), false),
+                    CardRenderItem(pair, true),
+                    CardRenderItem(listOf(CardGroup.Profiles), false),
+                    CardRenderItem(listOf(CardGroup.ClashMode), false),
+                ),
+                processCardsForRendering(order, order.toSet()),
+            )
+        }
+    }
+
+    @Test
+    fun hidingEitherStatisticsCardLeavesTheOtherFullWidth() {
         val order = listOf(CardGroup.Traffic, CardGroup.Profiles, CardGroup.Debug)
-        assertTrue(processCardsForRendering(order, order.toSet()).none { it.isRow })
-        assertEquals(
-            listOf(CardRenderItem(listOf(CardGroup.Traffic), false)),
-            processCardsForRendering(defaultDashboardCardOrder, setOf(CardGroup.Traffic)),
-        )
+        for (hidden in listOf(CardGroup.Traffic, CardGroup.Debug)) {
+            val visible = order.filter { it != hidden }
+            assertEquals(
+                visible.map { CardRenderItem(listOf(it), false) },
+                processCardsForRendering(order, visible.toSet()),
+            )
+        }
     }
 }

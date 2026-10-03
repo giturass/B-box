@@ -143,14 +143,14 @@
 
 - 上传、下载两张卡片合并为单张“流量统计”，只显示核心提供的累计上传量 `uplinkTotal`、累计下载量 `downlinkTotal`；不显示实时网速和折线图，删除仪表盘专用速率/历史序列状态及更新计算。数值沿用当前核心会话统计，未增加跨会话累计或计费周期。
 - 沿用其他卡片的 Material 3 `Card`、主题颜色和形状；16dp 内边距、20dp 主题色图标、加粗 `titleMedium` 标题、标题下 12dp 间距，数据行使用 `bodyMedium` 标签和 `bodyLarge` 数值，两行间隔 8dp。
-- `CardGroup.Traffic` 与 `Debug` 属于 `CardPairGroup.Statistics`，默认相邻并排、等宽等高，间隔 16dp。遵循原有排序：相邻可配对，隐藏一张或移到不相邻位置时单张占满宽度。扣除左右各 16dp 内边距后，可用宽度不足 360dp 或字体缩放超过 1.3 时使用单列，拆开的卡片仍保持 16dp 间距，避免文字拥挤。
+- `CardGroup.Traffic` 与 `Debug` 属于 `CardPairGroup.Statistics`，两张卡同时可见时固定同行并排、等宽等高，间隔 16dp，窄屏和大字体也保持双列。两者在保存的排序中不相邻时，合并到先出现的卡片位置，保留两者的左右顺序及其他卡片的相对顺序；仅显示一张时，该卡片占满整行。
 - 仪表项设置只保留一个“流量统计”入口；默认顺序集中定义于 `DashboardCardSettings.kt`，重置与首次加载一致。
 
 **设置兼容：** 旧 `UploadTraffic` / `DownloadTraffic` 在顺序中映射为 `Traffic`，取首次出现位置并去重，保留其他卡片顺序。旧两张流量卡片都隐藏时才隐藏新卡片；只隐藏其中一张时继续显示统计。新 `Traffic` 隐藏设置正常保存/恢复，未知卡片和已删除的 `Connections` 被忽略，`Profiles` 始终可见。无需数据库迁移。
 
 **维护约束：** 保留本地/远程数据来源和服务停止时的原有清零行为；连接列表、通知及 Tailscale 工具的速率/图表不属于本项，不得误删共享 `LineChart`。
 
-**回归：** 升级旧排序与隐藏项、重复/未知名称、重置、拖动、单独隐藏/显示、远程会话、停止/重启；普通宽度并排、窄屏/大字体单列、深浅主题。`DashboardCardSettingsTest` 覆盖设置兼容与配对规则。
+**回归：** 升级旧排序与隐藏项、重复/未知名称、重置、拖动、单独隐藏/显示、远程会话、停止/重启；普通宽度、窄屏及大字体下同时开启两卡均同行并排；深浅主题。`DashboardCardSettingsTest` 覆盖设置兼容、相邻/分隔排序的双向配对及仅显示一张时占满整行的规则。
 
 ## MOD-009：独立安装身份与更新
 
@@ -181,4 +181,5 @@
 - 2026-10-03 上游同步与新包发布：[Actions 37099085549](https://github.com/giturass/sing-box-mod/actions/runs/37099085549) 成功，构建提交 `f3a60033d1bd904a7cef0bfb2fb5819e88c93c8a`。`testOtherDebugUnitTest`（设置兼容、卡片配对及 GitHub 更新资产筛选）、R8、Release Lint Vital、ARM64 Release 构建、产物身份与签名检查全部通过。Release 在 GitHub Actions 构建；本地仅完成 8 个修改 Kotlin 文件的定向 Spotless 检查（均 `IS CLEAN`）及工作流 actionlint 检查。
 - [Release `1.15.0-alpha.10`](https://github.com/giturass/sing-box-mod/releases/tag/1.15.0-alpha.10) 已发布为预发布，tag 与应用版本完全一致，指向上述构建提交。附件包含 `B-box-1.15.0-alpha.10-arm64-v8a.apk` 和 `B-box-version-metadata.json`；元数据为包名 `io.ericlee.bfa`、版本 `1.15.0-alpha.10`、versionCode `742`。
 - 下载产物复核通过：APK 36,171,175 字节，SHA-256 `9095e366693e27ffe24b4c9f0e133dfd42ba22f2dc313e21982bb5f07a1ad219`，与 Release 附件 digest 一致；包名 `io.ericlee.bfa`、90 个应用标签均为 `B-box`、仅 ARM64、内嵌核心 `1.15.0-alpha.10`、APK v2 签名验证通过。CI 核心从 `SagerNet/sing-box` 的 `v1.15.0-alpha.10`（`c992297988288565a24a6d36e2cf4d77cb835fcd`）构建。
+- 2026-10-03 配对规则修正：流量统计与调试卡片同时可见时始终同行，包括窄屏、大字体及不相邻排序。Debug 编译和 `testOtherDebugUnitTest` 通过（9 项仪表盘测试、5 项更新检查测试），两个修改 Kotlin 文件定向 Spotless 检查均为 `IS CLEAN`。此修正尚未包含在上述 `1.15.0-alpha.10` Release 中。
 - 尚未完成本次 UI 的实机点击、深浅主题、大字体或截图回归。

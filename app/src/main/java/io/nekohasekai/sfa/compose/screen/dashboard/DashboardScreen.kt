@@ -2,7 +2,6 @@ package io.nekohasekai.sfa.compose.screen.dashboard
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -37,7 +36,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -142,12 +140,9 @@ fun DashboardScreen(
 
     val scaffoldPadding = LocalScaffoldPadding.current
 
-    val fontScale = LocalDensity.current.fontScale
-    BoxWithConstraints(
+    Box(
         modifier = Modifier.fillMaxSize().padding(scaffoldPadding),
     ) {
-        val cardAreaWidth = maxWidth - 32.dp
-        val pairCards = cardAreaWidth >= 360.dp && fontScale <= 1.3f
         val bottomPadding = when {
             showStartFab -> 88.dp
             showStatusBar -> 88.dp
@@ -191,7 +186,7 @@ fun DashboardScreen(
                 )
 
             items(cardRenderItems) { renderItem ->
-                if (pairCards && renderItem.isRow && renderItem.cards.size >= 2) {
+                if (renderItem.isRow && renderItem.cards.size >= 2) {
                     // Render two half-width cards in a row
                     Row(
                         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
@@ -275,29 +270,31 @@ fun DashboardScreen(
 }
 
 /**
- * Process cards for rendering, grouping consecutive cards of the same pair group into rows
+ * Group visible cards of the same pair group into a row at their first saved position.
  */
 fun processCardsForRendering(
     cardOrder: List<CardGroup>,
     visibleCards: Set<CardGroup>,
 ): List<CardRenderItem> {
     val renderItems = mutableListOf<CardRenderItem>()
-    val visibleOrderedCards = cardOrder.filter { visibleCards.contains(it) }
+    val remainingCards = cardOrder.filter { visibleCards.contains(it) }.toMutableList()
 
-    var i = 0
-    while (i < visibleOrderedCards.size) {
-        val currentCard = visibleOrderedCards[i]
+    while (remainingCards.isNotEmpty()) {
+        val currentCard = remainingCards.removeAt(0)
         val pairGroup = currentCard.pairGroup
-        val nextCard = visibleOrderedCards.getOrNull(i + 1)
+        val partnerIndex = if (pairGroup != null) {
+            remainingCards.indexOfFirst { it.pairGroup == pairGroup }
+        } else {
+            -1
+        }
 
-        if (pairGroup != null && nextCard?.pairGroup == pairGroup) {
+        if (partnerIndex >= 0) {
             renderItems.add(
                 CardRenderItem(
-                    cards = listOf(currentCard, nextCard),
+                    cards = listOf(currentCard, remainingCards.removeAt(partnerIndex)),
                     isRow = true,
                 ),
             )
-            i += 2
             continue
         }
 
@@ -307,7 +304,6 @@ fun processCardsForRendering(
                 isRow = false,
             ),
         )
-        i++
     }
 
     return renderItems
