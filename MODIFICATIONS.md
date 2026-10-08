@@ -182,7 +182,7 @@
 
 ## MOD-012：节点卡片尺寸与选中态
 
-- 节点采用双列布局、12dp 圆角与分组底板；每张卡片最小高度 76dp，上下内边距 14dp，两行间距 6dp。名称使用 16sp 的 `bodyLarge`，类型与延迟使用 12sp 的 `labelMedium`；大字体下卡片可自然增高。
+- 节点采用双列布局、12dp 圆角与分组底板；每张卡片最小高度 68dp，上下内边距 11dp，两行间距 6dp。名称使用 16sp 的 `bodyLarge`，类型与延迟使用 12sp 的 `labelMedium`；大字体下卡片可自然增高。
 - 浅色选中背景由 `primaryContainer` 向 `primary` 混合 20%，深色使用 `primaryContainer`，选中卡片增加 1dp 主色描边。根据当前主题的 `surface` 亮度判断浅深色，使用主题色以适配动态配色。
 - 浅色选中的测速文字向 `onPrimaryContainer` 混合 35%，加深文字并保留延迟等级的色相；类型文字使用 80% 不透明度的选中文字色。名称、类型与延迟均为单行省略，延迟最多占详情行可用宽度的 60%，为类型预留空间。
 
@@ -216,4 +216,5 @@
 - 2026-10-08 双列节点与模块移除：当时完成 FlClash 风格双列节点与 MOD-011 的源码修改。18 个修改的 Kotlin/Gradle 文件通过可用 Kotlin 2.2.20 PSI 语法解析；6 个修改 XML 解析、资源重名、全部本地字符串引用、已删除类型引用及差异格式检查通过。构建命令 `sh gradlew :app:compileOtherDebugKotlin :app:testOtherDebugUnitTest -Parm64Only=true --offline --no-daemon --console=plain` 在启动时因未配置 `JAVA_HOME` 且 PATH 中没有 `java` 而失败；PSI 检查借用已有 JDK，仅验证语法，不等同项目 Kotlin 2.4.10 的 Android 编译。未生成 APK，完整编译、单元测试、预览渲染与实机交互尚未验证。
 - 2026-10-08 FlClash 节点卡片样式回退：`GroupsCard.kt` 恢复为 `9cbde5b` 版本（与 `81a1e79` 文件内容完全一致），撤销 MOD-010；MOD-011 的 Xposed/LSPosed 移除继续有效。README 与修改索引已同步，文件内容与回退范围核对、`git diff --check` 通过。本次未重新编译或进行实机验证。
 - 2026-10-08 节点尺寸与选中态：完成 MOD-012，回退后的节点卡片适度增大，并加深浅色选中背景。变更范围审查与 `git diff --check` 通过。尝试 `sh gradlew :app:compileOtherDebugKotlin -Parm64Only=true --offline --no-daemon --console=plain`，因未配置 `JAVA_HOME` 且 PATH 中没有 `java` 而无法启动；本次未完成 Android 编译或实机验证。
+- 2026-10-08 节点卡片高度微调：最小高度调为 68dp，上下内边距调为 11dp，以匹配默认字号下的内容高度。`git diff --check` 通过，本次未重新编译或实机验证。
 - MOD-008 配对修正尚待实机点击、深浅主题、大字体及截图回归。

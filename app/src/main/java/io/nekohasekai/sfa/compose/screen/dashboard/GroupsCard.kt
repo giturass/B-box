@@ -586,7 +586,7 @@ private fun ProxyChip(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .heightIn(min = 76.dp)
+                .heightIn(min = 68.dp)
                 .clip(chipShape)
                 .combinedClickable(
                     onClick = { if (isSelectable) onClick() },
@@ -602,7 +602,7 @@ private fun ProxyChip(
             border = if (isSelected) BorderStroke(1.dp, colors.primary) else null,
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
