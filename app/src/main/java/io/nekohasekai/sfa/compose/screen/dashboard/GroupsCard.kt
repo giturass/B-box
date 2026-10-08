@@ -1,6 +1,5 @@
 package io.nekohasekai.sfa.compose.screen.dashboard
 
-import android.content.res.Configuration
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -8,6 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -58,18 +58,16 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
@@ -82,7 +80,6 @@ import io.nekohasekai.sfa.compose.model.Group
 import io.nekohasekai.sfa.compose.model.GroupItem
 import io.nekohasekai.sfa.compose.screen.dashboard.groups.GroupsUiState
 import io.nekohasekai.sfa.compose.screen.dashboard.groups.GroupsViewModel
-import io.nekohasekai.sfa.compose.theme.Theme
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.compose.util.rememberSheetDismissFromContentOnlyIfGestureStartedAtTopModifier
@@ -322,7 +319,6 @@ private fun GroupsCardContent(
     }
 }
 
-private val GroupCardShape = RoundedCornerShape(16.dp)
 private val GroupCardTopShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
 private val GroupCardBottomShape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
 
@@ -343,7 +339,7 @@ private data class UrlTestPalette(
 
 @Composable
 private fun rememberUrlTestPalette(): UrlTestPalette {
-    val darkTheme = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val darkTheme = isSystemInDarkTheme()
     val neutral = MaterialTheme.colorScheme.onSurface.copy(alpha = if (darkTheme) 0.09f else 0.07f)
     return remember(darkTheme, neutral) {
         if (darkTheme) {
@@ -379,7 +375,7 @@ private fun GroupHeader(
         modifier =
         modifier
             .fillMaxWidth(),
-        shape = if (isExpanded) GroupCardShape else GroupCardTopShape,
+        shape = GroupCardTopShape,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Row(
@@ -531,33 +527,45 @@ private fun GroupItemRow(
     onItemUrlTest: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Surface(
         modifier =
         modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp, bottom = if (isLast) 16.dp else 0.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(bottom = if (isLast) 12.dp else 0.dp)
+            .fillMaxWidth(),
+        shape = if (isLast) GroupCardBottomShape else RectangleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        row.forEach { item ->
-            ProxyNodeCard(
-                item = item,
-                isSelected = item.tag == selectedTag,
-                isSelectable = isSelectable,
-                palette = palette,
-                onClick = { onItemSelected(item.tag) },
-                onUrlTest = { onItemUrlTest(item.tag) },
-                modifier = Modifier.weight(1f),
-            )
-        }
-        repeat(2 - row.size) {
-            Spacer(modifier = Modifier.weight(1f))
+        Row(
+            modifier =
+            Modifier.padding(
+                start = 16.dp,
+                end = 16.dp,
+                top = 5.dp,
+                bottom = if (isLast) 16.dp else 5.dp,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            row.forEach { item ->
+                ProxyChip(
+                    item = item,
+                    isSelected = item.tag == selectedTag,
+                    isSelectable = isSelectable,
+                    palette = palette,
+                    onClick = { onItemSelected(item.tag) },
+                    onUrlTest = { onItemUrlTest(item.tag) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            repeat(2 - row.size) {
+                Spacer(modifier = Modifier.weight(1f))
+            }
         }
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ProxyNodeCard(
+private fun ProxyChip(
     item: GroupItem,
     isSelected: Boolean,
     isSelectable: Boolean,
@@ -566,39 +574,41 @@ private fun ProxyNodeCard(
     onUrlTest: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showContextMenu by remember(item.tag) { mutableStateOf(false) }
+    var showContextMenu by remember { mutableStateOf(false) }
+    val chipShape = RoundedCornerShape(12.dp)
     val colors = MaterialTheme.colorScheme
-    val contentColor = if (isSelected) colors.onSecondaryContainer else colors.onSurface
-    val detailColor = if (isSelected) colors.onSecondaryContainer.copy(alpha = 0.8f) else colors.onSurfaceVariant
-
-    // Adapt FlClash's compact ProxyCard: one name line above the protocol and delay.
+    val isLightTheme = colors.surface.luminance() > 0.5f
+    val contentColor = if (isSelected) colors.onPrimaryContainer else colors.onSurface
     BoxWithConstraints(modifier = modifier) {
-        // Reserve room for the protocol even with large fonts or a long delay value.
-        val maxDelayWidth = maxOf(0.dp, (maxWidth - 24.dp) * 0.6f)
+        // Keep room for the protocol beside the delay, including with large fonts.
+        val maxDelayWidth = maxOf(0.dp, (maxWidth - 24.dp - 6.dp) * 0.6f)
         Surface(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .heightIn(min = 64.dp)
-                .clip(GroupCardShape)
+                .heightIn(min = 76.dp)
+                .clip(chipShape)
                 .combinedClickable(
                     onClick = { if (isSelectable) onClick() },
                     onLongClick = { showContextMenu = true },
-                    role = if (isSelectable) Role.RadioButton else null,
-                )
-                .semantics { selected = isSelected },
-            shape = GroupCardShape,
-            color = if (isSelected) colors.secondaryContainer else colors.surfaceContainerLow,
+                ),
+            shape = chipShape,
+            color = when {
+                !isSelected -> colors.surface
+                isLightTheme -> lerp(colors.primaryContainer, colors.primary, 0.2f)
+                else -> colors.primaryContainer
+            },
             contentColor = contentColor,
-            border = BorderStroke(1.dp, if (isSelected) colors.primary else colors.surfaceContainerHighest),
+            border = if (isSelected) BorderStroke(1.dp, colors.primary) else null,
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
                     text = item.tag,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
                     color = contentColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -611,19 +621,31 @@ private fun ProxyNodeCard(
                     Text(
                         text = item.displayType,
                         modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = detailColor,
+                        style = MaterialTheme.typography.labelMedium,
+                        color =
+                        if (isSelected) {
+                            contentColor.copy(alpha = 0.8f)
+                        } else {
+                            colors.onSurfaceVariant
+                        },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        text = if (item.urlTestDelay > 0) "${item.urlTestDelay} ms" else "—",
-                        modifier = Modifier.widthIn(max = maxDelayWidth),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (item.urlTestDelay > 0) palette.forDelay(item.urlTestDelay) else detailColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    if (item.urlTestDelay > 0) {
+                        Text(
+                            text = "${item.urlTestDelay}ms",
+                            modifier = Modifier.widthIn(max = maxDelayWidth),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isSelected && isLightTheme) {
+                                lerp(palette.forDelay(item.urlTestDelay), contentColor, 0.35f)
+                            } else {
+                                palette.forDelay(item.urlTestDelay)
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
@@ -645,39 +667,6 @@ private fun ProxyNodeCard(
                         onUrlTest()
                     },
                 )
-            }
-        }
-    }
-}
-
-@Preview(name = "Proxy cards · light", widthDp = 360, showBackground = true, locale = "zh")
-@Preview(name = "Proxy cards · dark", widthDp = 360, uiMode = Configuration.UI_MODE_NIGHT_YES, showBackground = true, locale = "zh")
-@Preview(name = "Proxy cards · narrow large type", widthDp = 320, fontScale = 2f, showBackground = true, locale = "zh")
-@Composable
-private fun ProxyNodeCardsPreview() {
-    Theme(dynamicColor = false) {
-        val items = listOf(
-            GroupItem("🇯🇵 日本东京 · 高速专线 · 很长的节点名称", "shadowsocks", "Shadowsocks", 1, 48),
-            GroupItem("🇭🇰 香港", "hysteria2", "Hysteria2", 1, 2380),
-            GroupItem("🇸🇬 新加坡", "vless", "VLESS", 0, 0),
-            GroupItem("🇺🇸 Los Angeles", "shadowsocks", "Shadowsocks", 1, 65535),
-            GroupItem("🇩🇪 Frankfurt", "trojan", "Trojan", 1, 99),
-        )
-        val rows = items.chunked(2)
-        val palette = rememberUrlTestPalette()
-        Surface {
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                rows.forEachIndexed { index, row ->
-                    GroupItemRow(
-                        row = row,
-                        selectedTag = items.first().tag,
-                        isSelectable = true,
-                        isLast = index == rows.lastIndex,
-                        palette = palette,
-                        onItemSelected = {},
-                        onItemUrlTest = {},
-                    )
-                }
             }
         }
     }
