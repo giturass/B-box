@@ -15,7 +15,7 @@
 | 源码 namespace | `io.nekohasekai.sfa` |
 | 更新日期 | 2026-10-08 |
 
-本文只描述当前有效改动；已撤回的外观方案和逐次构建流水记录已移除。协议、路由、VPN、远程控制、配置导入导出及特权能力继承上游。核心 AAR 不在 Git 中，本地构建与 CI 核心来源应分别核验。
+本文描述当前有效改动，历史验证记录仅对应各自源码版本。协议、路由、VPN、远程控制、配置导入导出及普通 Root/Shizuku 能力继承上游；Xposed/LSPosed 模块与特权增强已按 MOD-011 移除。核心 AAR 不在 Git 中，本地构建与 CI 核心来源应分别核验。
 
 ## 修改索引
 
@@ -32,6 +32,8 @@
 | MOD-007 | FlClash 风格服务按钮 | `compose/component/ServiceStartButton.kt`、`ServiceStatusBar.kt` |
 | MOD-008 | 合并流量统计并与调试卡片配对 | `TrafficCard.kt`、`DashboardCardSettings.kt`、仪表盘渲染与设置 |
 | MOD-009 | 独立安装包名与分支更新源 | `app/build.gradle.kts`、Manifest、服务/安装广播、`GitHubUpdateChecker.kt` |
+| MOD-010 | FlClash 风格双列节点小卡片 | `compose/screen/dashboard/GroupsCard.kt` |
+| MOD-011 | 移除 Xposed/LSPosed 与特权增强 | Manifest、Gradle、设置与导航、模块源码/资源、安装与应用查询 |
 
 
 ## MOD-001：仪表盘底部控制
@@ -161,17 +163,39 @@
 
 ## MOD-009：独立安装身份与更新
 
-- `applicationId` 为 `io.ericlee.bfa`；`namespace`、Kotlin/Java 包、AIDL 描述符、Xposed 入口类及 RootServer 反射类名保留 `io.nekohasekai.sfa`，确保已声明组件可加载。
-- Provider authorities 使用 `${applicationId}`；服务控制、USB 权限、USBIP/Taildrop 停止与安装回执广播改由 `BuildConfig.APPLICATION_ID` 派生，Manifest 回执 action 同步使用占位符。文件分享 URI、显式服务 Intent、自身包过滤和 Xposed 调用者校验继续使用应用运行时包名。
+- `applicationId` 为 `io.ericlee.bfa`；`namespace`、Kotlin/Java 包、AIDL 描述符及 RootServer 反射类名保留 `io.nekohasekai.sfa`，确保已声明组件可加载。
+- Provider authorities 使用 `${applicationId}`；服务控制、USB 权限、USBIP/Taildrop 停止与安装回执广播改由 `BuildConfig.APPLICATION_ID` 派生，Manifest 回执 action 同步使用占位符。文件分享 URI、显式服务 Intent、自身包过滤继续使用应用运行时包名。
 - GitHub 更新源使用 `giturass/B-box` 的 Releases，读取 `B-box-version-metadata.json` 中的 `version_code`，匹配当前版本的 B-box ARM64 APK。发布范围为 Android 7.0+ 的 `other` / ARM64；无兼容资产时不提供下载，避免把 Release 网页或官方 SFA 包当作更新。稳定/预发布通道沿用现有设置，F-Droid 源仍按当前包名查询。
-- 新旧包可并行安装，但私有配置与数据不会自动迁移。系统级 Xposed hook 的 Binder 协议及 `/data/system/sing-box/privilege_settings.conf` 仍继承上游；两个系统模块不保证同时启用时互不影响。
+- 新旧包可并行安装，但私有配置与数据不会自动迁移。
 
-**回归：** 新旧包安装共存；启动 Activity、VPN 授权、通知停止、USB 授权、文件分享、安装回执及 Xposed 自识别；稳定/预发布检查、无匹配架构、版本元数据与升级安装。`GitHubUpdateCheckerTest` 覆盖 B-box 资产筛选、版本标签及架构/flavor/API 兼容性。
+**回归：** 新旧包安装共存；启动 Activity、VPN 授权、通知停止、USB 授权、文件分享及安装回执；稳定/预发布检查、无匹配架构、版本元数据与升级安装。`GitHubUpdateCheckerTest` 覆盖 B-box 资产筛选、版本标签及架构/flavor/API 兼容性。
+
+## MOD-010：FlClash 风格双列节点小卡片
+
+**来源：** 参考 [FlClash `c7be7023d33615cb624148d41414f80a7d96cede`](https://github.com/chen08209/FlClash/tree/c7be7023d33615cb624148d41414f80a7d96cede) 的 [`lib/views/proxies/card.dart`](https://github.com/chen08209/FlClash/blob/c7be7023d33615cb624148d41414f80a7d96cede/lib/views/proxies/card.dart)、`common.dart`、`list.dart` 与 `lib/widgets/card.dart`；沿用 MOD-007 的许可说明，使用原生 Compose 实现。
+
+**当前行为：**
+
+- 节点固定两列等宽，改为独立小卡片，移除节点行外层底板和重复的左右内边距，横纵间距均为 8dp。卡片使用 16dp 圆角、1dp 描边及 64dp 最小高度，奇数末项保持半行宽度。
+- 节点名在上方单行省略，类型与延迟在下方左右排列；长名称、长类型受宽度约束。节点选中使用主题主色描边及 `secondaryContainer` 背景，支持深浅主题和动态配色。
+- 保留分组折叠、折叠点阵、批量测速、节点选择、长按测速菜单、本地/远程命令及关闭连接提示；卡片随字体增大自然增高。
+
+**回归：** 320/360dp 窄屏、大字体、长名称/类型、奇数节点、测速状态、选中切换、自动选择分组、折叠展开、底部弹层与远程会话。预览声明不等于实际渲染或实机验证。
+
+## MOD-011：移除 Xposed/LSPosed 与特权增强
+
+- 删除 Xposed/LSPosed API、模块入口与 Hook、服务 Provider/AIDL、`META-INF/xposed` 注册资源及 vendored `libxposed-api`；删除对应 Gradle 子项目、仓库、依赖与专用 Lint 忽略规则。
+- 设置页移除“特权增强”，删除管理、检测与 Hook 日志页面、三条导航路由、Manifest 模块入口、启动注册、状态轮询和更新重启通知。
+- 删除四个专用设置属性/键及五种语言的专用字符串。原有日志空状态译文迁为通用 `log_no_logs`。旧 DataStore 键值不再读取，不新增数据库迁移或清空其他设置。
+- 安装和应用查询移除模块激活时的强制 Root 分支，继续使用用户的普通安装、Root、Shizuku 设置。删除模块专用调试导出及 Root AIDL 的方法编号 3，其余方法编号保持不变。
+- 保留普通 VPN、Root/Shizuku、应用查询、终端、桥接/自动重定向，以及崩溃、OOM、电量报告。
+
+**回归：** 设置与返回导航、日志空状态、安装方式切换、应用列表查询、升级旧设置；各 flavor 的编译及资源合并；确认源码、模块注册和构建依赖中不再保留已移除组件。
 
 ## 维护与上游同步
 
 1. 先读 README、本文件及适用的 AGENTS.md，检查工作树并保留未提交改动。
-2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-009。当前已合并 `upstream/dev` 的 `5c7b4ce` / `1.15.0-alpha.10`；上游改写过部分提交历史，但与前一基线 `8e42c63` 的文件内容相比仅版本号变化，已有功能无需重复移植。
+2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-011。当前已合并 `upstream/dev` 的 `5c7b4ce` / `1.15.0-alpha.10`；上游改写过部分提交历史，但与前一基线 `8e42c63` 的文件内容相比仅版本号变化，已有功能无需重复移植。
 3. 特别核对 `CardGroup` 设置兼容性、本地/远程分支、VPN 权限流程和服务状态；未授权时不改协议、包名、签名或服务生命周期。
 4. 完成必要编译、资源及受影响 UI 检查，记录实际验证范围。编译与预览声明不等于实机交互验证。
 5. 提交前审查差异，不提交密钥、密码、机器配置、SDK 或 AAR。`origin` 为个人 fork，`upstream` 为 SagerNet；仅推送授权仓库，不强推上游。
@@ -190,7 +214,8 @@
 - 上述历史产物复核通过：APK 36,171,175 字节，SHA-256 `9095e366693e27ffe24b4c9f0e133dfd42ba22f2dc313e21982bb5f07a1ad219`，与 Release 附件 digest 一致；包名 `io.ericlee.bfa`、90 个应用标签均为 `B-box`、仅 ARM64、内嵌核心 `1.15.0-alpha.10`、APK v2 签名验证通过。CI 核心从 `SagerNet/sing-box` 的 `v1.15.0-alpha.10`（`c992297988288565a24a6d36e2cf4d77cb835fcd`）构建。
 - 2026-10-03 配对规则修正：流量统计与调试卡片同时可见时始终同行，包括窄屏、大字体及不相邻排序。Debug 编译和 `testOtherDebugUnitTest` 通过（9 项仪表盘测试、5 项更新检查测试），两个修改 Kotlin 文件定向 Spotless 检查均为 `IS CLEAN`。此修正未包含在上述 `f3a6003` 历史构建产物中；当前同名 Release 状态见下方 API 复核记录。
 - 2026-10-08 GitHub API 复核：当前 `1.15.0-alpha.10` 标签指向 `81a1e79a44282ba07d5729588b10a422788cc376`，包含流量统计与调试卡片配对修正；对应 [Actions 37102809327](https://github.com/giturass/B-box/actions/runs/37102809327) 于 2026-10-03 完成且状态为 `success`。当前 Release ID 为 `402367667`，APK 为 36,171,027 字节，GitHub 返回的 SHA-256 为 `60974b9095db4e8707ea6aa6318f4ea521f4ea8f2d8457180ba2080c8d358d2f`。本次仅核对 API 元数据，未重新下载 APK 或验证签名。
-- 2026-10-08 节点卡片样式回退：`GroupsCard.kt` 已恢复到样式调整前的 `81a1e79` 版本，文件内容完全一致。已撤销节点的 1.12.23 样式定制；B-box 命名、远端地址、更新源及其他界面改动保留。本次仅核对回退范围与文件内容，未重新编译或进行实机验证。
+- 2026-10-08 节点卡片样式回退：当时 `GroupsCard.kt` 恢复到样式调整前的 `81a1e79` 版本，文件内容完全一致，撤销节点的 1.12.23 样式定制；B-box 命名、远端地址、更新源及其他界面改动保留。此次回退仅核对范围与文件内容，未重新编译或进行实机验证；随后节点样式由 MOD-010 替代。
 - 2026-10-08 项目目录更名：已确认 Git 根目录为 `~/project/B-box`，`rootProject.name` 为 `B-box`。更名前后的工作树状态和未提交差异一致，`git diff --check` 通过；未发现需要调整的源码、脚本或 IDE 目录引用。
 - 2026-10-08 远端仓库更名：GitHub 仓库及 `origin` 已统一为 `giturass/B-box`，About 简介使用 `B-box` 名称；仓库 ID `1397330945`、默认分支 `dev`、Release/附件 ID 与 digest、工作流 ID 均与更名前一致。新 Releases API 可读，旧 API 地址仍可访问同一仓库；README、本文和应用更新源均使用新地址。差异检查通过，本次未重新编译或发布 APK。
+- 2026-10-08 双列节点与模块移除：MOD-010、MOD-011 的源码修改完成。18 个修改的 Kotlin/Gradle 文件通过可用 Kotlin 2.2.20 PSI 语法解析；6 个修改 XML 解析、资源重名、全部本地字符串引用、已删除类型引用及差异格式检查通过。构建命令 `sh gradlew :app:compileOtherDebugKotlin :app:testOtherDebugUnitTest -Parm64Only=true --offline --no-daemon --console=plain` 在启动时因未配置 `JAVA_HOME` 且 PATH 中没有 `java` 而失败；PSI 检查借用已有 JDK，仅验证语法，不等同项目 Kotlin 2.4.10 的 Android 编译。未生成 APK，完整编译、单元测试、预览渲染与实机交互尚未验证。
 - MOD-008 配对修正尚待实机点击、深浅主题、大字体及截图回归。

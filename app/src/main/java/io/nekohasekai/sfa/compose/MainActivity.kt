@@ -262,9 +262,6 @@ class MainActivity :
         if (intent == null) {
             return
         }
-        if (intent.categories?.contains("de.robv.android.xposed.category.MODULE_SETTINGS") == true) {
-            pendingNavigationRoute.value = "settings/privilege"
-        }
         val uri = intent.data ?: return
         if (uri.scheme == "sing-box") {
             val target = if (uri.isOpaque) Uri.parse("sing-box://" + uri.schemeSpecificPart) else uri

@@ -13,7 +13,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Favorite
@@ -33,10 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -47,10 +43,7 @@ import androidx.navigation.NavController
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
-import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.update.UpdateState
-import io.nekohasekai.sfa.utils.HookModuleUpdateNotifier
-import io.nekohasekai.sfa.utils.HookStatusClient
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,14 +55,7 @@ fun SettingsScreen(navController: NavController) {
     }
 
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val hasUpdate by UpdateState.hasUpdate
-    val hookStatus by HookStatusClient.status.collectAsState()
-    val hasPendingPrivilegeDowngrade = HookModuleUpdateNotifier.isDowngrade(hookStatus)
-    val hasPendingPrivilegeUpdate = HookModuleUpdateNotifier.isUpgrade(hookStatus)
-    LaunchedEffect(Unit) {
-        HookStatusClient.refresh()
-    }
 
     val scaffoldPadding = LocalScaffoldPadding.current
 
@@ -208,38 +194,8 @@ fun SettingsScreen(navController: NavController) {
                     },
                     modifier =
                     Modifier
-                        .clickable { navController.navigate("settings/remote_control") },
-                    colors =
-                    ListItemDefaults.colors(
-                        containerColor = Color.Transparent,
-                    ),
-                )
-
-                ListItem(
-                    headlineContent = {
-                        Text(
-                            stringResource(R.string.privilege_settings),
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                    },
-                    leadingContent = {
-                        Icon(
-                            imageVector = Icons.Outlined.AdminPanelSettings,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    },
-                    trailingContent = {
-                        if (hasPendingPrivilegeDowngrade) {
-                            Badge(containerColor = MaterialTheme.colorScheme.error)
-                        } else if (hasPendingPrivilegeUpdate) {
-                            Badge(containerColor = Color(0xFFFFC107))
-                        }
-                    },
-                    modifier =
-                    Modifier
                         .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
-                        .clickable { navController.navigate("settings/privilege") },
+                        .clickable { navController.navigate("settings/remote_control") },
                     colors =
                     ListItemDefaults.colors(
                         containerColor = Color.Transparent,

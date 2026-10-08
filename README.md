@@ -9,11 +9,13 @@
 - 移除独立连接统计卡片，保留活动连接列表入口。
 - 上传、下载合并为“流量统计”，只显示累计流量，与调试卡片默认并排；使用 B-box 名称及自定义图标。
 - 启动按钮采用 FlClash 风格的播放/暂停形变与展开计时，保留现有配色；连接和代理组入口自适应窄屏。
+- 代理组节点采用 FlClash 风格双列小卡片，显示节点名称、类型与延迟，支持选中高亮。
 - Clash 模式仅将模式选择按钮改为 1.12.23 时期的独立矩形样式，保留现有卡片和标题；系统 HTTP 代理保持原样。
+- 移除 Xposed/LSPosed 模块及“特权增强”功能；保留普通 Root/Shizuku 安装与应用查询。
 
 维护与构建入口：**[MODIFICATIONS.md](MODIFICATIONS.md)**。该文档记录准确的上游基线、逐项差异、文件定位、AI 维护约束与回归检查。
 
-启动按钮布局与交互参考 [FlClash](https://github.com/chen08209/FlClash)，Compose 适配及具体差异见维护清单 MOD-007。
+启动按钮与节点卡片参考 [FlClash](https://github.com/chen08209/FlClash)，Compose 适配及具体差异见维护清单 MOD-007、MOD-010。
 
 ## Documentation
 

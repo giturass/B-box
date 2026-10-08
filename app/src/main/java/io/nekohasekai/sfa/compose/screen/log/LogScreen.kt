@@ -134,7 +134,7 @@ fun LogScreen(
     val resolvedTitle = title ?: stringResource(R.string.title_log)
     val remoteServer by RemoteControlManager.remoteServer.collectAsState()
     val remoteServers by rememberRemoteServers()
-    val emptyStateMessage = emptyMessage ?: stringResource(R.string.privilege_settings_hook_logs_empty)
+    val emptyStateMessage = emptyMessage ?: stringResource(R.string.log_no_logs)
 
     OverrideTopBar {
         TopAppBar(

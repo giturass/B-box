@@ -372,10 +372,6 @@ dependencies {
     "playImplementation"("io.github.sagernet:libghostty-android-compose:$libghosttyVersion")
     "otherImplementation"("io.github.sagernet:libghostty-android-compose:$libghosttyVersion")
     "otherLegacyImplementation"("io.github.sagernet:libghostty-android-compose-legacy:$libghosttyVersion")
-
-    // Xposed API for self-hooking VPN hide module
-    compileOnly("de.robv.android.xposed:api:82")
-    compileOnly(project(":libxposed-api"))
 }
 
 val playCredentialsJSON = rootProject.file("service-account-credentials.json")

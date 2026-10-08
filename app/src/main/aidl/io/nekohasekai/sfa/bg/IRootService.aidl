@@ -15,8 +15,6 @@ interface IRootService {
 
     void installPackage(in ParcelFileDescriptor apk, long size, int userId) = 2;
 
-    String exportDebugInfo(String outputPath) = 3;
-
     void registerNeighborTableCallback(in INeighborTableCallback callback) = 4;
 
     oneway void unregisterNeighborTableCallback(in INeighborTableCallback callback) = 5;

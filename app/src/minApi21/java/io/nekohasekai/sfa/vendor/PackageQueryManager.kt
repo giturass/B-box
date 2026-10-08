@@ -7,17 +7,16 @@ import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.bg.RootClient
 import io.nekohasekai.sfa.database.Settings
-import io.nekohasekai.sfa.utils.HookStatusClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 object PackageQueryManager {
 
     val strategy: PackageQueryStrategy
-        get() = when {
-            HookStatusClient.status.value?.active == true -> PackageQueryStrategy.ForcedRoot
-            BuildConfig.FLAVOR == "play" -> PackageQueryStrategy.UserSelected(queryMode.value)
-            else -> PackageQueryStrategy.Direct
+        get() = if (BuildConfig.FLAVOR == "play") {
+            PackageQueryStrategy.UserSelected(queryMode.value)
+        } else {
+            PackageQueryStrategy.Direct
         }
 
     val showModeSelector: Boolean
@@ -50,12 +49,7 @@ object PackageQueryManager {
         _queryMode.value = mode
     }
 
-    suspend fun getInstalledPackages(flags: Int, retryFlags: Int): List<PackageInfo> = when (val s = strategy) {
-        is PackageQueryStrategy.ForcedRoot -> {
-            val userId = android.os.Process.myUserHandle().hashCode()
-            HookStatusClient.getInstalledPackages(Application.application, flags.toLong(), userId)
-                ?: RootClient.getInstalledPackages(flags)
-        }
+    suspend fun getInstalledPackages(flags: Int, retryFlags: Int): List<PackageInfo> = when (strategy) {
         is PackageQueryStrategy.UserSelected -> RootClient.getInstalledPackages(flags)
         is PackageQueryStrategy.Direct -> getPackagesViaPackageManager(flags, retryFlags)
     }

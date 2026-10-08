@@ -181,6 +181,7 @@
     <string name="group_selected_title">انتخاب‌شده</string>
 
     <!-- Log -->
+    <string name="log_no_logs">لاگی وجود ندارد</string>
     <string name="log_level">سطح لاگ</string>
     <string name="filter_label">فیلتر: %s</string>
     <string name="clear_filter">پاک کردن</string>
@@ -591,43 +592,6 @@
     <string name="power_report">گزارش مصرف انرژی</string>
     <string name="power_report_enable">فعال‌سازی گزارش مصرف انرژی</string>
     <string name="power_report_enable_description">آمار زمان پردازنده، بیدارسازی و ترافیک سرویس را ثبت می‌کند. برای هر اجرای سرویس یک گزارش ذخیره می‌شود.</string>
-
-    <!-- Xposed Module -->
-    <string name="xposed_description">بهبود دسترسی ویژه برای sing-box</string>
-
-    <!-- Privileged Enhancement -->
-    <string name="privilege_module_title">ماژول‌های دسترسی ویژه</string>
-    <string name="lsposed_module_activated">ماژول LSPosed فعال است</string>
-    <string name="lsposed_module_pending_update">به‌روزرسانی ماژول LSPosed در انتظار است</string>
-    <string name="lsposed_module_pending_downgrade">دانگرید ماژول LSPosed در انتظار است</string>
-    <string name="lsposed_module_not_activated">ماژول LSPosed فعال نیست</string>
-    <string name="privilege_settings">بهبود دسترسی ویژه</string>
-    <string name="privilege_settings_hide_title">پنهان‌سازی تنظیمات</string>
-    <string name="privilege_settings_hide_description">مقاومت در برابر تشخیص VPN برای برنامه‌های انتخاب‌شده</string>
-    <string name="privilege_settings_hide_manage">مدیریت</string>
-    <string name="privilege_settings_hide_test">اجرای تست</string>
-    <string name="privilege_settings_hide_test_result">نتیجه تست</string>
-    <string name="privilege_settings_hide_test_running">در حال اجرای تست‌های تشخیص…</string>
-    <string name="privilege_settings_hide_test_not_detected">تشخیص داده نشد</string>
-    <string name="privilege_settings_interface_rename_title">تغییر نام رابط</string>
-    <string name="privilege_settings_interface_prefix">پیشوند رابط</string>
-    <string name="privilege_settings_vpn_detection_title">تشخیص VPN</string>
-    <string name="privilege_settings_view_logs">مشاهده لاگ‌ها</string>
-    <string name="privilege_settings_export_debug">خروجی گرفتن اطلاعات اشکال‌زدایی</string>
-    <string name="privilege_settings_hook_logs_empty">لاگی وجود ندارد</string>
-    <string name="privilege_settings_export_debug_complete">خروجی‌گیری کامل شد</string>
-    <string name="privilege_settings_export_debug_message">این فایل حاوی اطلاعات خصوصی است و نباید عمومی به اشتراک گذاشته شود. اندازه: %s</string>
-    <string name="privilege_settings_export_debug_failed">خروجی گرفتن اطلاعات اشکال‌زدایی ناموفق بود: %s</string>
-    <string name="privilege_settings_risky_app_title">هشدار</string>
-    <string name="privilege_settings_risky_vpn_message_single">این برنامه یک برنامه VPN است. مقاومت در برابر تشخیص VPN ممکن است مشکل ایجاد کند: %1$s</string>
-    <string name="privilege_settings_risky_vpn_message_multi">این برنامه‌ها VPN هستند. مقاومت در برابر تشخیص VPN ممکن است مشکل ایجاد کند: %1$s</string>
-    <string name="privilege_settings_risky_management_message_single">این برنامه مجوز مدیریت شبکه دارد. مقاومت در برابر تشخیص VPN ممکن است مشکل ایجاد کند: %1$s</string>
-    <string name="privilege_settings_risky_management_message_multi">این برنامه‌ها مجوز مدیریت شبکه دارند. مقاومت در برابر تشخیص VPN ممکن است مشکل ایجاد کند: %1$s</string>
-    <string name="privilege_module_restart_action">راه‌اندازی مجدد</string>
-    <string name="privilege_module_restart_failed">درخواست راه‌اندازی مجدد ناموفق بود: %1$s</string>
-    <string name="privilege_module_restart_notification_title">نیاز به راه‌اندازی مجدد</string>
-    <string name="privilege_module_restart_notification_message">ماژول LSPosed به‌روزرسانی شد. برای اعمال تغییرات دستگاه را راه‌اندازی مجدد کنید.</string>
-    <string name="privilege_module_restart_channel">ماژول LSPosed</string>
 
     <!-- Remote Control -->
     <string name="remote_control">کنترل از راه دور</string>

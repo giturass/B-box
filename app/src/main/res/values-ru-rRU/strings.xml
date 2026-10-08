@@ -181,6 +181,7 @@
     <string name="group_selected_title">Выбрано</string>
     
     <!-- Log -->
+    <string name="log_no_logs">Журнал пуст</string>
     <string name="log_level">Уровень логов</string>
     <string name="filter_label">Фильтр: %s</string>
     <string name="clear_filter">Очистить</string>
@@ -597,43 +598,6 @@
     <string name="power_report">Отчёт об энергопотреблении</string>
     <string name="power_report_enable">Включить отчёт об энергопотреблении</string>
     <string name="power_report_enable_description">Записывать статистику процессорного времени, пробуждений и трафика сервиса. Отчёт сохраняется для каждого запуска сервиса.</string>
-
-    <!-- Xposed Module -->
-    <string name="xposed_description">Привилегированное расширение для sing-box</string>
-
-    <!-- Privileged Enhancement -->
-    <string name="privilege_module_title">Привилегированные модули</string>
-    <string name="lsposed_module_activated">Модуль LSPosed активирован</string>
-    <string name="lsposed_module_pending_update">Ожидается обновление модуля LSPosed</string>
-    <string name="lsposed_module_pending_downgrade">Ожидается откат модуля LSPosed</string>
-    <string name="lsposed_module_not_activated">Модуль LSPosed не активирован</string>
-    <string name="privilege_settings">Привилегированное расширение</string>
-    <string name="privilege_settings_hide_title">Скрытие настроек</string>
-    <string name="privilege_settings_hide_description">Защита от обнаружения VPN для выбранных приложений</string>
-    <string name="privilege_settings_hide_manage">Управление</string>
-    <string name="privilege_settings_hide_test">Запустить тест</string>
-    <string name="privilege_settings_hide_test_result">Результат теста</string>
-    <string name="privilege_settings_hide_test_running">Выполняются тесты на обнаружение...</string>
-    <string name="privilege_settings_hide_test_not_detected">Не обнаружено</string>
-    <string name="privilege_settings_interface_rename_title">Переименование интерфейса</string>
-    <string name="privilege_settings_interface_prefix">Префикс интерфейса</string>
-    <string name="privilege_settings_vpn_detection_title">Обнаружение VPN</string>
-    <string name="privilege_settings_view_logs">Просмотреть журнал</string>
-    <string name="privilege_settings_export_debug">Экспорт отладочной информации</string>
-    <string name="privilege_settings_hook_logs_empty">Журнал пуст</string>
-    <string name="privilege_settings_export_debug_complete">Экспорт завершён</string>
-    <string name="privilege_settings_export_debug_message">Файл содержит конфиденциальную информацию и не должен распространяться публично. Размер: %s</string>
-    <string name="privilege_settings_export_debug_failed">Не удалось экспортировать отладочную информацию: %s</string>
-    <string name="privilege_settings_risky_app_title">Предупреждение</string>
-    <string name="privilege_settings_risky_vpn_message_single">Это приложение - VPN-клиент. Скрытие VPN может вызвать проблемы: %1$s</string>
-    <string name="privilege_settings_risky_vpn_message_multi">Эти приложения - VPN-клиенты. Скрытие VPN может вызвать проблемы: %1$s</string>
-    <string name="privilege_settings_risky_management_message_single">Это приложение имеет права управления сетью. Скрытие VPN может вызвать проблемы: %1$s</string>
-    <string name="privilege_settings_risky_management_message_multi">Эти приложения имеют права управления сетью. Скрытие VPN может вызвать проблемы: %1$s</string>
-    <string name="privilege_module_restart_action">Перезагрузить</string>
-    <string name="privilege_module_restart_failed">Не удалось запросить перезагрузку: %1$s</string>
-    <string name="privilege_module_restart_notification_title">Требуется перезагрузка</string>
-    <string name="privilege_module_restart_notification_message">Модуль LSPosed обновлён. Перезагрузите устройство, чтобы применить изменения.</string>
-    <string name="privilege_module_restart_channel">Модуль LSPosed</string>
 
     <!-- Remote Control -->
     <string name="remote_control">Удаленное управление</string>

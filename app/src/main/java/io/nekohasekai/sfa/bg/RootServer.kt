@@ -19,7 +19,6 @@ import io.nekohasekai.libbox.NeighborEntryIterator
 import io.nekohasekai.libbox.NeighborSubscription
 import io.nekohasekai.libbox.NeighborUpdateListener
 import io.nekohasekai.libbox.ShellSession
-import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.ktx.toStringIterator
 import io.nekohasekai.sfa.vendor.PrivilegedServiceUtils
 import java.io.File
@@ -65,12 +64,6 @@ class RootServer : RootService() {
             if (apk == null) throw IOException("APK file descriptor is null")
             PrivilegedServiceUtils.installPackage(apk, size, userId)
         }
-
-        override fun exportDebugInfo(outputPath: String?): String = DebugInfoExporter.export(
-            this@RootServer,
-            outputPath!!,
-            BuildConfig.APPLICATION_ID,
-        )
 
         override fun registerNeighborTableCallback(callback: INeighborTableCallback?) {
             if (callback == null) return

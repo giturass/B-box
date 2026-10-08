@@ -100,13 +100,6 @@ object Settings {
     var allowBypass by dataStore.boolean(SettingsKey.ALLOW_BYPASS) { false }
     var systemProxyEnabled by dataStore.boolean(SettingsKey.SYSTEM_PROXY_ENABLED) { true }
 
-    var privilegeSettingsEnabled by dataStore.boolean(SettingsKey.PRIVILEGE_SETTINGS_ENABLED) { false }
-    var privilegeSettingsList by dataStore.stringSet(SettingsKey.PRIVILEGE_SETTINGS_LIST) { emptySet() }
-    var privilegeSettingsInterfaceRenameEnabled by dataStore.boolean(
-        SettingsKey.PRIVILEGE_SETTINGS_INTERFACE_RENAME_ENABLED,
-    ) { false }
-    var privilegeSettingsInterfacePrefix by dataStore.string(SettingsKey.PRIVILEGE_SETTINGS_INTERFACE_PREFIX) { "wlan" }
-
     var oomKillerEnabled by dataStore.boolean(SettingsKey.OOM_KILLER_ENABLED) { false }
     var oomKillerDisabled by dataStore.boolean(SettingsKey.OOM_KILLER_DISABLED) { true }
     var oomMemoryLimitMB by dataStore.int(SettingsKey.OOM_MEMORY_LIMIT_MB) { 50 }

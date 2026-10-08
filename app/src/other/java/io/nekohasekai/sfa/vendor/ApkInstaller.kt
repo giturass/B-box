@@ -5,8 +5,6 @@ import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.bg.RootClient
 import io.nekohasekai.sfa.database.Settings
-import io.nekohasekai.sfa.utils.HookStatusClient
-import io.nekohasekai.sfa.xposed.XposedActivation
 import kotlinx.coroutines.delay
 import java.io.File
 
@@ -32,17 +30,10 @@ object ApkInstaller {
         }
     }
 
-    fun getConfiguredMethod(): InstallMethod {
-        if (HookStatusClient.status.value?.active == true ||
-            XposedActivation.isActivated(Application.application)
-        ) {
-            return InstallMethod.ROOT
-        }
-        return if (Settings.silentInstallEnabled) {
-            InstallMethod.valueOf(Settings.silentInstallMethod)
-        } else {
-            InstallMethod.PACKAGE_INSTALLER
-        }
+    fun getConfiguredMethod(): InstallMethod = if (Settings.silentInstallEnabled) {
+        InstallMethod.valueOf(Settings.silentInstallMethod)
+    } else {
+        InstallMethod.PACKAGE_INSTALLER
     }
 
     suspend fun install(context: Context, apkFile: File, method: InstallMethod = getConfiguredMethod()) {

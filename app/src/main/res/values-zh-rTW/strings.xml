@@ -181,6 +181,7 @@
     <string name="group_selected_title">已選取</string>
 
     <!-- Log -->
+    <string name="log_no_logs">暫無日誌</string>
     <string name="log_level">日誌等級</string>
     <string name="filter_label">篩選器：%s</string>
     <string name="clear_filter">清除</string>
@@ -595,42 +596,6 @@
     <string name="power_report">電源報告</string>
     <string name="power_report_enable">啟用電源報告</string>
     <string name="power_report_enable_description">每次執行服務都會儲存一份報告</string>
-
-    <!-- Xposed Module -->
-    <string name="xposed_description">sing-box 的特權強化</string>
-    <!-- Privileged Enhancement -->
-    <string name="privilege_settings">特權強化</string>
-    <string name="privilege_module_title">特權模組</string>
-    <string name="privilege_settings_hide_title">隱藏設定</string>
-    <string name="privilege_settings_hide_description">為已選取的應用程式啟用 VPN 偵測防護</string>
-    <string name="privilege_settings_hide_manage">管理</string>
-    <string name="privilege_settings_hide_test">執行測試</string>
-    <string name="privilege_settings_hide_test_result">測試結果</string>
-    <string name="privilege_settings_hide_test_running">正在執行檢測測試…</string>
-    <string name="privilege_settings_hide_test_not_detected">未檢測到</string>
-    <string name="privilege_settings_interface_rename_title">介面重新命名</string>
-    <string name="privilege_settings_interface_prefix">介面前綴</string>
-    <string name="privilege_settings_vpn_detection_title">VPN 檢測</string>
-    <string name="privilege_settings_view_logs">檢視日誌</string>
-    <string name="privilege_settings_export_debug">匯出除錯資訊</string>
-    <string name="privilege_settings_hook_logs_empty">暫無日誌</string>
-    <string name="privilege_settings_export_debug_complete">匯出完成</string>
-    <string name="privilege_settings_export_debug_message">此檔案包含隱私資訊，不應公開分享。大小：%s</string>
-    <string name="privilege_settings_export_debug_failed">匯出除錯資訊失敗：%s</string>
-    <string name="privilege_settings_risky_app_title">警告</string>
-    <string name="privilege_settings_risky_vpn_message_single">此應用程式是 VPN 應用程式，抵抗 VPN 檢測可能造成問題：%1$s</string>
-    <string name="privilege_settings_risky_vpn_message_multi">這些應用程式是 VPN 應用程式，抵抗 VPN 檢測可能造成問題：%1$s</string>
-    <string name="privilege_settings_risky_management_message_single">此應用程式具有網路管理權限，抵抗 VPN 檢測可能造成問題：%1$s</string>
-    <string name="privilege_settings_risky_management_message_multi">這些應用程式具有網路管理權限，抵抗 VPN 檢測可能造成問題：%1$s</string>
-    <string name="privilege_module_restart_action">重新啟動</string>
-    <string name="privilege_module_restart_failed">請求重啟失敗：%1$s</string>
-    <string name="privilege_module_restart_notification_title">需要重啟</string>
-    <string name="privilege_module_restart_notification_message">LSPosed 模組已更新，請重啟以套用變更。</string>
-    <string name="privilege_module_restart_channel">LSPosed 模組</string>
-    <string name="lsposed_module_activated">LSPosed 模組已啟用</string>
-    <string name="lsposed_module_pending_update">LSPosed 模組待更新</string>
-    <string name="lsposed_module_pending_downgrade">LSPosed 模組待降級</string>
-    <string name="lsposed_module_not_activated">LSPosed 模組未啟用</string>
 
     <!-- Remote Control -->
     <string name="remote_control">遠端控制</string>
