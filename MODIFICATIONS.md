@@ -5,13 +5,15 @@
 | 项目 | 当前值 |
 | --- | --- |
 | 应用名称 / APK 前缀 | `B-box` |
+| Gradle 根项目名 | `B-box` |
+| 本地项目目录 | `~/project/B-box` |
 | 仓库 | https://github.com/giturass/sing-box-mod |
 | 上游 | https://github.com/SagerNet/sing-box-for-android ，`dev` 分支 |
 | 比较基线 | `5c7b4ce969b926063737d059edf7b256c8f56ed0` |
 | 版本 / versionCode | `1.15.0-alpha.10` / `742` |
 | 安装包名 / applicationId | `io.ericlee.bfa` |
 | 源码 namespace | `io.nekohasekai.sfa` |
-| 更新日期 | 2026-10-03 |
+| 更新日期 | 2026-10-08 |
 
 本文只描述当前有效改动；已撤回的外观方案和逐次构建流水记录已移除。协议、路由、VPN、远程控制、配置导入导出及特权能力继承上游。核心 AAR 不在 Git 中，本地构建与 CI 核心来源应分别核验。
 
@@ -25,11 +27,12 @@
 | MOD-002 | 配置卡片操作布局 | `compose/screen/dashboard/ProfilesCard.kt` |
 | MOD-003 | 移除独立连接统计卡片 | `DashboardViewModel.kt`、`DashboardCardRenderer.kt`、`DashboardSettingsBottomSheet.kt` |
 | MOD-004 | 1.12.23 样式的模式按钮 | `compose/screen/dashboard/ClashModeCard.kt` |
-| MOD-005 | B-box 名称与产物命名 | 语言资源、Gradle、README、构建工作流 |
+| MOD-005 | B-box 项目、应用与产物命名 | `settings.gradle.kts`、语言资源、Gradle、README、构建工作流 |
 | MOD-006 | ARM64 Release 构建 | `.github/workflows/build-release.yml`、`app/build.gradle.kts` |
 | MOD-007 | FlClash 风格服务按钮 | `compose/component/ServiceStartButton.kt`、`ServiceStatusBar.kt` |
 | MOD-008 | 合并流量统计并与调试卡片配对 | `TrafficCard.kt`、`DashboardCardSettings.kt`、仪表盘渲染与设置 |
 | MOD-009 | 独立安装包名与分支更新源 | `app/build.gradle.kts`、Manifest、服务/安装广播、`GitHubUpdateChecker.kt` |
+| MOD-010 | 1.12.23 样式的代理节点卡片 | `compose/screen/dashboard/GroupsCard.kt` |
 
 
 ## MOD-001：仪表盘底部控制
@@ -79,10 +82,12 @@
 
 **回归：** 深浅主题；模式选中状态与后端同步；多模式及长名称换行；卡片标题和系统 HTTP 代理保持原样。
 
-## MOD-005：品牌和开源归属
+## MOD-005：项目命名、品牌和开源归属
 
 - README 标题、应用所有现有语言资源的 `app_name` 使用 `B-box`。
-- Gradle 根项目名和 APK 名称前缀使用 `B-box`。
+- Gradle 根项目名（`settings.gradle.kts` 中的 `rootProject.name`）和 APK 名称前缀使用 `B-box`。
+- 本地项目目录于 2026-10-08 从 `~/project/sing-box-for-android` 更名为 `~/project/B-box`，后续本机命令从新目录执行。此次更名沿用已有的 Gradle 项目名、应用名与包名，原有 Git 工作树和未提交修改完整保留。
+- 远程仓库仍为 `giturass/sing-box-mod`，上游仍为 `SagerNet/sing-box-for-android`；文档与设置中的上游链接保留真实仓库名称。
 - 应用图标使用用户提供的 `/sdcard/bbox.png`，原图保存为 `artwork/bbox.png`。执行 `java tools/GenerateLauncherIcons.java` 可重建五种密度的普通/圆形启动器图标、自适应前景、主题单色图标及通知图标；自适应前景使用 108dp 画布中央 72dp 区域、白色背景，避免图案被系统遮罩裁切。
 - 安装包名按用户要求改为 `io.ericlee.bfa`；保留 `io.nekohasekai.sfa` namespace、上游版本号与源码包路径。新包可与原包并行安装，应用私有数据独立，旧包配置需通过导出/导入迁移，详见 MOD-009。
 - 保留 `LICENSE` 和 README 原有版权/许可文本，明确非官方分支；维护者发布前应阅读其中名称与关联声明。本文不替换原许可，也不将其简化为另一份授权。
@@ -114,7 +119,9 @@
 
 ### 本地 Termux 检查
 
-本地仅运行静态检查、Debug 编译或单元测试；Release 交给上述 GitHub Actions。编译前准备匹配的核心 AAR，legacy flavor 另需 `libbox-legacy.aar`。本机使用 Termux 原生 aapt2/aidl，Build Tools 37.0.0、NDK 29.0.14206865；本地 init script 覆盖工具路径和签名，不能把本机路径写进 CI。
+本地仅运行静态检查、Debug 编译或单元测试；Release 交给上述 GitHub Actions。编译前准备匹配的核心 AAR，legacy flavor 另需 `libbox-legacy.aar`。
+
+历史本地构建使用 Termux 原生 aapt2/aidl、Build Tools 37.0.0、NDK 29.0.14206865；本地 init script 覆盖工具路径和签名，不能把本机路径写进 CI。2026-10-08 检查时，当前环境未设置 `JAVA_HOME` 且找不到 `java`，Debug 编译未能启动。恢复工具链并核对 Gradle 与依赖缓存后再运行构建；旧日志中的成功记录仅对应当时环境。
 
 `--offline` 仅适用于依赖已缓存的环境。本地密钥和密码保存在忽略的 `.local-signing/`，沿用原文件；不要重新生成或提交。新机器需自行配置等价环境。
 
@@ -161,10 +168,20 @@
 
 **回归：** 新旧包安装共存；启动 Activity、VPN 授权、通知停止、USB 授权、文件分享、安装回执及 Xposed 自识别；稳定/预发布检查、无匹配架构、版本元数据与升级安装。`GitHubUpdateCheckerTest` 覆盖 B-box 资产筛选、版本标签及架构/flavor/API 兼容性。
 
+## MOD-010：1.12.23 代理节点卡片
+
+**核验基线：** 与 MOD-004 相同，sing-box `v1.12.23` 的 Android 子模块提交为 `eb87216961321de1802e1355c470242f2ed5faa8`；节点样式来自 [`view_dashboard_group_item.xml`](https://github.com/SagerNet/sing-box-for-android/blob/eb87216961321de1802e1355c470242f2ed5faa8/app/src/main/res/layout/view_dashboard_group_item.xml)，延迟显示参考该提交的 `GroupsFragment.kt` 与 `ktx/Colors.kt`。
+
+**当前行为：** 仅 `ProxyChip` 节点卡片恢复旧版外观：4dp 圆角、无阴影、`surfaceContainer` 背景、2dp 外边距；选中时显示 4dp 宽的主题主色竖条，未选中仍保留栏位，背景和文字颜色不随选中变化。内容内边距 8dp、两行间隔 4dp，标题加粗，类型和延迟使用常规字重；三处均为 14sp、零字距，保留 Compose 的主题行高及长名称省略处理。延迟右对齐，按 `urlTestTime > 0` 显示，并复用旧版 `colorForURLTestDelay` 配色。
+
+**维护约束：** 保留当前分组标题、外层背景与圆角、双列布局和行容器间距、折叠色点、滚动及展开动画；仅节点自身增加旧版 2dp 外边距。选择节点、组测速和长按单节点测速继续使用现有回调，不回退整个代理组组件。
+
+**回归：** 深浅主题、选中/未选中、无测速记录/0ms/各延迟区间、长节点名、大字体、RTL；折叠/展开与节点选择、长按测速。当前环境尚未完成实机 UI 回归。
+
 ## 维护与上游同步
 
 1. 先读 README、本文件及适用的 AGENTS.md，检查工作树并保留未提交改动。
-2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-009。当前已合并 `upstream/dev` 的 `5c7b4ce` / `1.15.0-alpha.10`；上游改写过部分提交历史，但与前一基线 `8e42c63` 的文件内容相比仅版本号变化，已有功能无需重复移植。
+2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-010。当前已合并 `upstream/dev` 的 `5c7b4ce` / `1.15.0-alpha.10`；上游改写过部分提交历史，但与前一基线 `8e42c63` 的文件内容相比仅版本号变化，已有功能无需重复移植。
 3. 特别核对 `CardGroup` 设置兼容性、本地/远程分支、VPN 权限流程和服务状态；未授权时不改协议、包名、签名或服务生命周期。
 4. 完成必要编译、资源及受影响 UI 检查，记录实际验证范围。编译与预览声明不等于实机交互验证。
 5. 提交前审查差异，不提交密钥、密码、机器配置、SDK 或 AAR。`origin` 为个人 fork，`upstream` 为 SagerNet；仅推送授权仓库，不强推上游。
@@ -182,4 +199,6 @@
 - [Release `1.15.0-alpha.10`](https://github.com/giturass/sing-box-mod/releases/tag/1.15.0-alpha.10) 已发布为预发布，tag 与应用版本完全一致，指向上述构建提交。附件包含 `B-box-1.15.0-alpha.10-arm64-v8a.apk` 和 `B-box-version-metadata.json`；元数据为包名 `io.ericlee.bfa`、版本 `1.15.0-alpha.10`、versionCode `742`。
 - 下载产物复核通过：APK 36,171,175 字节，SHA-256 `9095e366693e27ffe24b4c9f0e133dfd42ba22f2dc313e21982bb5f07a1ad219`，与 Release 附件 digest 一致；包名 `io.ericlee.bfa`、90 个应用标签均为 `B-box`、仅 ARM64、内嵌核心 `1.15.0-alpha.10`、APK v2 签名验证通过。CI 核心从 `SagerNet/sing-box` 的 `v1.15.0-alpha.10`（`c992297988288565a24a6d36e2cf4d77cb835fcd`）构建。
 - 2026-10-03 配对规则修正：流量统计与调试卡片同时可见时始终同行，包括窄屏、大字体及不相邻排序。Debug 编译和 `testOtherDebugUnitTest` 通过（9 项仪表盘测试、5 项更新检查测试），两个修改 Kotlin 文件定向 Spotless 检查均为 `IS CLEAN`。此修正尚未包含在上述 `1.15.0-alpha.10` Release 中。
-- 尚未完成本次 UI 的实机点击、深浅主题、大字体或截图回归。
+- 2026-10-08 节点卡片样式：已对照 `v1.12.23` 对应 XML 与绑定代码完成局部移植，`git diff --check` 通过。尝试 `:app:compileOtherDebugKotlin --offline --no-daemon -I .gradle/sfa-termux.init.gradle` 时因 `JAVA_HOME` 未设置且找不到 `java` 而未能启动，未完成编译、Spotless 或实机验证。本次节点样式尚未包含在上述 `1.15.0-alpha.10` Release 中。
+- 2026-10-08 项目目录更名：已确认 Git 根目录为 `~/project/B-box`，`rootProject.name` 为 `B-box`。更名前后的工作树状态和未提交差异一致，`git diff --check` 通过；未发现需要调整的源码、脚本或 IDE 目录引用。
+- MOD-008 配对修正与 MOD-010 节点卡片尚待实机点击、深浅主题、大字体及截图回归。
