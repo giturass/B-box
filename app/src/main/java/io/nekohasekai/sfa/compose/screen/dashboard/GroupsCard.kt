@@ -4,7 +4,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -12,17 +11,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -64,13 +60,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nekohasekai.sfa.R
@@ -85,7 +79,6 @@ import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
 import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.compose.util.rememberSheetDismissFromContentOnlyIfGestureStartedAtTopModifier
 import io.nekohasekai.sfa.constant.Status
-import io.nekohasekai.sfa.ktx.colorForURLTestDelay
 import io.nekohasekai.sfa.utils.CommandClient
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -298,6 +291,7 @@ private fun GroupsCardContent(
                                     selectedTag = group.selected,
                                     isSelectable = group.selectable,
                                     isLast = rowIndex == rowItems.lastIndex,
+                                    palette = palette,
                                     onItemSelected = { itemTag -> onItemSelected(group.tag, itemTag) },
                                     onItemUrlTest = onItemUrlTest,
                                     modifier = Modifier.animateItem(),
@@ -523,6 +517,7 @@ private fun GroupItemRow(
     selectedTag: String,
     isSelectable: Boolean,
     isLast: Boolean,
+    palette: UrlTestPalette,
     onItemSelected: (String) -> Unit,
     onItemUrlTest: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -550,6 +545,7 @@ private fun GroupItemRow(
                     item = item,
                     isSelected = item.tag == selectedTag,
                     isSelectable = isSelectable,
+                    palette = palette,
                     onClick = { onItemSelected(item.tag) },
                     onUrlTest = { onItemUrlTest(item.tag) },
                     modifier = Modifier.weight(1f),
@@ -568,14 +564,14 @@ private fun ProxyChip(
     item: GroupItem,
     isSelected: Boolean,
     isSelectable: Boolean,
+    palette: UrlTestPalette,
     onClick: () -> Unit,
     onUrlTest: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showContextMenu by remember { mutableStateOf(false) }
-    val chipShape = RoundedCornerShape(4.dp)
-    val textStyle = MaterialTheme.typography.bodyMedium.copy(letterSpacing = 0.sp)
-    Box(modifier = modifier.padding(2.dp)) {
+    val chipShape = RoundedCornerShape(12.dp)
+    Box(modifier = modifier) {
         Surface(
             modifier =
             Modifier
@@ -586,50 +582,52 @@ private fun ProxyChip(
                     onLongClick = { showContextMenu = true },
                 ),
             shape = chipShape,
-            color = MaterialTheme.colorScheme.surfaceContainer,
+            color =
+            if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
         ) {
-            Row(
-                modifier = Modifier.height(IntrinsicSize.Min),
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Spacer(
-                    modifier =
-                    Modifier
-                        .width(4.dp)
-                        .fillMaxHeight()
-                        .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent),
+                Text(
+                    text = item.tag,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color =
+                    if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                Column(
-                    modifier = Modifier.weight(1f).padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = item.tag,
-                        style = textStyle,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        text = item.displayType,
+                        style = MaterialTheme.typography.labelSmall,
+                        color =
+                        if (isSelected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                    if (item.urlTestDelay > 0) {
                         Text(
-                            text = item.displayType,
-                            style = textStyle,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
+                            text = "${item.urlTestDelay}ms",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = palette.forDelay(item.urlTestDelay),
                         )
-                        if (item.urlTestTime > 0) {
-                            Text(
-                                text = "${item.urlTestDelay}ms",
-                                style = textStyle,
-                                color = Color(colorForURLTestDelay(LocalContext.current, item.urlTestDelay)),
-                            )
-                        }
                     }
                 }
             }

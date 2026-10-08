@@ -32,7 +32,6 @@
 | MOD-007 | FlClash 风格服务按钮 | `compose/component/ServiceStartButton.kt`、`ServiceStatusBar.kt` |
 | MOD-008 | 合并流量统计并与调试卡片配对 | `TrafficCard.kt`、`DashboardCardSettings.kt`、仪表盘渲染与设置 |
 | MOD-009 | 独立安装包名与分支更新源 | `app/build.gradle.kts`、Manifest、服务/安装广播、`GitHubUpdateChecker.kt` |
-| MOD-010 | 1.12.23 样式的代理节点卡片 | `compose/screen/dashboard/GroupsCard.kt` |
 
 
 ## MOD-001：仪表盘底部控制
@@ -169,20 +168,10 @@
 
 **回归：** 新旧包安装共存；启动 Activity、VPN 授权、通知停止、USB 授权、文件分享、安装回执及 Xposed 自识别；稳定/预发布检查、无匹配架构、版本元数据与升级安装。`GitHubUpdateCheckerTest` 覆盖 B-box 资产筛选、版本标签及架构/flavor/API 兼容性。
 
-## MOD-010：1.12.23 代理节点卡片
-
-**核验基线：** 与 MOD-004 相同，sing-box `v1.12.23` 的 Android 子模块提交为 `eb87216961321de1802e1355c470242f2ed5faa8`；节点样式来自 [`view_dashboard_group_item.xml`](https://github.com/SagerNet/sing-box-for-android/blob/eb87216961321de1802e1355c470242f2ed5faa8/app/src/main/res/layout/view_dashboard_group_item.xml)，延迟显示参考该提交的 `GroupsFragment.kt` 与 `ktx/Colors.kt`。
-
-**当前行为：** 仅 `ProxyChip` 节点卡片恢复旧版外观：4dp 圆角、无阴影、`surfaceContainer` 背景、2dp 外边距；选中时显示 4dp 宽的主题主色竖条，未选中仍保留栏位，背景和文字颜色不随选中变化。内容内边距 8dp、两行间隔 4dp，标题加粗，类型和延迟使用常规字重；三处均为 14sp、零字距，保留 Compose 的主题行高及长名称省略处理。延迟右对齐，按 `urlTestTime > 0` 显示，并复用旧版 `colorForURLTestDelay` 配色。
-
-**维护约束：** 保留当前分组标题、外层背景与圆角、双列布局和行容器间距、折叠色点、滚动及展开动画；仅节点自身增加旧版 2dp 外边距。选择节点、组测速和长按单节点测速继续使用现有回调，不回退整个代理组组件。
-
-**回归：** 深浅主题、选中/未选中、无测速记录/0ms/各延迟区间、长节点名、大字体、RTL；折叠/展开与节点选择、长按测速。当前环境尚未完成实机 UI 回归。
-
 ## 维护与上游同步
 
 1. 先读 README、本文件及适用的 AGENTS.md，检查工作树并保留未提交改动。
-2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-010。当前已合并 `upstream/dev` 的 `5c7b4ce` / `1.15.0-alpha.10`；上游改写过部分提交历史，但与前一基线 `8e42c63` 的文件内容相比仅版本号变化，已有功能无需重复移植。
+2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-009。当前已合并 `upstream/dev` 的 `5c7b4ce` / `1.15.0-alpha.10`；上游改写过部分提交历史，但与前一基线 `8e42c63` 的文件内容相比仅版本号变化，已有功能无需重复移植。
 3. 特别核对 `CardGroup` 设置兼容性、本地/远程分支、VPN 权限流程和服务状态；未授权时不改协议、包名、签名或服务生命周期。
 4. 完成必要编译、资源及受影响 UI 检查，记录实际验证范围。编译与预览声明不等于实机交互验证。
 5. 提交前审查差异，不提交密钥、密码、机器配置、SDK 或 AAR。`origin` 为个人 fork，`upstream` 为 SagerNet；仅推送授权仓库，不强推上游。
@@ -201,7 +190,7 @@
 - 上述历史产物复核通过：APK 36,171,175 字节，SHA-256 `9095e366693e27ffe24b4c9f0e133dfd42ba22f2dc313e21982bb5f07a1ad219`，与 Release 附件 digest 一致；包名 `io.ericlee.bfa`、90 个应用标签均为 `B-box`、仅 ARM64、内嵌核心 `1.15.0-alpha.10`、APK v2 签名验证通过。CI 核心从 `SagerNet/sing-box` 的 `v1.15.0-alpha.10`（`c992297988288565a24a6d36e2cf4d77cb835fcd`）构建。
 - 2026-10-03 配对规则修正：流量统计与调试卡片同时可见时始终同行，包括窄屏、大字体及不相邻排序。Debug 编译和 `testOtherDebugUnitTest` 通过（9 项仪表盘测试、5 项更新检查测试），两个修改 Kotlin 文件定向 Spotless 检查均为 `IS CLEAN`。此修正未包含在上述 `f3a6003` 历史构建产物中；当前同名 Release 状态见下方 API 复核记录。
 - 2026-10-08 GitHub API 复核：当前 `1.15.0-alpha.10` 标签指向 `81a1e79a44282ba07d5729588b10a422788cc376`，包含流量统计与调试卡片配对修正；对应 [Actions 37102809327](https://github.com/giturass/B-box/actions/runs/37102809327) 于 2026-10-03 完成且状态为 `success`。当前 Release ID 为 `402367667`，APK 为 36,171,027 字节，GitHub 返回的 SHA-256 为 `60974b9095db4e8707ea6aa6318f4ea521f4ea8f2d8457180ba2080c8d358d2f`。本次仅核对 API 元数据，未重新下载 APK 或验证签名。
-- 2026-10-08 节点卡片样式：已对照 `v1.12.23` 对应 XML 与绑定代码完成局部移植，`git diff --check` 通过。尝试 `:app:compileOtherDebugKotlin --offline --no-daemon -I .gradle/sfa-termux.init.gradle` 时因 `JAVA_HOME` 未设置且找不到 `java` 而未能启动，未完成编译、Spotless 或实机验证。本次节点样式尚未包含在上述 `1.15.0-alpha.10` Release 中。
+- 2026-10-08 节点卡片样式回退：`GroupsCard.kt` 已恢复到样式调整前的 `81a1e79` 版本，文件内容完全一致。已撤销节点的 1.12.23 样式定制；B-box 命名、远端地址、更新源及其他界面改动保留。本次仅核对回退范围与文件内容，未重新编译或进行实机验证。
 - 2026-10-08 项目目录更名：已确认 Git 根目录为 `~/project/B-box`，`rootProject.name` 为 `B-box`。更名前后的工作树状态和未提交差异一致，`git diff --check` 通过；未发现需要调整的源码、脚本或 IDE 目录引用。
 - 2026-10-08 远端仓库更名：GitHub 仓库及 `origin` 已统一为 `giturass/B-box`，About 简介使用 `B-box` 名称；仓库 ID `1397330945`、默认分支 `dev`、Release/附件 ID 与 digest、工作流 ID 均与更名前一致。新 Releases API 可读，旧 API 地址仍可访问同一仓库；README、本文和应用更新源均使用新地址。差异检查通过，本次未重新编译或发布 APK。
-- MOD-008 配对修正与 MOD-010 节点卡片尚待实机点击、深浅主题、大字体及截图回归。
+- MOD-008 配对修正尚待实机点击、深浅主题、大字体及截图回归。
