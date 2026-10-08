@@ -2,7 +2,7 @@
 
 基于 [SagerNet/sing-box-for-android](https://github.com/SagerNet/sing-box-for-android) 的非官方 Android 客户端分支，主要调整仪表盘交互和布局。此项目独立维护，不代表上游官方发布。
 
-下载 APK：[GitHub Releases](https://github.com/giturass/sing-box-mod/releases)（Android 7.0+，ARM64）。
+下载 APK：[GitHub Releases](https://github.com/giturass/B-box/releases)（Android 7.0+，ARM64）。
 
 - 仪表盘底部改为连接、代理组、启动/停止按钮。
 - 配置卡片操作移至标题栏，远程配置更新按钮移至信息行。

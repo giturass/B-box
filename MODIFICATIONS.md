@@ -7,7 +7,7 @@
 | 应用名称 / APK 前缀 | `B-box` |
 | Gradle 根项目名 | `B-box` |
 | 本地项目目录 | `~/project/B-box` |
-| 仓库 | https://github.com/giturass/sing-box-mod |
+| 仓库 | https://github.com/giturass/B-box |
 | 上游 | https://github.com/SagerNet/sing-box-for-android ，`dev` 分支 |
 | 比较基线 | `5c7b4ce969b926063737d059edf7b256c8f56ed0` |
 | 版本 / versionCode | `1.15.0-alpha.10` / `742` |
@@ -87,7 +87,8 @@
 - README 标题、应用所有现有语言资源的 `app_name` 使用 `B-box`。
 - Gradle 根项目名（`settings.gradle.kts` 中的 `rootProject.name`）和 APK 名称前缀使用 `B-box`。
 - 本地项目目录于 2026-10-08 从 `~/project/sing-box-for-android` 更名为 `~/project/B-box`，后续本机命令从新目录执行。此次更名沿用已有的 Gradle 项目名、应用名与包名，原有 Git 工作树和未提交修改完整保留。
-- 远程仓库仍为 `giturass/sing-box-mod`，上游仍为 `SagerNet/sing-box-for-android`；文档与设置中的上游链接保留真实仓库名称。
+- GitHub 远端仓库于 2026-10-08 从 `giturass/sing-box-mod` 更名为 `giturass/B-box`，与本地目录及 Gradle 项目名一致；`origin` 使用 `https://github.com/giturass/B-box.git`，GitHub About 简介同步使用 `B-box` 名称。
+- README 下载链接、应用更新 API 及本文的 Release/Actions 链接均使用 `giturass/B-box`；上游保持 `SagerNet/sing-box-for-android`，来源链接保留其真实仓库名称。
 - 应用图标使用用户提供的 `/sdcard/bbox.png`，原图保存为 `artwork/bbox.png`。执行 `java tools/GenerateLauncherIcons.java` 可重建五种密度的普通/圆形启动器图标、自适应前景、主题单色图标及通知图标；自适应前景使用 108dp 画布中央 72dp 区域、白色背景，避免图案被系统遮罩裁切。
 - 安装包名按用户要求改为 `io.ericlee.bfa`；保留 `io.nekohasekai.sfa` namespace、上游版本号与源码包路径。新包可与原包并行安装，应用私有数据独立，旧包配置需通过导出/导入迁移，详见 MOD-009。
 - 保留 `LICENSE` 和 README 原有版权/许可文本，明确非官方分支；维护者发布前应阅读其中名称与关联声明。本文不替换原许可，也不将其简化为另一份授权。
@@ -163,7 +164,7 @@
 
 - `applicationId` 为 `io.ericlee.bfa`；`namespace`、Kotlin/Java 包、AIDL 描述符、Xposed 入口类及 RootServer 反射类名保留 `io.nekohasekai.sfa`，确保已声明组件可加载。
 - Provider authorities 使用 `${applicationId}`；服务控制、USB 权限、USBIP/Taildrop 停止与安装回执广播改由 `BuildConfig.APPLICATION_ID` 派生，Manifest 回执 action 同步使用占位符。文件分享 URI、显式服务 Intent、自身包过滤和 Xposed 调用者校验继续使用应用运行时包名。
-- GitHub 更新源使用 `giturass/sing-box-mod` 的 Releases，读取 `B-box-version-metadata.json` 中的 `version_code`，匹配当前版本的 B-box ARM64 APK。发布范围为 Android 7.0+ 的 `other` / ARM64；无兼容资产时不提供下载，避免把 Release 网页或官方 SFA 包当作更新。稳定/预发布通道沿用现有设置，F-Droid 源仍按当前包名查询。
+- GitHub 更新源使用 `giturass/B-box` 的 Releases，读取 `B-box-version-metadata.json` 中的 `version_code`，匹配当前版本的 B-box ARM64 APK。发布范围为 Android 7.0+ 的 `other` / ARM64；无兼容资产时不提供下载，避免把 Release 网页或官方 SFA 包当作更新。稳定/预发布通道沿用现有设置，F-Droid 源仍按当前包名查询。
 - 新旧包可并行安装，但私有配置与数据不会自动迁移。系统级 Xposed hook 的 Binder 协议及 `/data/system/sing-box/privilege_settings.conf` 仍继承上游；两个系统模块不保证同时启用时互不影响。
 
 **回归：** 新旧包安装共存；启动 Activity、VPN 授权、通知停止、USB 授权、文件分享、安装回执及 Xposed 自识别；稳定/预发布检查、无匹配架构、版本元数据与升级安装。`GitHubUpdateCheckerTest` 覆盖 B-box 资产筛选、版本标签及架构/flavor/API 兼容性。
@@ -188,17 +189,19 @@
 
 ## 验证记录
 
-- 既有 Release 工作流：[36887951093](https://github.com/giturass/sing-box-mod/actions/runs/36887951093)，2026-10-01 成功；该产物仍使用旧应用名。
+- 既有 Release 工作流：[36887951093](https://github.com/giturass/B-box/actions/runs/36887951093)，2026-10-01 成功；该产物仍使用旧应用名。
 - 当前模式按钮及系统代理回退已通过本地 Debug 构建和签名验证；Clash 文件定向 Spotless 检查通过。全库仍有既有格式问题，不代表全库检查通过。
-- MyBox Release：[36955861455](https://github.com/giturass/sing-box-mod/actions/runs/36955861455)，2026-10-02 成功，构建源码提交 `ee3890d`。R8、Release Lint、ARM64 架构和签名检查通过；下载产物后确认所有应用标签均为 `MyBox`，版本 `1.15.0-alpha.9`（741）。
+- MyBox Release：[36955861455](https://github.com/giturass/B-box/actions/runs/36955861455)，2026-10-02 成功，构建源码提交 `ee3890d`。R8、Release Lint、ARM64 架构和签名检查通过；下载产物后确认所有应用标签均为 `MyBox`，版本 `1.15.0-alpha.9`（741）。
 - 产物：`MyBox-1.15.0-alpha.9-arm64-v8a.apk`；SHA-256：`9bf47a9cbdc26ccd9f1b3e39edaa30ca09149f349b389773fd4f4d40ccbcb19a`。
 - B-box 本地验证（2026-10-02）：`testOtherDebugUnitTest` 8 项设置兼容/配对测试全部通过；8 个受影响 Kotlin 文件定向 Spotless 检查均为 `IS CLEAN`；`assembleOtherRelease` 成功，R8 与 Release Lint Vital 通过。工作流 actionlint 通过（Termux 下禁用外部 shellcheck/pyflakes 调用），未运行 GitHub Actions。
 - 2026-10-02 本地产物记录：`B-box-1.15.0-alpha.9-arm64-v8a.apk`，36,249,271 字节；SHA-256：`5cff43df19f9f1790501acac6e0da0886ff224e8d036dd704f55bf00d0bad09f`。当时包名为 `io.nekohasekai.sfa`、版本 `1.15.0-alpha.9`（741）、全部应用标签 `B-box`、仅 ARM64、APK 签名验证通过；沿用本机 `.local-signing` 密钥。
 - 2026-10-02 核心 AAR SHA-256：`9aea3c1f5291c417e7e10782e3031cc7434f55b0facd5d6db1e4992c010193e1`，与当时 `1.15.0-alpha.9` 副本一致。图标原图 SHA-256：`51599719baf1cc226d948107412729247eb7621c8714235f9cb7865f887d60cd`，与 `/sdcard/bbox.png` 一致。
-- 2026-10-03 上游同步与新包发布：[Actions 37099085549](https://github.com/giturass/sing-box-mod/actions/runs/37099085549) 成功，构建提交 `f3a60033d1bd904a7cef0bfb2fb5819e88c93c8a`。`testOtherDebugUnitTest`（设置兼容、卡片配对及 GitHub 更新资产筛选）、R8、Release Lint Vital、ARM64 Release 构建、产物身份与签名检查全部通过。Release 在 GitHub Actions 构建；本地仅完成 8 个修改 Kotlin 文件的定向 Spotless 检查（均 `IS CLEAN`）及工作流 actionlint 检查。
-- [Release `1.15.0-alpha.10`](https://github.com/giturass/sing-box-mod/releases/tag/1.15.0-alpha.10) 已发布为预发布，tag 与应用版本完全一致，指向上述构建提交。附件包含 `B-box-1.15.0-alpha.10-arm64-v8a.apk` 和 `B-box-version-metadata.json`；元数据为包名 `io.ericlee.bfa`、版本 `1.15.0-alpha.10`、versionCode `742`。
-- 下载产物复核通过：APK 36,171,175 字节，SHA-256 `9095e366693e27ffe24b4c9f0e133dfd42ba22f2dc313e21982bb5f07a1ad219`，与 Release 附件 digest 一致；包名 `io.ericlee.bfa`、90 个应用标签均为 `B-box`、仅 ARM64、内嵌核心 `1.15.0-alpha.10`、APK v2 签名验证通过。CI 核心从 `SagerNet/sing-box` 的 `v1.15.0-alpha.10`（`c992297988288565a24a6d36e2cf4d77cb835fcd`）构建。
-- 2026-10-03 配对规则修正：流量统计与调试卡片同时可见时始终同行，包括窄屏、大字体及不相邻排序。Debug 编译和 `testOtherDebugUnitTest` 通过（9 项仪表盘测试、5 项更新检查测试），两个修改 Kotlin 文件定向 Spotless 检查均为 `IS CLEAN`。此修正尚未包含在上述 `1.15.0-alpha.10` Release 中。
+- 2026-10-03 上游同步与新包发布：[Actions 37099085549](https://github.com/giturass/B-box/actions/runs/37099085549) 成功，构建提交 `f3a60033d1bd904a7cef0bfb2fb5819e88c93c8a`。`testOtherDebugUnitTest`（设置兼容、卡片配对及 GitHub 更新资产筛选）、R8、Release Lint Vital、ARM64 Release 构建、产物身份与签名检查全部通过。Release 在 GitHub Actions 构建；本地仅完成 8 个修改 Kotlin 文件的定向 Spotless 检查（均 `IS CLEAN`）及工作流 actionlint 检查。
+- 2026-10-03 历史发布记录：[Release `1.15.0-alpha.10`](https://github.com/giturass/B-box/releases/tag/1.15.0-alpha.10) 已发布为预发布，tag 与应用版本完全一致，当时指向上述 `f3a6003` 构建提交。附件包含 `B-box-1.15.0-alpha.10-arm64-v8a.apk` 和 `B-box-version-metadata.json`；元数据为包名 `io.ericlee.bfa`、版本 `1.15.0-alpha.10`、versionCode `742`。
+- 上述历史产物复核通过：APK 36,171,175 字节，SHA-256 `9095e366693e27ffe24b4c9f0e133dfd42ba22f2dc313e21982bb5f07a1ad219`，与 Release 附件 digest 一致；包名 `io.ericlee.bfa`、90 个应用标签均为 `B-box`、仅 ARM64、内嵌核心 `1.15.0-alpha.10`、APK v2 签名验证通过。CI 核心从 `SagerNet/sing-box` 的 `v1.15.0-alpha.10`（`c992297988288565a24a6d36e2cf4d77cb835fcd`）构建。
+- 2026-10-03 配对规则修正：流量统计与调试卡片同时可见时始终同行，包括窄屏、大字体及不相邻排序。Debug 编译和 `testOtherDebugUnitTest` 通过（9 项仪表盘测试、5 项更新检查测试），两个修改 Kotlin 文件定向 Spotless 检查均为 `IS CLEAN`。此修正未包含在上述 `f3a6003` 历史构建产物中；当前同名 Release 状态见下方 API 复核记录。
+- 2026-10-08 GitHub API 复核：当前 `1.15.0-alpha.10` 标签指向 `81a1e79a44282ba07d5729588b10a422788cc376`，包含流量统计与调试卡片配对修正；对应 [Actions 37102809327](https://github.com/giturass/B-box/actions/runs/37102809327) 于 2026-10-03 完成且状态为 `success`。当前 Release ID 为 `402367667`，APK 为 36,171,027 字节，GitHub 返回的 SHA-256 为 `60974b9095db4e8707ea6aa6318f4ea521f4ea8f2d8457180ba2080c8d358d2f`。本次仅核对 API 元数据，未重新下载 APK 或验证签名。
 - 2026-10-08 节点卡片样式：已对照 `v1.12.23` 对应 XML 与绑定代码完成局部移植，`git diff --check` 通过。尝试 `:app:compileOtherDebugKotlin --offline --no-daemon -I .gradle/sfa-termux.init.gradle` 时因 `JAVA_HOME` 未设置且找不到 `java` 而未能启动，未完成编译、Spotless 或实机验证。本次节点样式尚未包含在上述 `1.15.0-alpha.10` Release 中。
 - 2026-10-08 项目目录更名：已确认 Git 根目录为 `~/project/B-box`，`rootProject.name` 为 `B-box`。更名前后的工作树状态和未提交差异一致，`git diff --check` 通过；未发现需要调整的源码、脚本或 IDE 目录引用。
+- 2026-10-08 远端仓库更名：GitHub 仓库及 `origin` 已统一为 `giturass/B-box`，About 简介使用 `B-box` 名称；仓库 ID `1397330945`、默认分支 `dev`、Release/附件 ID 与 digest、工作流 ID 均与更名前一致。新 Releases API 可读，旧 API 地址仍可访问同一仓库；README、本文和应用更新源均使用新地址。差异检查通过，本次未重新编译或发布 APK。
 - MOD-008 配对修正与 MOD-010 节点卡片尚待实机点击、深浅主题、大字体及截图回归。
