@@ -9,11 +9,11 @@
 | 本地项目目录 | `~/project/B-box` |
 | 仓库 | https://github.com/giturass/B-box |
 | 上游 | https://github.com/SagerNet/sing-box-for-android ，`dev` 分支 |
-| 比较基线 | `5c7b4ce969b926063737d059edf7b256c8f56ed0` |
-| 版本 / versionCode | `1.15.0-alpha.10` / `742` |
+| 比较基线 | `2d43d543db036602ebf27e35a94217e9e9ccba9e` |
+| 版本 / versionCode | `1.15.0-alpha.11` / `744` |
 | 安装包名 / applicationId | `io.ericlee.bfa` |
 | 源码 namespace | `io.nekohasekai.sfa` |
-| 更新日期 | 2026-10-08 |
+| 更新日期 | 2026-10-09 |
 
 本文描述当前有效改动，历史验证记录仅对应各自源码版本。协议、路由、VPN、远程控制、配置导入导出及普通 Root/Shizuku 能力继承上游；Xposed/LSPosed 模块与特权增强已按 MOD-011 移除。核心 AAR 不在 Git 中，本地构建与 CI 核心来源应分别核验。
 
@@ -191,7 +191,7 @@
 ## 维护与上游同步
 
 1. 先读 README、本文件及适用的 AGENTS.md，检查工作树并保留未提交改动。
-2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-009、MOD-011 和 MOD-012。当前已合并 `upstream/dev` 的 `5c7b4ce` / `1.15.0-alpha.10`；上游改写过部分提交历史，但与前一基线 `8e42c63` 的文件内容相比仅版本号变化，已有功能无需重复移植。
+2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-009、MOD-011 和 MOD-012。当前已合并 `upstream/dev` 的 `2d43d54` / `1.15.0-alpha.11`；上游再次改写了部分开发提交历史，相对前一基线 `5c7b4ce` 的实际增量为网络链路属性变化时刷新默认接口、位置权限说明的 HTML 渲染、配置保存失败提示格式及版本号。已移植功能与 B-box 定制继续保留，构建配置仍不包含 Xposed 仓库、模块或依赖。
 3. 特别核对 `CardGroup` 设置兼容性、本地/远程分支、VPN 权限流程和服务状态；未授权时不改协议、包名、签名或服务生命周期。
 4. 完成必要编译、资源及受影响 UI 检查，记录实际验证范围。编译与预览声明不等于实机交互验证。
 5. 提交前审查差异，不提交密钥、密码、机器配置、SDK 或 AAR。`origin` 为个人 fork，`upstream` 为 SagerNet；仅推送授权仓库，不强推上游。
@@ -217,4 +217,5 @@
 - 2026-10-08 FlClash 节点卡片样式回退：`GroupsCard.kt` 恢复为 `9cbde5b` 版本（与 `81a1e79` 文件内容完全一致），撤销 MOD-010；MOD-011 的 Xposed/LSPosed 移除继续有效。README 与修改索引已同步，文件内容与回退范围核对、`git diff --check` 通过。本次未重新编译或进行实机验证。
 - 2026-10-08 节点尺寸与选中态：完成 MOD-012，回退后的节点卡片适度增大，并加深浅色选中背景。变更范围审查与 `git diff --check` 通过。尝试 `sh gradlew :app:compileOtherDebugKotlin -Parm64Only=true --offline --no-daemon --console=plain`，因未配置 `JAVA_HOME` 且 PATH 中没有 `java` 而无法启动；本次未完成 Android 编译或实机验证。
 - 2026-10-08 节点卡片高度微调：最小高度调为 68dp，上下内边距调为 11dp，以匹配默认字号下的内容高度。`git diff --check` 通过，本次未重新编译或实机验证。
+- 2026-10-09 上游同步：合并 `upstream/dev` 的 `2d43d54`，更新为 `1.15.0-alpha.11`（744）。解决版本与 Xposed 仓库配置冲突；4 个 Kotlin 文件的实际改动逐项与上游增量一致，B-box 定制及原有未提交的图标链接删除、`gradlew` 权限改动完整保留。差异格式、变更范围、5 种语言 XML、错误占位符与权限说明 HTML 检查通过。已确认上游核心 `v1.15.0-alpha.11` 标签存在，本机标准核心仍为 `alpha.10`，完整构建前需准备匹配 AAR。尝试 `sh gradlew :app:compileOtherDebugKotlin :app:testOtherDebugUnitTest -Parm64Only=true --offline --no-daemon --console=plain --max-workers=2`，因未配置 `JAVA_HOME` 且 PATH 中没有 `java` 而无法启动；本次未完成 Android 编译、单元测试或实机验证，未生成或发布 APK。
 - MOD-008 配对修正尚待实机点击、深浅主题、大字体及截图回归。
