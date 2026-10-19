@@ -18,10 +18,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -579,14 +577,11 @@ private fun ProxyChip(
     val colors = MaterialTheme.colorScheme
     val isLightTheme = colors.surface.luminance() > 0.5f
     val contentColor = if (isSelected) colors.onPrimaryContainer else colors.onSurface
-    BoxWithConstraints(modifier = modifier) {
-        // Keep room for the protocol beside the delay, including with large fonts.
-        val maxDelayWidth = maxOf(0.dp, (maxWidth - 24.dp - 6.dp) * 0.6f)
+    Box(modifier = modifier) {
         Surface(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .heightIn(min = 63.dp)
                 .clip(chipShape)
                 .combinedClickable(
                     onClick = { if (isSelectable) onClick() },
@@ -602,49 +597,42 @@ private fun ProxyChip(
             border = if (isSelected) BorderStroke(1.dp, colors.primary) else null,
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
                     text = item.tag,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Normal,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
                     color = contentColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         text = item.displayType,
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Normal,
+                        style = MaterialTheme.typography.labelSmall,
                         color =
                         if (isSelected) {
                             contentColor.copy(alpha = 0.8f)
                         } else {
                             colors.onSurfaceVariant
                         },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                     if (item.urlTestDelay > 0) {
                         Text(
                             text = "${item.urlTestDelay}ms",
-                            modifier = Modifier.widthIn(max = maxDelayWidth),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Normal,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
                             color = if (isSelected && isLightTheme) {
                                 lerp(palette.forDelay(item.urlTestDelay), contentColor, 0.35f)
                             } else {
                                 palette.forDelay(item.urlTestDelay)
                             },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
