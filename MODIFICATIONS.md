@@ -9,11 +9,11 @@
 | 本地项目目录 | `~/project/B-box` |
 | 仓库 | https://github.com/giturass/B-box |
 | 上游 | https://github.com/SagerNet/sing-box-for-android ，`dev` 分支 |
-| 比较基线 | `2d43d543db036602ebf27e35a94217e9e9ccba9e` |
-| 版本 / versionCode | `1.15.0-alpha.11` / `744` |
+| 比较基线 | `bc73504fcb858400a939140ad785ed92f4c9f429` |
+| 版本 / versionCode | `1.15.0-alpha.12` / `745` |
 | 安装包名 / applicationId | `io.ericlee.bfa` |
 | 源码 namespace | `io.nekohasekai.sfa` |
-| 更新日期 | 2026-10-09 |
+| 更新日期 | 2026-10-19 |
 
 本文描述当前有效改动，历史验证记录仅对应各自源码版本。协议、路由、VPN、远程控制、配置导入导出及普通 Root/Shizuku 能力继承上游；Xposed/LSPosed 模块与特权增强已按 MOD-011 移除。核心 AAR 不在 Git 中，本地构建与 CI 核心来源应分别核验。
 
@@ -123,7 +123,7 @@
 
 本地仅运行静态检查、Debug 编译或单元测试；Release 交给上述 GitHub Actions。编译前准备匹配的核心 AAR，legacy flavor 另需 `libbox-legacy.aar`。
 
-历史本地构建使用 Termux 原生 aapt2/aidl、Build Tools 37.0.0、NDK 29.0.14206865；本地 init script 覆盖工具路径和签名，不能把本机路径写进 CI。2026-10-08 检查时，当前环境未设置 `JAVA_HOME` 且找不到 `java`，Debug 编译未能启动。恢复工具链并核对 Gradle 与依赖缓存后再运行构建；旧日志中的成功记录仅对应当时环境。
+历史本地构建使用 Termux 原生 aapt2/aidl、Build Tools 37.0.0、NDK 29.0.14206865；本地 init script 覆盖工具路径和签名，不能把本机路径写进 CI。2026-10-19 检查时，已有 OpenJDK 17.0.20；但项目 wrapper 要求的 Gradle 9.7.0 尚未缓存，`app/libs/libbox.aar` 缺失。本次仅完成原生 aapt2 资源编译与静态核验；完整 Debug 编译和单元测试前需补齐工具链、匹配的核心及依赖。旧日志中的成功记录仅对应当时环境。
 
 `--offline` 仅适用于依赖已缓存的环境。本地密钥和密码保存在忽略的 `.local-signing/`，沿用原文件；不要重新生成或提交。新机器需自行配置等价环境。
 
@@ -191,7 +191,7 @@
 ## 维护与上游同步
 
 1. 先读 README、本文件及适用的 AGENTS.md，检查工作树并保留未提交改动。
-2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-009、MOD-011 和 MOD-012。当前已合并 `upstream/dev` 的 `2d43d54` / `1.15.0-alpha.11`；上游再次改写了部分开发提交历史，相对前一基线 `5c7b4ce` 的实际增量为网络链路属性变化时刷新默认接口、位置权限说明的 HTML 渲染、配置保存失败提示格式及版本号。已移植功能与 B-box 定制继续保留，构建配置仍不包含 Xposed 仓库、模块或依赖。
+2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-009、MOD-011 和 MOD-012。当前已合并 `upstream/dev` 的 `bc73504` / `1.15.0-alpha.12`；上游替换了前一版本提交，相对前一基线 `2d43d54` 的文件增量仅为 `version.properties` 中的版本号和 versionCode。合并采用上游版本值；全部 B-box mod 差异保持一致，构建配置仍不包含 Xposed 仓库、模块或依赖。
 3. 特别核对 `CardGroup` 设置兼容性、本地/远程分支、VPN 权限流程和服务状态；未授权时不改协议、包名、签名或服务生命周期。
 4. 完成必要编译、资源及受影响 UI 检查，记录实际验证范围。编译与预览声明不等于实机交互验证。
 5. 提交前审查差异，不提交密钥、密码、机器配置、SDK 或 AAR。`origin` 为个人 fork，`upstream` 为 SagerNet；仅推送授权仓库，不强推上游。
@@ -218,4 +218,6 @@
 - 2026-10-08 节点尺寸与选中态：完成 MOD-012，回退后的节点卡片适度增大，并加深浅色选中背景。变更范围审查与 `git diff --check` 通过。尝试 `sh gradlew :app:compileOtherDebugKotlin -Parm64Only=true --offline --no-daemon --console=plain`，因未配置 `JAVA_HOME` 且 PATH 中没有 `java` 而无法启动；本次未完成 Android 编译或实机验证。
 - 2026-10-08 节点卡片高度微调：最小高度调为 68dp，上下内边距调为 11dp，以匹配默认字号下的内容高度。`git diff --check` 通过，本次未重新编译或实机验证。
 - 2026-10-09 上游同步：合并 `upstream/dev` 的 `2d43d54`，更新为 `1.15.0-alpha.11`（744）。解决版本与 Xposed 仓库配置冲突；4 个 Kotlin 文件的实际改动逐项与上游增量一致，B-box 定制及原有未提交的图标链接删除、`gradlew` 权限改动完整保留。差异格式、变更范围、5 种语言 XML、错误占位符与权限说明 HTML 检查通过。已确认上游核心 `v1.15.0-alpha.11` 标签存在，本机标准核心仍为 `alpha.10`，完整构建前需准备匹配 AAR。尝试 `sh gradlew :app:compileOtherDebugKotlin :app:testOtherDebugUnitTest -Parm64Only=true --offline --no-daemon --console=plain --max-workers=2`，因未配置 `JAVA_HOME` 且 PATH 中没有 `java` 而无法启动；本次未完成 Android 编译、单元测试或实机验证，未生成或发布 APK。
+- 2026-10-19 上游同步：合并 `upstream/dev` 的 `bc73504fcb858400a939140ad785ed92f4c9f429`，更新为 `1.15.0-alpha.12`（745），Go 版本仍为 `go1.26.8`。仅 `version.properties` 产生冲突，按上游值解决。排除维护文档和版本文件后，新旧基线对应的全部 137 个 mod 文件差异（含二进制和删除项）逐字节一致；首页控件、配置操作、流量与调试配对、模式按钮、65dp 节点卡片、品牌图标、独立安装身份、更新源、ARM64 工作流及 Xposed 移除完整保留。
+- 本次核验：`git diff --check`、56 个 XML 解析与资源重名检查、5 种语言的 `B-box` 应用名、全部本地字符串引用、已移除 Xposed 类型/依赖/注册文件检查，以及 Termux 原生 aapt2 对 `app/src/main/res` 的资源编译均通过。确认上游核心 `v1.15.0-alpha.12` 标签存在，指向 `25b0d5ea3e466d246c708ac0f20d0448110e566c`。本地缺少匹配 AAR 和 Gradle 9.7.0 缓存，未执行 Android 编译、单元测试、预览或实机验证；未生成或发布 APK。
 - MOD-008 配对修正尚待实机点击、深浅主题、大字体及截图回归。
