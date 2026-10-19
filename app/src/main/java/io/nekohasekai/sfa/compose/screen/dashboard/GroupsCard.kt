@@ -557,7 +557,7 @@ private fun GroupItemRow(
                 )
             }
             repeat(2 - row.size) {
-                Spacer(modifier = Modifier.weight(1.2f))
+                Spacer(modifier = Modifier.weight(1f))
             }
         }
     }
@@ -608,7 +608,7 @@ private fun ProxyChip(
                 Text(
                     text = item.tag,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Normal,
                     color = contentColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -622,6 +622,7 @@ private fun ProxyChip(
                         text = item.displayType,
                         modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Normal,
                         color =
                         if (isSelected) {
                             contentColor.copy(alpha = 0.8f)
@@ -636,7 +637,7 @@ private fun ProxyChip(
                             text = "${item.urlTestDelay}ms",
                             modifier = Modifier.widthIn(max = maxDelayWidth),
                             style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Normal,
                             color = if (isSelected && isLightTheme) {
                                 lerp(palette.forDelay(item.urlTestDelay), contentColor, 0.35f)
                             } else {
