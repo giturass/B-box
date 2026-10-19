@@ -586,7 +586,7 @@ private fun ProxyChip(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .heightIn(min = 65.dp)
+                .heightIn(min = 63.dp)
                 .clip(chipShape)
                 .combinedClickable(
                     onClick = { if (isSelectable) onClick() },
@@ -602,13 +602,13 @@ private fun ProxyChip(
             border = if (isSelected) BorderStroke(1.dp, colors.primary) else null,
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
                     text = item.tag,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Normal,
                     color = contentColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -622,6 +622,7 @@ private fun ProxyChip(
                         text = item.displayType,
                         modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Normal,
                         color =
                         if (isSelected) {
                             contentColor.copy(alpha = 0.8f)
@@ -636,7 +637,7 @@ private fun ProxyChip(
                             text = "${item.urlTestDelay}ms",
                             modifier = Modifier.widthIn(max = maxDelayWidth),
                             style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Normal,
                             color = if (isSelected && isLightTheme) {
                                 lerp(palette.forDelay(item.urlTestDelay), contentColor, 0.35f)
                             } else {
