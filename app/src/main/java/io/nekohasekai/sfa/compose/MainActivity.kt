@@ -129,9 +129,6 @@ import io.nekohasekai.sfa.compose.screen.dashboard.groups.GroupsViewModel
 import io.nekohasekai.sfa.compose.screen.log.LogViewModel
 import io.nekohasekai.sfa.compose.screen.tools.OpenConnectStatusViewModel
 import io.nekohasekai.sfa.compose.screen.tools.OpenVPNStatusViewModel
-import io.nekohasekai.sfa.compose.screen.tools.TaildropSendManager
-import io.nekohasekai.sfa.compose.screen.tools.TailscaleSSHSharedViewModel
-import io.nekohasekai.sfa.compose.screen.tools.TailscaleStatusViewModel
 import io.nekohasekai.sfa.compose.screen.usbip.USBIPStatusViewModel
 import io.nekohasekai.sfa.compose.theme.Theme
 import io.nekohasekai.sfa.compose.topbar.LocalScaffoldPadding
@@ -215,7 +212,6 @@ class MainActivity :
                 onServiceAlert(Alert.RequestVPNPermission, null)
             }
         }
-    private val pendingNavigationRoute = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -265,16 +261,6 @@ class MainActivity :
             return
         }
         val uri = intent.data ?: return
-        if (uri.scheme == "sing-box") {
-            val target = if (uri.isOpaque) Uri.parse("sing-box://" + uri.schemeSpecificPart) else uri
-            if (target.host == "taildrop") {
-                val endpointTag = target.getQueryParameter("endpoint")
-                if (!endpointTag.isNullOrEmpty()) {
-                    pendingNavigationRoute.value = "tools/tailscale/${Uri.encode(endpointTag)}/taildrop"
-                }
-                return
-            }
-        }
         if (intent.action == Action.OPEN_URL) {
             launchCustomTab(uri.toString())
             return
@@ -858,15 +844,7 @@ class MainActivity :
                 null
             }
 
-        val tailscaleSSHSharedViewModel: TailscaleSSHSharedViewModel = viewModel()
-
         val isToolsRoute = currentRootRoute == Screen.Tools.route
-
-        val tailscaleStatusViewModel: TailscaleStatusViewModel = viewModel()
-        val tailscaleState by tailscaleStatusViewModel.uiState.collectAsState()
-        val taildropUnreadCount = tailscaleState.endpoints.sumOf { it.unreadFileCount }
-        val taildropSendSessions by TaildropSendManager.sessions.collectAsState()
-        val taildropFailedCount = taildropSendSessions.count { it.errorMessage != null }
 
         val usbIPStatusViewModel: USBIPStatusViewModel? =
             if (isToolsRoute) {
@@ -891,13 +869,11 @@ class MainActivity :
 
         val statusTargetActive = remoteServer != null || currentServiceStatus == Status.Started
         val subscribeStatus = {
-            tailscaleStatusViewModel.subscribe()
             usbIPStatusViewModel?.subscribe()
             openConnectStatusViewModel?.subscribe()
             openVPNStatusViewModel?.subscribe()
         }
         val cancelStatus = {
-            tailscaleStatusViewModel.cancel()
             usbIPStatusViewModel?.cancel()
             openConnectStatusViewModel?.cancel()
             openVPNStatusViewModel?.cancel()
@@ -950,16 +926,6 @@ class MainActivity :
                     add(Screen.Connections.route)
                 }
             }
-
-        val pendingRoute = pendingNavigationRoute.value
-        LaunchedEffect(pendingRoute) {
-            if (pendingRoute != null) {
-                navController.navigate(pendingRoute) {
-                    launchSingleTop = true
-                }
-                pendingNavigationRoute.value = null
-            }
-        }
 
         LaunchedEffect(allowedRoutes, currentRootRoute, useNavigationRail) {
             if (currentRootRoute != null && !allowedRoutes.contains(currentRootRoute)) {
@@ -1036,8 +1002,6 @@ class MainActivity :
                         logViewModel = logViewModel,
                         groupsViewModel = groupsViewModel,
                         connectionsViewModel = connectionsViewModel,
-                        tailscaleStatusViewModel = tailscaleStatusViewModel,
-                        tailscaleSSHSharedViewModel = tailscaleSSHSharedViewModel,
                         usbIPStatusViewModel = usbIPStatusViewModel,
                         openConnectStatusViewModel = openConnectStatusViewModel,
                         openVPNStatusViewModel = openVPNStatusViewModel,
@@ -1141,7 +1105,7 @@ class MainActivity :
         val powerReportUnreadCount by PowerReportManager.unreadCount.collectAsState()
         // The crash/OOM report entries are hidden in remote control mode.
         val toolsUnreadCount =
-            (if (isRemote) 0 else crashReportUnreadCount + oomReportUnreadCount + powerReportUnreadCount) + taildropUnreadCount
+            if (isRemote) 0 else crashReportUnreadCount + oomReportUnreadCount + powerReportUnreadCount
 
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
@@ -1166,10 +1130,6 @@ class MainActivity :
                                     icon = {
                                         if (screen == Screen.Settings && hasUpdate) {
                                             BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.primary) }) {
-                                                Icon(screen.icon, contentDescription = null)
-                                            }
-                                        } else if (screen == Screen.Tools && taildropFailedCount > 0) {
-                                            BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.error) { Text("!") } }) {
                                                 Icon(screen.icon, contentDescription = null)
                                             }
                                         } else if (screen == Screen.Tools && toolsUnreadCount > 0) {
@@ -1223,10 +1183,6 @@ class MainActivity :
                                         icon = {
                                             if (screen == Screen.Settings && hasUpdate) {
                                                 BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.primary) }) {
-                                                    Icon(screen.icon, contentDescription = null)
-                                                }
-                                            } else if (screen == Screen.Tools && taildropFailedCount > 0) {
-                                                BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.error) { Text("!") } }) {
                                                     Icon(screen.icon, contentDescription = null)
                                                 }
                                             } else if (screen == Screen.Tools && toolsUnreadCount > 0) {

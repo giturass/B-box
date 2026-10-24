@@ -2,6 +2,11 @@ name: Build Release APK (arm64-v8a)
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish a GitHub Release (version tag must match this commit)
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -54,6 +59,12 @@ jobs:
           path: .core
           persist-credentials: false
 
+      - name: Trim unused libbox components
+        working-directory: .core
+        run: |
+          git apply --check ../patches/libbox-trim.patch
+          git apply ../patches/libbox-trim.patch
+
       # The upstream libbox builder explicitly requires OpenJDK 17.
       - name: Set up Java for libbox
         uses: actions/setup-java@v5
@@ -86,6 +97,9 @@ jobs:
           go_bin="$(go env GOPATH)/bin"
           export PATH="$PATH:$go_bin"
           go run ./cmd/internal/build_libbox -target android -platform android/arm64
+          CC="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" \
+            python3 ../tools/verify_libbox.py libbox.aar --source .
+          python3 ../tools/verify_libbox.py libbox-legacy.aar
           mkdir -p ../app/libs
           cp libbox.aar ../app/libs/libbox.aar
 
@@ -171,6 +185,8 @@ jobs:
           PY
           "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose \
             app/build/outputs/apk/other/release/*-arm64-v8a.apk
+          python3 tools/verify_libbox.py app/libs/libbox.aar \
+            --apk app/build/outputs/apk/other/release/*-arm64-v8a.apk
 
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
@@ -182,6 +198,7 @@ jobs:
           retention-days: 30
 
       - name: Publish GitHub Release
+        if: ${{ inputs.publish_release }}
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION_NAME: ${{ steps.versions.outputs.version }}

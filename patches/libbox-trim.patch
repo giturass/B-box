@@ -1,0 +1,86 @@
+diff --git a/cmd/internal/build_libbox/main.go b/cmd/internal/build_libbox/main.go
+--- a/cmd/internal/build_libbox/main.go
++++ b/cmd/internal/build_libbox/main.go
+@@ -63,10 +63,9 @@
+ 	sharedFlags = append(sharedFlags, "-ldflags", build_shared.LinkerFlags(currentTag, false))
+ 	debugFlags = append(debugFlags, "-ldflags", build_shared.LinkerFlags(currentTag, true))
+ 
+-	sharedTags = append(sharedTags, "with_quic", "with_wireguard", "with_utls", "with_naive_outbound", "with_clash_api", "with_usbip", "with_openvpn", "with_openconnect", "badlinkname", "tfogo_checklinkname0")
++	sharedTags = append(sharedTags, "with_quic", "with_wireguard", "with_utls", "with_clash_api", "badlinkname", "tfogo_checklinkname0")
+ 	darwinTags = append(darwinTags, "with_dhcp", "grpcnotrace")
+ 	// memcTags = append(memcTags, "with_tailscale")
+-	sharedTags = append(sharedTags, "with_tailscale", "ts_omit_logtail", "ts_omit_ssh", "ts_omit_drive", "ts_omit_taildrop", "ts_omit_webclient", "ts_omit_doctor", "ts_omit_capture", "ts_omit_kube", "ts_omit_aws", "ts_omit_synology", "ts_omit_bird")
+ 	notMemcTags = append(notMemcTags, "with_low_memory")
+ 	debugTags = append(debugTags, "debug")
+ }
+diff --git a/include/registry.go b/include/registry.go
+--- a/include/registry.go
++++ b/include/registry.go
+@@ -27,14 +27,11 @@
+ 	"github.com/sagernet/sing-box/protocol/http"
+ 	"github.com/sagernet/sing-box/protocol/masque"
+ 	"github.com/sagernet/sing-box/protocol/mixed"
+-	"github.com/sagernet/sing-box/protocol/naive"
+ 	"github.com/sagernet/sing-box/protocol/redirect"
+ 	"github.com/sagernet/sing-box/protocol/shadowsocks"
+ 	"github.com/sagernet/sing-box/protocol/shadowtls"
+-	"github.com/sagernet/sing-box/protocol/snell"
+ 	"github.com/sagernet/sing-box/protocol/socks"
+ 	"github.com/sagernet/sing-box/protocol/ssh"
+-	"github.com/sagernet/sing-box/protocol/tor"
+ 	"github.com/sagernet/sing-box/protocol/trojan"
+ 	"github.com/sagernet/sing-box/protocol/tun"
+ 	"github.com/sagernet/sing-box/protocol/vless"
+@@ -63,10 +60,8 @@
+ 	mixed.RegisterInbound(registry)
+ 
+ 	shadowsocks.RegisterInbound(registry)
+-	snell.RegisterInbound(registry)
+ 	vmess.RegisterInbound(registry)
+ 	trojan.RegisterInbound(registry)
+-	naive.RegisterInbound(registry)
+ 	shadowtls.RegisterInbound(registry)
+ 	vless.RegisterInbound(registry)
+ 	anytls.RegisterInbound(registry)
+@@ -93,11 +88,9 @@
+ 	socks.RegisterOutbound(registry)
+ 	http.RegisterOutbound(registry)
+ 	shadowsocks.RegisterOutbound(registry)
+-	snell.RegisterOutbound(registry)
+ 	vmess.RegisterOutbound(registry)
+ 	trojan.RegisterOutbound(registry)
+ 	registerNaiveOutbound(registry)
+-	tor.RegisterOutbound(registry)
+ 	ssh.RegisterOutbound(registry)
+ 	shadowtls.RegisterOutbound(registry)
+ 	vless.RegisterOutbound(registry)
+diff --git a/include/quic.go b/include/quic.go
+--- a/include/quic.go
++++ b/include/quic.go
+@@ -10,7 +10,6 @@
+ 	"github.com/sagernet/sing-box/dns/transport/quic"
+ 	"github.com/sagernet/sing-box/protocol/hysteria"
+ 	"github.com/sagernet/sing-box/protocol/hysteria2"
+-	_ "github.com/sagernet/sing-box/protocol/naive/quic"
+ 	"github.com/sagernet/sing-box/protocol/tuic"
+ 	_ "github.com/sagernet/sing-box/transport/v2rayquic"
+ )
+diff --git a/common/urltest/urltest.go b/common/urltest/urltest.go
+--- a/common/urltest/urltest.go
++++ b/common/urltest/urltest.go
+@@ -13,7 +13,6 @@
+ 	"github.com/sagernet/sing-box/adapter"
+ 	C "github.com/sagernet/sing-box/constant"
+ 	"github.com/sagernet/sing-mux"
+-	"github.com/sagernet/sing-snell"
+ 	"github.com/sagernet/sing/common"
+ 	M "github.com/sagernet/sing/common/metadata"
+ 	N "github.com/sagernet/sing/common/network"
+@@ -88,7 +87,6 @@
+ 		warmContext = mux.ContextWithKeepSession(warmContext)
+ 		warmContext = anytls.ContextWithKeepSession(warmContext)
+ 		warmContext = contextWithQUICKeepSession(warmContext)
+-		warmContext = snell.ContextWithKeepSession(warmContext)
+ 		_, err := urlTest(warmContext, link, detour)
+ 		if err != nil {
+ 			return 0, err

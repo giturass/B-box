@@ -13,9 +13,9 @@
 | 版本 / versionCode | `1.15.0-alpha.13` / `747` |
 | 安装包名 / applicationId | `io.ericlee.bfa` |
 | 源码 namespace | `io.nekohasekai.sfa` |
-| 更新日期 | 2026-10-24 |
+| 更新日期 | 2026-10-25 |
 
-本文描述当前有效改动，历史验证记录仅对应各自源码版本。协议、路由、VPN、远程控制、配置导入导出及普通 Root/Shizuku 能力继承上游；Xposed/LSPosed 模块与特权增强已按 MOD-011 移除。核心 AAR 不在 Git 中，本地构建与 CI 核心来源应分别核验。
+本文描述当前有效改动，历史验证记录仅对应各自源码版本。路由、VPN、远程控制、配置导入导出及普通 Root/Shizuku 能力继承上游；Xposed/LSPosed 模块与特权增强已按 MOD-011 移除，核心协议裁剪范围见 MOD-013，App 的 Tailscale 与终端功能移除范围见 MOD-014。核心 AAR 不在 Git 中，本地构建与 CI 核心来源应分别核验。
 
 ## 修改索引
 
@@ -34,6 +34,8 @@
 | MOD-009 | 独立安装包名与分支更新源 | `app/build.gradle.kts`、Manifest、服务/安装广播、`GitHubUpdateChecker.kt` |
 | MOD-011 | 移除 Xposed/LSPosed 与特权增强 | Manifest、Gradle、设置与导航、模块源码/资源、安装与应用查询 |
 | MOD-012 | 节点卡片尺寸与选中态优化 | `compose/screen/dashboard/GroupsCard.kt` |
+| MOD-013 | ARM64 核心组件裁剪 | `patches/libbox-trim.patch`、`tools/verify_libbox.py`、`.github/workflows/build-release.yml` |
+| MOD-014 | 移除 App 的 Tailscale 与终端 | 导航、工具与设置页、Manifest、Root 后端、Gradle、语言资源 |
 
 
 ## MOD-001：仪表盘底部控制
@@ -104,7 +106,9 @@
 
 入口为 `.github/workflows/build-release.yml`，仅手动触发，生成 Android 7.0+ 的 ARM64 `otherRelease` APK。Release 构建与发布统一在 GitHub Actions 执行。`-Parm64Only=true` 限定一个 ABI 并关闭 universal；不传该参数时保留原有多 ABI 行为。
 
-- 核心取自 `SagerNet/sing-box` 的 `v${VERSION_NAME}` 标签，Go 版本来自 `version.properties`。执行上游 `make lib_install` 和 `build_libbox -target android -platform android/arm64`，复制标准 `libbox.aar`。
+手动参数 `publish_release` 默认开启；关闭时仍运行单元测试、签名 Release 构建、产物校验及 Actions Artifact 上传，仅跳过 GitHub Release 发布。同版本标签已指向其他提交时，可用此选项构建新的 APK 供下载。
+
+- 核心取自 `SagerNet/sing-box` 的 `v${VERSION_NAME}` 标签，Go 版本来自 `version.properties`。先检查并应用 `patches/libbox-trim.patch`，再执行上游 `make lib_install` 和 `build_libbox -target android -platform android/arm64`；校验裁剪结果后复制 `libbox.aar`。详见 MOD-013。
 - 核心使用 JDK 17，应用使用 JDK 21；SDK 36/37.1、Build Tools 36.0.0/37.0.0、NDK 28.0.13004108。
 - Release 前运行 `testOtherDebugUnitTest`，保留 R8 和 Release Lint；上传前验证唯一 APK、ARM64 架构、签名、新包名、版本、启动 Activity 与全部应用标签。Artifact 为 `B-box-<版本>-arm64-v8a-release`，保留 30 天。
 - 校验成功后发布到本仓库 GitHub Release：tag 严格等于 `VERSION_NAME`（例如 `1.15.0-alpha.10`，不加 `v`），指向构建的源码 SHA；alpha/beta/rc 标记为预发布。发布 APK 及 `B-box-version-metadata.json`，供应用内更新读取。已有 tag 指向不同提交时应报错，不移动既有版本标签；同一提交重跑可重新上传产物。
@@ -123,7 +127,7 @@
 
 ### 本地 Termux 检查
 
-本地仅运行静态检查、Debug 编译或单元测试；Release 交给上述 GitHub Actions。编译前准备匹配的核心 AAR，legacy flavor 另需 `libbox-legacy.aar`。
+遵照本机 `~/project/AGENTS.md`，没有用户明确要求时不在本机执行编译构建；Release 交给上述 GitHub Actions。编译前准备版本匹配且应用 MOD-013 裁剪补丁的核心 AAR，legacy flavor 另需同样裁剪的 `libbox-legacy.aar`。旧的官方完整 AAR 不代表当前裁剪结果。
 
 历史本地构建使用 Termux 原生 aapt2/aidl、Build Tools 37.0.0、NDK 29.0.14206865；本地 init script 覆盖工具路径和签名，不能把本机路径写进 CI。2026-10-19 检查时，已有 OpenJDK 17.0.20；但项目 wrapper 要求的 Gradle 9.7.0 尚未缓存，`app/libs/libbox.aar` 缺失。本次仅完成原生 aapt2 资源编译与静态核验；完整 Debug 编译和单元测试前需补齐工具链、匹配的核心及依赖。旧日志中的成功记录仅对应当时环境。
 
@@ -159,14 +163,14 @@
 
 **设置兼容：** 旧 `UploadTraffic` / `DownloadTraffic` 在顺序中映射为 `Traffic`，取首次出现位置并去重，保留其他卡片顺序。旧两张流量卡片都隐藏时才隐藏新卡片；只隐藏其中一张时继续显示统计。新 `Traffic` 隐藏设置正常保存/恢复，未知卡片和已删除的 `Connections` 被忽略，`Profiles` 始终可见。无需数据库迁移。
 
-**维护约束：** 保留本地/远程数据来源和服务停止时的原有清零行为；连接列表、通知及 Tailscale 工具的速率/图表不属于本项，不得误删共享 `LineChart`。
+**维护约束：** 保留本地/远程数据来源和服务停止时的原有清零行为；连接列表、通知的速率/图表不属于本项，不得误删共享 `LineChart`。Tailscale 工具已按 MOD-014 移除。
 
 **回归：** 升级旧排序与隐藏项、重复/未知名称、重置、拖动、单独隐藏/显示、远程会话、停止/重启；普通宽度、窄屏及大字体下同时开启两卡均同行并排；深浅主题。`DashboardCardSettingsTest` 覆盖设置兼容、相邻/分隔排序的双向配对及仅显示一张时占满整行的规则。
 
 ## MOD-009：独立安装身份与更新
 
 - `applicationId` 为 `io.ericlee.bfa`；`namespace`、Kotlin/Java 包、AIDL 描述符及 RootServer 反射类名保留 `io.nekohasekai.sfa`，确保已声明组件可加载。
-- Provider authorities 使用 `${applicationId}`；服务控制、USB 权限、USBIP/Taildrop 停止与安装回执广播改由 `BuildConfig.APPLICATION_ID` 派生，Manifest 回执 action 同步使用占位符。文件分享 URI、显式服务 Intent、自身包过滤继续使用应用运行时包名。
+- Provider authorities 使用 `${applicationId}`；服务控制、USB 权限、USBIP 停止与安装回执广播改由 `BuildConfig.APPLICATION_ID` 派生，Manifest 回执 action 同步使用占位符。文件分享 URI、显式服务 Intent、自身包过滤继续使用应用运行时包名。Taildrop 服务及其广播已按 MOD-014 移除。
 - GitHub 更新源使用 `giturass/B-box` 的 Releases，读取 `B-box-version-metadata.json` 中的 `version_code`，匹配当前版本的 B-box ARM64 APK。发布范围为 Android 7.0+ 的 `other` / ARM64；无兼容资产时不提供下载，避免把 Release 网页或官方 SFA 包当作更新。稳定/预发布通道沿用现有设置，F-Droid 源仍按当前包名查询。
 - 新旧包可并行安装，但私有配置与数据不会自动迁移。
 
@@ -178,27 +182,76 @@
 - 设置页移除“特权增强”，删除管理、检测与 Hook 日志页面、三条导航路由、Manifest 模块入口、启动注册、状态轮询和更新重启通知。
 - 删除四个专用设置属性/键及五种语言的专用字符串。原有日志空状态译文迁为通用 `log_no_logs`。旧 DataStore 键值不再读取，不新增数据库迁移或清空其他设置。
 - 安装和应用查询移除模块激活时的强制 Root 分支，继续使用用户的普通安装、Root、Shizuku 设置。删除模块专用调试导出及 Root AIDL 的方法编号 3，其余方法编号保持不变。
-- 保留普通 VPN、Root/Shizuku、应用查询、终端、桥接/自动重定向，以及崩溃、OOM、电量报告。
+- 保留普通 VPN、Root/Shizuku、应用查询、桥接/自动重定向，以及崩溃、OOM、电量报告；终端随后按 MOD-014 移除。
 
 **回归：** 设置与返回导航、日志空状态、安装方式切换、应用列表查询、升级旧设置；各 flavor 的编译及资源合并；确认源码、模块注册和构建依赖中不再保留已移除组件。
 
 ## MOD-012：节点卡片选中态与浅色可读性
 
-- 节点采用双列布局、12dp 圆角与分组底板；每张卡片最小高度 65dp，上下内边距 9dp，两行间距 6dp。名称使用 16sp 的 `bodyLarge`，类型与延迟使用 12sp 的 `labelMedium`；大字体下卡片可自然增高。
+- 节点采用双列布局、12dp 圆角与分组底板；每张卡片最小高度 65dp，上下内边距 9dp，两行间距 6dp。名称与类型/延迟两行整体垂直居中，将最小高度产生的额外留白均分到上下两侧。名称使用 16sp 的 `bodyLarge`，类型与延迟使用 12sp 的 `labelMedium`；大字体下卡片可自然增高。
 - 浅色选中背景由 `primaryContainer` 向 `primary` 混合 20%，深色使用 `primaryContainer`，选中卡片增加 1dp 主色描边。根据当前主题的 `surface` 亮度判断浅深色，使用主题色以适配动态配色。
 - 浅色选中的测速文字向 `onPrimaryContainer` 混合 35%，加深文字并保留延迟等级的色相；类型文字使用 80% 不透明度的选中文字色。名称、类型与延迟均为单行省略，延迟最多占详情行可用宽度的 60%，为类型预留空间。
 
 **回归：** 320/360dp 双列、深浅色、动态色、大字体、长名称/类型/延迟、奇数末项、点击选择及长按测速。具体动态配色的文字对比度与实机效果仍需设备验证。
 
+## MOD-013：ARM64 核心组件裁剪
+
+**裁剪范围：**
+
+- NaiveProxy：关闭 `with_naive_outbound`；移除 `include/registry.go` 的 Naive 入站导入与注册，以及 `include/quic.go` 的 Naive HTTP/3 入站实现导入，覆盖入站与出站并去除 Cronet/Chromium 依赖。
+- Tailscale、OpenVPN、OpenConnect、USBIP：关闭 `with_tailscale`、`with_openvpn`、`with_openconnect`、`with_usbip`，移除不再使用的 `ts_omit_*` 标签。Tailscale 相关的 Taildrop、Tailscale SSH、MagicDNS、DERP/Tailcat 等本地核心能力随之移除。
+- Snell：移除协议导入以及入站、出站注册，并删除 `common/urltest/urltest.go` 中直接引用 `sing-snell` 的测速会话预热钩子，避免移除注册后仍链接该模块；其他协议的预热逻辑保留。Tor：移除协议导入及出站注册。两者没有对应的独立裁剪标签。
+- 保留 `with_quic`、`with_wireguard`、`with_utls`、`with_clash_api`、`badlinkname`、`tfogo_checklinkname0`，沿用上游链接器参数和 API 24 / API 21 变体构建；标准与 legacy AAR 均应用裁剪。
+
+**构建与验证：**
+
+- 核心仍按应用版本选择上游标签。`patches/libbox-trim.patch` 在 CI 编译前通过 `git apply --check` 后应用；上游结构变化导致补丁无法应用时构建报错，升级核心时必须重新审查补丁。
+- 本地 `.core/` 为匹配版本的核心源码工作目录，已加入 Git 忽略；可用于静态审查裁剪后的实际源码，不提交上游源码副本或构建产物。
+- `tools/verify_libbox.py` 用 `go version -m` 读取 AAR 内实际原生库的构建标签、模块及目标平台，要求裁剪项未启用、相关依赖未链接，并确认 QUIC、WireGuard、uTLS 等保留依赖仍在。对最终 APK 内相应原生库重复校验，记录原生库未压缩字节数与 ZIP 条目压缩字节数。
+- 标准 AAR 另通过 Android/ARM64、CGO 与实际构建标签下的 `go list -deps ./experimental/libbox` 检查完整依赖图，阻止 Naive、Snell、Tor 等实现经其他导入路径被重新带入。该命令由 CI 提供 NDK 的 API 24 Clang。
+- `.gitattributes` 仅对补丁文件禁用普通源码的空白检查，因为 unified diff 的上下文前缀会出现在 Go 的制表符和空行之前；补丁格式与修改的 Go 内容单独核验。
+
+**兼容范围：**
+
+- 本项裁剪本地 libbox 的实现；保留 libbox 导出类型和 gRPC 协议，通用 shell 辅助代码仍属于核心导出 API，不依赖 Tailscale 模块。App 的 Tailscale/Taildrop/终端页面及专用后端随后按 MOD-014 删除，普通远程控制继续保留。
+- 本地配置使用被裁剪的协议、端点、DNS 或服务时会在配置检查/启动阶段报错；不静默修改配置或替换节点。Snell、Tor、Naive 入站因未注册而不再出现在动态配置 schema 中，其余裁剪项保留上游的“未包含在构建中”错误实现。
+- 保留的 OpenVPN、OpenConnect、USBIP Android 页面继续通过稳定的管理接口读取状态，可用于远程核心；没有端点或服务时，相应工具卡片不显示。Tailscale 与终端 App 功能无论本地还是远程均已移除。历史配置文件不自动修改，普通 Root/Shizuku 能力继续保留。
+- 不改变应用版本、安装身份、签名及发布流程；当前补丁不会自动替换已安装应用中的旧核心。
+
+**回归：** 正常协议配置检查与启动；Hysteria2/TUIC、VLESS+REALITY、WireGuard、DNS、TUN、Clash 模式、节点测速与连接列表；七项被裁剪功能的配置错误；本地工具页无端点状态与保留的远程会话工具页；标准/legacy AAR 和最终 APK 的标签、模块、架构检查。实际体积收益以成功构建产物为准。
+
+## MOD-014：移除 App 的 Tailscale 与终端
+
+**移除范围：**
+
+- 删除 Tailscale 端点、节点、出口节点、Ping、Taildrop 收发与 SSH 终端页面及状态管理，删除对应的 10 条导航路由；移除工具页端点入口、状态订阅与 Taildrop 未读/失败徽标。工具页普通报告徽标保留，一级工具图标改为扳手。
+- 删除 Taildrop 专用分享 Activity、发送前台服务、Manifest 注册与透明分享主题，移除启动时的 Taildrop 缓存维护和专用深链处理；普通配置导入、导出与文件分享继续保留。
+- 删除终端会话存储、通知、Ghostty 主题/字体/配置设置与编辑页面，删除全部五项 Ghostty Gradle 依赖及其专用 Sonatype snapshots 仓库。
+- 删除 Tailscale SSH 的 11 个设置属性和键，以及五种语言共 439 个专用字符串/复数资源；端点分组标题迁为通用 `tools_endpoints`，保留原译文。旧设置数据不再读取，不新增数据库迁移或清空配置。
+- 删除 App 内专用 Shell/SFTP 实现、Root shell 会话 Binder、用户解析、Termux shell 环境构造及已无调用的 shell 迭代器和专用客户端工厂。Root AIDL 删除方法编号 6、7，其余事务编号保持不变。
+
+**保留与兼容：**
+
+- 配置文件 JSON 编辑器继续保留：API 24+ 使用 Sora、Tree-sitter JSON、`ConfigJsonLanguage` 和 `ConfigSchema`，API 21 变体使用 EditorKit 与 `JsonLanguage`。`ProfileCodeEditor` 仅删除 Ghostty 语言选项，JSON 高亮、补全、搜索、撤销/重做、剪贴板、缩进及保存功能的其余代码不变。
+- 普通 Root/Shizuku 安装、应用查询、邻居监测、网络桥接、自动重定向与普通远程控制继续保留。保留的报告页和配置图标库中的 Terminal 图标只是图形资源，不提供终端功能。
+- libbox 仍要求的平台方法签名保持不变：`usePlatformShell()` 返回 `false`，打开 Shell、检查 Shell、查询用户和 SFTP 的方法返回不可用错误，`tailscaleHostname()` 返回空字符串。核心的通用 shell 导出类型/辅助代码仍保留，App 无终端执行入口；不改变 libbox 的导出接口或 gRPC 协议。
+
+**回归：** 配置文件打开/编辑/搜索/保存及 JSON 补全、标准与 legacy 编辑器、配置导入导出、工具与设置页返回导航、普通 Root/Shizuku 安装/应用查询、网络桥接/自动重定向、普通远程控制；各 flavor 的编译、资源合并及 APK 中不再打包 Ghostty。
+
 ## 维护与上游同步
 
 1. 先读 README、本文件及适用的 AGENTS.md，检查工作树并保留未提交改动。
-2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-009、MOD-011 和 MOD-012。当前已合并上游 `dev` 的 `a548a79` / `1.15.0-alpha.13`。相对前一基线 `bc73504`，纳入核心初始化等待、服务模式检测与连接同步、仪表盘配置更新生效、分应用代理列表/扫描及旧版 Android 连接归属查询修复；版本与 Go 版本采用上游值。冲突处理保留 B-box 定制，构建配置和应用查询仍不包含 Xposed 仓库、模块或强制 Root 分支。
+2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-009、MOD-011 至 MOD-014。当前已合并上游 `dev` 的 `a548a79` / `1.15.0-alpha.13`。相对前一基线 `bc73504`，纳入核心初始化等待、服务模式检测与连接同步、仪表盘配置更新生效、分应用代理列表/扫描及旧版 Android 连接归属查询修复；版本与 Go 版本采用上游值。冲突处理保留 B-box 定制，构建配置和应用查询仍不包含 Xposed 仓库、模块或强制 Root 分支。
 3. 特别核对 `CardGroup` 设置兼容性、本地/远程分支、VPN 权限流程和服务状态；未授权时不改协议、包名、签名或服务生命周期。
 4. 完成必要编译、资源及受影响 UI 检查，记录实际验证范围。编译与预览声明不等于实机交互验证。
 5. 提交前审查差异，不提交密钥、密码、机器配置、SDK 或 AAR。`origin` 为个人 fork，`upstream` 为 SagerNet；仅推送授权仓库，不强推上游。
 
 ## 验证记录
+
+- 2026-10-25 节点卡片上下留白：两行内容改用 `Arrangement.spacedBy(6.dp, Alignment.CenterVertically)`，使名称上方与类型/延迟下方的布局留白等距。已核对 AndroidX 官方 `Arrangement` 源码中的垂直对齐行为及本项目既有用法，变更范围审查与 `git diff --check` 通过。未执行本机编译构建或实机验证。
+- 2026-10-25 App 裁剪：MOD-014 删除 29 个专用源码/AIDL 文件。静态检查通过：56 个 XML 文件可解析，五种语言删除资源无剩余引用，10 条 Tailscale/终端路由移除且其他路由保留，Root AIDL 事务编号和剩余实现一致，已删除类/设置/依赖无残留引用，libbox 平台方法参数签名与裁剪前一致。两种 API 版本的 JSON 编辑器仅有移除 Ghostty 模式的预期差异，配置编辑页/状态管理、JSON schema/语言实现及编辑器依赖与裁剪前一致。核心补丁反向应用检查、原生库校验脚本 Python 语法检查和 `git diff --check` 通过。未执行本机编译、GitHub Actions 或设备验证，未生成新 APK，尚无实际体积数据。
+- 2026-10-25 核心裁剪：针对 `v1.15.0-alpha.13` / `824dbcfb4dd0a95921840b1737b950cde590241e` 准备并应用 MOD-013 补丁。标准 Git 补丁检查、实际应用及反向应用检查通过；四个受影响的核心文件与预期修改逐字节一致。按 Android/ARM64、CGO、Go 1.26 和保留标签进行源码导入静态分析，108 个可达本地包中不再包含被裁剪的实现，也没有直接引用七项相关外部模块；其余代理协议、gRPC 和普通终端辅助包仍可达。此分析未解析第三方模块内部的完整依赖，CI 的 `go list -deps` 将进一步核验。
+- 同次验证：原生库元数据校验器的 11 项通过/拒绝用例通过，覆盖被裁剪标签、模块/子模块、模块替换、缺失元数据、保留项及错误目标平台/架构；源码依赖校验用例确认普通 shell 辅助包可保留、已裁剪实现会被拒绝。工作流 8 个 shell 块通过 Bash 语法检查，2 个内嵌 Python 块及校验脚本通过 Python 语法检查，`git diff --check` 通过。遵照本机 AGENTS.md，未执行本机 Go/Android 编译构建，未运行 GitHub Actions，未生成或发布新 AAR/APK；尚无实际体积收益数据。
 
 - 既有 Release 工作流：[36887951093](https://github.com/giturass/B-box/actions/runs/36887951093)，2026-10-01 成功；该产物仍使用旧应用名。
 - 当前模式按钮及系统代理回退已通过本地 Debug 构建和签名验证；Clash 文件定向 Spotless 检查通过。全库仍有既有格式问题，不代表全库检查通过。

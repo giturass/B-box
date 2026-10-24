@@ -19,7 +19,6 @@ import io.nekohasekai.sfa.bg.CrashReportManager
 import io.nekohasekai.sfa.bg.OOMReportManager
 import io.nekohasekai.sfa.bg.PowerReportManager
 import io.nekohasekai.sfa.bg.UpdateProfileWork
-import io.nekohasekai.sfa.compose.screen.tools.TaildropFiles
 import io.nekohasekai.sfa.constant.Bugs
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.AppLifecycleObserver
@@ -68,7 +67,6 @@ class Application : Application() {
                 Log.w("Application", "setup libbox: ${it.message}")
             }
             UpdateProfileWork.reconfigureUpdater()
-            TaildropFiles.cleanCache()
         }
 
         if (Vendor.isPerAppProxyAvailable()) {

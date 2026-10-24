@@ -9,9 +9,11 @@
 - 移除独立连接统计卡片，保留活动连接列表入口。
 - 上传、下载合并为“流量统计”，只显示累计流量，与调试卡片默认并排；使用 B-box 名称及自定义图标。
 - 启动按钮采用 FlClash 风格的播放/暂停形变与展开计时，保留现有配色；连接和代理组入口自适应窄屏。
-- 节点卡片保持上游尺寸与排版，仅增强选中态描边和浅色可读性。
+- 节点卡片保持现有尺寸与双列排版，两行内容垂直居中、上下留白等距，并增强选中态描边和浅色可读性。
 - Clash 模式仅将模式选择按钮改为 1.12.23 时期的独立矩形样式，保留现有卡片和标题；系统 HTTP 代理保持原样。
 - 移除 Xposed/LSPosed 模块及“特权增强”功能；保留普通 Root/Shizuku 安装与应用查询。
+- ARM64 核心裁剪 NaiveProxy、Tailscale、OpenVPN、Snell、OpenConnect、USBIP 与 Tor；保留 QUIC、WireGuard、uTLS/REALITY 和 Clash API。构建方式与兼容范围见 MOD-013。
+- 移除 App 的 Tailscale、Taildrop、SSH 终端及 Ghostty 依赖；保留 JSON 配置编辑器和普通 Root/Shizuku 能力，详见 MOD-014。
 
 维护与构建入口：**[MODIFICATIONS.md](MODIFICATIONS.md)**。该文档记录准确的上游基线、逐项差异、文件定位、AI 维护约束与回归检查。
 

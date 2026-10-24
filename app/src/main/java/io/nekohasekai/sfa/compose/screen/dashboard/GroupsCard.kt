@@ -602,7 +602,7 @@ private fun ProxyChip(
         ) {
             Column(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
             ) {
                 Text(
                     text = item.tag,

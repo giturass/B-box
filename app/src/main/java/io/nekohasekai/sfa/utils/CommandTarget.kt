@@ -48,11 +48,4 @@ object CommandTarget {
         sharedRemoteClient = client
         client
     }
-
-    // Returns a dedicated client owned by the caller, who is responsible for
-    // disconnecting it (e.g. the SSH terminal closes its client on session end).
-    fun ownedStandaloneClient(): io.nekohasekai.libbox.CommandClient {
-        val server = remoteServer ?: return Libbox.newStandaloneCommandClient()
-        return Libbox.newStandaloneRemoteCommandClient(libboxOptions(server))
-    }
 }

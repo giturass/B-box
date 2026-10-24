@@ -12,7 +12,7 @@ import android.view.View
 import androidx.core.widget.addTextChangedListener
 import com.blacksquircle.ui.language.json.JsonLanguage
 
-class ProfileCodeEditor(context: Context, syntax: CodeEditorSyntax = CodeEditorSyntax.JSON) {
+class ProfileCodeEditor(context: Context) {
 
     var onTextChanged: (() -> Unit)? = null
     var onSearchResultChanged: ((count: Int, current: Int) -> Unit)? = null
@@ -20,7 +20,7 @@ class ProfileCodeEditor(context: Context, syntax: CodeEditorSyntax = CodeEditorS
 
     private val editor =
         ManualScrollTextProcessor(context).apply {
-            language = if (syntax == CodeEditorSyntax.JSON) JsonLanguage() else null
+            language = JsonLanguage()
             textSize = 14f
             setPadding(16, 16, 16, 16)
             typeface = Typeface.MONOSPACE

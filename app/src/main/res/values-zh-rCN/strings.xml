@@ -464,84 +464,11 @@
     <string name="tool_default_outbound">默认</string>
 
     <!-- STUN Test -->
-    <!-- Tailscale -->
-    <string name="tailscale_endpoints">端点</string>
+    <string name="tools_endpoints">端点</string>
     <string name="title_services">服务</string>
 
-    <string name="tailscale_status">状态</string>
-    <string name="tailscale_state">状态</string>
-    <string name="tailscale_network">网络</string>
-    <string name="tailscale_hostname">主机名</string>
-    <string name="tailscale_open_auth_url">打开认证链接</string>
-    <string name="tailscale_open_auth_url_qr_code">显示认证链接二维码</string>
-    <string name="tailscale_this_device">此设备</string>
-    <string name="tailscale_logout">登出</string>
-    <string name="tailscale_connected">已连接</string>
-    <string name="tailscale_not_connected">未连接</string>
-    <string name="tailscale_addresses">Tailscale 地址</string>
-    <string name="tailscale_details">详情</string>
-    <string name="tailscale_key_expiry">密钥过期</string>
-    <string name="tailscale_exit_node">出口节点</string>
-    <string name="tailscale_active">活跃</string>
-    <string name="tailscale_ping">Ping</string>
-    <string name="tailscale_ping_start">启动</string>
-    <string name="tailscale_ping_stop">停止</string>
-    <string name="tailscale_ping_direct">直接连接</string>
-    <string name="tailscale_ping_derp">DERP 中继连接</string>
-    <string name="tailscale_ping_peer_relay">对等中继连接</string>
-    <string name="tailscale_ping_endpoint">端点</string>
-    <string name="tailscale_ping_derp_region">DERP 区域</string>
-    <string name="tailscale_ping_peer_relay_address">对等中继</string>
-    <string name="tailscale_ping_connecting">连接中…</string>
-    <string name="tailscale_ping_no_data">无数据</string>
-    <string name="tailscale_shared_in">共享至此</string>
-    <string name="tailscale_expired">已过期</string>
-    <string name="tailscale_expires_relative">%1$s过期</string>
-    <string name="tailscale_key_expiry_disabled">密钥过期已禁用</string>
-    <string name="tailscale_last_seen">最后在线</string>
-    <string name="tailscale_available">可用</string>
-    <string name="tailscale_yes">是</string>
 
-    <!-- Tailscale SSH -->
-    <string name="tailscale_ssh_connect">通过 SSH 连接</string>
-    <string name="tailscale_ssh_options">SSH 选项</string>
-    <string name="tailscale_ssh_username">用户名</string>
-    <string name="tailscale_ssh_terminal_type">终端类型</string>
-    <string name="tailscale_ssh_remember_options">记住 SSH 选项</string>
-    <string name="tailscale_ssh_quick_connect">快速连接</string>
-    <string name="tailscale_ssh_quick_connect_description">启用后，你可以通过工具中 Tailscale 条目和节点列表中节点条目的上下文菜单（长按）快速连接到此节点。\n\n当通过 SSH 连接到其他节点时，此节点也会出现在新建会话菜单中。</string>
-    <string name="tailscale_ssh_terminal_hint">你可以在设置 → Ghostty 配置中自定义终端外观。</string>
-    <string name="tailscale_ssh_connect_button">连接</string>
-    <string name="tailscale_ssh_connecting">连接中…</string>
-    <string name="tailscale_ssh_no_sessions">无活动会话</string>
-    <string name="terminal_session_ended">会话已结束</string>
-    <string name="terminal_press_any_key">按任意键</string>
-    <string name="tailscale_ssh_new_session">新建会话</string>
-    <string name="tailscale_ssh_close_session">关闭会话</string>
-    <string name="terminal_notification_channel">终端通知</string>
 
-    <!-- Terminal Configuration -->
-    <string name="tailscale_terminal_config">Ghostty 配置</string>
-    <string name="tailscale_terminal_light_theme">浅色主题</string>
-    <string name="tailscale_terminal_dark_theme">深色主题</string>
-    <string name="tailscale_terminal_font_config">字体</string>
-    <string name="tailscale_terminal_font">字体</string>
-    <string name="tailscale_terminal_font_size">字号</string>
-    <string name="tailscale_terminal_font_system">系统字体</string>
-    <string name="tailscale_terminal_font_imported">已导入的字体</string>
-    <string name="tailscale_terminal_import_font">从文件导入</string>
-    <string name="tailscale_terminal_manage_fonts">管理已导入的字体</string>
-    <string name="tailscale_terminal_manage_fonts_done">完成</string>
-    <string name="tailscale_terminal_search_themes">搜索主题</string>
-    <string name="tailscale_terminal_light_config">浅色配置</string>
-    <string name="tailscale_terminal_dark_config">深色配置</string>
-    <string name="tailscale_terminal_theme">主题</string>
-    <string name="tailscale_terminal_custom_config">自定义配置</string>
-    <string name="tailscale_terminal_edit_custom_config">编辑自定义配置</string>
-    <string name="tailscale_terminal_light_custom_config">浅色自定义配置</string>
-    <string name="tailscale_terminal_dark_custom_config">深色自定义配置</string>
-    <string name="tailscale_terminal_font_follow_theme">跟随主题</string>
-    <string name="tailscale_terminal_import_config">从文件导入</string>
 
     <string name="stun_test">STUN 测试</string>
     <string name="stun_server">服务器</string>
@@ -620,24 +547,4 @@
     <string name="endpoint_browser_too_many_windows">认证页面打开了过多浏览器窗口。</string>
     <string name="endpoint_browser_profile_unavailable">此设备无法使用浏览器认证。</string>
 
-    <!-- Taildrop -->
-    <plurals name="taildrop_file_count">
-        <item quantity="other">%1$d 个文件</item>
-    </plurals>
-    <string name="taildrop_send">发送</string>
-    <string name="taildrop_receive">接收</string>
-    <string name="taildrop_files">文件</string>
-    <string name="taildrop_from">来自 %1$s</string>
-    <string name="taildrop_to">发送至 %1$s</string>
-    <string name="taildrop_save">保存</string>
-    <string name="taildrop_share">分享</string>
-    <string name="taildrop_delete">删除</string>
-    <string name="taildrop_drop_zone">拖放文件到此处发送，或轻点选择</string>
-    <string name="taildrop_done">完成</string>
-    <string name="taildrop_no_targets">没有可接收文件的设备</string>
-    <string name="taildrop_no_files_selected">未选择文件</string>
-    <string name="taildrop_connecting">正在连接…</string>
-    <string name="taildrop_dismiss">关闭</string>
-    <string name="taildrop_open_app">打开 sing-box</string>
-    <string name="taildrop_notification_title">正在发送文件</string>
 </resources>
