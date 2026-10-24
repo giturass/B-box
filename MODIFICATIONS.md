@@ -213,7 +213,7 @@
 
 **兼容范围：**
 
-- 本项裁剪本地 libbox 的实现；保留 libbox 导出类型和 gRPC 协议，通用 shell 辅助代码仍属于核心导出 API，不依赖 Tailscale 模块。App 的 Tailscale/Taildrop/终端页面及专用后端随后按 MOD-014 删除，普通远程控制继续保留。
+- 本项裁剪本地 libbox 的实现；保留 libbox 导出类型和 gRPC 协议。`OpenNativeShellSession` / `OpenNativePipeSession` 仍引用 `protocol/tailscale/tailssh` 的通用 Shell/PTY 辅助实现，并链接 `github.com/creack/pty`；这些代码不依赖外部 Tailscale 模块，但仍存在于最终原生库，不应将当前裁剪描述为完全移除终端相关代码。App 的 Tailscale/Taildrop/终端页面及专用后端随后按 MOD-014 删除，普通远程控制继续保留。
 - 本地配置使用被裁剪的协议、端点、DNS 或服务时会在配置检查/启动阶段报错；不静默修改配置或替换节点。Snell、Tor、Naive 入站因未注册而不再出现在动态配置 schema 中，其余裁剪项保留上游的“未包含在构建中”错误实现。
 - 保留的 OpenVPN、OpenConnect、USBIP Android 页面继续通过稳定的管理接口读取状态，可用于远程核心；没有端点或服务时，相应工具卡片不显示。Tailscale 与终端 App 功能无论本地还是远程均已移除。历史配置文件不自动修改，普通 Root/Shizuku 能力继续保留。
 - 不改变应用版本、安装身份、签名及发布流程；当前补丁不会自动替换已安装应用中的旧核心。
@@ -248,6 +248,9 @@
 
 ## 验证记录
 
+- 2026-10-25 裁剪版 Release 构建：[Actions 40134109267](https://github.com/giturass/B-box/actions/runs/40134109267) 成功，构建提交 `30ded207a4242ff628123cf0d688403cfbede137`。标准及 legacy ARM64 AAR 的实际构建标签和模块校验、标准变体 Android/CGO 下 743 个包的依赖图检查、应用单元测试、签名 Release 构建、APK 包名/版本/89 个应用标签/ARM64 架构及 APK v2 签名校验全部通过。本次 `publish_release=false`，APK 上传至 Actions Artifact，现有同版本 GitHub Release 未替换。
+- 同次产物复核：[APK Artifact](https://github.com/giturass/B-box/actions/runs/40134109267/artifacts/12576741966) 下载后的归档 SHA-256 与 GitHub digest 一致。APK 为 22,779,150 字节，SHA-256 `56a90b0314d32ac44bf4a8a86776fd6d1fbd951dedf4c6a736c17033c51082db`；较现有同版本官方完整核心的 B-box APK（36,109,526 字节）减少 13,330,376 字节 / 36.92%，包含核心与 App 两项裁剪的共同收益。APK 内 `libbox.so` 为 46,291,896 字节，ZIP 条目为 14,979,406 字节；标准/legacy AAR 原生库分别为 46,291,904 / 46,329,576 字节。
+- 同次残留审查：按 Go 官方 buildinfo 格式直接读取下载 APK 内的原生库，确认 Go `1.26.10`、六项保留构建标签、74 个链接模块；七项被裁剪外部模块及任何名称含 `tailscale` 的模块均未链接。原生库中的包/函数名称仍包含 `tailssh` 的 `OpenPtyShell`、`StartPtyProcess`、`StartSocketpairProcess` 等通用 Shell/PTY 实现，`github.com/creack/pty` 也仍链接；另保留导出接口、gRPC 类型、配置结构及不可用报错占位。未发现其他被裁剪协议实现的包/函数名称。此检查未继续删除兼容接口或通用 Shell 实现，未进行设备交互验证。
 - 2026-10-25 节点卡片上下留白：两行内容改用 `Arrangement.spacedBy(6.dp, Alignment.CenterVertically)`，使名称上方与类型/延迟下方的布局留白等距。已核对 AndroidX 官方 `Arrangement` 源码中的垂直对齐行为及本项目既有用法，变更范围审查与 `git diff --check` 通过。未执行本机编译构建或实机验证。
 - 2026-10-25 App 裁剪：MOD-014 删除 29 个专用源码/AIDL 文件。静态检查通过：56 个 XML 文件可解析，五种语言删除资源无剩余引用，10 条 Tailscale/终端路由移除且其他路由保留，Root AIDL 事务编号和剩余实现一致，已删除类/设置/依赖无残留引用，libbox 平台方法参数签名与裁剪前一致。两种 API 版本的 JSON 编辑器仅有移除 Ghostty 模式的预期差异，配置编辑页/状态管理、JSON schema/语言实现及编辑器依赖与裁剪前一致。核心补丁反向应用检查、原生库校验脚本 Python 语法检查和 `git diff --check` 通过。未执行本机编译、GitHub Actions 或设备验证，未生成新 APK，尚无实际体积数据。
 - 2026-10-25 核心裁剪：针对 `v1.15.0-alpha.13` / `824dbcfb4dd0a95921840b1737b950cde590241e` 准备并应用 MOD-013 补丁。标准 Git 补丁检查、实际应用及反向应用检查通过；四个受影响的核心文件与预期修改逐字节一致。按 Android/ARM64、CGO、Go 1.26 和保留标签进行源码导入静态分析，108 个可达本地包中不再包含被裁剪的实现，也没有直接引用七项相关外部模块；其余代理协议、gRPC 和普通终端辅助包仍可达。此分析未解析第三方模块内部的完整依赖，CI 的 `go list -deps` 将进一步核验。
