@@ -269,6 +269,7 @@
 
 ## 验证记录
 
+- 2026-10-25 首轮 MOD-015 / MOD-016 构建：[Actions 40143908210](https://github.com/giturass/B-box/actions/runs/40143908210)，提交 `e123f9d760a71b0845e80670fc3c9596aa197776`。标准核心构建/裁剪检查、应用单元测试及签名 Release 编译通过；最低 SDK 校验仍使用旧 `sdkVersion` 输出字段而失败，未上传 APK。核对 [AOSP `DumpManifest.cpp`](https://github.com/aosp-mirror/platform_frameworks_base/blob/main/tools/aapt2/dump/DumpManifest.cpp) 的 `UsesSdk::Print` 后，校验兼容新版 `minSdkVersion` 字段，并在失败时输出实际解析值；继续要求最低 API 24。
 - 2026-10-25 MOD-015 / MOD-016 静态复核：标准核心补丁反向应用与 `git diff --check` 通过；确认只保留 `play` / `other`、最低 API 24，旧版源码与 API 21 核心构建分支已删除。更新界面/调度及已删除设置引用检查通过，Compose 状态委托导入已核对；资源 XML、工作流 shell 与嵌入 Python 语法检查通过。未在本机编译，实际 APK 以随后 GitHub Actions 构建为准。
 - 2026-10-25 残留清理构建：[Actions 40136030352](https://github.com/giturass/B-box/actions/runs/40136030352) 成功，提交 `d6f179c992bbba46f1b908133e28dd7264465e23`。九项 Python 校验器测试、标准/legacy AAR 的 Java 绑定及原生库残留检查、标准核心 741 个包的依赖图检查、应用单元测试、签名 Release 构建及 APK v2 签名校验全部通过；`tailssh`、PTY 和未使用的 Tailscale/Taildrop 导出绑定不再进入产物。标准 AAR / APK 原生库为 45,907,296 / 45,907,288 字节，APK 内 ZIP 条目为 14,898,431 字节。此构建包含残留清理，尚不包含随后 MOD-015 / MOD-016 的修改。
 - 2026-10-25 残留处理静态检查：12 个核心文件的补丁反向应用检查通过；与上游 `v1.15.0-alpha.13` 客户端源码逐函数比较，67 个函数体逐字节一致，56 个保留、11 个移至条件编译文件。Python 语法、导出类型条件编译引用、客户端导入使用及 `git diff --check` 检查通过；九项校验器测试通过，新增原生库检查能正确拒绝此前 `30ded20` APK 中的 `tailssh` 和 PTY 残留。未在本机编译，新的实际 AAR/APK 结果以随后 CI 验证为准。

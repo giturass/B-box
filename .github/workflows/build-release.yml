@@ -163,8 +163,9 @@ jobs:
           badging = subprocess.check_output(
               [str(aapt2), 'dump', 'badging', str(apks[0])], text=True
           )
-          if "sdkVersion:'24'" not in badging.splitlines():
-              raise SystemExit('Expected minimum Android SDK 24 (Android 7.0)')
+          sdk_versions = re.findall(r"^(?:minSdkVersion|sdkVersion):'([^']*)'$", badging, re.MULTILINE)
+          if sdk_versions != ['24']:
+              raise SystemExit(f'Expected minimum Android SDK 24 (Android 7.0), found: {sdk_versions}')
           package_line = next(
               (line for line in badging.splitlines() if line.startswith('package: ')), ''
           )
@@ -186,7 +187,7 @@ jobs:
           labels = dict(re.findall(r"^(application-label(?:-[^:]+)?):'(.*)'$", badging, re.MULTILINE))
           if 'application-label' not in labels or any(label != 'B-box' for label in labels.values()):
               raise SystemExit(f'Unexpected application labels: {labels}')
-          print(f'Verified ARM64 APK identity and {len(labels)} application labels: {apks[0]}')
+          print(f'Verified ARM64 APK identity, minimum SDK 24 and {len(labels)} application labels: {apks[0]}')
           PY
           "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose \
             app/build/outputs/apk/other/release/*-arm64-v8a.apk
