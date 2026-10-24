@@ -84,3 +84,976 @@ diff --git a/common/urltest/urltest.go b/common/urltest/urltest.go
  		_, err := urlTest(warmContext, link, detour)
  		if err != nil {
  			return 0, err
+diff --git a/experimental/libbox/command_client.go b/experimental/libbox/command_client.go
+--- a/experimental/libbox/command_client.go
++++ b/experimental/libbox/command_client.go
+@@ -973,19 +973,6 @@
+ 	return nil
+ }
+ 
+-func (c *CommandClient) SubscribeTailscaleStatus(handler TailscaleStatusHandler) (*TailscaleStatusSubscription, error) {
+-	session := new(TailscaleStatusSubscription)
+-	err := subscribeStatus(c, &session.streamSession, "tailscale status", func(ctx context.Context, client daemon.StartedServiceClient) (grpc.ServerStreamingClient[daemon.TailscaleStatusUpdate], error) {
+-		return client.SubscribeTailscaleStatus(ctx, &emptypb.Empty{})
+-	}, func(update *daemon.TailscaleStatusUpdate) {
+-		handler.OnStatusUpdate(tailscaleStatusUpdateFromGRPC(update))
+-	}, handler.OnError)
+-	if err != nil {
+-		return nil, err
+-	}
+-	return session, nil
+-}
+-
+ func (c *CommandClient) SubscribeUSBIPServerStatus(handler USBIPServerStatusHandler) (*USBIPServerStatusSubscription, error) {
+ 	session := new(USBIPServerStatusSubscription)
+ 	err := subscribeStatus(c, &session.streamSession, "usbip server status", func(ctx context.Context, client daemon.StartedServiceClient) (grpc.ServerStreamingClient[daemon.USBIPServerStatusUpdate], error) {
+@@ -1097,204 +1084,6 @@
+ 	return nil
+ }
+ 
+-func (c *CommandClient) SetTailscaleExitNode(endpointTag string, stableID string) error {
+-	_, err := callWithResult(c, func(ctx context.Context, client daemon.StartedServiceClient) (*emptypb.Empty, error) {
+-		return client.SetTailscaleExitNode(ctx, &daemon.SetTailscaleExitNodeRequest{
+-			EndpointTag: endpointTag,
+-			StableID:    stableID,
+-		})
+-	})
+-	if err != nil {
+-		return E.Cause(err, "set tailscale exit node")
+-	}
+-	return nil
+-}
+-
+-func (c *CommandClient) TailscaleLogout(endpointTag string) error {
+-	_, err := callWithResult(c, func(ctx context.Context, client daemon.StartedServiceClient) (*emptypb.Empty, error) {
+-		return client.TailscaleLogout(ctx, &daemon.TailscaleLogoutRequest{
+-			EndpointTag: endpointTag,
+-		})
+-	})
+-	if err != nil {
+-		return E.Cause(err, "tailscale logout")
+-	}
+-	return nil
+-}
+-
+-func (c *CommandClient) StartTailscalePing(endpointTag string, peerIP string, handler TailscalePingHandler) (*TailscalePingSession, error) {
+-	client, parentCtx, err := c.getClientForCall()
+-	if err != nil {
+-		return nil, E.Cause(err, "start tailscale ping")
+-	}
+-
+-	streamCtx, cancel := context.WithCancel(parentCtx)
+-	session := &TailscalePingSession{
+-		streamSession: streamSession{
+-			ctx:       streamCtx,
+-			cancel:    cancel,
+-			closeDone: make(chan struct{}),
+-		},
+-	}
+-
+-	failStart := func(cause error, message string) (*TailscalePingSession, error) {
+-		cancel()
+-		if c.standalone {
+-			c.closeConnection()
+-		}
+-		return nil, E.Cause(cause, message)
+-	}
+-
+-	stream, err := client.StartTailscalePing(streamCtx, &daemon.TailscalePingRequest{
+-		EndpointTag: endpointTag,
+-		PeerIP:      peerIP,
+-	})
+-	if err != nil {
+-		return failStart(err, "start tailscale ping")
+-	}
+-
+-	standalone := c.standalone
+-	go func() {
+-		defer func() {
+-			close(session.closeDone)
+-			if standalone {
+-				c.closeConnection()
+-			}
+-		}()
+-		for {
+-			event, recvErr := stream.Recv()
+-			if recvErr != nil {
+-				if session.ctx.Err() != nil {
+-					return
+-				}
+-				handler.OnError(E.Cause(recvErr, "tailscale ping recv").Error())
+-				return
+-			}
+-			handler.OnPingResult(tailscalePingResultFromGRPC(event))
+-		}
+-	}()
+-
+-	return session, nil
+-}
+-
+-func (c *CommandClient) StartTailscaleSSHSession(opts *TailscaleSSHOptions, handler TailscaleSSHHandler) (*TailscaleSSHSession, error) {
+-	client, parentCtx, err := c.getClientForCall()
+-	if err != nil {
+-		return nil, E.Cause(err, "start tailscale ssh session")
+-	}
+-
+-	streamCtx, cancel := context.WithCancel(parentCtx)
+-	failStart := func(cause error, message string) (*TailscaleSSHSession, error) {
+-		cancel()
+-		if c.standalone {
+-			c.closeConnection()
+-		}
+-		return nil, E.Cause(cause, message)
+-	}
+-
+-	stream, err := client.StartTailscaleSSHSession(streamCtx)
+-	if err != nil {
+-		return failStart(err, "start tailscale ssh session")
+-	}
+-
+-	sendErr := stream.Send(&daemon.TailscaleSSHClientMessage{
+-		Message: &daemon.TailscaleSSHClientMessage_Start{Start: &daemon.TailscaleSSHStart{
+-			EndpointTag:  opts.EndpointTag,
+-			PeerAddress:  opts.PeerAddress,
+-			Username:     opts.Username,
+-			TerminalType: opts.TerminalType,
+-			Columns:      opts.Columns,
+-			Rows:         opts.Rows,
+-			WidthPixels:  opts.WidthPixels,
+-			HeightPixels: opts.HeightPixels,
+-			HostKeys:     iteratorToArray[string](opts.HostKeys),
+-			ForwardAgent: opts.ForwardAgent,
+-		}},
+-	})
+-	if sendErr != nil {
+-		return failStart(sendErr, "send tailscale ssh start")
+-	}
+-
+-	session := &TailscaleSSHSession{
+-		stream:    stream,
+-		inputCh:   make(chan []byte, 8),
+-		resizeCh:  make(chan tailscaleSSHResize, 1),
+-		ctx:       streamCtx,
+-		cancel:    cancel,
+-		closeDone: make(chan struct{}),
+-	}
+-
+-	session.wg.Go(func() {
+-		for {
+-			select {
+-			case <-streamCtx.Done():
+-				return
+-			case data := <-session.inputCh:
+-				sendErr := stream.Send(&daemon.TailscaleSSHClientMessage{
+-					Message: &daemon.TailscaleSSHClientMessage_Input{Input: &daemon.TailscaleSSHInput{Data: data}},
+-				})
+-				if sendErr != nil {
+-					cancel()
+-					return
+-				}
+-			case resize := <-session.resizeCh:
+-				sendErr := stream.Send(&daemon.TailscaleSSHClientMessage{
+-					Message: &daemon.TailscaleSSHClientMessage_Resize{Resize: &daemon.TailscaleSSHResize{
+-						Columns:      resize.columns,
+-						Rows:         resize.rows,
+-						WidthPixels:  resize.widthPixels,
+-						HeightPixels: resize.heightPixels,
+-					}},
+-				})
+-				if sendErr != nil {
+-					cancel()
+-					return
+-				}
+-			}
+-		}
+-	})
+-
+-	session.wg.Go(func() {
+-		for {
+-			msg, recvErr := stream.Recv()
+-			if recvErr == io.EOF {
+-				cancel()
+-				return
+-			}
+-			if recvErr != nil {
+-				handler.OnError(E.Cause(recvErr, "tailscale ssh recv").Error())
+-				cancel()
+-				return
+-			}
+-			switch payload := msg.GetMessage().(type) {
+-			case *daemon.TailscaleSSHServerMessage_AuthBanner:
+-				handler.OnAuthBanner(payload.AuthBanner.Message)
+-			case *daemon.TailscaleSSHServerMessage_Ready:
+-				handler.OnReady()
+-			case *daemon.TailscaleSSHServerMessage_Output:
+-				handler.OnOutput(payload.Output.Data)
+-			case *daemon.TailscaleSSHServerMessage_Exit:
+-				handler.OnExit(payload.Exit.ExitCode, payload.Exit.Signal, payload.Exit.ErrorMessage)
+-				cancel()
+-				return
+-			case *daemon.TailscaleSSHServerMessage_Error:
+-				handler.OnError(payload.Error.Message)
+-			}
+-		}
+-	})
+-
+-	standalone := c.standalone
+-	go func() {
+-		session.wg.Wait()
+-		close(session.closeDone)
+-		if standalone {
+-			c.closeConnection()
+-		}
+-	}()
+-
+-	return session, nil
+-}
+-
+ func (c *CommandClient) ProvideUSBDevices(handler USBProviderHandler) (*USBProviderSession, error) {
+ 	client, parentCtx, err := c.getClientForCall()
+ 	if err != nil {
+@@ -1351,230 +1140,3 @@
+ 	return session, nil
+ }
+ 
+-func (c *CommandClient) SubscribeTaildropInbox(endpointTag string, handler TaildropInboxHandler) (*TaildropInboxSubscription, error) {
+-	session := new(TaildropInboxSubscription)
+-	err := subscribeStatus(c, &session.streamSession, "taildrop inbox", func(ctx context.Context, client daemon.StartedServiceClient) (grpc.ServerStreamingClient[daemon.TaildropInbox], error) {
+-		return client.SubscribeTaildropInbox(ctx, &daemon.SubscribeTaildropInboxRequest{EndpointTag: endpointTag})
+-	}, func(update *daemon.TaildropInbox) {
+-		handler.OnInboxUpdate(taildropInboxFromGRPC(update))
+-	}, handler.OnError)
+-	if err != nil {
+-		return nil, err
+-	}
+-	return session, nil
+-}
+-
+-func (c *CommandClient) SendTaildropFiles(options *TaildropSendOptions, handler TaildropSendHandler) (*TaildropSendSession, error) {
+-	client, parentCtx, err := c.getClientForCall()
+-	if err != nil {
+-		return nil, E.Cause(err, "send taildrop files")
+-	}
+-
+-	streamCtx, cancel := context.WithCancel(parentCtx)
+-	failStart := func(cause error, message string) (*TaildropSendSession, error) {
+-		cancel()
+-		if c.standalone {
+-			c.closeConnection()
+-		}
+-		return nil, E.Cause(cause, message)
+-	}
+-
+-	stream, err := client.SendTaildropFiles(streamCtx)
+-	if err != nil {
+-		return failStart(err, "send taildrop files")
+-	}
+-
+-	sendErr := stream.Send(&daemon.TaildropSendClientMessage{
+-		Message: &daemon.TaildropSendClientMessage_Start{Start: &daemon.TaildropSendStart{
+-			EndpointTag:  options.EndpointTag,
+-			PeerStableID: options.PeerStableID,
+-			Files:        options.files,
+-		}},
+-	})
+-	if sendErr != nil {
+-		return failStart(sendErr, "send taildrop start")
+-	}
+-	session := &TaildropSendSession{
+-		streamSession: streamSession{
+-			ctx:       streamCtx,
+-			cancel:    cancel,
+-			closeDone: make(chan struct{}),
+-		},
+-		stream: stream,
+-	}
+-
+-	standalone := c.standalone
+-	go func() {
+-		defer func() {
+-			close(session.closeDone)
+-			if standalone {
+-				c.closeConnection()
+-			}
+-		}()
+-		for {
+-			message, recvErr := stream.Recv()
+-			if recvErr != nil {
+-				switch {
+-				case recvErr == io.EOF:
+-					handler.OnFinish("")
+-				case streamCtx.Err() == nil:
+-					handler.OnFinish(E.Cause(recvErr, "taildrop send").Error())
+-				}
+-				cancel()
+-				return
+-			}
+-			progress := message.GetProgress()
+-			if progress == nil {
+-				continue
+-			}
+-			if progress.FileCompleted {
+-				handler.OnFileCompleted(progress.FileIndex, progress.SentBytes)
+-			} else {
+-				handler.OnProgress(progress.FileIndex, progress.SentBytes)
+-			}
+-		}
+-	}()
+-
+-	return session, nil
+-}
+-
+-func (c *CommandClient) DownloadTaildropFile(endpointTag string, name string, destinationPath string, handler TaildropDownloadHandler) (*TaildropDownloadSession, error) {
+-	client, parentCtx, err := c.getClientForCall()
+-	if err != nil {
+-		return nil, E.Cause(err, "download taildrop file")
+-	}
+-
+-	streamCtx, cancel := context.WithCancel(parentCtx)
+-	failStart := func(cause error, message string) (*TaildropDownloadSession, error) {
+-		cancel()
+-		if c.standalone {
+-			c.closeConnection()
+-		}
+-		return nil, E.Cause(cause, message)
+-	}
+-
+-	stream, err := client.DownloadTaildropFile(streamCtx, &daemon.DownloadTaildropFileRequest{
+-		EndpointTag: endpointTag,
+-		Name:        name,
+-	})
+-	if err != nil {
+-		return failStart(err, "download taildrop file")
+-	}
+-	firstChunk, err := stream.Recv()
+-	if err != nil {
+-		return failStart(err, "download taildrop file")
+-	}
+-	destinationFile, err := os.Create(destinationPath)
+-	if err != nil {
+-		return failStart(err, "download taildrop file")
+-	}
+-
+-	session := &TaildropDownloadSession{
+-		streamSession: streamSession{
+-			ctx:       streamCtx,
+-			cancel:    cancel,
+-			closeDone: make(chan struct{}),
+-		},
+-	}
+-
+-	standalone := c.standalone
+-	go func() {
+-		defer func() {
+-			close(session.closeDone)
+-			if standalone {
+-				c.closeConnection()
+-			}
+-		}()
+-		totalSize := firstChunk.Size
+-		var (
+-			downloaded   int64
+-			lastProgress time.Time
+-		)
+-		writeChunk := func(data []byte) error {
+-			if len(data) == 0 {
+-				return nil
+-			}
+-			_, writeErr := destinationFile.Write(data)
+-			if writeErr != nil {
+-				return writeErr
+-			}
+-			downloaded += int64(len(data))
+-			now := time.Now()
+-			if downloaded == totalSize || now.Sub(lastProgress) >= daemon.TaildropProgressMinInterval {
+-				lastProgress = now
+-				handler.OnProgress(downloaded, totalSize)
+-			}
+-			return nil
+-		}
+-		downloadErr := writeChunk(firstChunk.Data)
+-		for downloadErr == nil {
+-			var chunk *daemon.DownloadTaildropFileChunk
+-			chunk, downloadErr = stream.Recv()
+-			if downloadErr == io.EOF {
+-				downloadErr = nil
+-				break
+-			}
+-			if downloadErr != nil {
+-				downloadErr = E.Cause(downloadErr, "download taildrop file")
+-				break
+-			}
+-			downloadErr = writeChunk(chunk.Data)
+-		}
+-		if downloadErr == nil {
+-			downloadErr = destinationFile.Close()
+-		} else {
+-			destinationFile.Close()
+-		}
+-		if downloadErr != nil {
+-			os.Remove(destinationPath)
+-			if streamCtx.Err() == nil {
+-				handler.OnFinish(downloadErr.Error())
+-			}
+-			cancel()
+-			return
+-		}
+-		handler.OnFinish("")
+-		cancel()
+-	}()
+-
+-	return session, nil
+-}
+-
+-func (c *CommandClient) DeleteTaildropFile(endpointTag string, name string) error {
+-	_, err := callWithResult(c, func(ctx context.Context, client daemon.StartedServiceClient) (*emptypb.Empty, error) {
+-		return client.DeleteTaildropFile(ctx, &daemon.DeleteTaildropFileRequest{
+-			EndpointTag: endpointTag,
+-			Name:        name,
+-		})
+-	})
+-	if err != nil {
+-		return E.Cause(err, "delete taildrop file")
+-	}
+-	return nil
+-}
+-
+-func (c *CommandClient) CancelTaildropReceiving(endpointTag string, senderID string, name string) error {
+-	_, err := callWithResult(c, func(ctx context.Context, client daemon.StartedServiceClient) (*emptypb.Empty, error) {
+-		return client.CancelTaildropReceiving(ctx, &daemon.CancelTaildropReceivingRequest{
+-			EndpointTag: endpointTag,
+-			SenderID:    senderID,
+-			Name:        name,
+-		})
+-	})
+-	if err != nil {
+-		return E.Cause(err, "cancel taildrop receiving")
+-	}
+-	return nil
+-}
+-
+-func (c *CommandClient) MarkTaildropInboxRead(endpointTag string) error {
+-	_, err := callWithResult(c, func(ctx context.Context, client daemon.StartedServiceClient) (*emptypb.Empty, error) {
+-		return client.MarkTaildropInboxRead(ctx, &daemon.MarkTaildropInboxReadRequest{
+-			EndpointTag: endpointTag,
+-		})
+-	})
+-	if err != nil {
+-		return E.Cause(err, "mark taildrop inbox read")
+-	}
+-	return nil
+-}
+diff --git a/experimental/libbox/command_client_tailscale.go b/experimental/libbox/command_client_tailscale.go
+new file mode 100644
+--- /dev/null
++++ b/experimental/libbox/command_client_tailscale.go
+@@ -0,0 +1,455 @@
++//go:build with_tailscale
++
++package libbox
++
++import (
++	"context"
++	"io"
++	"os"
++	"time"
++
++	"github.com/sagernet/sing-box/daemon"
++	E "github.com/sagernet/sing/common/exceptions"
++
++	"google.golang.org/grpc"
++	"google.golang.org/protobuf/types/known/emptypb"
++)
++
++func (c *CommandClient) SubscribeTailscaleStatus(handler TailscaleStatusHandler) (*TailscaleStatusSubscription, error) {
++	session := new(TailscaleStatusSubscription)
++	err := subscribeStatus(c, &session.streamSession, "tailscale status", func(ctx context.Context, client daemon.StartedServiceClient) (grpc.ServerStreamingClient[daemon.TailscaleStatusUpdate], error) {
++		return client.SubscribeTailscaleStatus(ctx, &emptypb.Empty{})
++	}, func(update *daemon.TailscaleStatusUpdate) {
++		handler.OnStatusUpdate(tailscaleStatusUpdateFromGRPC(update))
++	}, handler.OnError)
++	if err != nil {
++		return nil, err
++	}
++	return session, nil
++}
++
++func (c *CommandClient) SetTailscaleExitNode(endpointTag string, stableID string) error {
++	_, err := callWithResult(c, func(ctx context.Context, client daemon.StartedServiceClient) (*emptypb.Empty, error) {
++		return client.SetTailscaleExitNode(ctx, &daemon.SetTailscaleExitNodeRequest{
++			EndpointTag: endpointTag,
++			StableID:    stableID,
++		})
++	})
++	if err != nil {
++		return E.Cause(err, "set tailscale exit node")
++	}
++	return nil
++}
++
++func (c *CommandClient) TailscaleLogout(endpointTag string) error {
++	_, err := callWithResult(c, func(ctx context.Context, client daemon.StartedServiceClient) (*emptypb.Empty, error) {
++		return client.TailscaleLogout(ctx, &daemon.TailscaleLogoutRequest{
++			EndpointTag: endpointTag,
++		})
++	})
++	if err != nil {
++		return E.Cause(err, "tailscale logout")
++	}
++	return nil
++}
++
++func (c *CommandClient) StartTailscalePing(endpointTag string, peerIP string, handler TailscalePingHandler) (*TailscalePingSession, error) {
++	client, parentCtx, err := c.getClientForCall()
++	if err != nil {
++		return nil, E.Cause(err, "start tailscale ping")
++	}
++
++	streamCtx, cancel := context.WithCancel(parentCtx)
++	session := &TailscalePingSession{
++		streamSession: streamSession{
++			ctx:       streamCtx,
++			cancel:    cancel,
++			closeDone: make(chan struct{}),
++		},
++	}
++
++	failStart := func(cause error, message string) (*TailscalePingSession, error) {
++		cancel()
++		if c.standalone {
++			c.closeConnection()
++		}
++		return nil, E.Cause(cause, message)
++	}
++
++	stream, err := client.StartTailscalePing(streamCtx, &daemon.TailscalePingRequest{
++		EndpointTag: endpointTag,
++		PeerIP:      peerIP,
++	})
++	if err != nil {
++		return failStart(err, "start tailscale ping")
++	}
++
++	standalone := c.standalone
++	go func() {
++		defer func() {
++			close(session.closeDone)
++			if standalone {
++				c.closeConnection()
++			}
++		}()
++		for {
++			event, recvErr := stream.Recv()
++			if recvErr != nil {
++				if session.ctx.Err() != nil {
++					return
++				}
++				handler.OnError(E.Cause(recvErr, "tailscale ping recv").Error())
++				return
++			}
++			handler.OnPingResult(tailscalePingResultFromGRPC(event))
++		}
++	}()
++
++	return session, nil
++}
++
++func (c *CommandClient) StartTailscaleSSHSession(opts *TailscaleSSHOptions, handler TailscaleSSHHandler) (*TailscaleSSHSession, error) {
++	client, parentCtx, err := c.getClientForCall()
++	if err != nil {
++		return nil, E.Cause(err, "start tailscale ssh session")
++	}
++
++	streamCtx, cancel := context.WithCancel(parentCtx)
++	failStart := func(cause error, message string) (*TailscaleSSHSession, error) {
++		cancel()
++		if c.standalone {
++			c.closeConnection()
++		}
++		return nil, E.Cause(cause, message)
++	}
++
++	stream, err := client.StartTailscaleSSHSession(streamCtx)
++	if err != nil {
++		return failStart(err, "start tailscale ssh session")
++	}
++
++	sendErr := stream.Send(&daemon.TailscaleSSHClientMessage{
++		Message: &daemon.TailscaleSSHClientMessage_Start{Start: &daemon.TailscaleSSHStart{
++			EndpointTag:  opts.EndpointTag,
++			PeerAddress:  opts.PeerAddress,
++			Username:     opts.Username,
++			TerminalType: opts.TerminalType,
++			Columns:      opts.Columns,
++			Rows:         opts.Rows,
++			WidthPixels:  opts.WidthPixels,
++			HeightPixels: opts.HeightPixels,
++			HostKeys:     iteratorToArray[string](opts.HostKeys),
++			ForwardAgent: opts.ForwardAgent,
++		}},
++	})
++	if sendErr != nil {
++		return failStart(sendErr, "send tailscale ssh start")
++	}
++
++	session := &TailscaleSSHSession{
++		stream:    stream,
++		inputCh:   make(chan []byte, 8),
++		resizeCh:  make(chan tailscaleSSHResize, 1),
++		ctx:       streamCtx,
++		cancel:    cancel,
++		closeDone: make(chan struct{}),
++	}
++
++	session.wg.Go(func() {
++		for {
++			select {
++			case <-streamCtx.Done():
++				return
++			case data := <-session.inputCh:
++				sendErr := stream.Send(&daemon.TailscaleSSHClientMessage{
++					Message: &daemon.TailscaleSSHClientMessage_Input{Input: &daemon.TailscaleSSHInput{Data: data}},
++				})
++				if sendErr != nil {
++					cancel()
++					return
++				}
++			case resize := <-session.resizeCh:
++				sendErr := stream.Send(&daemon.TailscaleSSHClientMessage{
++					Message: &daemon.TailscaleSSHClientMessage_Resize{Resize: &daemon.TailscaleSSHResize{
++						Columns:      resize.columns,
++						Rows:         resize.rows,
++						WidthPixels:  resize.widthPixels,
++						HeightPixels: resize.heightPixels,
++					}},
++				})
++				if sendErr != nil {
++					cancel()
++					return
++				}
++			}
++		}
++	})
++
++	session.wg.Go(func() {
++		for {
++			msg, recvErr := stream.Recv()
++			if recvErr == io.EOF {
++				cancel()
++				return
++			}
++			if recvErr != nil {
++				handler.OnError(E.Cause(recvErr, "tailscale ssh recv").Error())
++				cancel()
++				return
++			}
++			switch payload := msg.GetMessage().(type) {
++			case *daemon.TailscaleSSHServerMessage_AuthBanner:
++				handler.OnAuthBanner(payload.AuthBanner.Message)
++			case *daemon.TailscaleSSHServerMessage_Ready:
++				handler.OnReady()
++			case *daemon.TailscaleSSHServerMessage_Output:
++				handler.OnOutput(payload.Output.Data)
++			case *daemon.TailscaleSSHServerMessage_Exit:
++				handler.OnExit(payload.Exit.ExitCode, payload.Exit.Signal, payload.Exit.ErrorMessage)
++				cancel()
++				return
++			case *daemon.TailscaleSSHServerMessage_Error:
++				handler.OnError(payload.Error.Message)
++			}
++		}
++	})
++
++	standalone := c.standalone
++	go func() {
++		session.wg.Wait()
++		close(session.closeDone)
++		if standalone {
++			c.closeConnection()
++		}
++	}()
++
++	return session, nil
++}
++
++func (c *CommandClient) SubscribeTaildropInbox(endpointTag string, handler TaildropInboxHandler) (*TaildropInboxSubscription, error) {
++	session := new(TaildropInboxSubscription)
++	err := subscribeStatus(c, &session.streamSession, "taildrop inbox", func(ctx context.Context, client daemon.StartedServiceClient) (grpc.ServerStreamingClient[daemon.TaildropInbox], error) {
++		return client.SubscribeTaildropInbox(ctx, &daemon.SubscribeTaildropInboxRequest{EndpointTag: endpointTag})
++	}, func(update *daemon.TaildropInbox) {
++		handler.OnInboxUpdate(taildropInboxFromGRPC(update))
++	}, handler.OnError)
++	if err != nil {
++		return nil, err
++	}
++	return session, nil
++}
++
++func (c *CommandClient) SendTaildropFiles(options *TaildropSendOptions, handler TaildropSendHandler) (*TaildropSendSession, error) {
++	client, parentCtx, err := c.getClientForCall()
++	if err != nil {
++		return nil, E.Cause(err, "send taildrop files")
++	}
++
++	streamCtx, cancel := context.WithCancel(parentCtx)
++	failStart := func(cause error, message string) (*TaildropSendSession, error) {
++		cancel()
++		if c.standalone {
++			c.closeConnection()
++		}
++		return nil, E.Cause(cause, message)
++	}
++
++	stream, err := client.SendTaildropFiles(streamCtx)
++	if err != nil {
++		return failStart(err, "send taildrop files")
++	}
++
++	sendErr := stream.Send(&daemon.TaildropSendClientMessage{
++		Message: &daemon.TaildropSendClientMessage_Start{Start: &daemon.TaildropSendStart{
++			EndpointTag:  options.EndpointTag,
++			PeerStableID: options.PeerStableID,
++			Files:        options.files,
++		}},
++	})
++	if sendErr != nil {
++		return failStart(sendErr, "send taildrop start")
++	}
++	session := &TaildropSendSession{
++		streamSession: streamSession{
++			ctx:       streamCtx,
++			cancel:    cancel,
++			closeDone: make(chan struct{}),
++		},
++		stream: stream,
++	}
++
++	standalone := c.standalone
++	go func() {
++		defer func() {
++			close(session.closeDone)
++			if standalone {
++				c.closeConnection()
++			}
++		}()
++		for {
++			message, recvErr := stream.Recv()
++			if recvErr != nil {
++				switch {
++				case recvErr == io.EOF:
++					handler.OnFinish("")
++				case streamCtx.Err() == nil:
++					handler.OnFinish(E.Cause(recvErr, "taildrop send").Error())
++				}
++				cancel()
++				return
++			}
++			progress := message.GetProgress()
++			if progress == nil {
++				continue
++			}
++			if progress.FileCompleted {
++				handler.OnFileCompleted(progress.FileIndex, progress.SentBytes)
++			} else {
++				handler.OnProgress(progress.FileIndex, progress.SentBytes)
++			}
++		}
++	}()
++
++	return session, nil
++}
++
++func (c *CommandClient) DownloadTaildropFile(endpointTag string, name string, destinationPath string, handler TaildropDownloadHandler) (*TaildropDownloadSession, error) {
++	client, parentCtx, err := c.getClientForCall()
++	if err != nil {
++		return nil, E.Cause(err, "download taildrop file")
++	}
++
++	streamCtx, cancel := context.WithCancel(parentCtx)
++	failStart := func(cause error, message string) (*TaildropDownloadSession, error) {
++		cancel()
++		if c.standalone {
++			c.closeConnection()
++		}
++		return nil, E.Cause(cause, message)
++	}
++
++	stream, err := client.DownloadTaildropFile(streamCtx, &daemon.DownloadTaildropFileRequest{
++		EndpointTag: endpointTag,
++		Name:        name,
++	})
++	if err != nil {
++		return failStart(err, "download taildrop file")
++	}
++	firstChunk, err := stream.Recv()
++	if err != nil {
++		return failStart(err, "download taildrop file")
++	}
++	destinationFile, err := os.Create(destinationPath)
++	if err != nil {
++		return failStart(err, "download taildrop file")
++	}
++
++	session := &TaildropDownloadSession{
++		streamSession: streamSession{
++			ctx:       streamCtx,
++			cancel:    cancel,
++			closeDone: make(chan struct{}),
++		},
++	}
++
++	standalone := c.standalone
++	go func() {
++		defer func() {
++			close(session.closeDone)
++			if standalone {
++				c.closeConnection()
++			}
++		}()
++		totalSize := firstChunk.Size
++		var (
++			downloaded   int64
++			lastProgress time.Time
++		)
++		writeChunk := func(data []byte) error {
++			if len(data) == 0 {
++				return nil
++			}
++			_, writeErr := destinationFile.Write(data)
++			if writeErr != nil {
++				return writeErr
++			}
++			downloaded += int64(len(data))
++			now := time.Now()
++			if downloaded == totalSize || now.Sub(lastProgress) >= daemon.TaildropProgressMinInterval {
++				lastProgress = now
++				handler.OnProgress(downloaded, totalSize)
++			}
++			return nil
++		}
++		downloadErr := writeChunk(firstChunk.Data)
++		for downloadErr == nil {
++			var chunk *daemon.DownloadTaildropFileChunk
++			chunk, downloadErr = stream.Recv()
++			if downloadErr == io.EOF {
++				downloadErr = nil
++				break
++			}
++			if downloadErr != nil {
++				downloadErr = E.Cause(downloadErr, "download taildrop file")
++				break
++			}
++			downloadErr = writeChunk(chunk.Data)
++		}
++		if downloadErr == nil {
++			downloadErr = destinationFile.Close()
++		} else {
++			destinationFile.Close()
++		}
++		if downloadErr != nil {
++			os.Remove(destinationPath)
++			if streamCtx.Err() == nil {
++				handler.OnFinish(downloadErr.Error())
++			}
++			cancel()
++			return
++		}
++		handler.OnFinish("")
++		cancel()
++	}()
++
++	return session, nil
++}
++
++func (c *CommandClient) DeleteTaildropFile(endpointTag string, name string) error {
++	_, err := callWithResult(c, func(ctx context.Context, client daemon.StartedServiceClient) (*emptypb.Empty, error) {
++		return client.DeleteTaildropFile(ctx, &daemon.DeleteTaildropFileRequest{
++			EndpointTag: endpointTag,
++			Name:        name,
++		})
++	})
++	if err != nil {
++		return E.Cause(err, "delete taildrop file")
++	}
++	return nil
++}
++
++func (c *CommandClient) CancelTaildropReceiving(endpointTag string, senderID string, name string) error {
++	_, err := callWithResult(c, func(ctx context.Context, client daemon.StartedServiceClient) (*emptypb.Empty, error) {
++		return client.CancelTaildropReceiving(ctx, &daemon.CancelTaildropReceivingRequest{
++			EndpointTag: endpointTag,
++			SenderID:    senderID,
++			Name:        name,
++		})
++	})
++	if err != nil {
++		return E.Cause(err, "cancel taildrop receiving")
++	}
++	return nil
++}
++
++func (c *CommandClient) MarkTaildropInboxRead(endpointTag string) error {
++	_, err := callWithResult(c, func(ctx context.Context, client daemon.StartedServiceClient) (*emptypb.Empty, error) {
++		return client.MarkTaildropInboxRead(ctx, &daemon.MarkTaildropInboxReadRequest{
++			EndpointTag: endpointTag,
++		})
++	})
++	if err != nil {
++		return E.Cause(err, "mark taildrop inbox read")
++	}
++	return nil
++}
+diff --git a/experimental/libbox/command_types_tailscale.go b/experimental/libbox/command_types_tailscale.go
+--- a/experimental/libbox/command_types_tailscale.go
++++ b/experimental/libbox/command_types_tailscale.go
+@@ -1,3 +1,5 @@
++//go:build with_tailscale
++
+ package libbox
+ 
+ import "github.com/sagernet/sing-box/daemon"
+diff --git a/experimental/libbox/command_types_tailscale_ping.go b/experimental/libbox/command_types_tailscale_ping.go
+--- a/experimental/libbox/command_types_tailscale_ping.go
++++ b/experimental/libbox/command_types_tailscale_ping.go
+@@ -1,3 +1,5 @@
++//go:build with_tailscale
++
+ package libbox
+ 
+ import "github.com/sagernet/sing-box/daemon"
+diff --git a/experimental/libbox/command_types_tailscale_ssh.go b/experimental/libbox/command_types_tailscale_ssh.go
+--- a/experimental/libbox/command_types_tailscale_ssh.go
++++ b/experimental/libbox/command_types_tailscale_ssh.go
+@@ -1,3 +1,5 @@
++//go:build with_tailscale
++
+ package libbox
+ 
+ import (
+diff --git a/experimental/libbox/command_types_taildrop.go b/experimental/libbox/command_types_taildrop.go
+--- a/experimental/libbox/command_types_taildrop.go
++++ b/experimental/libbox/command_types_taildrop.go
+@@ -1,3 +1,5 @@
++//go:build with_tailscale
++
+ package libbox
+ 
+ import (
+diff --git a/experimental/libbox/native_shell_session.go b/experimental/libbox/native_shell_session.go
+--- a/experimental/libbox/native_shell_session.go
++++ b/experimental/libbox/native_shell_session.go
+@@ -1,4 +1,4 @@
+-//go:build linux || android || darwin || ios
++//go:build with_tailscale && (linux || android || darwin || ios)
+ 
+ package libbox
+ 
+diff --git a/experimental/libbox/native_shell_session_stub.go b/experimental/libbox/native_shell_session_stub.go
+--- a/experimental/libbox/native_shell_session_stub.go
++++ b/experimental/libbox/native_shell_session_stub.go
+@@ -1,4 +1,4 @@
+-//go:build !linux && !android && !darwin && !ios
++//go:build with_tailscale && (!linux && !android && !darwin && !ios)
+ 
+ package libbox
+ 

@@ -2,8 +2,10 @@
 """Verify the actual Go build metadata of B-box's trimmed ARM64 libbox."""
 
 import argparse
+import io
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import tempfile
@@ -27,6 +29,7 @@ REQUIRED_TAGS = {
     "tfogo_checklinkname0",
 }
 REMOVED_MODULES = {
+    "github.com/creack/pty",
     "github.com/sagernet/cronet-go",
     "github.com/sagernet/tailscale",
     "github.com/sagernet/sing-openvpn",
@@ -97,23 +100,48 @@ def verify_source(source: Path, tags: set[str]) -> None:
         cwd=source, env=environment, text=True,
     )
     packages = set(output.splitlines())
-    included = packages & REMOVED_PACKAGES
-    included.update(
+    included = {
         package for package in packages
-        if package.startswith("github.com/sagernet/sing-box/protocol/naive/")
-        or any(package == module or package.startswith(module + "/")
-               for module in REMOVED_MODULES)
-    )
+        if any(package == removed or package.startswith(removed + "/")
+               for removed in REMOVED_PACKAGES | REMOVED_MODULES)
+    }
     if included:
         raise ValueError(f"Removed implementations are still imported: {sorted(included)}")
-    # Generic shell helpers remain in libbox's exported API for compatibility.
     print(f"Verified Android libbox dependency graph: {len(packages)} packages")
+
+
+def verify_native(data: bytes) -> None:
+    included = {
+        package for package in REMOVED_PACKAGES | REMOVED_MODULES
+        if re.search(re.escape(package.encode()) + rb"[./\x00]", data)
+    }
+    if included:
+        raise ValueError(f"Removed implementations remain in native library: {sorted(included)}")
+
+
+def verify_bindings(aar: ZipFile) -> None:
+    with ZipFile(io.BytesIO(aar.read("classes.jar"))) as classes:
+        removed = [
+            name for name in classes.namelist()
+            if name.startswith(("io/nekohasekai/libbox/Tailscale", "io/nekohasekai/libbox/Taildrop"))
+            and name.endswith(".class")
+        ]
+        libbox = classes.read("io/nekohasekai/libbox/Libbox.class")
+        removed.extend(
+            method.decode() for method in (b"openNativeShellSession", b"openNativePipeSession")
+            if method in libbox
+        )
+    if removed:
+        raise ValueError(f"Removed Java bindings are still exported: {sorted(removed)}")
+    print(f"Verified trimmed Java bindings: {aar.filename}")
 
 
 def verify_entry(archive: ZipFile, entry: str, directory: Path) -> set[str]:
     # Use a fixed filename rather than extracting paths supplied by the archive.
     native = directory / "libbox.so"
-    native.write_bytes(archive.read(entry))
+    data = archive.read(entry)
+    verify_native(data)
+    native.write_bytes(data)
     metadata = subprocess.check_output(
         ["go", "version", "-m", str(native)], text=True,
     )
@@ -137,6 +165,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="verify-libbox-", dir=temporary_root) as temp:
         directory = Path(temp)
         with ZipFile(arguments.aar) as aar:
+            verify_bindings(aar)
             native_entries = [
                 name for name in aar.namelist()
                 if name.startswith("jni/") and name.endswith(".so")

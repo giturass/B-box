@@ -200,6 +200,7 @@
 
 - NaiveProxy：关闭 `with_naive_outbound`；移除 `include/registry.go` 的 Naive 入站导入与注册，以及 `include/quic.go` 的 Naive HTTP/3 入站实现导入，覆盖入站与出站并去除 Cronet/Chromium 依赖。
 - Tailscale、OpenVPN、OpenConnect、USBIP：关闭 `with_tailscale`、`with_openvpn`、`with_openconnect`、`with_usbip`，移除不再使用的 `ts_omit_*` 标签。Tailscale 相关的 Taildrop、Tailscale SSH、MagicDNS、DERP/Tailcat 等本地核心能力随之移除。
+- 将 libbox 的 11 个 Tailscale/Taildrop 客户端方法移至 `with_tailscale` 文件，四个对应的导出类型文件及两个原生 Shell 会话实现文件也增加该构建条件。裁剪版不再生成这些 Java 绑定，不再链接 `tailssh` 通用 Shell/PTY 实现或 `github.com/creack/pty`；其他 56 个客户端函数的实现保持上游原样。
 - Snell：移除协议导入以及入站、出站注册，并删除 `common/urltest/urltest.go` 中直接引用 `sing-snell` 的测速会话预热钩子，避免移除注册后仍链接该模块；其他协议的预热逻辑保留。Tor：移除协议导入及出站注册。两者没有对应的独立裁剪标签。
 - 保留 `with_quic`、`with_wireguard`、`with_utls`、`with_clash_api`、`badlinkname`、`tfogo_checklinkname0`，沿用上游链接器参数和 API 24 / API 21 变体构建；标准与 legacy AAR 均应用裁剪。
 
@@ -207,13 +208,13 @@
 
 - 核心仍按应用版本选择上游标签。`patches/libbox-trim.patch` 在 CI 编译前通过 `git apply --check` 后应用；上游结构变化导致补丁无法应用时构建报错，升级核心时必须重新审查补丁。
 - 本地 `.core/` 为匹配版本的核心源码工作目录，已加入 Git 忽略；可用于静态审查裁剪后的实际源码，不提交上游源码副本或构建产物。
-- `tools/verify_libbox.py` 用 `go version -m` 读取 AAR 内实际原生库的构建标签、模块及目标平台，要求裁剪项未启用、相关依赖未链接，并确认 QUIC、WireGuard、uTLS 等保留依赖仍在。对最终 APK 内相应原生库重复校验，记录原生库未压缩字节数与 ZIP 条目压缩字节数。
-- 标准 AAR 另通过 Android/ARM64、CGO 与实际构建标签下的 `go list -deps ./experimental/libbox` 检查完整依赖图，阻止 Naive、Snell、Tor 等实现经其他导入路径被重新带入。该命令由 CI 提供 NDK 的 API 24 Clang。
+- `tools/verify_libbox.py` 用 `go version -m` 读取 AAR 内实际原生库的构建标签、模块及目标平台，要求裁剪项未启用、相关依赖（包括 PTY）未链接，并确认 QUIC、WireGuard、uTLS 等保留依赖仍在。同时检查 AAR 的 Java 绑定及原生库中的被裁剪包/函数名称；对最终 APK 内相应原生库重复校验，记录原生库未压缩字节数与 ZIP 条目压缩字节数。
+- 标准 AAR 另通过 Android/ARM64、CGO 与实际构建标签下的 `go list -deps ./experimental/libbox` 检查完整依赖图，阻止 Naive、Snell、Tor、Tailscale（包括 `tailssh` 子包）等实现经其他导入路径被重新带入。该命令由 CI 提供 NDK 的 API 24 Clang。CI 在构建前运行 `tools/test_verify_libbox.py` 的九项校验器测试。
 - `.gitattributes` 仅对补丁文件禁用普通源码的空白检查，因为 unified diff 的上下文前缀会出现在 Go 的制表符和空行之前；补丁格式与修改的 Go 内容单独核验。
 
 **兼容范围：**
 
-- 本项裁剪本地 libbox 的实现；保留 libbox 导出类型和 gRPC 协议。`OpenNativeShellSession` / `OpenNativePipeSession` 仍引用 `protocol/tailscale/tailssh` 的通用 Shell/PTY 辅助实现，并链接 `github.com/creack/pty`；这些代码不依赖外部 Tailscale 模块，但仍存在于最终原生库，不应将当前裁剪描述为完全移除终端相关代码。App 的 Tailscale/Taildrop/终端页面及专用后端随后按 MOD-014 删除，普通远程控制继续保留。
+- 本项裁剪本地 libbox 的实现及 App 已不使用的 Tailscale/Taildrop/原生会话导出绑定；保留平台回调接口、gRPC 协议及配置类型/不可用报错占位，供核心接口兼容和保留的远程管理能力使用。`OpenNativeShellSession` / `OpenNativePipeSession` 不再进入裁剪版，通用 Shell/PTY 实现及依赖也不再链接。App 的 Tailscale/Taildrop/终端页面及专用后端按 MOD-014 删除，普通远程控制继续保留。
 - 本地配置使用被裁剪的协议、端点、DNS 或服务时会在配置检查/启动阶段报错；不静默修改配置或替换节点。Snell、Tor、Naive 入站因未注册而不再出现在动态配置 schema 中，其余裁剪项保留上游的“未包含在构建中”错误实现。
 - 保留的 OpenVPN、OpenConnect、USBIP Android 页面继续通过稳定的管理接口读取状态，可用于远程核心；没有端点或服务时，相应工具卡片不显示。Tailscale 与终端 App 功能无论本地还是远程均已移除。历史配置文件不自动修改，普通 Root/Shizuku 能力继续保留。
 - 不改变应用版本、安装身份、签名及发布流程；当前补丁不会自动替换已安装应用中的旧核心。
@@ -248,6 +249,7 @@
 
 ## 验证记录
 
+- 2026-10-25 残留处理静态检查：12 个核心文件的补丁反向应用检查通过；与上游 `v1.15.0-alpha.13` 客户端源码逐函数比较，67 个函数体逐字节一致，56 个保留、11 个移至条件编译文件。Python 语法、导出类型条件编译引用、客户端导入使用及 `git diff --check` 检查通过；九项校验器测试通过，新增原生库检查能正确拒绝此前 `30ded20` APK 中的 `tailssh` 和 PTY 残留。未在本机编译，新的实际 AAR/APK 结果以随后 CI 验证为准。
 - 2026-10-25 裁剪版 Release 构建：[Actions 40134109267](https://github.com/giturass/B-box/actions/runs/40134109267) 成功，构建提交 `30ded207a4242ff628123cf0d688403cfbede137`。标准及 legacy ARM64 AAR 的实际构建标签和模块校验、标准变体 Android/CGO 下 743 个包的依赖图检查、应用单元测试、签名 Release 构建、APK 包名/版本/89 个应用标签/ARM64 架构及 APK v2 签名校验全部通过。本次 `publish_release=false`，APK 上传至 Actions Artifact，现有同版本 GitHub Release 未替换。
 - 同次产物复核：[APK Artifact](https://github.com/giturass/B-box/actions/runs/40134109267/artifacts/12576741966) 下载后的归档 SHA-256 与 GitHub digest 一致。APK 为 22,779,150 字节，SHA-256 `56a90b0314d32ac44bf4a8a86776fd6d1fbd951dedf4c6a736c17033c51082db`；较现有同版本官方完整核心的 B-box APK（36,109,526 字节）减少 13,330,376 字节 / 36.92%，包含核心与 App 两项裁剪的共同收益。APK 内 `libbox.so` 为 46,291,896 字节，ZIP 条目为 14,979,406 字节；标准/legacy AAR 原生库分别为 46,291,904 / 46,329,576 字节。
 - 同次残留审查：按 Go 官方 buildinfo 格式直接读取下载 APK 内的原生库，确认 Go `1.26.10`、六项保留构建标签、74 个链接模块；七项被裁剪外部模块及任何名称含 `tailscale` 的模块均未链接。原生库中的包/函数名称仍包含 `tailssh` 的 `OpenPtyShell`、`StartPtyProcess`、`StartSocketpairProcess` 等通用 Shell/PTY 实现，`github.com/creack/pty` 也仍链接；另保留导出接口、gRPC 类型、配置结构及不可用报错占位。未发现其他被裁剪协议实现的包/函数名称。此检查未继续删除兼容接口或通用 Shell 实现，未进行设备交互验证。

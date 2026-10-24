@@ -65,6 +65,9 @@ jobs:
           git apply --check ../patches/libbox-trim.patch
           git apply ../patches/libbox-trim.patch
 
+      - name: Test libbox trim verifier
+        run: python3 -B -m unittest discover -s tools -p test_verify_libbox.py
+
       # The upstream libbox builder explicitly requires OpenJDK 17.
       - name: Set up Java for libbox
         uses: actions/setup-java@v5
