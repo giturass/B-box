@@ -220,7 +220,6 @@
     <string name="auto_redirect">自動重定向</string>
     <string name="auto_redirect_description">需要 ROOT 權限</string>
     <string name="system_http_proxy">系統 HTTP 代理</string>
-    <string name="update_settings">更新設定</string>
 
     <!-- Per-App Proxy -->
     <string name="per_app_proxy">每個應用程式代理</string>
@@ -277,8 +276,6 @@
     <!-- Updates -->
     <string name="check_update">檢查更新</string>
     <string name="check_update_automatic">自動檢查更新</string>
-    <string name="check_update_prompt_play">是否啟用從 **Play Store** 自動檢查更新？</string>
-    <string name="check_update_prompt_github">是否啟用從 **GitHub** 自動檢查更新？</string>
     <string name="update_track">更新通道</string>
     <string name="update_track_stable">穩定版</string>
     <string name="update_track_beta">Beta 版</string>

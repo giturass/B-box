@@ -88,6 +88,5 @@ object UpdateState {
     private fun clearCache() {
         Settings.cachedUpdateInfo = ""
         Settings.cachedApkPath = ""
-        Settings.lastShownUpdateVersion = 0
     }
 }

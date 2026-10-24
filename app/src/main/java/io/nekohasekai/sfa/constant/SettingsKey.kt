@@ -3,8 +3,6 @@ package io.nekohasekai.sfa.constant
 object SettingsKey {
     const val SELECTED_PROFILE = "selected_profile"
     const val SERVICE_MODE = "service_mode"
-    const val CHECK_UPDATE_ENABLED = "check_update_enabled"
-    const val UPDATE_CHECK_PROMPTED = "update_check_prompted"
     const val UPDATE_SOURCE = "update_source"
     const val UPDATE_TRACK = "update_track"
     const val GITHUB_TOKEN = "github_token"
@@ -12,7 +10,6 @@ object SettingsKey {
     const val FDROID_CUSTOM_MIRRORS = "fdroid_custom_mirrors"
     const val SILENT_INSTALL_ENABLED = "silent_install_enabled"
     const val SILENT_INSTALL_METHOD = "silent_install_method"
-    const val AUTO_UPDATE_ENABLED = "auto_update_enabled"
     const val DYNAMIC_NOTIFICATION = "dynamic_notification"
     const val DISABLE_DEPRECATED_WARNINGS = "disable_deprecated_warnings"
 
@@ -46,5 +43,4 @@ object SettingsKey {
     const val STARTED_BY_USER = "started_by_user"
     const val CACHED_UPDATE_INFO = "cached_update_info"
     const val CACHED_APK_PATH = "cached_apk_path"
-    const val LAST_SHOWN_UPDATE_VERSION = "last_shown_update_version"
 }

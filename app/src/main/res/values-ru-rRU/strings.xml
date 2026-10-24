@@ -220,7 +220,6 @@
     <string name="auto_redirect">Автоматическое перенаправление</string>
     <string name="auto_redirect_description">Требуются права ROOT</string>
     <string name="system_http_proxy">Системный HTTP-прокси</string>
-    <string name="update_settings">Настройки обновлений</string>
 
     <!-- Per-App Proxy -->
     <string name="per_app_proxy">Прокси для отдельных приложений</string>
@@ -275,8 +274,6 @@
     <!-- Updates -->
     <string name="check_update">Проверить обновления</string>
     <string name="check_update_automatic">Автоматическая проверка обновлений</string>
-    <string name="check_update_prompt_play">Включить автоматическую проверку обновлений через **Google Play**?</string>
-    <string name="check_update_prompt_github">Включить автоматическую проверку обновлений через **GitHub**?</string>
     <string name="update_track">Канал обновлений</string>
     <string name="update_track_stable">Стабильный</string>
     <string name="update_track_beta">Бета</string>

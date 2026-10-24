@@ -36,6 +36,8 @@
 | MOD-012 | 节点卡片尺寸与选中态优化 | `compose/screen/dashboard/GroupsCard.kt` |
 | MOD-013 | ARM64 核心组件裁剪 | `patches/libbox-trim.patch`、`tools/verify_libbox.py`、`.github/workflows/build-release.yml` |
 | MOD-014 | 移除 App 的 Tailscale 与终端 | 导航、工具与设置页、Manifest、Root 后端、Gradle、语言资源 |
+| MOD-015 | 移除 Android 5/6 与 legacy 核心 | `app/build.gradle.kts`、`src/minApi21`、`src/otherLegacy`、核心补丁与工作流 |
+| MOD-016 | 移除应用更新提示与设置入口 | `MainActivity.kt`、`AppSettingsScreen.kt`、`SettingsScreen.kt`、`UpdateWorker.kt`、设置与导航 |
 
 
 ## MOD-001：仪表盘底部控制
@@ -127,7 +129,7 @@
 
 ### 本地 Termux 检查
 
-遵照本机 `~/project/AGENTS.md`，没有用户明确要求时不在本机执行编译构建；Release 交给上述 GitHub Actions。编译前准备版本匹配且应用 MOD-013 裁剪补丁的核心 AAR，legacy flavor 另需同样裁剪的 `libbox-legacy.aar`。旧的官方完整 AAR 不代表当前裁剪结果。
+遵照本机 `~/project/AGENTS.md`，没有用户明确要求时不在本机执行编译构建；Release 交给上述 GitHub Actions。编译前准备版本匹配且应用 MOD-013 裁剪补丁的标准 `libbox.aar`；legacy 核心与 App 分支已按 MOD-015 移除。旧的官方完整 AAR 不代表当前裁剪结果。
 
 历史本地构建使用 Termux 原生 aapt2/aidl、Build Tools 37.0.0、NDK 29.0.14206865；本地 init script 覆盖工具路径和签名，不能把本机路径写进 CI。2026-10-19 检查时，已有 OpenJDK 17.0.20；但项目 wrapper 要求的 Gradle 9.7.0 尚未缓存，`app/libs/libbox.aar` 缺失。本次仅完成原生 aapt2 资源编译与静态核验；完整 Debug 编译和单元测试前需补齐工具链、匹配的核心及依赖。旧日志中的成功记录仅对应当时环境。
 
@@ -202,7 +204,7 @@
 - Tailscale、OpenVPN、OpenConnect、USBIP：关闭 `with_tailscale`、`with_openvpn`、`with_openconnect`、`with_usbip`，移除不再使用的 `ts_omit_*` 标签。Tailscale 相关的 Taildrop、Tailscale SSH、MagicDNS、DERP/Tailcat 等本地核心能力随之移除。
 - 将 libbox 的 11 个 Tailscale/Taildrop 客户端方法移至 `with_tailscale` 文件，四个对应的导出类型文件及两个原生 Shell 会话实现文件也增加该构建条件。裁剪版不再生成这些 Java 绑定，不再链接 `tailssh` 通用 Shell/PTY 实现或 `github.com/creack/pty`；其他 56 个客户端函数的实现保持上游原样。
 - Snell：移除协议导入以及入站、出站注册，并删除 `common/urltest/urltest.go` 中直接引用 `sing-snell` 的测速会话预热钩子，避免移除注册后仍链接该模块；其他协议的预热逻辑保留。Tor：移除协议导入及出站注册。两者没有对应的独立裁剪标签。
-- 保留 `with_quic`、`with_wireguard`、`with_utls`、`with_clash_api`、`badlinkname`、`tfogo_checklinkname0`，沿用上游链接器参数和 API 24 / API 21 变体构建；标准与 legacy AAR 均应用裁剪。
+- 保留 `with_quic`、`with_wireguard`、`with_utls`、`with_clash_api`、`badlinkname`、`tfogo_checklinkname0`，沿用上游链接器参数，仅构建 API 24 的标准 AAR；API 21 legacy 核心已按 MOD-015 移除。
 
 **构建与验证：**
 
@@ -219,7 +221,7 @@
 - 保留的 OpenVPN、OpenConnect、USBIP Android 页面继续通过稳定的管理接口读取状态，可用于远程核心；没有端点或服务时，相应工具卡片不显示。Tailscale 与终端 App 功能无论本地还是远程均已移除。历史配置文件不自动修改，普通 Root/Shizuku 能力继续保留。
 - 不改变应用版本、安装身份、签名及发布流程；当前补丁不会自动替换已安装应用中的旧核心。
 
-**回归：** 正常协议配置检查与启动；Hysteria2/TUIC、VLESS+REALITY、WireGuard、DNS、TUN、Clash 模式、节点测速与连接列表；七项被裁剪功能的配置错误；本地工具页无端点状态与保留的远程会话工具页；标准/legacy AAR 和最终 APK 的标签、模块、架构检查。实际体积收益以成功构建产物为准。
+**回归：** 正常协议配置检查与启动；Hysteria2/TUIC、VLESS+REALITY、WireGuard、DNS、TUN、Clash 模式、节点测速与连接列表；七项被裁剪功能的配置错误；本地工具页无端点状态与保留的远程会话工具页；标准 AAR 和最终 APK 的标签、模块、架构与绑定检查。实际体积收益以成功构建产物为准。
 
 ## MOD-014：移除 App 的 Tailscale 与终端
 
@@ -233,22 +235,42 @@
 
 **保留与兼容：**
 
-- 配置文件 JSON 编辑器继续保留：API 24+ 使用 Sora、Tree-sitter JSON、`ConfigJsonLanguage` 和 `ConfigSchema`，API 21 变体使用 EditorKit 与 `JsonLanguage`。`ProfileCodeEditor` 仅删除 Ghostty 语言选项，JSON 高亮、补全、搜索、撤销/重做、剪贴板、缩进及保存功能的其余代码不变。
+- 配置文件 JSON 编辑器继续保留：使用 Sora、Tree-sitter JSON、`ConfigJsonLanguage` 和 `ConfigSchema`；API 21 的 EditorKit 编辑器已按 MOD-015 移除。API 24+ 的 `ProfileCodeEditor` 仅删除 Ghostty 语言选项，JSON 高亮、补全、搜索、撤销/重做、剪贴板、缩进及保存功能的其余代码不变。
 - 普通 Root/Shizuku 安装、应用查询、邻居监测、网络桥接、自动重定向与普通远程控制继续保留。保留的报告页和配置图标库中的 Terminal 图标只是图形资源，不提供终端功能。
 - libbox 仍要求的平台方法签名保持不变：`usePlatformShell()` 返回 `false`，打开 Shell、检查 Shell、查询用户和 SFTP 的方法返回不可用错误，`tailscaleHostname()` 返回空字符串。核心的通用 shell 导出类型/辅助代码仍保留，App 无终端执行入口；不改变 libbox 的导出接口或 gRPC 协议。
 
-**回归：** 配置文件打开/编辑/搜索/保存及 JSON 补全、标准与 legacy 编辑器、配置导入导出、工具与设置页返回导航、普通 Root/Shizuku 安装/应用查询、网络桥接/自动重定向、普通远程控制；各 flavor 的编译、资源合并及 APK 中不再打包 Ghostty。
+**回归：** 配置文件打开/编辑/搜索/保存及 JSON 补全、配置导入导出、工具与设置页返回导航、普通 Root/Shizuku 安装/应用查询、网络桥接/自动重定向、普通远程控制；保留的 `play` / `other` flavor 编译、资源合并及 APK 中不再打包 Ghostty。
+
+## MOD-015：移除 Android 5/6 与 legacy 核心
+
+- 删除 `otherLegacy` flavor、对应源码集与产物命名分支、`libbox-legacy.aar` 依赖及所有 API 21 专用依赖版本/配置，包括旧版 Compose 和 EditorKit。保留 `play` / `other`，最低 Android 版本均为 API 24（Android 7.0）。
+- 删除 `src/minApi21` 的七个兼容实现文件及 `src/otherLegacy` 的 Manifest、Vendor 和安装器，共十个文件；保留 API 24 的配置编辑器、应用查询、二维码扫描及 Root/Shizuku 安装实现。移除已无使用者的旧 Termux 模块 SDK/NDK 属性。
+- 核心补丁删除 API 21 AAR 生成分支和仅该分支使用的标签过滤函数。CI 只构建/校验标准 `libbox.aar`，并要求构建后不存在 `libbox-legacy.aar`。
+- 更新检查测试仍保留历史 legacy APK 的拒绝用例，防止从旧 Release 附件误选不兼容安装包。`useLegacyPackaging` 是 APK 原生库压缩设置，继续保留，不代表旧版 Android 构建分支。
+
+**回归：** `otherRelease` 的测试、编译、R8、资源合并与签名；API 24+ 编辑器、应用查询和安装；没有 `otherLegacy` 构建配置，核心只生成标准 AAR；标准 AAR / APK 的裁剪残留检查。
+
+## MOD-016：移除应用更新提示与设置入口
+
+- 删除首次启动的自动检查询问、启动时的新版本/下载弹窗和更新检查调用；删除应用设置的整个“更新设置”与“操作”分组，以及来源、通道、GitHub Token 和安装方式选择弹窗。通知、语言、缓存及版本信息/复制菜单继续保留。
+- 删除应用设置的新版本入口、手动“检查更新”、版本行“New”徽标、设置首页和手机/平板导航的更新徽标。删除专用更新弹窗组件、F-Droid 镜像设置页面及导航路由，五种语言移除首次提示和分组标题共 15 项字符串。
+- 删除四项自动检查/首次询问/自动更新/已提示版本的设置属性与键，不读取历史值。启动时取消唯一任务 `AutoUpdate`；`UpdateWorker` 保留原类名作为旧任务兼容入口，其执行方法直接完成，不检查、下载或安装更新。删除自动更新调度入口。
+- 现有更新源/缓存数据类型和普通安装工具保留，Compose 界面不再调用更新检查或下载接口；不清空历史设置、配置或数据库。配置订阅的 `UpdateProfileWork`、普通 Root/Shizuku 能力、GitHub Actions 构建及 APK 手动下载继续保留。
+
+**回归：** 首次启动及从旧设置升级无更新弹窗；无手动检查、更新分组或更新徽标；通知、语言、缓存、版本复制、配置订阅更新及普通 Root/Shizuku 功能；已排队 `AutoUpdate` 任务取消/兼容完成；Release 编译、资源合并和签名。
 
 ## 维护与上游同步
 
 1. 先读 README、本文件及适用的 AGENTS.md，检查工作树并保留未提交改动。
-2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-009、MOD-011 至 MOD-014。当前已合并上游 `dev` 的 `a548a79` / `1.15.0-alpha.13`。相对前一基线 `bc73504`，纳入核心初始化等待、服务模式检测与连接同步、仪表盘配置更新生效、分应用代理列表/扫描及旧版 Android 连接归属查询修复；版本与 Go 版本采用上游值。冲突处理保留 B-box 定制，构建配置和应用查询仍不包含 Xposed 仓库、模块或强制 Root 分支。
+2. 固定比较基线 SHA；区分已提交差异与工作树差异。同步上游后更新基线并检查 MOD-001 至 MOD-009、MOD-011 至 MOD-016。当前已合并上游 `dev` 的 `a548a79` / `1.15.0-alpha.13`。相对前一基线 `bc73504`，纳入核心初始化等待、服务模式检测与连接同步、仪表盘配置更新生效、分应用代理列表/扫描及旧版 Android 连接归属查询修复；版本与 Go 版本采用上游值。冲突处理保留 B-box 定制，构建配置和应用查询仍不包含 Xposed 仓库、模块或强制 Root 分支。
 3. 特别核对 `CardGroup` 设置兼容性、本地/远程分支、VPN 权限流程和服务状态；未授权时不改协议、包名、签名或服务生命周期。
 4. 完成必要编译、资源及受影响 UI 检查，记录实际验证范围。编译与预览声明不等于实机交互验证。
 5. 提交前审查差异，不提交密钥、密码、机器配置、SDK 或 AAR。`origin` 为个人 fork，`upstream` 为 SagerNet；仅推送授权仓库，不强推上游。
 
 ## 验证记录
 
+- 2026-10-25 MOD-015 / MOD-016 静态复核：标准核心补丁反向应用与 `git diff --check` 通过；确认只保留 `play` / `other`、最低 API 24，旧版源码与 API 21 核心构建分支已删除。更新界面/调度及已删除设置引用检查通过，Compose 状态委托导入已核对；资源 XML、工作流 shell 与嵌入 Python 语法检查通过。未在本机编译，实际 APK 以随后 GitHub Actions 构建为准。
+- 2026-10-25 残留清理构建：[Actions 40136030352](https://github.com/giturass/B-box/actions/runs/40136030352) 成功，提交 `d6f179c992bbba46f1b908133e28dd7264465e23`。九项 Python 校验器测试、标准/legacy AAR 的 Java 绑定及原生库残留检查、标准核心 741 个包的依赖图检查、应用单元测试、签名 Release 构建及 APK v2 签名校验全部通过；`tailssh`、PTY 和未使用的 Tailscale/Taildrop 导出绑定不再进入产物。标准 AAR / APK 原生库为 45,907,296 / 45,907,288 字节，APK 内 ZIP 条目为 14,898,431 字节。此构建包含残留清理，尚不包含随后 MOD-015 / MOD-016 的修改。
 - 2026-10-25 残留处理静态检查：12 个核心文件的补丁反向应用检查通过；与上游 `v1.15.0-alpha.13` 客户端源码逐函数比较，67 个函数体逐字节一致，56 个保留、11 个移至条件编译文件。Python 语法、导出类型条件编译引用、客户端导入使用及 `git diff --check` 检查通过；九项校验器测试通过，新增原生库检查能正确拒绝此前 `30ded20` APK 中的 `tailssh` 和 PTY 残留。未在本机编译，新的实际 AAR/APK 结果以随后 CI 验证为准。
 - 2026-10-25 裁剪版 Release 构建：[Actions 40134109267](https://github.com/giturass/B-box/actions/runs/40134109267) 成功，构建提交 `30ded207a4242ff628123cf0d688403cfbede137`。标准及 legacy ARM64 AAR 的实际构建标签和模块校验、标准变体 Android/CGO 下 743 个包的依赖图检查、应用单元测试、签名 Release 构建、APK 包名/版本/89 个应用标签/ARM64 架构及 APK v2 签名校验全部通过。本次 `publish_release=false`，APK 上传至 Actions Artifact，现有同版本 GitHub Release 未替换。
 - 同次产物复核：[APK Artifact](https://github.com/giturass/B-box/actions/runs/40134109267/artifacts/12576741966) 下载后的归档 SHA-256 与 GitHub digest 一致。APK 为 22,779,150 字节，SHA-256 `56a90b0314d32ac44bf4a8a86776fd6d1fbd951dedf4c6a736c17033c51082db`；较现有同版本官方完整核心的 B-box APK（36,109,526 字节）减少 13,330,376 字节 / 36.92%，包含核心与 App 两项裁剪的共同收益。APK 内 `libbox.so` 为 46,291,896 字节，ZIP 条目为 14,979,406 字节；标准/legacy AAR 原生库分别为 46,291,904 / 46,329,576 字节。

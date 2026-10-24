@@ -13,6 +13,45 @@ diff --git a/cmd/internal/build_libbox/main.go b/cmd/internal/build_libbox/main.
  	notMemcTags = append(notMemcTags, "with_low_memory")
  	debugTags = append(debugTags, "debug")
  }
+@@ -75,20 +74,6 @@
+ 	AndroidAPI int
+ 	OutputName string
+ 	Tags       []string
+-}
+-
+-func filterTags(tags []string, exclude ...string) []string {
+-	excludeMap := make(map[string]bool)
+-	for _, tag := range exclude {
+-		excludeMap[tag] = true
+-	}
+-	var result []string
+-	for _, tag := range tags {
+-		if !excludeMap[tag] {
+-			result = append(result, tag)
+-		}
+-	}
+-	return result
+ }
+ 
+ func checkJavaVersion() {
+@@ -175,17 +160,6 @@
+ 		Tags:       mainTags,
+ 	}, bindTarget)
+ 
+-	// Build legacy variant (SDK 21, no naive outbound)
+-	legacyTags := filterTags(sharedTags, "with_naive_outbound")
+-	// legacyTags = append(legacyTags, memcTags...)
+-	if debugEnabled {
+-		legacyTags = append(legacyTags, debugTags...)
+-	}
+-	buildAndroidVariant(AndroidBuildConfig{
+-		AndroidAPI: 21,
+-		OutputName: "libbox-legacy.aar",
+-		Tags:       legacyTags,
+-	}, bindTarget)
+ }
+ 
+ func buildApple() {
 diff --git a/include/registry.go b/include/registry.go
 --- a/include/registry.go
 +++ b/include/registry.go

@@ -23,8 +23,6 @@ interface VendorInterface {
 
     fun checkUpdateAsync(): UpdateInfo? = null
 
-    fun scheduleAutoUpdate() {}
-
     suspend fun verifySilentInstallMethod(method: String): Boolean = false
 
     suspend fun downloadAndInstall(context: android.content.Context, downloadUrl: String): Unit = throw UnsupportedOperationException("Not supported in this flavor")

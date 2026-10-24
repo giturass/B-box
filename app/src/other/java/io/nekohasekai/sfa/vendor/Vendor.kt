@@ -109,10 +109,6 @@ object Vendor : VendorInterface {
         }
     }
 
-    override fun scheduleAutoUpdate() {
-        UpdateWorker.schedule(io.nekohasekai.sfa.Application.application)
-    }
-
     override suspend fun verifySilentInstallMethod(method: String): Boolean {
         return when (method) {
             "PACKAGE_INSTALLER" -> {

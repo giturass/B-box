@@ -220,7 +220,6 @@
     <string name="auto_redirect">تغییر مسیر خودکار</string>
     <string name="auto_redirect_description">نیازمند دسترسی ROOT</string>
     <string name="system_http_proxy">پراکسی HTTP سیستم</string>
-    <string name="update_settings">تنظیمات به‌روزرسانی</string>
 
     <!-- Per-App Proxy -->
     <string name="per_app_proxy">پراکسی هر برنامه</string>
@@ -275,8 +274,6 @@
     <!-- Updates -->
     <string name="check_update">بررسی به‌روزرسانی</string>
     <string name="check_update_automatic">بررسی خودکار به‌روزرسانی</string>
-    <string name="check_update_prompt_play">می‌خواهید بررسی خودکار به‌روزرسانی از **Play Store** فعال شود؟</string>
-    <string name="check_update_prompt_github">می‌خواهید بررسی خودکار به‌روزرسانی از **GitHub** فعال شود؟</string>
     <string name="update_track">کانال به‌روزرسانی</string>
     <string name="update_track_stable">پایدار</string>
     <string name="update_track_beta">بتا</string>

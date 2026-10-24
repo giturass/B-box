@@ -14,6 +14,8 @@
 - 移除 Xposed/LSPosed 模块及“特权增强”功能；保留普通 Root/Shizuku 安装与应用查询。
 - ARM64 核心裁剪 NaiveProxy、Tailscale、OpenVPN、Snell、OpenConnect、USBIP 与 Tor；保留 QUIC、WireGuard、uTLS/REALITY 和 Clash API。构建方式与兼容范围见 MOD-013。
 - 移除 App 的 Tailscale、Taildrop、SSH 终端及 Ghostty 依赖；保留 JSON 配置编辑器和普通 Root/Shizuku 能力，详见 MOD-014。
+- 仅支持 Android 7.0+；移除 Android 5/6 的 App 分支、API 21 依赖与 legacy 核心构建，详见 MOD-015。
+- 移除首次启动更新提示、更新设置、手动检查更新和更新徽标；APK 通过 GitHub Actions 或 Releases 手动下载安装，详见 MOD-016。
 
 维护与构建入口：**[MODIFICATIONS.md](MODIFICATIONS.md)**。该文档记录准确的上游基线、逐项差异、文件定位、AI 维护约束与回归检查。
 

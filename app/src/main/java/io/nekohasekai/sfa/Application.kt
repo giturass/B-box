@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.content.getSystemService
+import androidx.work.WorkManager
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.SetupOptions
 import io.nekohasekai.sfa.bg.AppChangeReceiver
@@ -61,6 +62,7 @@ class Application : Application() {
         @Suppress("OPT_IN_USAGE")
         GlobalScope.launch(Dispatchers.IO) {
             Settings.dataStore.initialize()
+            WorkManager.getInstance(this@Application).cancelUniqueWork("AutoUpdate")
             runCatching {
                 setupLibbox()
             }.onFailure {

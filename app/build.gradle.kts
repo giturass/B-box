@@ -112,9 +112,6 @@ android {
     productFlavors {
         create("play")
         create("other")
-        create("otherLegacy") {
-            minSdk = 21
-        }
     }
 
     sourceSets {
@@ -124,10 +121,6 @@ android {
         }
         getByName("other") {
             java.directories.addAll(listOf("src/minApi24/java", "src/github/java"))
-            aidl.directories.add("src/minApi24/aidl")
-        }
-        getByName("otherLegacy") {
-            java.directories.addAll(listOf("src/minApi21/java", "src/github/java"))
             aidl.directories.add("src/minApi24/aidl")
         }
     }
@@ -180,7 +173,6 @@ android {
             var fileName = output.outputFileName
             fileName = fileName.replace("-release", "")
             fileName = fileName.replace("-play", "-play")
-            fileName = fileName.replace("-otherLegacy", "-legacy-android-5")
             fileName = fileName.replace("-other", "")
             output.outputFileName = fileName
         }
@@ -193,7 +185,6 @@ dependencies {
     // libbox
     "playImplementation"(files("libs/libbox.aar"))
     "otherImplementation"(files("libs/libbox.aar"))
-    "otherLegacyImplementation"(files("libs/libbox-legacy.aar"))
 
     // API level specific versions
     val lifecycleVersion24 = "2.11.0"
@@ -204,15 +195,6 @@ dependencies {
     val webkitVersion24 = "1.16.0"
     val coreVersion24 = "1.19.0"
     val materialVersion24 = "1.14.0"
-
-    val lifecycleVersion21 = "2.9.4"
-    val roomVersion21 = "2.7.2"
-    val workVersion21 = "2.10.5"
-    val cameraVersion21 = "1.4.2"
-    val browserVersion21 = "1.9.0"
-    val webkitVersion21 = "1.14.0"
-    val coreVersion21 = "1.17.0"
-    val materialVersion21 = "1.13.0"
 
     // Common dependencies (no API level difference)
     implementation("androidx.appcompat:appcompat:1.7.1")
@@ -259,22 +241,7 @@ dependencies {
     "otherImplementation"("com.google.android.material:material:$materialVersion24")
     "kspOther"("androidx.room:room-compiler:$roomVersion24")
 
-    // API 21 dependencies (otherLegacy)
-    "otherLegacyImplementation"("androidx.lifecycle:lifecycle-livedata-ktx:$lifecycleVersion21")
-    "otherLegacyImplementation"("androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycleVersion21")
-    "otherLegacyImplementation"("androidx.lifecycle:lifecycle-process:$lifecycleVersion21")
-    "otherLegacyImplementation"("androidx.room:room-runtime:$roomVersion21")
-    "otherLegacyImplementation"("androidx.work:work-runtime-ktx:$workVersion21")
-    "otherLegacyImplementation"("androidx.camera:camera-view:$cameraVersion21")
-    "otherLegacyImplementation"("androidx.camera:camera-lifecycle:$cameraVersion21")
-    "otherLegacyImplementation"("androidx.camera:camera-camera2:$cameraVersion21")
-    "otherLegacyImplementation"("androidx.browser:browser:$browserVersion21")
-    "otherLegacyImplementation"("androidx.webkit:webkit:$webkitVersion21")
-    "otherLegacyImplementation"("androidx.core:core-ktx:$coreVersion21")
-    "otherLegacyImplementation"("com.google.android.material:material:$materialVersion21")
-    "kspOtherLegacy"("androidx.room:room-compiler:$roomVersion21")
-
-    // Configuration editor: sora-editor (tree-sitter) for API 24+, EditorKit kept for legacy
+    // Configuration editor: sora-editor (tree-sitter) for API 24+
     val soraVersion = "0.23.6"
     val treeSitterVersion = "4.3.2"
     "playImplementation"("io.github.Rosemoe.sora-editor:editor:$soraVersion")
@@ -285,8 +252,6 @@ dependencies {
     "otherImplementation"("io.github.Rosemoe.sora-editor:language-treesitter:$soraVersion")
     "otherImplementation"("com.itsaky.androidide.treesitter:android-tree-sitter:$treeSitterVersion")
     "otherImplementation"("com.itsaky.androidide.treesitter:tree-sitter-json:$treeSitterVersion")
-    "otherLegacyImplementation"("com.blacksquircle.ui:editorkit:2.2.0")
-    "otherLegacyImplementation"("com.blacksquircle.ui:language-json:2.2.0")
 
     // Play Store specific
     "playImplementation"("com.google.android.play:app-update-ktx:2.1.0")
@@ -305,8 +270,6 @@ dependencies {
     "playImplementation"("com.github.topjohnwu.libsu:service:$libsuVersion")
     "otherImplementation"("com.github.topjohnwu.libsu:core:$libsuVersion")
     "otherImplementation"("com.github.topjohnwu.libsu:service:$libsuVersion")
-    "otherLegacyImplementation"("com.github.topjohnwu.libsu:core:$libsuVersion")
-    "otherLegacyImplementation"("com.github.topjohnwu.libsu:service:$libsuVersion")
 
     // Compose dependencies - API 24+ (play/other)
     val composeBom24 = platform("androidx.compose:compose-bom:2026.06.01")
@@ -335,29 +298,12 @@ dependencies {
     "otherImplementation"("androidx.lifecycle:lifecycle-viewmodel-compose:$lifecycleComposeVersion24")
     "otherImplementation"("androidx.compose.runtime:runtime-livedata")
 
-    // Compose dependencies - API 21 (otherLegacy)
-    val composeBom21 = platform("androidx.compose:compose-bom:2025.01.00")
-    val activityVersion21 = "1.11.0"
-    val lifecycleComposeVersion21 = "2.9.4"
-
-    "otherLegacyImplementation"(composeBom21)
-    "otherLegacyImplementation"("androidx.compose.material3:material3")
-    "otherLegacyImplementation"("androidx.compose.material3.adaptive:adaptive")
-    "otherLegacyImplementation"("androidx.compose.ui:ui")
-    "otherLegacyImplementation"("androidx.compose.ui:ui-tooling-preview")
-    "otherLegacyImplementation"("androidx.compose.material:material-icons-extended")
-    "otherLegacyImplementation"("androidx.activity:activity-compose:$activityVersion21")
-    "otherLegacyImplementation"("androidx.navigation:navigation-compose:2.9.8")
-    "otherLegacyImplementation"("androidx.lifecycle:lifecycle-viewmodel-compose:$lifecycleComposeVersion21")
-    "otherLegacyImplementation"("androidx.compose.runtime:runtime-livedata")
-
     // Debug/Test dependencies
     testImplementation("junit:junit:4.13.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     "androidTestPlayImplementation"(composeBom24)
     "androidTestOtherImplementation"(composeBom24)
-    "androidTestOtherLegacyImplementation"(composeBom21)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 
     // Common Compose-related libraries

@@ -100,9 +100,9 @@ jobs:
           go_bin="$(go env GOPATH)/bin"
           export PATH="$PATH:$go_bin"
           go run ./cmd/internal/build_libbox -target android -platform android/arm64
+          test ! -e libbox-legacy.aar
           CC="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" \
             python3 ../tools/verify_libbox.py libbox.aar --source .
-          python3 ../tools/verify_libbox.py libbox-legacy.aar
           mkdir -p ../app/libs
           cp libbox.aar ../app/libs/libbox.aar
 
@@ -163,6 +163,8 @@ jobs:
           badging = subprocess.check_output(
               [str(aapt2), 'dump', 'badging', str(apks[0])], text=True
           )
+          if "sdkVersion:'24'" not in badging.splitlines():
+              raise SystemExit('Expected minimum Android SDK 24 (Android 7.0)')
           package_line = next(
               (line for line in badging.splitlines() if line.startswith('package: ')), ''
           )
