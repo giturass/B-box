@@ -59,14 +59,11 @@ jobs:
           path: .core
           persist-credentials: false
 
-      - name: Trim unused libbox components
+      - name: Disable legacy libbox build
         working-directory: .core
         run: |
-          git apply --check ../patches/libbox-trim.patch
-          git apply ../patches/libbox-trim.patch
-
-      - name: Test libbox trim verifier
-        run: python3 -B -m unittest discover -s tools -p test_verify_libbox.py
+          git apply --check ../patches/libbox-no-legacy.patch
+          git apply ../patches/libbox-no-legacy.patch
 
       # The upstream libbox builder explicitly requires OpenJDK 17.
       - name: Set up Java for libbox
@@ -101,8 +98,6 @@ jobs:
           export PATH="$PATH:$go_bin"
           go run ./cmd/internal/build_libbox -target android -platform android/arm64
           test ! -e libbox-legacy.aar
-          CC="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" \
-            python3 ../tools/verify_libbox.py libbox.aar --source .
           mkdir -p ../app/libs
           cp libbox.aar ../app/libs/libbox.aar
 
@@ -191,8 +186,6 @@ jobs:
           PY
           "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose \
             app/build/outputs/apk/other/release/*-arm64-v8a.apk
-          python3 tools/verify_libbox.py app/libs/libbox.aar \
-            --apk app/build/outputs/apk/other/release/*-arm64-v8a.apk
 
       - name: Upload Release APK
         uses: actions/upload-artifact@v4

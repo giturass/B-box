@@ -460,11 +460,82 @@
     <string name="tool_default_outbound">پیش‌فرض</string>
 
     <!-- STUN Test -->
-    <string name="tools_endpoints">نقاط اتصال</string>
+    <!-- Tailscale -->
+    <string name="tailscale_endpoints">نقاط اتصال</string>
     <string name="title_services">سرویس‌ها</string>
 
+    <string name="tailscale_status">وضعیت</string>
+    <string name="tailscale_state">وضعیت</string>
+    <string name="tailscale_network">شبکه</string>
+    <string name="tailscale_hostname">نام میزبان</string>
+    <string name="tailscale_open_auth_url">باز کردن لینک احراز هویت</string>
+    <string name="tailscale_open_auth_url_qr_code">نمایش QR کد لینک احراز هویت</string>
+    <string name="tailscale_this_device">این دستگاه</string>
+    <string name="tailscale_logout">خروج از حساب</string>
+    <string name="tailscale_connected">متصل</string>
+    <string name="tailscale_not_connected">متصل نیست</string>
+    <string name="tailscale_addresses">آدرس‌های Tailscale</string>
+    <string name="tailscale_details">جزئیات</string>
+    <string name="tailscale_key_expiry">انقضای کلید</string>
+    <string name="tailscale_exit_node">گره خروجی</string>
+    <string name="tailscale_active">فعال</string>
+    <string name="tailscale_ping">پینگ</string>
+    <string name="tailscale_ping_start">شروع</string>
+    <string name="tailscale_ping_stop">توقف</string>
+    <string name="tailscale_ping_direct">اتصال مستقیم</string>
+    <string name="tailscale_ping_derp">اتصال از طریق DERP</string>
+    <string name="tailscale_ping_peer_relay">اتصال از طریق بازپخش همتا</string>
+    <string name="tailscale_ping_endpoint">نقطه پایانی</string>
+    <string name="tailscale_ping_derp_region">منطقه DERP</string>
+    <string name="tailscale_ping_peer_relay_address">بازپخش همتا</string>
+    <string name="tailscale_ping_connecting">در حال اتصال…</string>
+    <string name="tailscale_ping_no_data">بدون داده</string>
+    <string name="tailscale_shared_in">به اشتراک گذاشته شده</string>
+    <string name="tailscale_expired">منقضی شده</string>
+    <string name="tailscale_expires_relative">انقضا %1$s</string>
+    <string name="tailscale_key_expiry_disabled">انقضای کلید غیرفعال است</string>
+    <string name="tailscale_last_seen">آخرین بازدید</string>
+    <string name="tailscale_available">در دسترس</string>
+    <string name="tailscale_yes">بله</string>
 
+    <!-- Tailscale SSH -->
+    <string name="tailscale_ssh_connect">اتصال از طریق SSH</string>
+    <string name="tailscale_ssh_options">گزینه‌های SSH</string>
+    <string name="tailscale_ssh_username">نام کاربری</string>
+    <string name="tailscale_ssh_terminal_type">نوع ترمینال</string>
+    <string name="tailscale_ssh_remember_options">به خاطر سپردن گزینه‌های SSH</string>
+    <string name="tailscale_ssh_quick_connect">اتصال سریع</string>
+    <string name="tailscale_ssh_quick_connect_description">در صورت فعال بودن، می‌توانید از طریق منوی زمینه (فشار طولانی) روی ورودی Tailscale در ابزارها و ورودی‌های همتا در لیست همتاها به سرعت به این همتا متصل شوید.\n\nاین همتا همچنین در منوی جلسه جدید هنگام اتصال به همتاهای دیگر از طریق SSH ظاهر خواهد شد.</string>
+    <string name="tailscale_ssh_terminal_hint">می‌توانید ظاهر ترمینال را در تنظیمات ← پیکربندی Ghostty سفارشی کنید.</string>
+    <string name="tailscale_ssh_connect_button">اتصال</string>
+    <string name="tailscale_ssh_connecting">در حال اتصال…</string>
+    <string name="tailscale_ssh_no_sessions">جلسه فعالی وجود ندارد</string>
+    <string name="terminal_session_ended">جلسه پایان یافت</string>
+    <string name="terminal_press_any_key">هر کلیدی را فشار دهید</string>
+    <string name="tailscale_ssh_new_session">جلسه جدید</string>
 
+    <!-- Terminal Configuration -->
+    <string name="tailscale_terminal_config">پیکربندی Ghostty</string>
+    <string name="tailscale_terminal_light_theme">تم روشن</string>
+    <string name="tailscale_terminal_dark_theme">تم تیره</string>
+    <string name="tailscale_terminal_font_config">فونت</string>
+    <string name="tailscale_terminal_font">خانواده فونت</string>
+    <string name="tailscale_terminal_font_size">اندازه فونت</string>
+    <string name="tailscale_terminal_font_system">فونت‌های سیستم</string>
+    <string name="tailscale_terminal_font_imported">فونت‌های وارد شده</string>
+    <string name="tailscale_terminal_import_font">وارد کردن از فایل</string>
+    <string name="tailscale_terminal_manage_fonts">مدیریت فونت‌های وارد شده</string>
+    <string name="tailscale_terminal_manage_fonts_done">انجام شد</string>
+    <string name="tailscale_terminal_search_themes">جستجوی تم‌ها</string>
+    <string name="tailscale_terminal_light_config">پیکربندی روشن</string>
+    <string name="tailscale_terminal_dark_config">پیکربندی تیره</string>
+    <string name="tailscale_terminal_theme">تم</string>
+    <string name="tailscale_terminal_custom_config">پیکربندی سفارشی</string>
+    <string name="tailscale_terminal_edit_custom_config">ویرایش پیکربندی سفارشی</string>
+    <string name="tailscale_terminal_light_custom_config">پیکربندی سفارشی روشن</string>
+    <string name="tailscale_terminal_dark_custom_config">پیکربندی سفارشی تیره</string>
+    <string name="tailscale_terminal_font_follow_theme">پیروی از تم</string>
+    <string name="tailscale_terminal_import_config">وارد کردن از فایل</string>
 
     <string name="stun_test">تست STUN</string>
     <string name="stun_server">سرور</string>
@@ -540,4 +611,25 @@
     <string name="endpoint_globalprotect_sso_unsupported_android">احراز هویت مرورگر SAML در GlobalProtect در Android پشتیبانی نمی‌شود.</string>
     <string name="endpoint_browser_cookie_missing">احراز هویت مرورگر تکمیل شد، اما کوکی VPN موردنیاز دریافت نشد.</string>
 
+    <!-- Taildrop -->
+    <plurals name="taildrop_file_count">
+        <item quantity="one">%1$d فایل</item>
+        <item quantity="other">%1$d فایل</item>
+    </plurals>
+    <string name="taildrop_send">ارسال</string>
+    <string name="taildrop_receive">دریافت</string>
+    <string name="taildrop_files">فایل‌ها</string>
+    <string name="taildrop_from">از %1$s</string>
+    <string name="taildrop_to">به %1$s</string>
+    <string name="taildrop_save">ذخیره</string>
+    <string name="taildrop_share">اشتراک‌گذاری</string>
+    <string name="taildrop_delete">حذف</string>
+    <string name="taildrop_drop_zone">فایل‌ها را برای ارسال به اینجا بکشید یا برای انتخاب ضربه بزنید</string>
+    <string name="taildrop_done">انجام شد</string>
+    <string name="taildrop_no_targets">هیچ دستگاهی نمی‌تواند فایل دریافت کند</string>
+    <string name="taildrop_no_files_selected">فایلی انتخاب نشده است</string>
+    <string name="taildrop_connecting">در حال اتصال…</string>
+    <string name="taildrop_dismiss">بستن</string>
+    <string name="taildrop_open_app">باز کردن sing-box</string>
+    <string name="taildrop_notification_title">در حال ارسال فایل‌ها</string>
 </resources>

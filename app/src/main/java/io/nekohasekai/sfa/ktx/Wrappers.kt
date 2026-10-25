@@ -18,6 +18,21 @@ val StringBox?.unwrap: String
         return value
     }
 
+fun Iterable<String>.toStringIterator(): StringIterator {
+    return object : StringIterator {
+        val iterator = iterator()
+
+        override fun len(): Int {
+            // not used by core
+            return 0
+        }
+
+        override fun hasNext(): Boolean = iterator.hasNext()
+
+        override fun next(): String = iterator.next()
+    }
+}
+
 fun StringIterator.toList(): List<String> = mutableListOf<String>().apply {
     while (hasNext()) {
         add(next())

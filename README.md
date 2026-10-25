@@ -12,8 +12,7 @@
 - 节点卡片保持现有尺寸与双列排版，两行内容垂直居中、上下留白等距，并增强选中态描边和浅色可读性。
 - Clash 模式仅将模式选择按钮改为 1.12.23 时期的独立矩形样式，保留现有卡片和标题；系统 HTTP 代理保持原样。
 - 移除 Xposed/LSPosed 模块及“特权增强”功能；保留普通 Root/Shizuku 安装与应用查询。
-- ARM64 核心裁剪 NaiveProxy、Tailscale、OpenVPN、Snell、OpenConnect、USBIP 与 Tor；保留 QUIC、WireGuard、uTLS/REALITY 和 Clash API。构建方式与兼容范围见 MOD-013。
-- 移除 App 的 Tailscale、Taildrop、SSH 终端及 Ghostty 依赖；保留 JSON 配置编辑器和普通 Root/Shizuku 能力，详见 MOD-014。
+- 核心使用上游完整功能，保留 App 的 Tailscale、Taildrop 与 SSH 终端；MOD-013、MOD-014 已回退。
 - 仅支持 Android 7.0+；移除 Android 5/6 的 App 分支、API 21 依赖与 legacy 核心构建，详见 MOD-015。
 - 移除首次启动更新提示、更新设置、手动检查更新和更新徽标；APK 通过 GitHub Actions 或 Releases 手动下载安装，详见 MOD-016。
 
