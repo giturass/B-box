@@ -3,7 +3,7 @@ description: B-box Android interface, using FlClash presentation and sing-box se
 publish_to: none
 version: 1.0.0+1
 environment:
-  sdk: '>=3.10.0 <4.0.0'
+  sdk: '>=3.13.0 <4.0.0'
 dependencies:
   flutter:
     sdk: flutter

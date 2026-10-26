@@ -310,6 +310,10 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
     }
 
     override fun onServiceAlert(type: Alert, message: String?) {
+        lifecycleScope.launch { handleServiceAlert(type, message) }
+    }
+
+    private fun handleServiceAlert(type: Alert, message: String?) {
         if (type == Alert.RequestLocationPermission) {
             startPending = true
             locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
