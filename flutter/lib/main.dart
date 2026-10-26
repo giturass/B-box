@@ -36,12 +36,15 @@ class _BoxAppState extends State<BoxApp> {
     super.dispose();
   }
 
+  final _themes = <String, ThemeData>{};
+
   ThemeData _theme(Brightness brightness) {
     final prefs = widget.controller.preferences;
     final color = Color((prefs['color'] as num?)?.toInt() ?? 0xff007aff);
     final style = ColorStyle.values.firstWhere((item) => item.name == prefs['colorStyle'], orElse: () => ColorStyle.vivid);
     final scheme = seededColorScheme(seedColor: color, brightness: brightness, style: style);
-    return ThemeData(
+    final key = "$brightness:${color.toARGB32()}:${style.name}";
+    return _themes.putIfAbsent(key, () => ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
       fontFamilyFallback: const ['Twemoji'],
@@ -49,7 +52,7 @@ class _BoxAppState extends State<BoxApp> {
         TargetPlatform.android: commonSharedXPageTransitions,
       }),
       extensions: [if (brightness == Brightness.dark) ElevatedColorScheme(scheme.elevated)],
-    ).withAppShapes.withAppSurfaces.withAppTypography;
+    ).withAppShapes.withAppSurfaces.withAppTypography);
   }
 
   @override

@@ -60,14 +60,15 @@ internal class BoxTools(private val activity: BoxActivity, private val emit: (St
                 activity.serviceStatus, AppLifecycleObserver.isForeground,
                 RemoteControlManager.remoteServer, RemoteControlManager.isConnected,
             ) { status, foreground, remote, connected ->
-                (foreground && if (remote != null) connected else status == Status.Started) to (remote?.id ?: 0L)
-            }.distinctUntilChanged().collect { (connected, target) ->
+                val available = if (remote != null) connected else status == Status.Started
+                Triple(foreground && available, available, remote?.id ?: 0L)
+            }.distinctUntilChanged().collect { (connected, available, target) ->
                 tailscale.cancel()
                 openConnect.cancel()
                 openVPN.cancel()
                 usb.cancel()
                 outbounds.disconnect()
-                if (sessionKey != target) {
+                if (sessionKey != target || !available) {
                     ssh.close()
                     stun.onVpnDisconnected()
                     quality.onVpnDisconnected()

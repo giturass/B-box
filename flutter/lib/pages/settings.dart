@@ -229,7 +229,7 @@ class _BackupPageState extends State<BackupPage> {
     try {
       if (restore) {
         final data = await box.call('backup.read');
-        if (data != null && mounted && await confirm(context, 'Restore backup', message: 'Import profiles from this backup?', action: 'Import')) {
+        if (data != null && mounted && await confirm(context, 'Restore backup', message: 'Import profiles and remote servers, and restore settings from this backup?', action: 'Import')) {
           await box.call('backup.restore', {'backup': data});
         }
       } else {

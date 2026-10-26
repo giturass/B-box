@@ -345,7 +345,9 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             "backup.create" -> withContext(Dispatchers.IO) {
                 mapOf("format" to "bbox-1", "selectedProfile" to Settings.selectedProfile,
                     "profiles" to ProfileManager.list().map { it.toWire() + ("content" to File(it.typed.path).readText()) },
-                    "preferences" to readPreferences())
+                    "preferences" to readPreferences(),
+                    "settings" to settings().filterKeys { it !in setOf("batteryExempt", "perAppManagedList") },
+                    "servers" to RemoteServerManager.list().map { mapOf("name" to it.name, "url" to it.url, "secret" to it.secret) })
             }
             "backup.read" -> {
                 val uri = activity.pickDocument() ?: return null
@@ -362,6 +364,8 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 val entries = validateBackup(backup)
                 val oldSelection = Settings.selectedProfile
                 val created = mutableListOf<Long>()
+                val servers = mutableListOf<RemoteServer>()
+                val oldSettings = settings().filterKeys { it !in setOf("batteryExempt", "perAppManagedList") }
                 val oldPreferences = preferences.getString("value", "{}")!!
                 try {
                     val mapping = mutableMapOf<Long, Long>()
@@ -372,6 +376,18 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                         mapping[originalID] = newID
                     }
                     check(preferences.edit().putString("value", JSONObject(backup["preferences"] as? Map<*, *> ?: emptyMap<String, Any>()).toString()).commit())
+                    for (entry in rowsOf(backup["servers"])) {
+                        val server = RemoteServer().apply {
+                            name = entry["name"] as String
+                            url = entry["url"] as String
+                            secret = entry["secret"] as? String ?: ""
+                        }
+                        RemoteServerManager.create(server)
+                        servers.add(server)
+                    }
+                    @Suppress("UNCHECKED_CAST")
+                    val restoredSettings = backup["settings"] as? Map<String, Any?> ?: emptyMap()
+                    for ((key, value) in restoredSettings) saveSettings(mapOf("key" to key, "value" to value))
                     val selection = mapping[(backup["selectedProfile"] as? Number)?.toLong()]
                     if (selection != null) profiles.select(selection)
                     publishProfiles()
@@ -380,6 +396,8 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 } catch (e: Exception) {
                     Settings.selectedProfile = oldSelection
                     created.forEach { runCatching { profiles.delete(it) } }
+                    servers.forEach { runCatching { RemoteServerManager.delete(it) } }
+                    oldSettings.forEach { (key, value) -> runCatching { saveSettings(mapOf("key" to key, "value" to value)) } }
                     preferences.edit().putString("value", oldPreferences).commit()
                     throw e
                 }
@@ -390,7 +408,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
 
     private suspend fun <T> localProfiles(block: suspend () -> T): T {
         require(!CommandTarget.isRemote) { "Local profiles cannot modify a remote sing-box session" }
-        return withContext(Dispatchers.IO) { block() }
+        return operations.withLock { withContext(Dispatchers.IO) { block() } }
     }
 
     private suspend fun publishProfiles() {
@@ -417,8 +435,20 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         }
         @Suppress("UNCHECKED_CAST")
         BoxPreferences.validate(backup["preferences"] as? Map<String, Any?> ?: emptyMap())
+        @Suppress("UNCHECKED_CAST")
+        BoxSettings.validate(backup["settings"] as? Map<String, Any?> ?: emptyMap())
+        val servers = rowsOf(backup["servers"])
+        require(servers.size <= 1000) { "Too many remote servers" }
+        servers.forEach {
+            require(it["name"] is String && (it["url"] as? String)?.let(RemoteServer::validateURL) != null) { "Invalid remote server" }
+            require(it["secret"] == null || it["secret"] is String) { "Invalid remote secret" }
+        }
         return entries
     }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun rowsOf(value: Any?): List<Map<String, Any?>> = if (value == null) emptyList() else
+        (value as? List<*>)?.map { it as? Map<String, Any?> ?: error("Invalid backup entry") } ?: error("Invalid backup list")
 
     private fun settings(): Map<String, Any?> = mapOf(
         "perAppEnabled" to Settings.perAppProxyEnabled, "perAppMode" to Settings.perAppProxyMode,
@@ -433,6 +463,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     )
 
     private suspend fun saveSettings(args: Map<String, Any?>) {
+        BoxSettings.validate(mapOf((args["key"] as? String ?: error("Missing setting")) to args["value"]))
         when (val key = args["key"] as? String) {
             "perAppEnabled" -> Settings.perAppProxyEnabled = args["value"] == true
             "perAppMode" -> {

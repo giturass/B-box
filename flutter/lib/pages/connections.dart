@@ -98,8 +98,9 @@ class _ConnectionDetailState extends State<ConnectionDetail> {
   late Json _cached = widget.initial;
   @override Widget build(BuildContext context) {
     final box = context.box;
+    var present = false;
     for (final connection in box.connections) {
-      if (connection['id'] == widget.initial['id']) { _cached = connection; break; }
+      if (connection['id'] == widget.initial['id']) { _cached = connection; present = true; break; }
     }
     final c = _cached;
     final values = <String, dynamic>{
@@ -119,7 +120,7 @@ class _ConnectionDetailState extends State<ConnectionDetail> {
           box.messages.add(context.tr('Copied'));
         }),
         IconButtonData(glyph: AppGlyphs.close, tooltip: context.tr('Close this connection'),
-          onPressed: box.running && (c['closedAt'] as num? ?? 0) == 0 ? () => box.act('connections.close', {'id': c['id']}) : null),
+          onPressed: box.running && present && (c['closedAt'] as num? ?? 0) == 0 ? () => box.act('connections.close', {'id': c['id']}) : null),
       ],
       children: [DetailRows(values)],
     );

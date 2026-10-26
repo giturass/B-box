@@ -4,6 +4,7 @@ import 'package:material_new_shapes/material_new_shapes.dart';
 import '../widgets.dart';
 import '../components/start_toggle.dart';
 import '../components/shape_badge.dart';
+import '../components/connected_buttons.dart';
 import 'profiles.dart';
 import 'proxies.dart';
 import 'connections.dart';
@@ -192,11 +193,22 @@ class _ModePanel extends StatelessWidget {
     return BoxPanel(child: Column(children: [
       const PanelTitle('Outbound mode', AppGlyphs.split),
       const SizedBox(height: 12),
-      SegmentedControl<String>(
-        segments: [for (final mode in modes) (mode, context.tr({'rule': 'Rule', 'global': 'Global', 'direct': 'Direct'}[mode] ?? mode))],
-        value: box.dashboard['mode'] as String? ?? '',
-        onChanged: (mode) => box.act('mode.set', {'mode': mode}),
-      ),
+      DashboardConnectedGroup(children: [
+        for (final (index, mode) in modes.indexed) Expanded(child: DashboardConnectedButton(
+          selected: mode == box.dashboard['mode'], first: index == 0, last: index == modes.length - 1,
+          outer: 26, inner: 12, background: SurfaceLevel.block.colorOf(context.colorScheme),
+          semanticLabel: context.tr({'rule': 'Rule', 'global': 'Global', 'direct': 'Direct'}[mode] ?? mode),
+          onTap: () => box.act('mode.set', {'mode': mode}),
+          builder: (foreground) => SizedBox(height: 52, child: Column(
+            mainAxisAlignment: MainAxisAlignment.center, spacing: 2, children: [
+              GlyphIcon({'rule': AppGlyphs.rules, 'global': AppGlyphs.proxies, 'direct': AppGlyphs.target}[mode] ?? AppGlyphs.split, size: 18, color: foreground),
+              Text(context.tr({'rule': 'Rule', 'global': 'Global', 'direct': 'Direct'}[mode] ?? mode),
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: AppTextStyle.footnote.of(context, emphasized: true).copyWith(color: foreground)),
+            ],
+          )),
+        )),
+      ]),
     ]));
   }
 }
