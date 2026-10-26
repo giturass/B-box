@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart' show LicenseRegistry, LicenseEntryWithLineBreaks;
+import 'package:flutter/foundation.dart' show LicenseRegistry, LicenseEntryWithLineBreaks, defaultTargetPlatform;
 import 'package:flutter/services.dart';
 import 'widgets.dart';
 import 'pages/dashboard.dart';
@@ -52,7 +52,11 @@ class _BoxAppState extends State<BoxApp> {
     return _themes.putIfAbsent(key, () => ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      fontFamilyFallback: const ['Twemoji'],
+      fontFamilyFallback: appFontFamilyFallback(platform: defaultTargetPlatform, locales: WidgetsBinding.instance.platformDispatcher.locales),
+      actionIconTheme: ActionIconThemeData(
+        backButtonIconBuilder: (context) => GlyphIcon(AppGlyphs.backFor(Theme.of(context).platform)),
+        closeButtonIconBuilder: (_) => const GlyphIcon(AppGlyphs.close),
+      ),
       pageTransitionsTheme: const PageTransitionsTheme(builders: {
         TargetPlatform.android: commonSharedXPageTransitions,
       }),
@@ -83,7 +87,9 @@ class _BoxAppState extends State<BoxApp> {
           builder: (context, child) {
             final media = MediaQuery.of(context);
             final scale = ((prefs['fontScale'] as num?)?.toDouble() ?? 1) * media.textScaler.scale(1);
-            return ViewScope(
+            return MeasureScope(
+              measure: Measure.of(context, scale.clamp(.8, 1.4)),
+              child: ViewScope(
               size: media.size,
               isMobile: media.size.width < 600,
               child: MediaQuery(
@@ -97,6 +103,7 @@ class _BoxAppState extends State<BoxApp> {
                   child: child!,
                 ),
               ),
+            ),
             );
           },
           home: widget.controller.ready ? const HomePage() : Scaffold(

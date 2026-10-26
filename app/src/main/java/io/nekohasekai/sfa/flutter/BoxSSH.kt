@@ -20,7 +20,7 @@ internal class BoxSSH(
     private val emit: (String, Any?) -> Unit,
 ) : Closeable {
     private class Handle(val client: io.nekohasekai.libbox.CommandClient) {
-        var session: TailscaleSSHSession? = null
+        @Volatile var session: TailscaleSSHSession? = null
         var closed = false
 
         @Synchronized

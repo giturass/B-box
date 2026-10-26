@@ -50,5 +50,6 @@ jobs:
           path: |
             flutter/pubspec.lock
             flutter/test/failures/
+            flutter/build/screenshots/
             flutter/build/host/outputs/repo/
           retention-days: 7

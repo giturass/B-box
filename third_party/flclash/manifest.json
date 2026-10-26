@@ -103,5 +103,22 @@
     "lib/ui/icons/glyph_icon.dart": "a162d893cd94e391de9f61a6ff7d255ff568d1b8a226c59844fd4ddeb4ea46d8",
     "lib/ui/icons/glyph_painter.dart": "bb6ad57d726bae4c14eb84667ccd30b7787c8abe5792b9fbea27f88dbe638b40",
     "lib/ui/icons/icons.dart": "c2f5d927854f69f9ef871a86b14eda72bbd0a88585398351f28fba62cc85186e"
+  },
+  "adaptedFiles": {
+    "lib/components/start_toggle.dart": {
+      "source": "lib/views/dashboard/widgets/current_outbound.dart",
+      "sourceSHA256": "ee6f397a9b1bc78968699e2852c7a6ba36d1d1a05dfa4cbcd6545e09c6b55f28",
+      "changes": "Flutter presentation preserved; application state and actions use B-box callbacks."
+    },
+    "lib/components/shape_badge.dart": {
+      "source": "lib/views/dashboard/widgets/card.dart",
+      "sourceSHA256": "7e1a759eae758576c4005fe250c7441bb606b4256a09e327f502e30d0851c8ab",
+      "changes": "Flutter presentation preserved; application state and actions use B-box callbacks."
+    },
+    "lib/components/connected_buttons.dart": {
+      "source": "lib/views/dashboard/widgets/card.dart",
+      "sourceSHA256": "7e1a759eae758576c4005fe250c7441bb606b4256a09e327f502e30d0851c8ab",
+      "changes": "Flutter presentation preserved; application state and actions use B-box callbacks."
+    }
   }
 }

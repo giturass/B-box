@@ -13,7 +13,9 @@
 | 版本 / versionCode | `1.15.0-alpha.13` / `747` |
 | 安装包名 / applicationId | `io.ericlee.bfa` |
 | 源码 namespace | `io.nekohasekai.sfa` |
-| 更新日期 | 2026-10-25 |
+| 更新日期 | 2026-10-27 |
+
+MOD-017 正在替代 MOD-001～004、MOD-007～008、MOD-012 的 Compose 界面；这些历史条目用于记录旧实现，不再定义当前启动器的界面。
 
 本文描述当前有效改动，历史验证记录仅对应各自源码版本。路由、VPN、远程控制、配置导入导出、Tailscale/Taildrop、终端及普通 Root/Shizuku 能力继承上游；Xposed/LSPosed 模块与特权增强已按 MOD-011 移除。MOD-013、MOD-014 已回退，核心恢复上游完整功能；MOD-015、MOD-016 继续有效。核心 AAR 不在 Git 中，本地构建与 CI 核心来源应分别核验。
 
@@ -37,7 +39,21 @@
 | MOD-013 | 已回退：ARM64 核心组件裁剪 | 核心恢复上游完整功能，删除裁剪补丁与专用校验器 |
 | MOD-014 | 已回退：移除 App 的 Tailscale 与终端 | 恢复导航、工具与设置页、Manifest、Root 后端、Ghostty 与语言资源 |
 | MOD-015 | 移除 Android 5/6 与 legacy 核心 | `app/build.gradle.kts`、`src/minApi21`、`src/otherLegacy`、`patches/libbox-no-legacy.patch`、工作流 |
+| MOD-017 | Flutter 全界面迁移与 sing-box 桥接 | `flutter/`、`flutter/*.kt`、`NEWUI.md`、`third_party/flclash/` |
 | MOD-016 | 移除应用更新提示与设置入口 | `MainActivity.kt`、`AppSettingsScreen.kt`、`SettingsScreen.kt`、`UpdateWorker.kt`、设置与导航 |
+
+
+## MOD-017：FlClash Flutter 界面与 sing-box 能力边界
+
+参考版本固定为 FlClash v0.9.2，提交 `7fd417fb9a9a277c6a9339a8ac87f907df7c25f7`。直接使用该版本共享 Flutter 控件、字形、形状、字体、动效和导航；服务按钮与出站模式按钮由对应仪表盘实现适配。页面业务数据来自 B-box 原有 Room 与 libbox，不依赖 Mihomo。
+
+`compose.MainActivity` 和 `compose.ShareActivity` 都继承 `BoxActivity`。旧 Compose 页面源码仍供后端 ViewModel/DTO 所在模块编译，但不提供导航入口。OpenConnect WebView 使用平台视图嵌入新页面；它复用原浏览器控制器，不调用旧 Compose 对话框。
+
+配置保存与导入调用 `Libbox.checkConfig`；只显示内核返回的路由模式。不能手动选择自动测速组。新 UI 不提供 Clash YAML、覆写脚本、Mihomo 提供者或其他 Clash 专用开关。sing-box 扩展功能统一放在 Flutter 工具页。
+
+Gradle 从 `flutter/build/host/outputs/repo` 消费 Flutter AAR。先用 Flutter 3.47.6 执行 `flutter pub get` 和 `flutter build aar --no-profile`，再构建 Android；CI 已包含这些步骤。本机不执行构建，按项目 AGENTS.md 在 Actions 验证。Flutter 无法发布 x86 AOT，因此通用 ABI 列表保留 ARMv7、ARM64、x86_64，发布工作流仍限定 ARM64。
+
+当前验证记录见 NEWUI.md；不能把共享源码复用或编译成功表述为已经完成逐像素验收。
 
 
 ## MOD-001：仪表盘底部控制

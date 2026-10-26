@@ -1,24 +1,17 @@
 # B-box
 
-基于 [SagerNet/sing-box-for-android](https://github.com/SagerNet/sing-box-for-android) 的非官方 Android 客户端分支，主要调整仪表盘交互和布局。此项目独立维护，不代表上游官方发布。
+基于 [SagerNet/sing-box-for-android](https://github.com/SagerNet/sing-box-for-android) 的非官方 Android 客户端，使用 [FlClash v0.9.2](https://github.com/chen08209/FlClash/tree/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7) 的 Flutter 界面组件，后端保持 sing-box。项目独立维护，不代表两个上游的官方发布。
 
-下载 APK：[GitHub Releases](https://github.com/giturass/B-box/releases)（Android 7.0+，ARM64）。
+下载 APK：[GitHub Releases](https://github.com/giturass/B-box/releases)（Android 7.0+，ARM64）。`dev` 的新界面迁移尚在验证；已有 Release 不等同于当前源码。
 
-- 仪表盘底部改为连接、代理组、启动/停止按钮。
-- 配置卡片操作移至标题栏，远程配置更新按钮移至信息行。
-- 移除独立连接统计卡片，保留活动连接列表入口。
-- 上传、下载合并为“流量统计”，只显示累计流量，与调试卡片默认并排；使用 B-box 名称及自定义图标。
-- 启动按钮采用 FlClash 风格的播放/暂停形变与展开计时，保留现有配色；连接和代理组入口自适应窄屏。
-- 节点卡片保持现有尺寸与双列排版，两行内容垂直居中、上下留白等距，并增强选中态描边和浅色可读性。
-- Clash 模式仅将模式选择按钮改为 1.12.23 时期的独立矩形样式，保留现有卡片和标题；系统 HTTP 代理保持原样。
-- 移除 Xposed/LSPosed 模块及“特权增强”功能；保留普通 Root/Shizuku 安装与应用查询。
-- 核心使用上游完整功能，保留 App 的 Tailscale、Taildrop 与 SSH 终端；MOD-013、MOD-014 已回退。
-- 仅支持 Android 7.0+；移除 Android 5/6 的 App 分支、API 21 依赖与 legacy 核心构建，详见 MOD-015。
-- 移除首次启动更新提示、更新设置、手动检查更新和更新徽标；APK 通过 GitHub Actions 或 Releases 手动下载安装，详见 MOD-016。
+- Flutter 负责仪表盘、代理、配置、工具及所有子页面；启动器和 Android 分享入口均进入新界面。
+- 配置使用 sing-box JSON。代理组、可选节点、测速和路由模式来自 libbox，自动组由内核选择。
+- 保留 VPN、分应用代理、Root/Shizuku 应用查询、远程控制、连接管理和日志。
+- Tailscale、Taildrop、SSH、OpenConnect/OpenVPN 认证、USB/IP、网络诊断和报告通过新页面使用现有后端。
+- 支持配置和设置备份；原包名、数据库及已有配置保持兼容。
+- 移除过的 Xposed/LSPosed、Android 5/6 和应用内更新入口不会重新引入。
 
-维护与构建入口：**[MODIFICATIONS.md](MODIFICATIONS.md)**。该文档记录准确的上游基线、逐项差异、文件定位、AI 维护约束与回归检查。
-
-启动按钮布局与交互参考 [FlClash](https://github.com/chen08209/FlClash)，Compose 适配及具体差异见维护清单 MOD-007。
+维护指南：[MODIFICATIONS.md](MODIFICATIONS.md)。新界面架构、能力边界和验证状态：[NEWUI.md](NEWUI.md)。组件来源及许可证：[third_party/flclash](third_party/flclash)。
 
 ## Documentation
 

@@ -47,4 +47,15 @@ void main() {
     expect(await box.act('groups.select', {'group': 'auto', 'tag': 'node'}), false);
     expect(await error, 'automatic group');
   });
+
+  test('imports received before the home route mounts stay queued', () async {
+    messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'intent.take'
+      ? 'sing-box://import-remote-profile?url=https%3A%2F%2Fexample.org%2Fconfig.json'
+      : {'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'}});
+    await box.initialize();
+    events.add({'type': 'intentAvailable', 'value': true});
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    expect(box.pendingIntents.single, startsWith('sing-box://'));
+  });
 }
