@@ -5,6 +5,7 @@ import 'dashboard.dart';
 import 'settings.dart';
 import 'diagnostics.dart';
 import 'endpoints.dart';
+import 'reports.dart';
 
 class ToolsPage extends StatelessWidget {
   const ToolsPage({super.key});
@@ -27,6 +28,10 @@ class ToolsPage extends StatelessWidget {
       generateSection(title: context.tr('Network diagnostics'), items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.speed), title: Text(context.tr('Network quality')), widget: const DiagnosticsPage(quality: true)),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(context.tr('STUN test')), widget: const DiagnosticsPage(quality: false)),
+      ]),
+      generateSection(title: context.tr('Reports'), items: [
+        for (final kind in ['crash', 'oom', 'power'])
+          ListItem.open(leading: const GlyphIcon(AppGlyphs.profiles), title: Text(context.tr(reportTitle(kind))), widget: ReportsPage(kind: kind)),
       ]),
       if (box.running) generateSection(title: context.tr('Endpoints'), items: [
         for (final kind in ['tailscale', 'openvpn', 'openconnect', 'usbip'])

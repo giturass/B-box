@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'widgets.dart';
 import 'pages/dashboard.dart';
 import 'pages/proxies.dart';
@@ -73,8 +72,7 @@ class _BoxAppState extends State<BoxApp> {
           locale: locale == null || locale == 'system' ? null : Locale(locale),
           supportedLocales: const [Locale('en'), Locale('zh')],
           localizationsDelegates: const [
-            BoxUiDelegate(), GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate, GlobalCupertinoLocalizations.delegate,
+            BoxUiDelegate(), ...GlobalMaterialLocalizations.delegates,
           ],
           builder: (context, child) {
             final media = MediaQuery.of(context);

@@ -56,6 +56,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     internal lateinit var toolBridge: BoxTools
     private var connectionsVisible = false
     private val operations = Mutex()
+    private val reports = BoxReports(activity)
     private val profiles = BoxProfiles { withContext(Dispatchers.Main) { activity.applyProfile() } }
     private val preferences = activity.getSharedPreferences("flclash_ui", 0)
     private val rates = object : CommandClient.Handler {
@@ -402,7 +403,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                     throw e
                 }
             }
-            else -> toolBridge.invoke(call.method, args)
+            else -> if (call.method.startsWith("reports.")) reports.invoke(call.method, args) else toolBridge.invoke(call.method, args)
         }
     }
 

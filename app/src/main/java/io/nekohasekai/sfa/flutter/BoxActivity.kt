@@ -88,8 +88,8 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
         documentRequest?.complete(uri)
         documentRequest = null
     }
-    private val createDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        documentRequest?.complete(uri)
+    private val createDocument = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        documentRequest?.complete(if (result.resultCode == RESULT_OK) result.data?.data else null)
         documentRequest = null
     }
 
@@ -254,7 +254,11 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
         val request = CompletableDeferred<Uri?>()
         documentRequest = request
         try {
-            if (saveName == null) openDocument.launch(arrayOf("*/*")) else createDocument.launch(saveName)
+            if (saveName == null) openDocument.launch(arrayOf("*/*")) else createDocument.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = java.net.URLConnection.guessContentTypeFromName(saveName) ?: "application/octet-stream"
+                putExtra(Intent.EXTRA_TITLE, saveName)
+            })
             return request.await()
         } finally {
             if (documentRequest === request) documentRequest = null
