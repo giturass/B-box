@@ -60,7 +60,7 @@ class _ReportDetailState extends State<ReportDetail> {
         onTap: () => file['kind'] == 'PROFILE'
           ? context.box.act('reports.save', {..._args, 'name': file['name']})
           : openPage(context, ReportText(args: {..._args, 'name': file['name']}, title: file['label'].toString())),
-        trailing: IconButton(tooltip: context.tr('Export'), icon: const GlyphIcon(AppGlyphs.download),
+        trailing: IconButton(tooltip: context.tr('Export'), icon: const GlyphIcon(AppGlyphs.arrowDown),
           onPressed: () => context.box.act('reports.save', {..._args, 'name': file['name']}))),
     ])),
     generateSection(title: context.tr('Export'), items: [

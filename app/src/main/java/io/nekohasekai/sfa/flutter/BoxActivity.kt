@@ -44,10 +44,9 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
     private var startPending = false
     private var documentRequest: CompletableDeferred<Uri?>? = null
     private val pendingIntents = ArrayDeque<String>()
-    private val shares = mutableMapOf<String, Intent>()
+    private val shares = java.util.concurrent.ConcurrentHashMap<String, Intent>()
     private var launching = false
     private var startGeneration = 0
-
 
     private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (startPending && (granted || !Settings.dynamicNotification)) resumeStart() else {
@@ -106,12 +105,32 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        savedInstanceState?.let { state ->
+            notificationPermissionRequested = state.getBoolean("box.notificationPermission")
+            localNetworkPermissionRequested = state.getBoolean("box.localNetworkPermission")
+            startPending = state.getBoolean("box.startPending")
+            state.getStringArrayList("box.intents")?.let { pendingIntents.addAll(it) }
+            state.getBundle("box.shares")?.let { bundle ->
+                for (key in bundle.keySet()) {
+                    androidx.core.os.BundleCompat.getParcelable(bundle, key, Intent::class.java)?.let { shares[key] = it }
+                }
+            }
+        }
         super.onCreate(savedInstanceState)
         lifecycleScope.launch {
             Settings.dataStore.initialize()
             connection.reconnect()
-            handleIntent(intent)
+            if (savedInstanceState == null) handleIntent(intent)
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("box.notificationPermission", notificationPermissionRequested)
+        outState.putBoolean("box.localNetworkPermission", localNetworkPermissionRequested)
+        outState.putBoolean("box.startPending", startPending)
+        outState.putStringArrayList("box.intents", ArrayList(pendingIntents))
+        outState.putBundle("box.shares", Bundle().apply { shares.forEach { (key, value) -> putParcelable(key, value) } })
+        super.onSaveInstanceState(outState)
     }
 
     override fun onNewIntent(intent: Intent) {

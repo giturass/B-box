@@ -29,6 +29,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/fonts/
+    - assets/licenses/
   shaders:
     - shaders/liquid_glass.frag
   fonts:

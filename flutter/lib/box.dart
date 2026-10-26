@@ -31,9 +31,10 @@ class BoxController extends ChangeNotifier {
   final downloadHistory = <double>[];
   String version = '', coreVersion = '';
   int sampleRevision = 0;
+  bool _disposed = false;
   bool ready = false;
   String? startupError;
-  String? initialIntent;
+  final pendingIntents = <String>[];
   String? applyRequired;
 
   bool get remote => dashboard['remote'] != null;
@@ -66,7 +67,8 @@ class BoxController extends ChangeNotifier {
       final diagnostics = json(result['diagnostics']);
       stun = json(diagnostics['stun']);
       quality = json(diagnostics['quality']);
-      initialIntent = result['intent'] as String?;
+      final intent = result['intent'] as String?;
+      if (intent != null) pendingIntents.add(intent);
       ready = true;
     } catch (error) {
       startupError = describe(error);
@@ -107,7 +109,7 @@ class BoxController extends ChangeNotifier {
     }
   }
 
-  void report(Object error) => messages.add(describe(error));
+  void report(Object error) { if (!_disposed) messages.add(describe(error)); }
   static String describe(Object error) => error is PlatformException
       ? error.message ?? error.code : error.toString();
 
@@ -142,7 +144,7 @@ class BoxController extends ChangeNotifier {
       case 'error': messages.add(value.toString());
       case 'applyRequired': applyRequired = value.toString();
       case 'intentAvailable':
-        call('intent.take').then((uri) { if (uri is String) intents.add(uri); }).catchError(report);
+        call('intent.take').then((uri) { if (uri is String) { pendingIntents.add(uri); intents.add(uri); } }).catchError(report);
       case 'openUrl':
         // A backend request remains a visible user action in the Flutter UI.
         messages.add(value.toString());
@@ -152,6 +154,7 @@ class BoxController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _subscription?.cancel();
     messages.close();
     intents.close();

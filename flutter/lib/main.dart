@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show LicenseRegistry, LicenseEntryWithLineBreaks;
 import 'package:flutter/services.dart';
 import 'widgets.dart';
 import 'pages/dashboard.dart';
@@ -10,6 +11,11 @@ import 'pages/taildrop.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  LicenseRegistry.addLicense(() async* {
+    for (final entry in const {'FlClash': 'LICENSE', 'JetBrains Mono': 'JetBrainsMono-OFL.txt', 'Twemoji / Mozilla': 'Twemoji-LICENSE.md'}.entries) {
+      yield LicenseEntryWithLineBreaks([entry.key], await rootBundle.loadString('assets/licenses/${entry.value}'));
+    }
+  });
   runApp(BoxApp(controller: BoxController()));
 }
 
@@ -113,6 +119,7 @@ class _HomePageState extends State<HomePage> {
   int _index = 0;
   StreamSubscription<String>? _intents;
   BoxController? _box;
+  bool _handlingIntent = false;
   static const _items = <(String, Glyph)>[
     ('Dashboard', AppGlyphs.dashboard), ('Proxies', AppGlyphs.proxies),
     ('Profiles', AppGlyphs.profiles), ('Tools', AppGlyphs.tools),
@@ -123,10 +130,18 @@ class _HomePageState extends State<HomePage> {
     super.didChangeDependencies();
     if (_box != null) return;
     _box = context.box;
-    _intents = _box!.intents.stream.listen(_import);
-    final initial = _box!.initialIntent;
-    _box!.initialIntent = null;
-    if (initial != null) WidgetsBinding.instance.addPostFrameCallback((_) => _import(initial));
+    _intents = _box!.intents.stream.listen((_) => _drainIntents());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _drainIntents());
+  }
+
+  Future<void> _drainIntents() async {
+    if (_handlingIntent || !mounted) return;
+    _handlingIntent = true;
+    try {
+      while (mounted && _box!.pendingIntents.isNotEmpty) {
+        await _import(_box!.pendingIntents.removeAt(0));
+      }
+    } finally { _handlingIntent = false; }
   }
 
   Future<void> _import(String uri) async {
