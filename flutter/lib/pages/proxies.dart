@@ -138,8 +138,10 @@ class _ProxiesPageState extends State<ProxiesPage> {
           padding: EdgeInsets.only(top: context.contentTopPadding),
           child: Column(children: [
             TabBar(isScrollable: true, tabAlignment: TabAlignment.start, tabs: [
-              for (final group in groups) Tab(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Text(group['tag'].toString(), maxLines: 1),
+              for (final group in groups) Tab(
+                height: MeasureScope.of(context).textHeight(AppTextStyle.subheadline) + MeasureScope.of(context).textHeight(AppTextStyle.caption1) + 8,
+                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Text(group['tag'].toString(), maxLines: 1, style: AppTextStyle.subheadline.of(context)),
                 Text(group['selected'].toString(), maxLines: 1, style: context.listCaptionStyle),
               ])),
             ]),
