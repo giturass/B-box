@@ -9,7 +9,6 @@ class ProfilesPage extends StatefulWidget {
   @override State<ProfilesPage> createState() => _ProfilesPageState();
 }
 class _ProfilesPageState extends State<ProfilesPage> {
-  String _query = '';
   final _updating = <int>{};
   Future<void> _update(Json profile) async {
     final id = (profile['id'] as num).toInt();
@@ -50,52 +49,61 @@ class _ProfilesPageState extends State<ProfilesPage> {
     }),
   ];
 
+  String _lastUpdated(num milliseconds) {
+    final date = DateTime.fromMillisecondsSinceEpoch(milliseconds.toInt()).toLocal();
+    return '${date.month}/${date.day}';
+  }
+
   @override Widget build(BuildContext context) {
     final box = context.box;
-    final profiles = box.profiles.where((p) => p['name'].toString().toLowerCase().contains(_query.toLowerCase())).toList();
+    final profiles = box.profiles;
+    final measure = MeasureScope.of(context);
+    final itemHeight = measure.textHeight(AppTextStyle.headline) + 4 + measure.textHeight(AppTextStyle.footnote) + 2 * listRowVerticalPadding;
     return CommonScaffold(
       title: context.tr('Profiles'),
-      searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
-      primaryAction: IconButtonData(glyph: AppGlyphs.add, tooltip: context.tr('Add profile'),
-        onPressed: box.remote ? null : () => openForm(context, const AddProfilePage())),
-      iconActions: [
-        IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Update all'), isLoading: _updating.isNotEmpty,
+      actions: profiles.isEmpty || widget.picker ? null : [IconButton(
+        tooltip: context.tr('Add profile'), icon: const GlyphIcon(AppGlyphs.addCircle),
+        onPressed: box.remote ? null : () => openForm(context, const AddProfilePage()),
+      )],
+      iconActions: widget.picker || profiles.isEmpty ? const [] : [
+        IconButtonData(glyph: AppGlyphs.sync, tooltip: context.tr('Update all'), isLoading: _updating.isNotEmpty,
           onPressed: box.remote || !box.profiles.any((p) => p['remote'] == true) ? null : () async {
             for (final profile in List<Json>.of(box.profiles).where((p) => p['remote'] == true)) { await _update(profile); }
           }),
         IconButtonData(glyph: AppGlyphs.sort, tooltip: context.tr('Reorder'), onPressed: box.remote || box.profiles.length < 2 ? null : () => openForm(context, const ProfileOrderPage())),
       ],
-      body: box.remote ? const EmptyState('Disconnect remote session to edit local profiles') : profiles.isEmpty ? ListView(
-        padding: EdgeInsets.only(top: context.contentTopPadding),
-        children: [EmptyState(box.profiles.isEmpty ? 'No profiles yet' : 'No results', glyph: AppGlyphs.profiles,
-          message: box.profiles.isEmpty ? 'Import a sing-box JSON configuration to get started.' : null,
-          action: FilledButton.icon(icon: const GlyphIcon(AppGlyphs.add), label: Text(context.tr('Add profile')), onPressed: () => openForm(context, const AddProfilePage())),
-        )],
+      body: box.remote ? NullStatus(label: context.tr('Disconnect remote session to edit local profiles'), illustration: NullStatusIllustration.profile) : profiles.isEmpty ? NullStatus(
+        label: context.tr('No profiles yet'), illustration: NullStatusIllustration.profile,
+        description: context.tr('Import a sing-box JSON configuration to get started.'),
+        action: TonalButton(size: TonalButtonSize.bar, glyph: AppGlyphs.addCircle,
+          label: context.tr('Add profile'), onPressed: () => openForm(context, const AddProfilePage())),
       ) : LayoutBuilder(builder: (context, constraints) => GridView.builder(
         padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 24 + context.bottomInset),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: constraints.maxWidth < 700 ? 1 : 2,
-          mainAxisSpacing: 12, crossAxisSpacing: 12, mainAxisExtent: 96 * MediaQuery.textScalerOf(context).scale(1),
+          crossAxisCount: ((constraints.maxWidth - 24) / (300 * MediaQuery.textScalerOf(context).scale(1) + 8)).floor().clamp(1, 3),
+          mainAxisSpacing: 8, crossAxisSpacing: 8, mainAxisExtent: itemHeight,
         ),
         itemCount: profiles.length,
         itemBuilder: (context, index) {
           final profile = profiles[index];
           final selected = profile['id'] == box.selectedProfileId;
           return ContextMenuRegion(menuItems: _menu(profile), child: CommonCard(
-            radius: AppCorner.xl, isSelected: selected,
+            radius: AppCorner.xl, isSelected: selected, enterActionsOnRight: true,
             onPressed: () async {
               if (await box.act('profiles.select', {'id': profile['id']}) && widget.picker && context.mounted) context.safeNestedPop();
             },
             child: ListItem(
+              minTileHeight: itemHeight, minVerticalPadding: listRowVerticalPadding,
               title: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
                 Text(profile['name'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyle.headline.of(context)),
-                const SizedBox(height: 8),
-                Text(context.tr(profile['remote'] == true ? 'Remote' : 'Local'), style: context.listCaptionStyle),
+                const SizedBox(height: 4),
+                Text(context.tr(profile['remote'] == true ? 'Remote' : 'Local'), style: AppTextStyle.footnote.of(context).toLighter),
               ]),
-              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                if (_updating.contains(profile['id'])) const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+              trailing: Row(mainAxisSize: MainAxisSize.min, spacing: 8, children: [
+                if (_updating.contains(profile['id'])) const CommonCircleLoading(size: 24)
+                else if (profile['remote'] == true && (profile['updatedAt'] as num? ?? 0) > 0)
+                  Text(_lastUpdated(profile['updatedAt'] as num), style: AppTextStyle.footnote.of(context).toLighter),
                 if (selected) const SelectionBadge(size: 24),
-                BoxMenu(items: _menu(profile)),
               ]),
             ),
           ));

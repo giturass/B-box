@@ -42,13 +42,15 @@ class _ProxiesPageState extends State<ProxiesPage> {
     return LayoutBuilder(builder: (context, constraints) {
       final preferred = (prefs['proxyColumns'] as num?)?.toInt() ?? 2;
       final columns = constraints.maxWidth < 300 ? 1 : preferred.clamp(1, 4);
-      final scale = MediaQuery.textScalerOf(context).scale(1);
+      final measure = MeasureScope.of(context);
+      final nameHeight = measure.textHeight(AppTextStyle.subheadline) * (compact ? 1 : 2);
+      final detailHeight = measure.textHeight(AppTextStyle.footnote);
       return GridView.builder(
         shrinkWrap: nested, physics: nested ? const NeverScrollableScrollPhysics() : null,
         padding: EdgeInsets.fromLTRB(16, 12, 16, nested ? 12 : 24 + context.bottomInset),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: columns, mainAxisSpacing: 12, crossAxisSpacing: 12,
-          mainAxisExtent: (compact ? 78 : 98) * scale,
+          crossAxisCount: columns, mainAxisSpacing: 8, crossAxisSpacing: 8,
+          mainAxisExtent: 28 + nameHeight + detailHeight,
         ),
         itemCount: nodes.length,
         itemBuilder: (context, index) {
@@ -60,6 +62,8 @@ class _ProxiesPageState extends State<ProxiesPage> {
           final delayColor = !tested ? context.colorScheme.onSurfaceVariant : delay <= 0
               ? context.colorScheme.error : delay < 300 ? context.colorScheme.success : context.colorScheme.warning;
           final menu = [
+            if (group['selectable'] == true)
+              CommonPopupMenuItem(glyph: AppGlyphs.checkCircle, label: context.tr('Select'), checked: selected, onPressed: () => _select(group, node)),
             CommonPopupMenuItem(glyph: AppGlyphs.bolt, label: context.tr('Test latency'), onPressed: () => _test(node['tag'] as String)),
             CommonPopupMenuItem(glyph: AppGlyphs.info, label: context.tr('Details'), onPressed: () => openForm(context, BoxPage(title: 'Details', children: [
               DetailRows({'Name': node['tag'], 'Protocol': node['type'], 'Latency': delayText, 'Proxy groups': group['tag']}),
@@ -68,23 +72,33 @@ class _ProxiesPageState extends State<ProxiesPage> {
           return ContextMenuRegion(
             menuItems: menu,
             child: CommonCard(
-              radius: AppCorner.lg,
+              radius: AppCorner.lg, enterActionsOnRight: true,
               isSelected: selected,
-              onPressed: group['selectable'] == true ? () => _select(group, node) : () => _test(node['tag'] as String),
+              onPressed: group['selectable'] == true ? () => _select(group, node) : null,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Expanded(child: Text(node['tag'].toString(), maxLines: compact ? 1 : 2, overflow: TextOverflow.ellipsis, style: AppTextStyle.subheadline.of(context))),
+                    Expanded(child: SizedBox(height: nameHeight, child: EmojiText(node['tag'].toString(), maxLines: compact ? 1 : 2, overflow: TextOverflow.ellipsis, style: AppTextStyle.subheadline.of(context)))),
                     if (selected) const Padding(padding: EdgeInsetsDirectional.only(start: 4), child: SelectionBadge()),
                   ]),
                   const SizedBox(height: 8),
-                  Row(children: [
-                    Expanded(child: Text(node['type'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.listCaptionStyle)),
-                    if (_testing.contains(node['tag']) || _testing.contains(group['tag']))
-                      const SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                    else Text(delayText, style: context.listCaptionStyle.copyWith(color: delayColor)),
-                  ]),
+                  SizedBox(height: detailHeight, child: Row(children: [
+                    Expanded(child: TooltipText(text: Text(node['type'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: AppTextStyle.footnote.of(context).copyWith(color: context.colorScheme.onSurface.opacity80)))),
+                    const SizedBox(width: 4),
+                    Flexible(child: Semantics(button: true, label: context.tr('Test latency'), child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _test(node['tag'] as String),
+                      child: FadeBox(alignment: Alignment.centerRight, child:
+                        _testing.contains(node['tag']) || _testing.contains(group['tag'])
+                          ? CommonCircleLoading(size: measure.textHeight(AppTextStyle.caption2))
+                          : !tested ? GlyphIcon(AppGlyphs.bolt, size: measure.textHeight(AppTextStyle.caption2))
+                          : Text(delayText, maxLines: 1, overflow: TextOverflow.ellipsis,
+                              style: AppTextStyle.caption2.of(context, emphasized: true).copyWith(color: delayColor)),
+                      ),
+                    ))),
+                  ])),
                 ]),
               ),
             ),
@@ -107,9 +121,9 @@ class _ProxiesPageState extends State<ProxiesPage> {
         } : null, isLoading: _testing.isNotEmpty),
         IconButtonData(glyph: AppGlyphs.settings, tooltip: context.tr('Settings'), onPressed: () => openForm(context, const ProxySettingsPage())),
       ],
-      body: groups.isEmpty ? ListView(
-        padding: EdgeInsets.only(top: context.contentTopPadding),
-        children: [EmptyState(box.running ? 'No proxy groups in this configuration' : 'Start the service to view proxy groups', glyph: AppGlyphs.proxies)],
+      body: groups.isEmpty ? NullStatus(
+        label: context.tr(box.running ? 'No proxy groups in this configuration' : 'Start the service to view proxy groups'),
+        illustration: NullStatusIllustration.proxies,
       ) : list ? ListView(
         padding: EdgeInsets.only(top: context.contentTopPadding, bottom: 24 + context.bottomInset),
         children: [for (final group in groups) Column(children: [

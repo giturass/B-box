@@ -31,6 +31,7 @@ import io.nekohasekai.sfa.vendor.PackageQueryManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -395,11 +396,21 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                     emit("preferences", readPreferences())
                     created.size
                 } catch (e: Exception) {
-                    Settings.selectedProfile = oldSelection
-                    created.forEach { runCatching { profiles.delete(it) } }
-                    servers.forEach { runCatching { RemoteServerManager.delete(it) } }
-                    oldSettings.forEach { (key, value) -> runCatching { saveSettings(mapOf("key" to key, "value" to value)) } }
-                    preferences.edit().putString("value", oldPreferences).commit()
+                    // Activity teardown may cancel the import. Finish the rollback
+                    // before releasing the profile-operation lock in that case too.
+                    withContext(NonCancellable) {
+                        Settings.selectedProfile = oldSelection
+                        created.forEach { runCatching { profiles.delete(it) }.exceptionOrNull()?.let(e::addSuppressed) }
+                        servers.forEach { runCatching { RemoteServerManager.delete(it) }.exceptionOrNull()?.let(e::addSuppressed) }
+                        oldSettings.forEach { (key, value) ->
+                            runCatching { saveSettings(mapOf("key" to key, "value" to value)) }.exceptionOrNull()?.let(e::addSuppressed)
+                        }
+                        preferences.edit().putString("value", oldPreferences).commit()
+                        Settings.dataStore.flush()
+                        runCatching { withContext(Dispatchers.Main) { activity.applyProfile() } }.exceptionOrNull()?.let(e::addSuppressed)
+                        publishProfiles()
+                        emit("preferences", readPreferences())
+                    }
                     throw e
                 }
             }
@@ -513,10 +524,12 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         scope.launch {
             try {
                 require(toolBridge.openConnect.endpoint(endpoint)?.authChallenge?.id == challengeID) { "Authentication request expired" }
+                // Keep this response on the session whose challenge was checked.
+                val client = CommandTarget.standaloneClient()
                 withContext(Dispatchers.IO) {
                     val browserResult = Libbox.newOpenConnectBrowserResult(value.finalURL)
                     value.cookies.forEach { browserResult.addCookie(it.name, it.value) }
-                    CommandTarget.standaloneClient().submitOpenConnectAuthResponse(endpoint, challengeID, Libbox.newOpenConnectBrowserAuthResponse(browserResult))
+                    client.submitOpenConnectAuthResponse(endpoint, challengeID, Libbox.newOpenConnectBrowserAuthResponse(browserResult))
                 }
                 emit("browserComplete", mapOf("id" to challengeID, "success" to true))
             } catch (e: Exception) { reportError(e.message ?: e.toString()) }

@@ -119,6 +119,21 @@
       "source": "lib/views/dashboard/widgets/card.dart",
       "sourceSHA256": "7e1a759eae758576c4005fe250c7441bb606b4256a09e327f502e30d0851c8ab",
       "changes": "Flutter presentation preserved; application state and actions use B-box callbacks."
+    },
+    "lib/pages/dashboard.dart": {
+      "source": "lib/views/dashboard/widgets/traffic.dart",
+      "sourceSHA256": "e218e48571bb9ab33b840d2a52eb037b59fba2ee8831bec7971d8c63f339a619",
+      "changes": "NetworkSpeedCard and SpeedTile layout adapted to sing-box traffic samples; other dashboard cards use B-box capability state."
+    },
+    "lib/pages/proxies.dart": {
+      "source": "lib/views/proxies/card.dart",
+      "sourceSHA256": "c82793561e6769d1532c8c2a62100fbe65d3551923d3f2b7f862b6b69a0f2500",
+      "changes": "Proxy card metrics, text, selection and delay presentation adapted to libbox groups. Only selector groups expose selection; Mihomo pinning and local-provider actions are omitted."
+    },
+    "lib/pages/profiles.dart": {
+      "source": "lib/views/profiles/profiles.dart",
+      "sourceSHA256": "4a2cf3c73ca7dcff9f02883c1d684a80afedb76f80bc955ee6b1b3b81421407d",
+      "changes": "Profile row metrics, selected state, context menus, picker toolbar and empty illustration adapted to B-box Room profiles and sing-box JSON."
     }
   }
 }

@@ -26,7 +26,7 @@ const _zh = <String, String>{
   'Show less': '收起', 'Show more': '展开', 'Show password': '显示密码', 'Hide password': '隐藏密码',
   'Sort': '排序', 'Submit': '提交', 'Default': '默认', 'Latency': '延迟',
   'Test latency': '测试延迟', 'Test all': '全部测速', 'Testing': '测速中',
-  'Unreachable': '不可达', 'Not tested': '未测试', 'Selected': '已选择',
+  'Unreachable': '不可达', 'Not tested': '未测试', 'Selected': '已选择', 'Select': '选择',
   'Automatic selection': '内核自动选择', 'Close connections after switching': '切换后关闭连接',
   'Start the service to view proxy groups': '启动服务后查看代理组',
   'No proxy groups in this configuration': '当前配置没有代理组',
