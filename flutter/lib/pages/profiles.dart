@@ -55,7 +55,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
     final profiles = box.profiles.where((p) => p['name'].toString().toLowerCase().contains(_query.toLowerCase())).toList();
     return CommonScaffold(
       title: context.tr('Profiles'),
-      searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query), query: _query),
+      searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
       primaryAction: IconButtonData(glyph: AppGlyphs.add, tooltip: context.tr('Add profile'),
         onPressed: box.remote ? null : () => openForm(context, const AddProfilePage())),
       iconActions: [

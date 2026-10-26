@@ -32,7 +32,7 @@ class _LogsPageState extends State<LogsPage> {
     _length = logs.length;
     return CommonScaffold(
       title: context.tr('Logs'),
-      searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query), query: _query),
+      searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
       iconActions: [
         IconButtonData(glyph: _paused == null ? AppGlyphs.playPause(1) : AppGlyphs.playPause(0),
           tooltip: context.tr(_paused == null ? 'Pause' : 'Resume'), onPressed: () => setState(() => _paused = _paused == null ? List.of(box.logs) : null)),

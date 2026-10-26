@@ -102,7 +102,7 @@ class _AccessPageState extends State<AccessPage> {
     final selected = (box.settings[box.settings['perAppManaged'] == true ? 'perAppManagedList' : 'perAppList'] as List? ?? []).cast<String>().toSet();
     return CommonScaffold(
       title: context.tr('Access control'),
-      searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query), query: _query),
+      searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
       iconActions: [IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Retry'), onPressed: _reload)],
       body: FutureBuilder<List<Json>>(
         future: _apps,

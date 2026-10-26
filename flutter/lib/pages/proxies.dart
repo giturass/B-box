@@ -100,7 +100,7 @@ class _ProxiesPageState extends State<ProxiesPage> {
     final list = box.preferences['proxyLayout'] == 'List';
     return CommonScaffold(
       title: context.tr('Proxies'),
-      searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query), query: _query),
+      searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
       iconActions: [
         IconButtonData(glyph: AppGlyphs.bolt, tooltip: context.tr('Test all'), onPressed: box.running && groups.isNotEmpty ? () async {
           for (final group in groups) { await _test(group['tag'] as String); }

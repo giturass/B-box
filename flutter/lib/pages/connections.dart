@@ -38,7 +38,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     list.sort((a, b) => (b[key] as num? ?? 0).compareTo(a[key] as num? ?? 0));
     return CommonScaffold(
       title: context.tr('Connections'),
-      searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query), query: _query),
+      searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
       iconActions: [IconButtonData(glyph: AppGlyphs.close, tooltip: context.tr('Close all connections'), onPressed: box.running ? _closeAll : null)],
       menuItems: [
         for (final sort in ['Created', 'Upload', 'Download'])
