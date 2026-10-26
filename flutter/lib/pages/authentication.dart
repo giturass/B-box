@@ -99,11 +99,11 @@ class AuthBrowser extends StatefulWidget {
   @override State<AuthBrowser> createState() => _AuthBrowserState();
 }
 class _AuthBrowserState extends State<AuthBrowser> {
-  StreamSubscription<String>? _subscription;
+  StreamSubscription<Json>? _subscription;
   @override void didChangeDependencies() {
     super.didChangeDependencies();
-    _subscription ??= context.box.browserEvents.stream.listen((id) {
-      if (id == widget.challenge && mounted) Navigator.pop(context, true);
+    _subscription ??= context.box.browserEvents.stream.listen((event) {
+      if (event['id'] == widget.challenge && mounted) Navigator.pop(context, event['success'] == true);
     });
   }
   @override void dispose() { _subscription?.cancel(); super.dispose(); }

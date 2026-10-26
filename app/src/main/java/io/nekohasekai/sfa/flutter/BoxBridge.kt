@@ -509,6 +509,20 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         }
     }
 
+    internal fun submitBrowserResult(endpoint: String, challengeID: String, value: io.nekohasekai.sfa.compose.screen.tools.OpenConnectBrowserResultData) {
+        scope.launch {
+            try {
+                require(toolBridge.openConnect.endpoint(endpoint)?.authChallenge?.id == challengeID) { "Authentication request expired" }
+                withContext(Dispatchers.IO) {
+                    val browserResult = Libbox.newOpenConnectBrowserResult(value.finalURL)
+                    value.cookies.forEach { browserResult.addCookie(it.name, it.value) }
+                    CommandTarget.standaloneClient().submitOpenConnectAuthResponse(endpoint, challengeID, Libbox.newOpenConnectBrowserAuthResponse(browserResult))
+                }
+                emit("browserComplete", mapOf("id" to challengeID, "success" to true))
+            } catch (e: Exception) { reportError(e.message ?: e.toString()) }
+        }
+    }
+
     fun notifyIntent() = emit("intentAvailable", true)
 
     internal fun emit(type: String, value: Any?) {

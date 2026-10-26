@@ -49,7 +49,7 @@ void main() {
     openForm(context, const ProfileForm(initial: {'content': '{"log":{"level":"info"}}'}));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).first, 'My profile');
-    await tester.tap(find.byTooltip('Save').last);
+    await tester.tap(find.text('Save').last);
     await tester.pumpAndSettle();
     expect(saved?['name'], 'My profile');
     expect(saved?['content'], '{"log":{"level":"info"}}');
@@ -77,6 +77,8 @@ void main() {
     final pageContext = tester.element(find.byType(ConnectionsPage));
     pageContext.safeNestedPop();
     await tester.pumpAndSettle();
+    await tester.pump();
+    expect(find.byType(ConnectionsPage), findsNothing);
     expect(visibility, [true, false]);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());

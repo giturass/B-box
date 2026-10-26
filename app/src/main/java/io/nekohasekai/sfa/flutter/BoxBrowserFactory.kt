@@ -32,11 +32,10 @@ internal class BoxBrowserFactory(private val bridge: BoxBridge) : PlatformViewFa
             context.getString(R.string.endpoint_browser_cookie_missing),
             context.getString(R.string.endpoint_browser_profile_unavailable),
             onResult = { result ->
-                bridge.toolBridge.openConnect.submitBrowserResponse(endpoint, challengeID, result)
-                bridge.emit("browserComplete", challengeID)
+                bridge.submitBrowserResult(endpoint, challengeID, result)
             },
             onError = bridge::reportError,
-            onDismiss = { bridge.emit("browserComplete", challengeID) },
+            onDismiss = { bridge.emit("browserComplete", mapOf("id" to challengeID, "success" to false)) },
         )
         browser.start(container)
         return object : PlatformView {
