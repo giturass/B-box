@@ -1,0 +1,44 @@
+name: b_box_ui
+description: B-box Android interface, using FlClash presentation and sing-box services.
+publish_to: none
+version: 1.0.0+1
+environment:
+  sdk: '>=3.10.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  material_ui: 1.5.0
+  animations: 3.0.0
+  collection: 1.19.1
+  emoji_regex: 0.0.5
+  freezed_annotation: 3.1.0
+  material_color_utilities: 0.13.0
+  material_new_shapes: 1.0.0
+  path_parsing: 1.1.0
+  qr: 4.0.0
+  super_sliver_list: 0.4.1
+  mobile_scanner: 7.4.2
+  xterm: 4.0.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: 6.0.0
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/fonts/
+  shaders:
+    - shaders/liquid_glass.frag
+  fonts:
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono-Regular.ttf
+    - family: Twemoji
+      fonts:
+        - asset: assets/fonts/Twemoji.Mozilla.ttf
+  module:
+    androidX: true
+    androidPackage: io.ericlee.bbox_ui
+    iosBundleIdentifier: io.ericlee.bboxUi

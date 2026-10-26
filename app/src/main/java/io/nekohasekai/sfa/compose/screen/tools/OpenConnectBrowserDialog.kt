@@ -98,7 +98,7 @@ fun OpenConnectBrowserDialog(
     }
 }
 
-private class OpenConnectWebViewBrowser(
+internal class OpenConnectWebViewBrowser(
     private val request: OpenConnectBrowserRequestData,
     storageID: String,
     private val unsupportedMessage: String,

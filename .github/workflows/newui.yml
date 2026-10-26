@@ -1,0 +1,50 @@
+name: New UI validation
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: newui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Resolve and analyze Flutter
+        working-directory: flutter
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos
+      - name: Flutter interaction and layout tests
+        working-directory: flutter
+        run: flutter test --reporter expanded
+      - name: Build Flutter Android libraries
+        working-directory: flutter
+        run: flutter build aar --no-profile --target-platform android-arm64
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: newui-validation
+          path: |
+            flutter/pubspec.lock
+            flutter/test/failures/
+            flutter/build/host/outputs/repo/
+          retention-days: 7
