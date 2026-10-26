@@ -17,8 +17,8 @@ void main() {
       if (font.existsSync()) await (FontLoader('Roboto')..addFont(Future.value(ByteData.sublistView(await font.readAsBytes())))).load();
     }
   });
-  for (final size in [const Size(360, 800), const Size(800, 1000)]) {
-    testWidgets('all primary routes render at $size', (tester) async {
+  for (final (size, dark, fontScale) in [(const Size(360, 800), false, 1.0), (const Size(360, 800), true, 1.4), (const Size(800, 1000), false, 1.0)]) {
+    testWidgets('all primary routes render at $size dark=$dark scale=$fontScale', (tester) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -27,7 +27,7 @@ void main() {
       final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready' ? {
         'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped', 'modes': []},
-        'profiles': [], 'preferences': {'locale': 'en'},
+        'profiles': [], 'preferences': {'locale': 'en', 'theme': dark ? 'dark' : 'light', 'fontScale': fontScale},
       } : null);
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
       final events = StreamController<dynamic>.broadcast();
@@ -41,7 +41,7 @@ void main() {
           final boundary = boundaryKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
           final bitmap = await boundary.toImage();
           final data = await bitmap.toByteData(format: ui.ImageByteFormat.png);
-          final file = File('build/screenshots/${size.width.toInt()}-$label.png');
+          final file = File('build/screenshots/${size.width.toInt()}-${dark ? 'dark' : 'light'}-$fontScale-$label.png');
           await file.parent.create(recursive: true);
           await file.writeAsBytes(data!.buffer.asUint8List());
           bitmap.dispose();

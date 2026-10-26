@@ -128,10 +128,13 @@ android {
     splits {
         abi {
             val arm64Only = providers.gradleProperty("arm64Only").orNull.toBoolean()
+            val emulatorOnly = providers.gradleProperty("emulatorOnly").orNull.toBoolean()
             isEnable = true
-            isUniversalApk = !arm64Only
+            isUniversalApk = !arm64Only && !emulatorOnly
             reset()
-            if (arm64Only) {
+            if (emulatorOnly) {
+                include("x86_64")
+            } else if (arm64Only) {
                 include("arm64-v8a")
             } else {
                 include("armeabi-v7a", "arm64-v8a", "x86_64")

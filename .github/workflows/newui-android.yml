@@ -1,0 +1,101 @@
+name: New UI Android smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - id: versions
+        run: |
+          echo "core=$(sed -n 's/^VERSION_NAME=//p' version.properties)" >> "$GITHUB_OUTPUT"
+          echo "go=$(sed -n 's/^GO_VERSION=go//p' version.properties)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v5
+        with:
+          repository: SagerNet/sing-box
+          ref: v${{ steps.versions.outputs.core }}
+          path: .core
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          log-accepted-android-sdk-licenses: false
+          packages: platform-tools platforms;android-37.1 build-tools;37.0.0 ndk;28.0.13004108
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.versions.outputs.go }}
+          cache-dependency-path: .core/go.sum
+      - name: Build emulator libbox
+        working-directory: .core
+        run: |
+          git apply ../patches/libbox-no-legacy.patch
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
+          make lib_install
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          go run ./cmd/internal/build_libbox -target android -platform android/amd64
+          mkdir -p ../app/libs
+          cp libbox.aar ../app/libs/libbox.aar
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+      - name: Build Flutter debug library
+        working-directory: flutter
+        run: |
+          flutter pub get --enforce-lockfile
+          flutter build aar --no-profile --no-release --target-platform android-x64
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build emulator APK
+        run: ./gradlew :app:assembleOtherDebug -PemulatorOnly=true --no-daemon --console=plain --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emulator-apk
+          path: app/build/outputs/apk/other/debug/*-x86_64-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+  smoke:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [24, 35]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: emulator-apk
+          path: build/apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: python3 tool/verify_newui_android.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-smoke-api-${{ matrix.api }}
+          path: build/android-smoke/
+          retention-days: 7

@@ -160,28 +160,56 @@ class _Metric extends StatelessWidget {
   ]);
 }
 
+// Adapted from FlClash v0.9.2 dashboard/widgets/traffic.dart.
 class _SpeedPanel extends StatelessWidget {
   const _SpeedPanel();
+  @override Widget build(BuildContext context) => BoxPanel(child: Column(children: [
+    const PanelTitle('Network speed', AppGlyphs.speed),
+    const SizedBox(height: 12),
+    Row(spacing: 10, children: [for (final upload in [true, false]) Expanded(child: _SpeedTile(upload: upload))]),
+  ]));
+}
+
+class _SpeedTile extends StatelessWidget {
+  const _SpeedTile({required this.upload});
+  final bool upload;
   @override Widget build(BuildContext context) {
-    final box = context.box;
-    return BoxPanel(child: Column(children: [
-      const PanelTitle('Network speed', AppGlyphs.speed),
-      const SizedBox(height: 16),
-      Row(children: [for (final up in [true, false]) Expanded(child: Padding(
-        padding: EdgeInsetsDirectional.only(end: up ? 10 : 0, start: up ? 0 : 10),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _Metric(context.tr(up ? 'Upload' : 'Download'), bytes(box.rates[up ? 'upload' : 'download'] as num? ?? 0) + '/s'),
-          const SizedBox(height: 8),
-          SizedBox(height: 46, child: LineChart(
-            values: List.of(up ? box.uploadHistory : box.downloadHistory),
-            revision: box.sampleRevision, capacity: 30, minScale: 1024,
-            color: up ? context.colorScheme.primary : context.colorScheme.primary.withValues(alpha: .45), baselineRatio: .9,
+    final box = context.box, colors = context.colorScheme;
+    final color = upload ? colors.onSurfaceVariant : colors.primary;
+    final show = bytes(box.rates[upload ? 'upload' : 'download'] as num? ?? 0).split(' ');
+    final scale = math.max(1.0, MediaQuery.textScalerOf(context).scale(1));
+    final textHeight = 14 + 4 + (AppTextStyle.footnote.leading + AppTextStyle.title1.leading + AppTextStyle.caption1.leading) * scale;
+    return LayoutBuilder(builder: (context, constraints) {
+      final chartHeight = math.max(36.0, constraints.maxWidth / 1.06 - textHeight - 12 + 2);
+      return Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: ShapeDecoration(color: SurfaceLevel.block.colorOf(colors), shape: AppShape.all(22)),
+        child: Stack(children: [
+          Positioned(left: -2, right: -2, bottom: -2, height: chartHeight, child: LineChart(
+            values: List.of(upload ? box.uploadHistory : box.downloadHistory), revision: box.sampleRevision,
+            capacity: 30, minScale: 8 * 1024, baselineRatio: 1,
+            color: upload ? Color.alphaBlend(colors.primary.withValues(alpha: .45), SurfaceLevel.card.colorOf(colors)) : colors.primary,
           )),
-          const SizedBox(height: 4),
-          Text(box.dashboard[up ? 'uploadTotal' : 'downloadTotal'] as String? ?? '0 B', style: context.listCaptionStyle),
+          Padding(padding: EdgeInsets.fromLTRB(16, 14, 16, chartHeight - 2 + 12), child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(spacing: 4, children: [
+                GlyphIcon(upload ? AppGlyphs.arrowUp : AppGlyphs.arrowDown, size: 16, color: color),
+                Flexible(child: Text(context.tr(upload ? 'Upload' : 'Download'), maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: AppTextStyle.footnote.of(context, emphasized: true).copyWith(color: colors.onSurfaceVariant))),
+              ]),
+              const SizedBox(height: 4),
+              Text.rich(TextSpan(children: [
+                TextSpan(text: show.first, style: AppTextStyle.title1.of(context, emphasized: true).toTabular.copyWith(letterSpacing: -.02 * AppTextStyle.title1.size)),
+                TextSpan(text: ' ${show.last}/s', style: AppTextStyle.footnote.of(context, emphasized: true).copyWith(color: colors.onSurfaceVariant)),
+              ]), maxLines: 1, overflow: TextOverflow.clip),
+              Text('${context.tr('Total')} ${box.dashboard[upload ? 'uploadTotal' : 'downloadTotal'] ?? '0 B'}',
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: AppTextStyle.caption1.of(context).toTabular.copyWith(color: colors.onSurfaceVariant)),
+            ],
+          )),
         ]),
-      ))]),
-    ]));
+      );
+    });
   }
 }
 
