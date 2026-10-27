@@ -31,7 +31,6 @@ import io.nekohasekai.sfa.vendor.PackageQueryManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -41,7 +40,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.Closeable
-import java.io.File
 
 class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) : Closeable {
     private val scope = activity.lifecycleScope
@@ -61,13 +59,16 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private val reports = BoxReports(activity)
     private val profiles = BoxProfiles { withContext(Dispatchers.Main) { activity.applyProfile() } }
     private val preferences = activity.getSharedPreferences("flclash_ui", 0)
+    private val webdav = BoxWebDAV(activity)
+    private val backups = BoxBackups(activity, ::settings, ::patchSettings,
+        { restart -> withContext(Dispatchers.Main) { activity.applyProfile(restart) } }, ::publishProfiles, ::emit, webdav)
     private val rates = object : CommandClient.Handler {
         override fun updateStatus(status: StatusMessage) {
             if (::dashboardDetails.isInitialized) dashboardDetails.remoteMemory = status.memory
             emit("rates", mapOf("upload" to status.uplink, "download" to status.downlink, "memoryBytes" to status.memory))
         }
     }
-    private val profileCallback: () -> Unit = { scope.launch { publishProfiles() } }
+    private val profileCallback: () -> Unit = { scope.launch { operations.withLock { publishProfiles() } } }
     private val initialize = scope.async {
         withContext(Dispatchers.IO) {
             Settings.dataStore.initialize()
@@ -305,7 +306,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             }
             "connections.closeAll" -> withContext(Dispatchers.IO) { CommandTarget.standaloneClient().closeConnections(); null }
             "logs.clear" -> { logs.requestClearLogs(); null }
-            "preferences.set" -> {
+            "preferences.set" -> operations.withLock {
                 @Suppress("UNCHECKED_CAST")
                 val value = args["value"] as? Map<String, Any?> ?: error("Missing preferences")
                 BoxPreferences.validate(value)
@@ -379,76 +380,33 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 null
             }
             "remote.disconnect" -> { RemoteControlManager.exitRemoteControl(); null }
-            "backup.create" -> withContext(Dispatchers.IO) {
-                mapOf("format" to "bbox-1", "selectedProfile" to Settings.selectedProfile,
-                    "profiles" to ProfileManager.list().map { it.toWire() + ("content" to File(it.typed.path).readText()) },
-                    "preferences" to readPreferences(),
-                    "settings" to settings().filterKeys { it !in setOf("batteryExempt", "perAppManagedList") },
-                    "servers" to RemoteServerManager.list().map { mapOf("name" to it.name, "url" to it.url, "secret" to it.secret) })
-            }
+            "backup.create" -> operations.withLock { withContext(Dispatchers.IO) { backups.create() } }
             "backup.read" -> {
                 val uri = activity.pickDocument() ?: return null
                 withContext(Dispatchers.IO) {
-                    val (_, data) = activity.readDocument(uri)
-                    val backup = jsonObject(JSONObject(data.toString(Charsets.UTF_8)))
-                    validateBackup(backup)
-                    backup
+                    backups.read(activity.readDocument(uri, BoxBackups.MAX_BYTES).second, args["scope"] as? String ?: "all")
                 }
             }
             "backup.restore" -> localProfiles {
                 @Suppress("UNCHECKED_CAST")
                 val backup = args["backup"] as? Map<String, Any?> ?: error("Missing backup")
-                val entries = validateBackup(backup)
-                val oldSelection = Settings.selectedProfile
-                val created = mutableListOf<Long>()
-                val servers = mutableListOf<RemoteServer>()
-                val oldSettings = settings().filterKeys { it !in setOf("batteryExempt", "perAppManagedList") }
-                val oldPreferences = preferences.getString("value", "{}")!!
-                try {
-                    val mapping = mutableMapOf<Long, Long>()
-                    for (entry in entries) {
-                        val originalID = (entry["id"] as? Number)?.toLong() ?: 0L
-                        val newID = profiles.save(entry - "id")
-                        created.add(newID)
-                        mapping[originalID] = newID
-                    }
-                    check(preferences.edit().putString("value", JSONObject(backup["preferences"] as? Map<*, *> ?: emptyMap<String, Any>()).toString()).commit())
-                    for (entry in rowsOf(backup["servers"])) {
-                        val server = RemoteServer().apply {
-                            name = entry["name"] as String
-                            url = entry["url"] as String
-                            secret = entry["secret"] as? String ?: ""
-                        }
-                        RemoteServerManager.create(server)
-                        servers.add(server)
-                    }
-                    @Suppress("UNCHECKED_CAST")
-                    val restoredSettings = backup["settings"] as? Map<String, Any?> ?: emptyMap()
-                    for ((key, value) in restoredSettings) saveSettings(mapOf("key" to key, "value" to value))
-                    val selection = mapping[(backup["selectedProfile"] as? Number)?.toLong()]
-                    if (selection != null) profiles.select(selection)
-                    publishProfiles()
-                    emit("preferences", readPreferences())
-                    created.size
-                } catch (e: Exception) {
-                    // Activity teardown may cancel the import. Finish the rollback
-                    // before releasing the profile-operation lock in that case too.
-                    withContext(NonCancellable) {
-                        Settings.selectedProfile = oldSelection
-                        created.forEach { runCatching { profiles.delete(it) }.exceptionOrNull()?.let(e::addSuppressed) }
-                        servers.forEach { runCatching { RemoteServerManager.delete(it) }.exceptionOrNull()?.let(e::addSuppressed) }
-                        oldSettings.forEach { (key, value) ->
-                            runCatching { saveSettings(mapOf("key" to key, "value" to value)) }.exceptionOrNull()?.let(e::addSuppressed)
-                        }
-                        preferences.edit().putString("value", oldPreferences).commit()
-                        Settings.dataStore.flush()
-                        runCatching { withContext(Dispatchers.Main) { activity.applyProfile() } }.exceptionOrNull()?.let(e::addSuppressed)
-                        publishProfiles()
-                        emit("preferences", readPreferences())
-                    }
-                    throw e
-                }
+                backups.restore(backup, args["scope"] as? String ?: "all", args["strategy"] as? String ?: "Compatible")
             }
+            "webdav.get" -> webdav.snapshot()
+            "webdav.set" -> operations.withLock { withContext(Dispatchers.IO) {
+                require(args.containsKey("value")) { "Missing WebDAV account" }
+                @Suppress("UNCHECKED_CAST")
+                val value = args["value"]?.let { it as? Map<String, Any?> ?: error("Invalid WebDAV account") }
+                webdav.save(value)
+                webdav.snapshot()
+            } }
+            "webdav.check" -> withContext(Dispatchers.IO) { webdav.check() }
+            "webdav.upload" -> operations.withLock { withContext(Dispatchers.IO) {
+                webdav.upload(backups.encode(backups.create()))
+                true
+            } }
+            "webdav.read" -> withContext(Dispatchers.IO) { backups.read(webdav.download(), args["scope"] as? String ?: "all") }
+            "terminal.set", "terminal.importFont", "terminal.deleteFont" -> operations.withLock { toolBridge.invoke(call.method, args) }
             else -> if (call.method.startsWith("reports.")) reports.invoke(call.method, args) else toolBridge.invoke(call.method, args)
         }
     }
@@ -467,35 +425,6 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private fun readPreferences(): Map<String, Any?> = runCatching {
         BoxPreferences.validate(jsonObject(JSONObject(preferences.getString("value", "{}")!!)))
     }.getOrDefault(emptyMap())
-
-    private fun validateBackup(backup: Map<String, Any?>): List<Map<String, Any?>> {
-        require(backup["format"] == "bbox-1") { "Unsupported B-box backup format" }
-        @Suppress("UNCHECKED_CAST")
-        val entries = backup["profiles"] as? List<Map<String, Any?>> ?: error("Backup has no profiles")
-        require(entries.size <= 1000) { "Backup contains too many profiles" }
-        entries.forEach {
-            require((it["name"] as? String)?.isNotBlank() == true) { "Profile name is required" }
-            BoxProfiles.validate(it["content"] as? String ?: error("Missing profile content"))
-            val url = it["url"] as? String ?: ""
-            if (url.isNotEmpty()) BoxProfiles.validateUrl(url)
-            require((it["interval"] as? Number)?.toInt()?.let { interval -> interval >= 15 } != false) { "Invalid update interval" }
-        }
-        @Suppress("UNCHECKED_CAST")
-        BoxPreferences.validate(backup["preferences"] as? Map<String, Any?> ?: emptyMap())
-        @Suppress("UNCHECKED_CAST")
-        BoxSettings.validate(backup["settings"] as? Map<String, Any?> ?: emptyMap())
-        val servers = rowsOf(backup["servers"])
-        require(servers.size <= 1000) { "Too many remote servers" }
-        servers.forEach {
-            require(it["name"] is String && (it["url"] as? String)?.let(RemoteServer::validateURL) != null) { "Invalid remote server" }
-            require(it["secret"] == null || it["secret"] is String) { "Invalid remote secret" }
-        }
-        return entries
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun rowsOf(value: Any?): List<Map<String, Any?>> = if (value == null) emptyList() else
-        (value as? List<*>)?.map { it as? Map<String, Any?> ?: error("Invalid backup entry") } ?: error("Invalid backup list")
 
     private fun settings(): Map<String, Any?> = mapOf(
         "perAppEnabled" to Settings.perAppProxyEnabled, "perAppMode" to Settings.perAppProxyMode,

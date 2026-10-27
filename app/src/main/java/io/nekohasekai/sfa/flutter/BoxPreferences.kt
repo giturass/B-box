@@ -11,6 +11,7 @@ internal object BoxPreferences {
         "proxyCardSize" to setOf("Compact", "Standard", "Loose"),
         "proxyDensity" to setOf("Tight", "Standard", "Loose"),
         "proxyIconStyle" to setOf("Filled", "Plain", "Hidden"),
+        "restoreStrategy" to setOf("Compatible", "Override"),
         "tabAnimation" to setOf("slide", "fade"),
         "liquidGlass" to setOf("none", "standard", "ultra"),
     )

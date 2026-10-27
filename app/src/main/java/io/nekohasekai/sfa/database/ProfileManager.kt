@@ -1,6 +1,7 @@
 package io.nekohasekai.sfa.database
 
 import androidx.room.Room
+import androidx.room.withTransaction
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.constant.Path
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -93,6 +94,8 @@ object ProfileManager {
     }
 
     suspend fun list(): List<Profile> = instance.profileDao().list()
+
+    internal suspend fun <T> transaction(block: suspend () -> T): T = instance.withTransaction(block)
 
     fun remoteServerDao(): RemoteServer.Dao = instance.remoteServerDao()
 }

@@ -290,7 +290,7 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
         }
     }
 
-    fun readDocument(uri: Uri): Pair<String, ByteArray> {
+    fun readDocument(uri: Uri, maxBytes: Int = 16 * 1024 * 1024): Pair<String, ByteArray> {
         require(uri.scheme == "content" || uri.scheme == "file") { "Unsupported document URL" }
         val name = if (uri.scheme == "content") {
             contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
@@ -303,7 +303,7 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
             while (true) {
                 val count = input.read(buffer)
                 if (count < 0) break
-                require(output.size() + count <= 16 * 1024 * 1024) { "Document exceeds 16 MiB" }
+                require(output.size() + count <= maxBytes) { "Document exceeds ${maxBytes / 1024 / 1024} MiB" }
                 output.write(buffer, 0, count)
             }
             output.toByteArray()
