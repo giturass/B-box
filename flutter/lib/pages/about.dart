@@ -16,6 +16,7 @@ class _AboutPageState extends State<AboutPage> {
     try {
       final result = json(await box.call('updates.check'));
       if (!mounted) return;
+      setState(() => _checking = false);
       await showDialog<void>(context: context, builder: (context) => AlertDialog(
         title: Text(context.tr(result['available'] == true ? 'Update available' : 'Check for updates')),
         content: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: SingleChildScrollView(child: Column(

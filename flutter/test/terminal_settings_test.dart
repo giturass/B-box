@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/pages/terminal_settings.dart';
+import 'package:b_box_ui/pages/tools.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/errors.dart';
@@ -27,7 +28,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Tools').last);
     await tester.pumpAndSettle();
-    await Scrollable.ensureVisible(tester.element(find.text('Ghostty settings')), alignment: .5);
+    await tester.scrollUntilVisible(find.text('Ghostty settings'), 300,
+      scrollable: find.descendant(of: find.byType(ToolsPage), matching: find.byType(Scrollable)).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Ghostty settings'));
     await tester.pumpAndSettle();
