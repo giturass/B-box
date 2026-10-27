@@ -57,6 +57,9 @@ void main() {
         // Start on its visible upper part, as a finger would on a phone.
         final start = tester.getTopLeft(handle) + const Offset(80, 40);
         final destination = tester.getTopLeft(find.byType(StatusPanel)) + const Offset(80, 40);
+        final listener = tester.renderObject(find.descendant(of: handle, matching: find.byType(Listener)).first);
+        expect(tester.hitTestOnBinding(start).path.map((entry) => entry.target), contains(listener),
+          reason: 'The long press must reach the drag listener at $start (target $destination).');
         final gesture = await tester.startGesture(start);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 600));
@@ -101,7 +104,8 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('Dashboard cards'));
         await advance();
-        expect(find.byType(DashboardEditor).hitTestable(), findsOneWidget);
+        expect(find.byType(DashboardEditor), findsOneWidget);
+        expect(find.byTooltip('Done').hitTestable(), findsOneWidget);
         expect(find.byType(HomePage), findsOneWidget);
         expect(tester.state(find.byType(StatusPanel)), same(status));
         await tester.tap(find.byTooltip('Done'));
