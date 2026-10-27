@@ -52,11 +52,12 @@ void main() {
       expect(tester.state(find.byType(StatusPanel)), same(status));
       expect(find.byTooltip('Remove Status'), findsNothing);
       if (scenario == 'reorder') {
-        final start = tester.getCenter(find.byTooltip('Remove Network speed'));
-        // Hold the card itself, clear of its remove badge, then move above Status.
-        final gesture = await tester.startGesture(start + const Offset(-100, 70));
+        final start = tester.getCenter(find.byType(ReorderableDelayedDragStartListener).at(1));
+        final gesture = await tester.startGesture(start);
         await tester.pump(const Duration(milliseconds: 600));
-        await gesture.moveTo(tester.getTopLeft(find.byType(StatusPanel)) + const Offset(80, 20));
+        await gesture.moveBy(const Offset(0, -20));
+        await tester.pump(const Duration(milliseconds: 300));
+        await gesture.moveTo(tester.getCenter(find.byType(StatusPanel)));
         await tester.pump(const Duration(milliseconds: 600));
         await gesture.up();
         await advance();
@@ -72,7 +73,8 @@ void main() {
           reject = false;
         } else {
           expect(preferences['hiddenCards'], contains('Network speed'));
-          await tester.ensureVisible(find.byTooltip('Add Memory'));
+          await tester.scrollUntilVisible(find.byTooltip('Add Memory'), 250,
+            scrollable: find.ancestor(of: find.byType(DashboardEditor), matching: find.byType(Scrollable)).first);
           await advance();
           await tester.tap(find.byTooltip('Add Memory'));
           await advance();
