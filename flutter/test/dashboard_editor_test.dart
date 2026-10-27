@@ -63,10 +63,19 @@ void main() {
         final gesture = await tester.startGesture(start);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 600));
+        await tester.pump();
+        expect(find.byKey(const ValueKey('dashboard-drag-proxy')), findsOneWidget,
+          reason: 'A long press must lift the card before moving it.');
         await gesture.moveBy(const Offset(0, -20));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
-        await gesture.moveTo(destination);
+        final liftedTop = tester.getTopLeft(find.byKey(const ValueKey('dashboard-drag-proxy')));
+        for (var step = 1; step <= 10; step++) {
+          await gesture.moveTo(Offset.lerp(start - const Offset(0, 20), destination, step / 10)!);
+          await tester.pump(const Duration(milliseconds: 30));
+        }
+        expect(tester.getTopLeft(find.byKey(const ValueKey('dashboard-drag-proxy'))).dy,
+          lessThan(liftedTop.dy - 80), reason: 'The held card must follow the finger to the first row.');
         await tester.pump(const Duration(milliseconds: 600));
         await gesture.up();
         await advance();

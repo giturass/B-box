@@ -126,7 +126,7 @@ class DashboardEditorState extends State<DashboardEditor> with SingleTickerProvi
             seed: dashboardGlyphs.keys.toList().indexOf(card), sway: sway,
             onRemove: _saving || card == 'Status' ? null : () => _remove(card),
           )));
-      }, proxyDecorator: (child, index, animation) => spaced(_LiftedCard(animation: animation,
+      }, proxyDecorator: (child, index, animation) => spaced(_LiftedCard(key: const ValueKey('dashboard-drag-proxy'), animation: animation,
         child: AbsorbPointer(child: RepaintBoundary(key: widget.cardKeyOf(_cards[index]), child: widget.cardBuilder(_cards[index]))))),
         onReorderItem: _reorder,
       ),
@@ -374,7 +374,7 @@ class _Sway extends AnimatedWidget {
 }
 
 class _LiftedCard extends StatelessWidget {
-  const _LiftedCard({required this.animation, required this.child});
+  const _LiftedCard({super.key, required this.animation, required this.child});
 
   final Animation<double> animation;
   final Widget child;
