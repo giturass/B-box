@@ -94,7 +94,7 @@ class _AccentColors extends StatelessWidget {
     final selected = prefs['systemColor'] == true ? null : (prefs['color'] as num?)?.toInt() ?? 0xff007aff;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       InfoHeader(info: Info(label: context.tr('Accent color'), glyph: AppGlyphs.palette), actions: [
-        IconButtonData(glyph: AppGlyphs.reset, tooltip: context.tr('Reset'), onPressed: () async {
+        IconButton(icon: const GlyphIcon(AppGlyphs.reset), tooltip: context.tr('Reset'), onPressed: () async {
           if (await confirm(context, 'Reset accent colors?', action: 'Reset')) {
             await box.setPreferences({'accentColors': defaultAccentColors, 'color': 0xff007aff, 'systemColor': false, 'colorStyle': 'vivid'});
           }
@@ -153,7 +153,7 @@ class _TextScaleControlState extends State<_TextScaleControl> {
     final scale = _draft ?? appTextScale(prefs, View.of(context).platformDispatcher.textScaleFactor);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       InfoHeader(info: Info(label: context.tr('Font scale'), glyph: AppGlyphs.textSize), actions: [
-        if (enabled && scale != 1) IconButtonData(glyph: AppGlyphs.reset, tooltip: context.tr('Reset'), onPressed: () => box.setPreference('fontScale', 1)),
+        if (enabled && scale != 1) IconButton(icon: const GlyphIcon(AppGlyphs.reset), tooltip: context.tr('Reset'), onPressed: () => box.setPreference('fontScale', 1)),
       ]),
       Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0), child: Column(spacing: 8, children: [
         SegmentedControl<bool>(segments: [(false, context.tr('Follow system')), (true, context.tr('Custom'))], value: enabled,
