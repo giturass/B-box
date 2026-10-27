@@ -7,6 +7,8 @@ import 'pages/proxies.dart';
 import 'pages/profiles.dart';
 import 'pages/tools.dart';
 import 'pages/taildrop.dart';
+import 'theme_settings.dart';
+import 'components/page_switcher.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,14 +47,14 @@ class _BoxAppState extends State<BoxApp> {
 
   ThemeData _theme(Brightness brightness) {
     final prefs = widget.controller.preferences;
-    final color = Color((prefs['color'] as num?)?.toInt() ?? 0xff007aff);
-    final style = ColorStyle.values.firstWhere((item) => item.name == prefs['colorStyle'], orElse: () => ColorStyle.vivid);
-    final scheme = seededColorScheme(seedColor: color, brightness: brightness, style: style);
-    final key = "$brightness:${color.toARGB32()}:${style.name}";
+    final scheme = appColorScheme(widget.controller, brightness);
+    final family = prefs['fontFamily'] as String?;
+    final key = "$brightness:${scheme.hashCode}:$family:${prefs['locale']}";
     return _themes.putIfAbsent(key, () => ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      fontFamilyFallback: appFontFamilyFallback(platform: defaultTargetPlatform, locales: WidgetsBinding.instance.platformDispatcher.locales),
+      fontFamily: family,
+      fontFamilyFallback: appFontFamilyFallback(platform: defaultTargetPlatform, locales: WidgetsBinding.instance.platformDispatcher.locales, fontFamily: family),
       actionIconTheme: ActionIconThemeData(
         backButtonIconBuilder: (context) => GlyphIcon(AppGlyphs.backFor(Theme.of(context).platform)),
         closeButtonIconBuilder: (_) => const GlyphIcon(AppGlyphs.close),
@@ -86,7 +88,8 @@ class _BoxAppState extends State<BoxApp> {
           ],
           builder: (context, child) {
             final media = MediaQuery.of(context);
-            final scale = ((prefs['fontScale'] as num?)?.toDouble() ?? 1) * media.textScaler.scale(1);
+            final scale = appTextScale(prefs, media.textScaler.scale(1));
+            final glass = (prefs['liquidGlass'] ?? 'none') != 'none';
             return MeasureScope(
               measure: Measure.of(context, scale.clamp(.8, 1.4)),
               child: ViewScope(
@@ -100,7 +103,9 @@ class _BoxAppState extends State<BoxApp> {
                     statusBarIconBrightness: Theme.of(context).brightness == Brightness.dark ? Brightness.light : Brightness.dark,
                     systemNavigationBarIconBrightness: Theme.of(context).brightness == Brightness.dark ? Brightness.light : Brightness.dark,
                   ),
-                  child: child!,
+                  child: LiquidGlassScope(enabled: glass,
+                    quality: prefs['liquidGlass'] == 'ultra' ? LiquidGlassQuality.ultra : LiquidGlassQuality.standard,
+                    child: LiquidGlassHost(enabled: glass, child: child!)),
                 ),
               ),
             ),
@@ -167,8 +172,10 @@ class _HomePageState extends State<HomePage> {
   @override Widget build(BuildContext context) {
     final mobile = context.isMobileView;
     final floating = context.box.preferences['floatingNavigation'] != false;
-    final content = IndexedStack(
+    final content = PageSwitcher(
       index: _index,
+      animation: tabAnimationOf(context.box.preferences),
+      onSelected: (index) => setState(() => _index = index),
       children: [for (var i = 0; i < _pages.length; i++)
         TickerMode(enabled: i == _index, child: PageActivityScope(isActive: i == _index, child: _pages[i])),
       ],

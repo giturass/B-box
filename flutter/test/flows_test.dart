@@ -20,7 +20,7 @@ void main() {
 
   testWidgets('VPN start has a separate accessible tap target', (tester) async {
     final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
+    try {
     final events = StreamController<dynamic>.broadcast();
     const channel = MethodChannel('test.start-semantics');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (call) async =>
@@ -35,6 +35,7 @@ void main() {
     expect(button.rect.width, 88);
     await tester.pumpWidget(const SizedBox());
     await events.close();
+    } finally { semantics.dispose(); }
   });
 
   testWidgets('automatic groups cannot send manual selection commands', (tester) async {

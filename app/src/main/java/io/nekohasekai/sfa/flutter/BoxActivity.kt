@@ -139,6 +139,11 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
         handleIntent(intent)
     }
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        bridge?.refreshSystemAppearance()
+    }
+
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
         val value = if (intent.action in listOf(Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) {

@@ -30,6 +30,7 @@ class BoxController extends ChangeNotifier {
   final uploadHistory = <double>[];
   final downloadHistory = <double>[];
   String version = '', coreVersion = '';
+  int systemAccentColor = 0xff007aff;
   int sampleRevision = 0;
   bool _disposed = false;
   bool ready = false;
@@ -59,6 +60,7 @@ class BoxController extends ChangeNotifier {
       final result = json(await call('ready'));
       version = result['version'] as String;
       coreVersion = result['coreVersion'] as String;
+      systemAccentColor = (result['systemAccentColor'] as num?)?.toInt() ?? 0xff007aff;
       dashboard = json(result['dashboard']);
       profiles = rows(result['profiles']);
       settings = json(result['settings']);
@@ -90,9 +92,11 @@ class BoxController extends ChangeNotifier {
     }
   }
 
-  Future<void> setPreference(String key, dynamic value) async {
+  Future<void> setPreference(String key, dynamic value) => setPreferences({key: value});
+
+  Future<void> setPreferences(Json values) async {
     try {
-      preferences = json(await call('preferences.set', {'value': {key: value}}));
+      preferences = json(await call('preferences.set', {'value': values}));
       notifyListeners();
     } catch (error) {
       report(error);
@@ -134,6 +138,7 @@ class BoxController extends ChangeNotifier {
       case 'logs': logs = rows(value);
       case 'settings': settings = json(value);
       case 'preferences': preferences = json(value);
+      case 'systemAccent': systemAccentColor = (value as num).toInt();
       case 'rates':
         sampleRevision++;
         rates = json(value);

@@ -134,6 +134,21 @@
       "source": "lib/views/profiles/profiles.dart",
       "sourceSHA256": "4a2cf3c73ca7dcff9f02883c1d684a80afedb76f80bc955ee6b1b3b81421407d",
       "changes": "Profile row metrics, selected state, context menus, picker toolbar and empty illustration adapted to B-box Room profiles and sing-box JSON."
+    },
+    "lib/components/theme_preview.dart": {
+      "source": "lib/views/theme_preview.dart",
+      "sourceSHA256": "03565aea92009f1115f1c0c774d1bfec5d07f28872e9e8aafc298aa19f3cb0b1",
+      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Desktop-only controls omitted."
+    },
+    "lib/components/palette.dart": {
+      "source": "lib/widgets/palette.dart",
+      "sourceSHA256": "0b7700d2190a9721da68e2a7e129af561f04a3f5473c271f65bed7a4556436bb",
+      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Desktop-only controls omitted."
+    },
+    "lib/pages/appearance.dart": {
+      "source": "lib/views/theme.dart",
+      "sourceSHA256": "a5751491fbabb34065309577f84eb12f54a085cc9b827f2e3786156a17811bba",
+      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Desktop-only controls omitted."
     }
   }
 }

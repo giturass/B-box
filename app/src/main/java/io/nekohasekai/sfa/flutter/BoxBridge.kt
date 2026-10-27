@@ -163,6 +163,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         return when (call.method) {
             "ready" -> mapOf(
                 "version" to BuildConfig.VERSION_NAME, "coreVersion" to Libbox.version(),
+                "systemAccentColor" to systemAccentColor(),
                 "dashboard" to dashboard.uiState.value.toWire(),
                 "profiles" to withContext(Dispatchers.IO) { profiles.list() },
                 "settings" to settings(), "preferences" to readPreferences(),
@@ -537,6 +538,11 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     }
 
     fun notifyIntent() = emit("intentAvailable", true)
+
+    fun systemAccentColor(): Long = (if (android.os.Build.VERSION.SDK_INT >= 31)
+        activity.getColor(android.R.color.system_accent1_500) else 0xff007aff.toInt()).toLong() and 0xffffffffL
+
+    fun refreshSystemAppearance() = emit("systemAccent", systemAccentColor())
 
     internal fun emit(type: String, value: Any?) {
         scope.launch(Dispatchers.Main.immediate) { sink?.success(mapOf("type" to type, "value" to value)) }

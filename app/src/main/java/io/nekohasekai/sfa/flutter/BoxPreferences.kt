@@ -8,15 +8,19 @@ internal object BoxPreferences {
         "colorStyle" to setOf("vivid", "tinted", "soft", "monochrome"),
         "proxySort" to setOf("Default", "Name", "Latency"),
         "proxyLayout" to setOf("Tabs", "List", "Compact"),
+        "tabAnimation" to setOf("slide", "fade"),
+        "liquidGlass" to setOf("none", "standard", "ultra"),
     )
 
     fun validate(values: Map<String, Any?>): Map<String, Any?> {
         values.forEach { (key, value) ->
             val valid = when (key) {
                 in choices -> value in choices.getValue(key)
-                "floatingNavigation", "closeConnectionsOnSelect" -> value is Boolean
+                "floatingNavigation", "closeConnectionsOnSelect", "pureBlack", "systemColor", "customFontScale" -> value is Boolean
                 "proxyColumns" -> value is Number && value.toDouble() == value.toInt().toDouble() && value.toInt() in 1..4
-                "fontScale" -> value is Number && value.toDouble() in listOf(0.8, 1.0, 1.1, 1.2, 1.4)
+                "fontScale" -> value is Number && value.toDouble().isFinite() && value.toDouble() in 0.8..1.4
+                "fontFamily" -> value == null || value is String && value.length in 1..128
+                "accentColors" -> value is List<*> && value.size <= 64 && value.distinct().size == value.size && value.all { it is Number && it.toLong() in 0..0xffffffffL }
                 "color" -> value is Number && value.toLong() in 0..0xffffffffL
                 "dashboardCards", "hiddenCards" -> value is List<*> && value.all { it in cards } &&
                     value.distinct().size == value.size &&

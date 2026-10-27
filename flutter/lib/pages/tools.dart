@@ -17,6 +17,10 @@ class ToolsPage extends StatelessWidget {
         ListItem.open(leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Logs')), widget: const LogsPage()),
       ]),
       generateSection(title: context.tr('Settings'), items: [
+        ListItem<String>.options(leading: const GlyphIcon(AppGlyphs.language), title: Text(context.tr('Language')),
+          options: const ['system', 'zh', 'en'], value: box.preferences['locale'] as String? ?? 'system',
+          textBuilder: (value) => value == 'system' ? context.tr('Follow system') : value == 'zh' ? '简体中文' : 'English',
+          onChanged: (value) => box.setPreference('locale', value)),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.palette), title: Text(context.tr('Appearance')), widget: const AppearancePage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.appsList), title: Text(context.tr('Access control')), widget: const AccessPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.vpn), title: Text(context.tr('Service')), widget: const ServiceSettingsPage()),

@@ -1,42 +1,7 @@
 import 'dart:convert';
 import '../widgets.dart';
 
-class AppearancePage extends StatelessWidget {
-  const AppearancePage({super.key});
-  @override Widget build(BuildContext context) {
-    final box = context.box;
-    return BoxPage(title: 'Appearance', children: [
-      generateSection(title: context.tr('Theme'), items: [
-        ListItem.options(title: Text(context.tr('Theme')), options: const ['system', 'light', 'dark'],
-          value: box.preferences['theme'] as String? ?? 'system', textBuilder: (value) => context.tr({'system': 'System', 'light': 'Light', 'dark': 'Dark'}[value]!),
-          onChanged: (value) => box.setPreference('theme', value)),
-        ListItem.options(title: Text(context.tr('Color style')), options: const ['vivid', 'tinted', 'soft', 'monochrome'],
-          value: box.preferences['colorStyle'] as String? ?? 'vivid', textBuilder: (value) => context.tr(value[0].toUpperCase() + value.substring(1)),
-          onChanged: (value) => box.setPreference('colorStyle', value)),
-        ListItem(title: Text(context.tr('Accent color')), minVerticalPadding: 16,
-          subtitle: Padding(padding: const EdgeInsets.only(top: 12), child: Wrap(spacing: 12, runSpacing: 12, children: [
-          for (final (color, label) in [(0xff007aff, 'Blue'), (0xffcb30e0, 'Purple'), (0xffff2d55, 'Pink'), (0xffff383c, 'Red'), (0xffff8d28, 'Orange'), (0xffffcc00, 'Yellow'), (0xff34c759, 'Green'), (0xff8e8e93, 'Gray')])
-            Semantics(label: context.tr(label), selected: color == (box.preferences['color'] ?? 0xff007aff), button: true,
-              child: InkWell(customBorder: AppShape.full, onTap: () => box.setPreference('color', color),
-                child: Container(width: 40, height: 40, decoration: ShapeDecoration(color: Color(color), shape: AppShape.full),
-                  child: color == (box.preferences['color'] ?? 0xff007aff) ? const Center(child: GlyphIcon(AppGlyphs.check, color: Colors.white, size: 20)) : null))),
-        ]))),
-        ListItem.toggle(title: Text(context.tr('Floating navigation bar')), value: box.preferences['floatingNavigation'] != false,
-          onChanged: (value) => box.setPreference('floatingNavigation', value)),
-      ]),
-      generateSection(title: context.tr('Language'), items: [
-        ListItem.options(title: Text(context.tr('Language')), options: const ['system', 'zh', 'en'],
-          value: box.preferences['locale'] as String? ?? 'system',
-          textBuilder: (value) => {'system': context.tr('System'), 'zh': '简体中文', 'en': 'English'}[value]!,
-          onChanged: (value) => box.setPreference('locale', value)),
-        ListItem<double>.options(title: Text(context.tr('Font scale')), options: const [.8, 1, 1.1, 1.2, 1.4],
-          value: (box.preferences['fontScale'] as num?)?.toDouble() ?? 1,
-          textBuilder: (value) => (value * 100).round().toString() + '%',
-          onChanged: (value) => box.setPreference('fontScale', value)),
-      ]),
-    ]);
-  }
-}
+export 'appearance.dart';
 
 class NativeToggle extends StatelessWidget {
   const NativeToggle(this.title, this.setting, {super.key, this.restart = true});
