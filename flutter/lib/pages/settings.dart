@@ -1,9 +1,9 @@
-import 'dart:convert';
 import '../widgets.dart';
 
 export 'appearance.dart';
 export 'access.dart';
 export 'about.dart';
+export 'backup.dart';
 
 class NativeToggle extends StatelessWidget {
   const NativeToggle(this.title, this.setting, {super.key, this.restart = true});
@@ -130,34 +130,4 @@ class _RemoteFormState extends State<RemoteForm> {
       TextField(controller: _secret, obscureText: true, decoration: InputDecoration(labelText: context.tr('Secret'))),
     ],
   );
-}
-
-class BackupPage extends StatefulWidget {
-  const BackupPage({super.key});
-  @override State<BackupPage> createState() => _BackupPageState();
-}
-class _BackupPageState extends State<BackupPage> {
-  bool _busy = false;
-  Future<void> _backup(bool restore) async {
-    final box = context.box;
-    setState(() => _busy = true);
-    try {
-      if (restore) {
-        final data = await box.call('backup.read');
-        if (data != null && mounted && await confirm(context, 'Restore backup', message: 'Import profiles and remote servers, and restore settings from this backup?', action: 'Import')) {
-          await box.call('backup.restore', {'backup': data});
-        }
-      } else {
-        final data = await box.call('backup.create');
-        await box.call('document.save', {'name': 'B-box-backup.json', 'content': const JsonEncoder.withIndent('  ').convert(data)});
-      }
-    } catch (error) { box.report(error); }
-    if (mounted) setState(() => _busy = false);
-  }
-  @override Widget build(BuildContext context) => BoxPage(title: 'Backup and restore', loading: _busy, children: [
-    generateSection(items: [
-      ListItem(leading: const GlyphIcon(AppGlyphs.upload), title: Text(context.tr('Create backup')), onTap: _busy ? null : () => _backup(false)),
-      ListItem(leading: const GlyphIcon(AppGlyphs.profiles), title: Text(context.tr('Restore backup')), onTap: _busy || context.box.remote ? null : () => _backup(true)),
-    ]),
-  ]);
 }

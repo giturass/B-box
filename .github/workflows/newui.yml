@@ -36,7 +36,7 @@ jobs:
         run: |
           git apply ../patches/libbox-no-legacy.patch
           cp ../libbox/ui_http.go ../libbox/ui_http_test.go experimental/libbox/
-          go test ./experimental/libbox -run '^TestUI(WebDAV|HTTPGet)' -count=1
+          go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(WebDAV|HTTPGet)' -count=1
   flutter:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

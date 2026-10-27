@@ -46,8 +46,10 @@ internal class BoxWebDAV(activity: BoxActivity) {
     companion object {
         fun validate(value: Map<String, Any?>) {
             require(value.keys == setOf("uri", "user", "password", "fileName")) { "Invalid WebDAV account" }
-            val uri = URI(value["uri"] as? String ?: error("WebDAV address is required"))
-            require(uri.scheme in setOf("https", "http") && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.rawQuery == null && uri.fragment == null) {
+            val address = value["uri"] as? String ?: error("WebDAV address is required")
+            val uri = URI(address)
+            require(address.length <= 4096 && uri.scheme in setOf("https", "http") && !uri.host.isNullOrBlank() &&
+                (uri.port == -1 || uri.port in 1..65535) && uri.userInfo == null && uri.rawQuery == null && uri.fragment == null) {
                 "Enter a WebDAV HTTP or HTTPS directory address"
             }
             require((value["user"] as? String)?.length?.let { it <= 4096 } == true &&

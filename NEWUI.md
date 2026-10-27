@@ -46,6 +46,15 @@ source of truth. No action may launch an old Compose page as a fallback.
   long-press reordering, remove badges and addable rows. Global card keys
   preserve state and prevent duplicate probes during editing. Changes save
   immediately; a failed save retains the draft and Done retries it.
+- Backup follows the reference's remote/local sections, WebDAV account form,
+  connectivity indicator, filename, scope dialog and Compatible/Override
+  strategy. The native `bbox-1` format stores stable profile identities,
+  terminal settings/imported fonts and optional WebDAV settings. Profiles-only
+  restores do not touch unrelated settings. Restore stages files, uses a Room
+  transaction and rolls back files/database/settings after a failed apply.
+  Compatible preserves other profiles; Override removes absent profiles after
+  a visible confirmation. Reads/transfers are bounded to 64 MiB; canceled
+  pickers and unacknowledged uploads do not report success.
 
 ## Validation
 

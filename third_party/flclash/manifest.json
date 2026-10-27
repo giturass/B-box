@@ -224,6 +224,16 @@
       "source": "lib/views/dashboard/edit.dart",
       "sourceSHA256": "22c6b0d835e2b7c7c0bd5d9e2e50580a816fff889d0f8eda0b4c561bf084e462",
       "changes": "In-place live cards, sway, long-press reordering, remove badges, presence motion and addable rows retained. Saves native preferences, preserves card keys and retries failed saves before leaving."
+    },
+    "lib/components/form.dart": {
+      "source": "lib/features/form/form_row.dart",
+      "sourceSHA256": "bf982ce6351cc38784dff9493b01ac929516d20601c1ca45ec0e2c07c7361f03",
+      "changes": "Grouped rows and end-aligned text/secret fields retained. Uses the inherited B-box measurement scope and local error handling."
+    },
+    "lib/pages/backup.dart": {
+      "source": "lib/views/backup_and_restore.dart",
+      "sourceSHA256": "616b6c7c23c7e3011da256db3e5f2d4b3cabb636c229c2b9d1b2788454bb8ce6",
+      "changes": "Remote/local sections, WebDAV form, connectivity indicator, restore scopes and strategy adapted to bounded bbox-1 backups. Waits for native writes and preserves edits on error."
     }
   }
 }
