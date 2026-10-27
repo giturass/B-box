@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import '../widgets.dart';
 import '../components/dashboard_editor.dart';
 
