@@ -110,4 +110,40 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await events.close();
   });
+
+  testWidgets('selected proxies are located outside the lazy grid and the active group survives group updates', (tester) async {
+    reportFlutterErrors();
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final events = StreamController<dynamic>.broadcast();
+    const channel = MethodChannel('test.proxy-locate');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready' ? {
+      'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Started'}, 'preferences': {'locale': 'en'},
+    } : null);
+    await tester.pumpWidget(BoxApp(controller: BoxController(channel: channel, events: events.stream)));
+    await tester.pumpAndSettle();
+    Json group(String tag, int count, int selected) => {'tag': tag, 'selected': '$tag node $selected', 'selectable': true,
+      'items': [for (var index = 0; index < count; index++) {'tag': '$tag node $index', 'type': 'direct'}]};
+    final groups = [group('Group A', 1, 0), group('Group B', 200, 150)];
+    events.add({'type': 'groups', 'value': groups});
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Proxies').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Group B'));
+    await tester.pumpAndSettle();
+    expect(find.text('Group B node 150'), findsNothing);
+    await tester.tap(find.byTooltip('Scroll to selected'));
+    await tester.pumpAndSettle();
+    expect(find.text('Group B node 150').hitTestable(), findsOneWidget);
+    events.add({'type': 'groups', 'value': [group('New group', 1, 0), ...groups]});
+    await tester.pumpAndSettle();
+    final tabContext = tester.element(find.byType(TabBarView));
+    expect(DefaultTabController.of(tabContext).index, 2);
+    expect(find.text('Group B node 150').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await events.close();
+  });
 }

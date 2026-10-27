@@ -10,8 +10,8 @@ class _ProxiesPageState extends State<ProxiesPage> {
   final _testing = <String>{};
   final _folded = <String>{};
   final _scrolls = <String, ScrollController>{};
+  final _selectedOffsets = <String, double>{};
   String? _currentGroup;
-  final _selectedKeys = <String, GlobalKey>{};
 
   @override void dispose() {
     for (final scroll in _scrolls.values) { scroll.dispose(); }
@@ -19,9 +19,10 @@ class _ProxiesPageState extends State<ProxiesPage> {
   }
 
   Future<void> _locate() async {
-    final target = _selectedKeys[_currentGroup]?.currentContext;
-    if (target != null) await Scrollable.ensureVisible(target,
-      alignment: .5, duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic);
+    final scroll = _scrolls[_currentGroup], offset = _selectedOffsets[_currentGroup];
+    if (scroll == null || !scroll.hasClients || offset == null) return;
+    await scroll.animateTo(offset.clamp(scroll.position.minScrollExtent, scroll.position.maxScrollExtent),
+      duration: context.motionDuration(const Duration(milliseconds: 300)), curve: Curves.easeOutCubic);
   }
 
   CommonPopupMenuItem _options(String label, Glyph glyph, String key, List<String> values, String fallback) => CommonPopupMenuItem(
@@ -61,7 +62,10 @@ class _ProxiesPageState extends State<ProxiesPage> {
 
   Widget _grid(Json group, {bool nested = false}) {
     final nodes = _nodes(group);
-    if (nodes.isEmpty) return NullStatus(label: context.tr('No results'), illustration: NullStatusIllustration.proxies);
+    if (nodes.isEmpty) {
+      _selectedOffsets.remove(group['tag']);
+      return NullStatus(label: context.tr('No results'), illustration: NullStatusIllustration.proxies);
+    }
     final prefs = context.box.preferences;
     final compact = prefs['proxyCardSize'] == 'Compact' || prefs['proxyCardSize'] == null && prefs['proxyLayout'] == 'Compact';
     final loose = prefs['proxyCardSize'] == 'Loose';
@@ -72,14 +76,20 @@ class _ProxiesPageState extends State<ProxiesPage> {
       final measure = MeasureScope.of(context);
       final nameHeight = measure.textHeight(AppTextStyle.subheadline) * (compact ? 1 : 2);
       final detailHeight = measure.textHeight(AppTextStyle.footnote);
+      final extent = 28 + nameHeight + detailHeight + (loose ? measure.textHeight(AppTextStyle.caption2) + 6 : 0);
+      final selectedIndex = nodes.indexWhere((node) => node['tag'] == group['selected']);
+      if (!nested) {
+        if (selectedIndex < 0) _selectedOffsets.remove(group['tag']);
+        else _selectedOffsets[group['tag'].toString()] = (selectedIndex ~/ columns) * (extent + 8);
+      }
       return GridView.builder(
         key: PageStorageKey('proxy-grid:${group['tag']}:$nested'),
-        controller: nested ? null : _scrolls.putIfAbsent(group['tag'].toString(), () => ScrollController()),
+        controller: nested ? null : _scrolls.putIfAbsent(group['tag'].toString(), () => sheetScrollController(context)),
         shrinkWrap: nested, physics: nested ? const NeverScrollableScrollPhysics() : null,
         padding: EdgeInsets.fromLTRB(16, 0, 16, nested ? 10 : 16 + context.bottomInset),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: columns, mainAxisSpacing: 8, crossAxisSpacing: 8,
-          mainAxisExtent: 28 + nameHeight + detailHeight + (loose ? measure.textHeight(AppTextStyle.caption2) + 6 : 0),
+          mainAxisExtent: extent,
         ),
         itemCount: nodes.length,
         itemBuilder: (context, index) {
@@ -99,7 +109,7 @@ class _ProxiesPageState extends State<ProxiesPage> {
             ]))),
           ];
           return ContextMenuRegion(
-            key: selected ? _selectedKeys.putIfAbsent(group['tag'].toString(), () => GlobalKey()) : ValueKey('${group['tag']}:${node['tag']}'),
+            key: ValueKey('${group['tag']}:${node['tag']}'),
             menuItems: menu,
             child: CommonCard(
               radius: AppCorner.lg, enterActionsOnRight: true,
@@ -145,6 +155,18 @@ class _ProxiesPageState extends State<ProxiesPage> {
   @override Widget build(BuildContext context) {
     final box = context.box;
     final groups = box.groups;
+    final liveTags = groups.map((group) => group['tag'].toString()).toSet();
+    _folded.removeWhere((tag) => !liveTags.contains(tag));
+    _selectedOffsets.removeWhere((tag, _) => !liveTags.contains(tag));
+    if (_scrolls.keys.any((tag) => !liveTags.contains(tag))) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final current = context.box.groups.map((group) => group['tag'].toString()).toSet();
+        for (final tag in _scrolls.keys.where((tag) => !current.contains(tag)).toList()) {
+          _scrolls.remove(tag)?.dispose();
+        }
+      });
+    }
     final list = box.preferences['proxyLayout'] == 'List';
     if (!groups.any((group) => group['tag'] == _currentGroup)) _currentGroup = groups.firstOrNull?['tag'] as String?;
     return CommonScaffold(
@@ -182,7 +204,8 @@ class _ProxiesPageState extends State<ProxiesPage> {
           if (!_folded.contains(group['tag'])) _grid(group, nested: true),
         ])],
       ) : DefaultTabController(
-        key: ValueKey(groups.map((group) => group['tag']).join('|')),
+        key: ValueKey(groups.map((group) => '${group['tag'].toString().length}:${group['tag']}').join()),
+        initialIndex: groups.indexWhere((group) => group['tag'] == _currentGroup).clamp(0, groups.length - 1),
         length: groups.length,
         child: Padding(
           padding: EdgeInsets.only(top: context.contentTopPadding),
