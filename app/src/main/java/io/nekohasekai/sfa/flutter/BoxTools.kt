@@ -43,6 +43,7 @@ internal class BoxTools(private val activity: BoxActivity, private val emit: (St
     private val jobs = mutableListOf<Job>()
     private val usbController = BoxUsb(activity)
     private val ssh = BoxSSH(scope, tailscale, emit)
+    private val terminalSettings = BoxTerminalSettings(activity)
     private var inboxTag: String? = null
     private var sessionKey: Long? = null
     private val outbounds = CommandClient(scope, CommandClient.ConnectionType.Outbounds, object : CommandClient.Handler {
@@ -69,7 +70,6 @@ internal class BoxTools(private val activity: BoxActivity, private val emit: (St
                 usb.cancel()
                 outbounds.disconnect()
                 if (sessionKey != target || !available) {
-                    ssh.close()
                     stun.onVpnDisconnected()
                     quality.onVpnDisconnected()
                     ping.stopPing()
@@ -121,6 +121,8 @@ internal class BoxTools(private val activity: BoxActivity, private val emit: (St
     fun diagnostics(): Map<String, Any?> = mapOf("quality" to quality.uiState.value.toWire(), "stun" to stun.uiState.value.toWire())
 
     suspend fun invoke(method: String, args: Map<String, Any?>): Any? {
+        if (method.startsWith("terminal.")) return terminalSettings.invoke(method, args)
+        if (method.startsWith("ssh.")) return ssh.invoke(method, args)
         fun string(key: String): String = args[key] as? String ?: error("Missing argument: " + key)
         when (method) {
             "tools.snapshot" -> return snapshot()
@@ -218,7 +220,6 @@ internal class BoxTools(private val activity: BoxActivity, private val emit: (St
                 usbController.attach(string("server"), string("device"))
             }
             "usb.detach" -> USBIPManager.detach(string("id"))
-            "ssh.start", "ssh.input", "ssh.resize", "ssh.close" -> return ssh.invoke(method, args)
             else -> throw UnsupportedOperationException("Unknown B-box tool: " + method)
         }
         return null

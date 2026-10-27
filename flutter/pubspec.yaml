@@ -20,7 +20,6 @@ dependencies:
   qr: 4.0.0
   super_sliver_list: 0.4.1
   mobile_scanner: 7.4.2
-  xterm: 4.0.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

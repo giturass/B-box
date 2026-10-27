@@ -6,6 +6,8 @@ import 'settings.dart';
 import 'diagnostics.dart';
 import 'endpoints.dart';
 import 'reports.dart';
+import 'terminal.dart';
+import 'terminal_settings.dart';
 
 class ToolsPage extends StatelessWidget {
   const ToolsPage({super.key});
@@ -15,6 +17,7 @@ class ToolsPage extends StatelessWidget {
       generateSection(title: context.tr('View'), items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.connections), title: Text(context.tr('Connections')), widget: const ConnectionsPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Logs')), widget: const LogsPage()),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Terminal')), widget: const TerminalPage()),
       ]),
       generateSection(title: context.tr('Settings'), items: [
         ListItem<String>.options(leading: const GlyphIcon(AppGlyphs.language), title: Text(context.tr('Language')),
@@ -22,6 +25,7 @@ class ToolsPage extends StatelessWidget {
           textBuilder: (value) => value == 'system' ? context.tr('Follow system') : value == 'zh' ? '简体中文' : 'English',
           onChanged: (value) => box.setPreference('locale', value)),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.palette), title: Text(context.tr('Appearance')), widget: const AppearancePage()),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Ghostty settings')), widget: const TerminalSettingsPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.appsList), title: Text(context.tr('Access control')), widget: const AccessPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.vpn), title: Text(context.tr('Service')), widget: const ServiceSettingsPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.memory), title: Text(context.tr('Core')), widget: const CoreSettingsPage()),

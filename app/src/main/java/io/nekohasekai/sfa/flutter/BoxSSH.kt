@@ -1,115 +1,82 @@
 package io.nekohasekai.sfa.flutter
 
-import io.nekohasekai.libbox.TailscaleSSHHandler
-import io.nekohasekai.libbox.TailscaleSSHOptions
-import io.nekohasekai.libbox.TailscaleSSHSession
 import io.nekohasekai.sfa.compose.screen.tools.TailscaleStatusViewModel
-import io.nekohasekai.sfa.ktx.toStringIterator
-import io.nekohasekai.sfa.utils.CommandTarget
+import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.terminal.DEFAULT_SSH_TERMINAL_TYPE
+import io.nekohasekai.sfa.terminal.TailscaleSSHPresentedSession
+import io.nekohasekai.sfa.terminal.TailscaleSSHSessionStore
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.Closeable
-import java.util.concurrent.ConcurrentHashMap
 
-internal class BoxSSH(
-    private val scope: CoroutineScope,
-    private val tailscale: TailscaleStatusViewModel,
-    private val emit: (String, Any?) -> Unit,
-) : Closeable {
-    private class Handle(val client: io.nekohasekai.libbox.CommandClient) {
-        @Volatile var session: TailscaleSSHSession? = null
-        var closed = false
-
-        @Synchronized
-        fun set(value: TailscaleSSHSession) {
-            if (closed) value.close() else session = value
-        }
-
-        @Synchronized
-        fun close() {
-            if (closed) return
-            closed = true
-            runCatching { session?.close() }
-            runCatching { client.disconnect() }
-            session = null
+/** Flutter owns presentation; the process-wide Ghostty store owns SSH. */
+internal class BoxSSH(scope: CoroutineScope, private val tailscale: TailscaleStatusViewModel,
+    private val emit: (String, Any?) -> Unit) : Closeable {
+    private val store = TailscaleSSHSessionStore
+    private val watch = scope.launch {
+        store.state.collectLatest { state ->
+            emit("terminal", snapshot())
+            coroutineScope {
+                state.sessions.forEach { session ->
+                    launch { session.phase.collect { emit("terminal", snapshot()) } }
+                    launch { session.banner.collect { emit("terminal", snapshot()) } }
+                    launch { session.terminalSession.title.collect { emit("terminal", snapshot()) } }
+                    launch { session.terminalSession.workingDirectory.collect { emit("terminal", snapshot()) } }
+                    launch { session.terminalSession.progress.collect { emit("terminal", snapshot()) } }
+                }
+            }
         }
     }
 
-    // Cleanup must survive Activity lifecycle cancellation.
-    private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val sessions = ConcurrentHashMap<String, Handle>()
+    fun snapshot(): Map<String, Any?> = mapOf(
+        "activeId" to store.state.value.activeSessionId,
+        "sessions" to store.state.value.sessions.map { session ->
+            mapOf("id" to session.id, "name" to (session.terminalSession.title.value ?: session.presentedSession.peerHostName),
+                "host" to session.presentedSession.peerHostName, "username" to session.presentedSession.username,
+                "phase" to session.phase.value.name, "banner" to session.banner.value,
+                "directory" to session.terminalSession.workingDirectory.value,
+                "progress" to session.terminalSession.progress.value?.let { mapOf("state" to it.state.name, "percent" to it.percent) })
+        },
+    )
 
-    suspend fun invoke(method: String, args: Map<String, Any?>): Any? {
-        val id = args["id"] as? String ?: error("Missing terminal ID")
-        fun number(key: String, fallback: Int) = ((args[key] as? Number)?.toInt() ?: fallback).coerceIn(1, 10000)
+    fun invoke(method: String, args: Map<String, Any?>): Any? {
+        fun string(key: String) = args[key] as? String ?: error("Missing terminal argument: $key")
         when (method) {
-            "ssh.start" -> {
-                require(!sessions.containsKey(id)) { "Terminal already exists" }
-                val endpoint = args["endpoint"] as? String ?: error("Missing endpoint")
-                val peerID = args["peer"] as? String ?: error("Missing peer")
-                val peer = tailscale.peer(endpoint, peerID) ?: error("Peer no longer exists")
+            "ssh.snapshot" -> return snapshot()
+            "ssh.options", "ssh.start" -> {
+                val endpoint = string("endpoint")
+                val peer = tailscale.peer(endpoint, string("peer")) ?: error("Peer no longer exists")
                 require(peer.sshHostKeys.isNotEmpty()) { "Peer has no authenticated SSH host keys" }
-                val username = (args["username"] as? String)?.trim().orEmpty()
-                require(username.isNotEmpty()) { "SSH username is required" }
-                val client = CommandTarget.ownedStandaloneClient()
-                val handle = Handle(client)
-                sessions[id] = handle
-                try {
-                    withContext(Dispatchers.IO) {
-                        val options = TailscaleSSHOptions().apply {
-                            endpointTag = endpoint
-                            peerAddress = peer.tailscaleIPs.firstOrNull() ?: error("Peer has no address")
-                            this.username = username
-                            terminalType = "xterm-256color"
-                            columns = number("columns", 80)
-                            rows = number("rows", 24)
-                            widthPixels = 0
-                            heightPixels = 0
-                            hostKeys = peer.sshHostKeys.toStringIterator()
-                            forwardAgent = false
-                        }
-                        handle.set(client.startTailscaleSSHSession(options, object : TailscaleSSHHandler {
-                            override fun onReady() = send(id, "ready", null)
-                            override fun onOutput(data: ByteArray) = send(id, "output", data)
-                            override fun onAuthBanner(message: String) = send(id, "banner", message)
-                            override fun onExit(exitCode: Int, signal: String, errorMessage: String) {
-                                send(id, "exit", mapOf("code" to exitCode, "signal" to signal, "error" to errorMessage))
-                                release(id)
-                            }
-                            override fun onError(message: String) {
-                                send(id, "error", message)
-                                release(id)
-                            }
-                        }))
-                    }
-                } catch (e: Exception) {
-                    release(id)
-                    throw e
+                if (method == "ssh.options") return mapOf(
+                    "username" to (Settings.tailscaleSSHRememberedUsernames[peer.stableID] ?: "root"),
+                    "terminalType" to (Settings.tailscaleSSHRememberedTerminalTypes[peer.stableID] ?: DEFAULT_SSH_TERMINAL_TYPE),
+                    "remember" to Settings.tailscaleSSHQuickConnectPeers.contains(peer.stableID),
+                )
+                val username = string("username").trim()
+                val terminalType = (args["terminalType"] as? String).orEmpty().trim().ifEmpty { DEFAULT_SSH_TERMINAL_TYPE }
+                require(username.isNotEmpty() && username.length <= 256 && username.none { it.isISOControl() }) { "Invalid SSH username" }
+                require(terminalType.length <= 128 && terminalType.matches(Regex("[A-Za-z0-9._+-]+"))) { "Invalid terminal type" }
+                val address = peer.tailscaleIPs.firstOrNull() ?: error("Peer has no address")
+                Settings.tailscaleSSHRememberedUsernames = Settings.tailscaleSSHRememberedUsernames.toMutableMap().apply { put(peer.stableID, username) }
+                Settings.tailscaleSSHRememberedTerminalTypes = Settings.tailscaleSSHRememberedTerminalTypes.toMutableMap().apply { put(peer.stableID, terminalType) }
+                Settings.tailscaleSSHQuickConnectPeers = Settings.tailscaleSSHQuickConnectPeers.toMutableSet().apply {
+                    if (args["remember"] == true) add(peer.stableID) else remove(peer.stableID)
                 }
-                return id
+                store.addSession(TailscaleSSHPresentedSession(endpoint, peer.hostName, address, username, terminalType, peer.sshHostKeys))
             }
-            "ssh.input" -> withContext(Dispatchers.IO) {
-                val session = sessions[id]?.session ?: error("Terminal is not connected")
-                session.sendInput((args["text"] as? String ?: "").toByteArray(Charsets.UTF_8))
+            "ssh.select" -> {
+                val id = string("id")
+                require(store.state.value.sessions.any { it.id == id }) { "Session no longer exists" }
+                store.switchSession(id)
             }
-            "ssh.resize" -> withContext(Dispatchers.IO) {
-                sessions[id]?.session?.sendResize(number("columns", 80), number("rows", 24), 0, 0)
-            }
-            "ssh.close" -> release(id)
+            "ssh.duplicate" -> store.duplicateCurrentSession()
+            "ssh.close" -> store.removeSession(string("id"))
             else -> error("Unknown terminal operation")
         }
-        return null
+        return snapshot()
     }
 
-    private fun send(id: String, type: String, value: Any?) = emit("ssh", mapOf("id" to id, "event" to type, "value" to value))
-
-    private fun release(id: String) {
-        val handle = sessions.remove(id) ?: return
-        cleanupScope.launch { handle.close() }
-    }
-
-    override fun close() = sessions.keys.toList().forEach { release(it) }
+    override fun close() { watch.cancel() }
 }

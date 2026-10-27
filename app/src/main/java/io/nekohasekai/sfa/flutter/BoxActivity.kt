@@ -96,6 +96,7 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
         super.configureFlutterEngine(flutterEngine)
         bridge = BoxBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         flutterEngine.platformViewsController.registry.registerViewFactory("io.ericlee.bfa/openconnect", BoxBrowserFactory(bridge!!))
+        flutterEngine.platformViewsController.registry.registerViewFactory("io.ericlee.bfa/ghostty", BoxTerminalFactory(flutterEngine.dartExecutor.binaryMessenger))
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {

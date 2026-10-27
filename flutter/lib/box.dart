@@ -19,11 +19,11 @@ class BoxController extends ChangeNotifier {
   final Stream<dynamic> _events;
   final messages = StreamController<String>.broadcast();
   final intents = StreamController<String>.broadcast();
-  final sshEvents = StreamController<Json>.broadcast();
   final browserEvents = StreamController<Json>.broadcast();
   StreamSubscription<dynamic>? _subscription;
   Json dashboard = {}, settings = {}, preferences = {}, rates = {};
   Json toolState = {}, stun = {}, quality = {}, inbox = {}, ping = {};
+  Json terminal = {};
   List<Json> transfers = [], usbDevices = [];
   List<Json> outbounds = [];
   List<Json> profiles = [], groups = [], connections = [], logs = [];
@@ -129,7 +129,7 @@ class BoxController extends ChangeNotifier {
       case 'ping': ping = json(value);
       case 'transfers': transfers = rows(value);
       case 'usbDevices': usbDevices = rows(value);
-      case 'ssh': sshEvents.add(json(value)); return;
+      case 'terminal': terminal = json(value);
       case 'browserComplete': browserEvents.add(json(value)); return;
       case 'dashboard': dashboard = json(value);
       case 'profiles': profiles = rows(value);
@@ -163,7 +163,6 @@ class BoxController extends ChangeNotifier {
     _subscription?.cancel();
     messages.close();
     intents.close();
-    sshEvents.close();
     browserEvents.close();
     super.dispose();
   }
