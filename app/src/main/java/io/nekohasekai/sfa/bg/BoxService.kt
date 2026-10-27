@@ -50,6 +50,8 @@ import java.io.File
 
 class BoxService(private val service: Service, private val platformInterface: PlatformInterface) : CommandServerHandler {
     companion object {
+        @Volatile internal var dashboardServer: CommandServer? = null
+            private set
         private const val PROFILE_UPDATE_INTERVAL = 15L * 60 * 1000 // 15 minutes in milliseconds
         private const val TAG = "BoxService"
 
@@ -117,6 +119,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         val commandServer = CommandServer(this, platformInterface)
         commandServer.start()
         this.commandServer = commandServer
+        dashboardServer = commandServer
     }
 
     private var lastProfileName = ""
@@ -170,6 +173,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 return
             }
 
+            dashboardServer = commandServer
             if (commandServer.needWIFIState()) {
                 val wifiPermission =
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -250,6 +254,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return
         }
 
+        dashboardServer = commandServer
         if (commandServer.needWIFIState()) {
             val wifiPermission =
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -317,6 +322,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private fun closeService() {
+        if (dashboardServer === commandServer) dashboardServer = null
         runCatching {
             commandServer.closeService()
         }.onFailure {
@@ -390,6 +396,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     internal fun onBind(): IBinder = binder
 
     internal fun onDestroy() {
+        if (::commandServer.isInitialized && dashboardServer === commandServer) dashboardServer = null
         idleModeUpdates.cancel()
         idleModeScope.cancel()
         binder.close()

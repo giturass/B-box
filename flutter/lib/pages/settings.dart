@@ -2,6 +2,7 @@ import 'dart:convert';
 import '../widgets.dart';
 
 export 'appearance.dart';
+export 'access.dart';
 
 class NativeToggle extends StatelessWidget {
   const NativeToggle(this.title, this.setting, {super.key, this.restart = true});
@@ -49,78 +50,6 @@ class CoreSettingsPage extends StatelessWidget {
       const NativeToggle('Power reports', 'powerReportEnabled'),
     ]),
   ]);
-}
-
-class AccessPage extends StatefulWidget {
-  const AccessPage({super.key});
-  @override State<AccessPage> createState() => _AccessPageState();
-}
-class _AccessPageState extends State<AccessPage> {
-  Future<List<Json>>? _apps;
-  String _query = '';
-  bool _system = false, _selectedOnly = false;
-  @override void didChangeDependencies() { super.didChangeDependencies(); _apps ??= _load(); }
-  Future<List<Json>> _load() async => rows(await context.box.call('apps.list'));
-  void _reload() => setState(() => _apps = _load());
-  @override Widget build(BuildContext context) {
-    final box = context.box;
-    final selected = (box.settings[box.settings['perAppManaged'] == true ? 'perAppManagedList' : 'perAppList'] as List? ?? []).cast<String>().toSet();
-    return CommonScaffold(
-      title: context.tr('Access control'),
-      searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
-      iconActions: [IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Retry'), onPressed: _reload)],
-      body: FutureBuilder<List<Json>>(
-        future: _apps,
-        builder: (context, snapshot) {
-          final apps = (snapshot.data ?? <Json>[]).where((app) =>
-            (_system || app['system'] != true) && (!_selectedOnly || selected.contains(app['package'])) &&
-            (app['name'].toString() + ' ' + app['package'].toString()).toLowerCase().contains(_query.toLowerCase()),
-          ).toList();
-          return ListView.builder(
-            padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 24 + context.bottomInset),
-            itemCount: apps.length + 1,
-            itemBuilder: (context, index) {
-              if (index == 0) return Column(children: [
-                generateSection(items: [
-                  const NativeToggle('Per-app proxy', 'perAppEnabled'),
-                  ListItem<int>.options(title: Text(context.tr('Mode')), options: const [1, 2],
-                    value: (box.settings['perAppMode'] as num?)?.toInt() == 2 ? 2 : 1,
-                    textBuilder: (value) => context.tr(value == 1 ? 'Bypass selected apps' : 'Proxy selected apps'),
-                    onChanged: (value) => box.setSetting('perAppMode', value)),
-                  const NativeToggle('Managed app list', 'perAppManaged'),
-                  ListItem.options(title: Text(context.tr('Application query')), options: const ['SHIZUKU', 'ROOT'],
-                    value: box.settings['queryMode'] as String? ?? 'SHIZUKU', textBuilder: (value) => value == 'ROOT' ? 'Root' : 'Shizuku',
-                    onChanged: (value) async { await box.setSetting('queryMode', value, restart: false); _reload(); }),
-                  if (box.settings['queryMode'] == 'SHIZUKU') ListItem(title: Text(context.tr('Grant Shizuku permission')),
-                    onTap: () => box.act('apps.permission')),
-                  ListItem.toggle(title: Text(context.tr('Show system apps')), value: _system, onChanged: (value) => setState(() => _system = value)),
-                  ListItem.toggle(title: Text(context.tr('Selected apps')), value: _selectedOnly, onChanged: (value) => setState(() => _selectedOnly = value)),
-                ]),
-                if (box.settings['perAppManaged'] == true) Padding(padding: const EdgeInsets.all(16), child: Text(context.tr('Disable managed app list to edit selection'))),
-                if (snapshot.hasError) ErrorState(snapshot.error!, retry: _reload),
-                if (!snapshot.hasData && !snapshot.hasError) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
-                if (snapshot.hasData && apps.isEmpty) const EmptyState('No results'),
-                if (apps.isNotEmpty) const ListSectionGap(),
-              ]);
-              final app = apps[index - 1];
-              return ItemPositionProvider(
-                position: ItemPosition.get(index - 1, apps.length),
-                child: ListItem.checkbox(
-                  title: Text(app['name'].toString()), subtitle: Text(app['package'].toString()),
-                  value: selected.contains(app['package']),
-                  onChanged: box.settings['perAppManaged'] == true ? null : (value) {
-                    final next = Set<String>.of(selected);
-                    value == true ? next.add(app['package'] as String) : next.remove(app['package']);
-                    box.setSetting('perAppList', next.toList());
-                  },
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
 }
 
 class RemotePage extends StatefulWidget {

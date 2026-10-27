@@ -180,10 +180,7 @@ class _HomePageState extends State<HomePage> {
         TickerMode(enabled: i == _index, child: PageActivityScope(isActive: i == _index, child: _pages[i])),
       ],
     );
-    return PopScope(
-      canPop: _index == 0,
-      onPopInvokedWithResult: (didPop, _) { if (!didPop && _index != 0) setState(() => _index = 0); },
-      child: Scaffold(
+    return Scaffold(
         body: Row(children: [
           if (!mobile) NavigationRail(
             selectedIndex: _index,
@@ -197,7 +194,7 @@ class _HomePageState extends State<HomePage> {
             Expanded(child: Stack(children: [
               Positioned.fill(child: BottomInsetScope(
                 inset: mobile && floating ? NavigationDock.insetOf(context) : 0,
-                child: content,
+                child: MediaQuery.removePadding(context: context, removeBottom: mobile, removeLeft: mobile, removeRight: mobile, child: content),
               )),
               if (mobile && floating) PositionedDirectional(
                 start: 0, end: 0, bottom: 0,
@@ -217,7 +214,6 @@ class _HomePageState extends State<HomePage> {
             ),
           ])),
         ]),
-      ),
     );
   }
 }

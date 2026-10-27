@@ -55,6 +55,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private lateinit var connections: ConnectionsViewModel
     private lateinit var logs: LogViewModel
     internal lateinit var toolBridge: BoxTools
+    private lateinit var dashboardDetails: BoxDashboard
     private var connectionsVisible = false
     private val operations = Mutex()
     private val reports = BoxReports(activity)
@@ -62,6 +63,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private val preferences = activity.getSharedPreferences("flclash_ui", 0)
     private val rates = object : CommandClient.Handler {
         override fun updateStatus(status: StatusMessage) {
+            if (::dashboardDetails.isInitialized) dashboardDetails.remoteMemory = status.memory
             emit("rates", mapOf("upload" to status.uplink, "download" to status.downlink, "memoryBytes" to status.memory))
         }
     }
@@ -77,6 +79,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         connections = provider[ConnectionsViewModel::class.java]
         logs = provider[LogViewModel::class.java]
         toolBridge = BoxTools(activity, ::emit)
+        dashboardDetails = BoxDashboard(activity, ::emit)
         dashboard.commandClient.addHandler(rates)
         ProfileManager.registerCallback(profileCallback)
         PackageQueryManager.registerListeners()
@@ -131,7 +134,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                                 if (connectionsVisible) emit("connections", withContext(Dispatchers.Default) { state.allConnections.map { it.toWire() } })
                             } }
                             launch { logs.uiState.collect { state ->
-                                emit("logs", withContext(Dispatchers.Default) { state.logs.map { mapOf("id" to it.id, "level" to it.entry.level.label, "message" to it.annotatedString.text) } })
+                                emit("logs", withContext(Dispatchers.Default) { state.logs.map { mapOf("id" to it.id, "level" to it.entry.level.label, "message" to it.annotatedString.text, "receivedAt" to it.receivedAt) } })
                             } }
                             launch { RemoteControlManager.remoteServer.collect { emit("dashboard", dashboard.uiState.value.toWire()) } }
                             launch { RemoteControlManager.isConnected.collect { emit("dashboard", dashboard.uiState.value.toWire()) } }
@@ -161,6 +164,8 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         fun string(key: String): String = args[key] as? String ?: error("Missing argument: " + key)
         fun id(key: String = "id"): Long = (args[key] as? Number)?.toLong() ?: error("Missing argument: " + key)
         return when (call.method) {
+            "dashboard.egress" -> dashboardDetails.egress()
+            "dashboard.releaseMemory" -> dashboardDetails.releaseMemory()
             "ready" -> mapOf(
                 "version" to BuildConfig.VERSION_NAME, "coreVersion" to Libbox.version(),
                 "systemAccentColor" to systemAccentColor(),
@@ -302,16 +307,37 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 readPreferences()
             }
             "settings.get" -> settings()
-            "settings.set" -> { saveSettings(args); settings() }
+            "settings.set" -> operations.withLock { saveSettings(args); settings() }
+            "settings.patch" -> operations.withLock {
+                @Suppress("UNCHECKED_CAST")
+                val values = args["value"] as? Map<String, Any?> ?: error("Missing settings")
+                patchSettings(values)
+                settings()
+            }
             "apps.list" -> withContext(Dispatchers.IO) {
-                PackageQueryManager.getInstalledPackages(0).map { info ->
+                PackageQueryManager.getInstalledPackages(android.content.pm.PackageManager.GET_PERMISSIONS).map { info ->
                     val application = info.applicationInfo
                     mapOf(
                         "package" to info.packageName,
                         "name" to (application?.loadLabel(activity.packageManager)?.toString() ?: info.packageName),
                         "system" to (application != null && application.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM != 0),
+                        "internet" to (info.requestedPermissions?.contains(android.Manifest.permission.INTERNET) == true),
+                        "updatedAt" to info.lastUpdateTime,
                     )
                 }.sortedBy { (it["name"] as String).lowercase() }
+            }
+            "apps.icon" -> withContext(Dispatchers.IO) {
+                val drawable = activity.packageManager.getApplicationIcon(string("package"))
+                val size = (48 * activity.resources.displayMetrics.density).toInt().coerceIn(48, 192)
+                val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+                try {
+                    drawable.setBounds(0, 0, size, size)
+                    drawable.draw(android.graphics.Canvas(bitmap))
+                    java.io.ByteArrayOutputStream().use { output ->
+                        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output)
+                        output.toByteArray()
+                    }
+                } finally { bitmap.recycle() }
             }
             "apps.permission" -> { PackageQueryManager.requestShizukuPermission(); null }
             "battery.open" -> {
@@ -476,8 +502,14 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     )
 
     private suspend fun saveSettings(args: Map<String, Any?>) {
-        BoxSettings.validate(mapOf((args["key"] as? String ?: error("Missing setting")) to args["value"]))
-        when (val key = args["key"] as? String) {
+        patchSettings(mapOf((args["key"] as? String ?: error("Missing setting")) to args["value"]))
+    }
+
+    private suspend fun patchSettings(values: Map<String, Any?>) {
+        BoxSettings.validate(values)
+        for ((key, item) in values) {
+        val args = mapOf("value" to item)
+        when (key) {
             "perAppEnabled" -> Settings.perAppProxyEnabled = args["value"] == true
             "perAppMode" -> {
                 val value = (args["value"] as Number).toInt()
@@ -504,6 +536,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 PackageQueryManager.setQueryMode(value)
             }
             else -> error("Unknown setting: " + key)
+        }
         }
         withContext(Dispatchers.IO) {
             Settings.dataStore.flush()
@@ -559,6 +592,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             PackageQueryManager.unregisterListeners()
             if (connectionsVisible) connections.setVisible(false)
             toolBridge.close()
+            dashboardDetails.close()
         }
     }
 }

@@ -21,10 +21,18 @@ def adb(*args, binary=False, timeout=45):
 
 
 def nodes():
-    adb("shell", "uiautomator", "dump", "/sdcard/box-window.xml")
-    document = adb("shell", "cat", "/sdcard/box-window.xml")
-    (OUT / "window.xml").write_text(document)
-    return list(ET.fromstring(document).iter("node"))
+    for attempt in range(4):
+        try:
+            result = adb("shell", "uiautomator", "dump", "/sdcard/box-window.xml")
+            if "dumped" not in result.lower():
+                time.sleep(0.5)
+                continue
+            document = adb("shell", "cat", "/sdcard/box-window.xml")
+            (OUT / "window.xml").write_text(document)
+            return list(ET.fromstring(document).iter("node"))
+        except (subprocess.SubprocessError, ET.ParseError):
+            time.sleep(0.5)
+    return []
 
 
 def matching(label, items):
@@ -41,15 +49,19 @@ def wait_for(label, timeout=90):
     raise AssertionError(f"UI never showed {label!r}; see window.xml")
 
 
+def tap_node(item):
+    x1, y1, x2, y2 = map(int, re.findall(r"\d+", item.attrib["bounds"]))
+    adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+    time.sleep(0.6)
+
+
 def click(label):
     found = wait_for(label)
     exact = [n for n in found if n.get("text") == label or n.get("content-desc") == label]
     item = (exact or found)[-1]
     if label in ("Start", "Stop"):
         assert exact, "The VPN button must have its own accessible tap target"
-    x1, y1, x2, y2 = map(int, re.findall(r"\d+", item.attrib["bounds"]))
-    adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
-    time.sleep(0.6)
+    tap_node(item)
 
 
 def capture(name):
@@ -70,10 +82,14 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 try:
     apk, = Path("build/apk").glob("*.apk")
     adb("install", "--no-streaming", "-r", str(apk), timeout=240)
+    adb("shell", "pm", "clear", PACKAGE)
     adb("logcat", "-c")
     adb("reverse", "tcp:18763", "tcp:18763")
     adb("shell", "am", "start", "-W", "-n", COMPONENT)
     wait_for("Dashboard")
+    startup = nodes()
+    for label in ("Disclaimer", "免责声明", "I agree", "Agree and continue"):
+        assert not matching(label, startup), "Fresh installation must open the dashboard without a disclaimer gate"
     capture("01-startup")
     uri = "sing-box://import-remote-profile?" + urllib.parse.urlencode({"url": "http://127.0.0.1:18763/profile.json"}) + "#" + urllib.parse.quote("Smoke profile")
     # ADB's shell parses this argument again; quote the encoded URI.
@@ -89,7 +105,7 @@ try:
             break
         for label in ("Allow", "OK"):
             if matching(label, current):
-                click(label)
+                tap_node(matching(label, current)[-1])
                 break
         time.sleep(0.5)
     wait_for("Running")

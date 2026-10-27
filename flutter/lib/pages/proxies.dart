@@ -1,4 +1,5 @@
 import '../widgets.dart';
+import '../components/group_tabs.dart';
 
 class ProxiesPage extends StatefulWidget {
   const ProxiesPage({super.key});
@@ -7,6 +8,28 @@ class ProxiesPage extends StatefulWidget {
 class _ProxiesPageState extends State<ProxiesPage> {
   String _query = '';
   final _testing = <String>{};
+  final _folded = <String>{};
+  final _scrolls = <String, ScrollController>{};
+  String? _currentGroup;
+  final _selectedKeys = <String, GlobalKey>{};
+
+  @override void dispose() {
+    for (final scroll in _scrolls.values) { scroll.dispose(); }
+    super.dispose();
+  }
+
+  Future<void> _locate() async {
+    final target = _selectedKeys[_currentGroup]?.currentContext;
+    if (target != null) await Scrollable.ensureVisible(target,
+      alignment: .5, duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic);
+  }
+
+  CommonPopupMenuItem _options(String label, Glyph glyph, String key, List<String> values, String fallback) => CommonPopupMenuItem(
+    glyph: glyph, label: context.tr(label), subItems: [for (final value in values)
+      CommonPopupMenuItem(label: context.tr(value), checked: (context.box.preferences[key] ?? fallback) == value,
+        onPressed: () => context.box.setPreference(key, value)),
+    ],
+  );
 
   Future<void> _test(String tag) async {
     if (_testing.contains(tag)) return;
@@ -24,7 +47,9 @@ class _ProxiesPageState extends State<ProxiesPage> {
   }
 
   List<Json> _nodes(Json group) {
-    final nodes = rows(group['items']).where((node) => node['tag'].toString().toLowerCase().contains(_query.toLowerCase())).toList();
+    final words = _query.toLowerCase().trim().split(RegExp(r'\s+'));
+    final nodes = rows(group['items']).where((node) => words.every(node['tag'].toString().toLowerCase().contains) &&
+      !(context.box.preferences['hideTimeoutProxies'] == true && (node['testedAt'] as num? ?? 0) > 0 && (node['delay'] as num? ?? 0) <= 0)).toList();
     final sort = context.box.preferences['proxySort'] ?? 'Default';
     if (sort == 'Name') nodes.sort((a, b) => a['tag'].toString().compareTo(b['tag'].toString()));
     if (sort == 'Latency') {
@@ -36,21 +61,25 @@ class _ProxiesPageState extends State<ProxiesPage> {
 
   Widget _grid(Json group, {bool nested = false}) {
     final nodes = _nodes(group);
-    if (nodes.isEmpty) return const EmptyState('No results');
+    if (nodes.isEmpty) return NullStatus(label: context.tr('No results'), illustration: NullStatusIllustration.proxies);
     final prefs = context.box.preferences;
-    final compact = prefs['proxyLayout'] == 'Compact';
+    final compact = prefs['proxyCardSize'] == 'Compact' || prefs['proxyCardSize'] == null && prefs['proxyLayout'] == 'Compact';
+    final loose = prefs['proxyCardSize'] == 'Loose';
     return LayoutBuilder(builder: (context, constraints) {
-      final preferred = (prefs['proxyColumns'] as num?)?.toInt() ?? 2;
-      final columns = constraints.maxWidth < 300 ? 1 : preferred.clamp(1, 4);
+      final standard = ((constraints.maxWidth - 32) / 250).ceil().clamp(2, 8);
+      final density = prefs['proxyDensity'] ?? 'Standard';
+      final columns = (standard + (density == 'Tight' ? 1 : density == 'Loose' ? -1 : 0)).clamp(1, 8);
       final measure = MeasureScope.of(context);
       final nameHeight = measure.textHeight(AppTextStyle.subheadline) * (compact ? 1 : 2);
       final detailHeight = measure.textHeight(AppTextStyle.footnote);
       return GridView.builder(
+        key: PageStorageKey('proxy-grid:${group['tag']}:$nested'),
+        controller: nested ? null : _scrolls.putIfAbsent(group['tag'].toString(), () => ScrollController()),
         shrinkWrap: nested, physics: nested ? const NeverScrollableScrollPhysics() : null,
-        padding: EdgeInsets.fromLTRB(16, 12, 16, nested ? 12 : 24 + context.bottomInset),
+        padding: EdgeInsets.fromLTRB(16, 0, 16, nested ? 10 : 16 + context.bottomInset),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: columns, mainAxisSpacing: 8, crossAxisSpacing: 8,
-          mainAxisExtent: 28 + nameHeight + detailHeight,
+          mainAxisExtent: 28 + nameHeight + detailHeight + (loose ? measure.textHeight(AppTextStyle.caption2) + 6 : 0),
         ),
         itemCount: nodes.length,
         itemBuilder: (context, index) {
@@ -70,6 +99,7 @@ class _ProxiesPageState extends State<ProxiesPage> {
             ]))),
           ];
           return ContextMenuRegion(
+            key: selected ? _selectedKeys.putIfAbsent(group['tag'].toString(), () => GlobalKey()) : ValueKey('${group['tag']}:${node['tag']}'),
             menuItems: menu,
             child: CommonCard(
               radius: AppCorner.lg, enterActionsOnRight: true,
@@ -83,14 +113,18 @@ class _ProxiesPageState extends State<ProxiesPage> {
                     if (selected) const Padding(padding: EdgeInsetsDirectional.only(start: 4), child: SelectionBadge()),
                   ]),
                   const SizedBox(height: 8),
-                  SizedBox(height: detailHeight, child: Row(children: [
+                  if (loose) SizedBox(height: detailHeight, child: Text(node['type'].toString(), maxLines: 1,
+                    overflow: TextOverflow.ellipsis, style: AppTextStyle.footnote.of(context).copyWith(color: context.colorScheme.onSurface.opacity80))),
+                  if (loose) const SizedBox(height: 6),
+                  SizedBox(height: loose ? measure.textHeight(AppTextStyle.caption2) : detailHeight, child: Row(children: [
+                    if (!loose)
                     Expanded(child: TooltipText(text: Text(node['type'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis,
                       style: AppTextStyle.footnote.of(context).copyWith(color: context.colorScheme.onSurface.opacity80)))),
-                    const SizedBox(width: 4),
+                    if (!loose) const SizedBox(width: 4),
                     Flexible(child: Semantics(button: true, label: context.tr('Test latency'), child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: () => _test(node['tag'] as String),
-                      child: FadeBox(alignment: Alignment.centerRight, child:
+                      child: FadeBox(alignment: loose ? Alignment.centerLeft : Alignment.centerRight, child:
                         _testing.contains(node['tag']) || _testing.contains(group['tag'])
                           ? CommonCircleLoading(size: measure.textHeight(AppTextStyle.caption2))
                           : !tested ? GlyphIcon(AppGlyphs.bolt, size: measure.textHeight(AppTextStyle.caption2))
@@ -112,14 +146,29 @@ class _ProxiesPageState extends State<ProxiesPage> {
     final box = context.box;
     final groups = box.groups;
     final list = box.preferences['proxyLayout'] == 'List';
+    if (!groups.any((group) => group['tag'] == _currentGroup)) _currentGroup = groups.firstOrNull?['tag'] as String?;
     return CommonScaffold(
       title: context.tr('Proxies'),
       searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
+      primaryAction: list ? null : IconButtonData(glyph: AppGlyphs.bolt, tooltip: context.tr('Test latency'),
+        isLoading: _testing.contains(_currentGroup),
+        onPressed: box.running && _currentGroup != null ? () => _test(_currentGroup!) : null),
       iconActions: [
-        IconButtonData(glyph: AppGlyphs.bolt, tooltip: context.tr('Test all'), onPressed: box.running && groups.isNotEmpty ? () async {
+        if (!list) IconButtonData(glyph: AppGlyphs.locate, tooltip: context.tr('Scroll to selected'), onPressed: groups.isEmpty ? null : _locate),
+      ],
+      menuItems: [
+        _options('Style', AppGlyphs.appsList, 'proxyLayout', const ['Tabs', 'List'], 'Tabs'),
+        _options('Sort', AppGlyphs.sort, 'proxySort', const ['Default', 'Latency', 'Name'], 'Default'),
+        _options('Layout', AppGlyphs.dashboard, 'proxyDensity', const ['Tight', 'Standard', 'Loose'], 'Standard'),
+        _options('Size', AppGlyphs.textSize, 'proxyCardSize', const ['Compact', 'Standard', 'Loose'], 'Standard'),
+        CommonPopupMenuItem(glyph: AppGlyphs.eyeOff, label: context.tr('Hide timeout proxies'), checked: box.preferences['hideTimeoutProxies'] == true,
+          section: const CommonPopupMenuSection(), onPressed: () => box.setPreference('hideTimeoutProxies', box.preferences['hideTimeoutProxies'] != true)),
+        CommonPopupMenuItem(glyph: AppGlyphs.bolt, label: context.tr('Test all'), onPressed: () async {
+          if (!box.running) return;
           for (final group in groups) { await _test(group['tag'] as String); }
-        } : null, isLoading: _testing.isNotEmpty),
-        IconButtonData(glyph: AppGlyphs.settings, tooltip: context.tr('Settings'), onPressed: () => openForm(context, const ProxySettingsPage())),
+        }),
+        CommonPopupMenuItem(glyph: AppGlyphs.connections, label: context.tr('Close connections after switching'), checked: box.preferences['closeConnectionsOnSelect'] == true,
+          onPressed: () => box.setPreference('closeConnectionsOnSelect', box.preferences['closeConnectionsOnSelect'] != true)),
       ],
       body: groups.isEmpty ? NullStatus(
         label: context.tr(box.running ? 'No proxy groups in this configuration' : 'Start the service to view proxy groups'),
@@ -127,9 +176,10 @@ class _ProxiesPageState extends State<ProxiesPage> {
       ) : list ? ListView(
         padding: EdgeInsets.only(top: context.contentTopPadding, bottom: 24 + context.bottomInset),
         children: [for (final group in groups) Column(children: [
-          ListItem(title: Text(group['tag'].toString()), subtitle: Text(group['selected'].toString()),
+          ListItem(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(group['tag'].toString()), subtitle: Text(group['selected'].toString()),
+            onTap: () => setState(() { final tag = group['tag'].toString(); _folded.contains(tag) ? _folded.remove(tag) : _folded.add(tag); }),
             trailing: IconButton(icon: const GlyphIcon(AppGlyphs.bolt), tooltip: context.tr('Test latency'), onPressed: () => _test(group['tag'] as String))),
-          _grid(group, nested: true),
+          if (!_folded.contains(group['tag'])) _grid(group, nested: true),
         ])],
       ) : DefaultTabController(
         key: ValueKey(groups.map((group) => group['tag']).join('|')),
@@ -137,14 +187,10 @@ class _ProxiesPageState extends State<ProxiesPage> {
         child: Padding(
           padding: EdgeInsets.only(top: context.contentTopPadding),
           child: Column(children: [
-            TabBar(isScrollable: true, tabAlignment: TabAlignment.start, tabs: [
-              for (final group in groups) Tab(
-                height: MeasureScope.of(context).textHeight(AppTextStyle.subheadline) + MeasureScope.of(context).textHeight(AppTextStyle.caption1) + 8,
-                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Text(group['tag'].toString(), maxLines: 1, style: AppTextStyle.subheadline.of(context)),
-                Text(group['selected'].toString(), maxLines: 1, style: context.listCaptionStyle),
-              ])),
-            ]),
+            Padding(padding: const EdgeInsets.only(bottom: 16), child: Builder(builder: (context) => GroupTabs(
+              controller: DefaultTabController.of(context), groups: groups,
+              onSelected: (index) { if (mounted) setState(() => _currentGroup = groups[index]['tag'] as String); },
+            ))),
             Expanded(child: TabBarView(children: [for (final group in groups) Column(children: [
               if (group['selectable'] != true) Padding(padding: const EdgeInsets.only(top: 8), child: Text(context.tr('Automatic selection'), style: context.listCaptionStyle)),
               Expanded(child: _grid(group)),
@@ -153,27 +199,5 @@ class _ProxiesPageState extends State<ProxiesPage> {
         ),
       ),
     );
-  }
-}
-
-class ProxySettingsPage extends StatelessWidget {
-  const ProxySettingsPage({super.key});
-  @override Widget build(BuildContext context) {
-    final box = context.box;
-    return BoxPage(title: 'Proxies', children: [
-      generateSection(title: context.tr('View'), items: [
-        ListItem.options(title: Text(context.tr('Layout')), options: const ['Tabs', 'List', 'Compact'],
-          value: box.preferences['proxyLayout'] as String? ?? 'Tabs', textBuilder: context.tr,
-          onChanged: (value) => box.setPreference('proxyLayout', value)),
-        ListItem<int>.options(title: Text(context.tr('Columns')), options: const [1, 2, 3, 4],
-          value: (box.preferences['proxyColumns'] as num?)?.toInt() ?? 2, textBuilder: (value) => value.toString(),
-          onChanged: (value) => box.setPreference('proxyColumns', value)),
-        ListItem.options(title: Text(context.tr('Sort')), options: const ['Default', 'Name', 'Latency'],
-          value: box.preferences['proxySort'] as String? ?? 'Default', textBuilder: context.tr,
-          onChanged: (value) => box.setPreference('proxySort', value)),
-        ListItem.toggle(title: Text(context.tr('Close connections after switching')),
-          value: box.preferences['closeConnectionsOnSelect'] == true, onChanged: (value) => box.setPreference('closeConnectionsOnSelect', value)),
-      ]),
-    ]);
   }
 }

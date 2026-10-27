@@ -1,69 +1,87 @@
+import 'package:super_sliver_list/super_sliver_list.dart';
 import '../widgets.dart';
+import '../components/record.dart';
 
 class LogsPage extends StatefulWidget {
   const LogsPage({super.key});
   @override State<LogsPage> createState() => _LogsPageState();
 }
+
 class _LogsPageState extends State<LogsPage> {
   String _query = '', _level = 'All';
   List<Json>? _paused;
-  final _scroll = ScrollController();
-  int _length = 0;
-  bool _follow = true;
-  @override void initState() {
-    super.initState();
-    _scroll.addListener(() {
-      if (_scroll.hasClients) _follow = _scroll.position.maxScrollExtent - _scroll.offset < 80;
-    });
-  }
+  late final _scroll = ScrollController(initialScrollOffset: double.maxFinite);
+  late final _physics = FollowEndScrollPhysics(isFollowing: () => _paused == null);
   @override void dispose() { _scroll.dispose(); super.dispose(); }
+
+  void _pause() {
+    if (_paused == null) setState(() => _paused = List.of(context.box.logs));
+  }
+
+  void _resume() {
+    if (_paused != null) setState(() => _paused = null);
+  }
+
   @override Widget build(BuildContext context) {
     final box = context.box;
-    final source = _paused ?? box.logs;
-    final logs = source.where((item) =>
+    final words = _query.toLowerCase().trim().split(RegExp(r'\s+'));
+    final logs = (_paused ?? box.logs).where((item) =>
       (_level == 'All' || item['level'].toString().toLowerCase() == _level.toLowerCase()) &&
-      item['message'].toString().toLowerCase().contains(_query.toLowerCase()),
+      words.every(([item['level'], item['message']].join(' ').toLowerCase()).contains),
     ).toList();
-    if (_follow && _paused == null && logs.length != _length) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
-      });
-    }
-    _length = logs.length;
     return CommonScaffold(
       title: context.tr('Logs'),
+      onKeywordsUpdate: (words) => setState(() => _query = words.join(' ')),
       searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
-      iconActions: [
-        IconButtonData(glyph: _paused == null ? AppGlyphs.playPause(1) : AppGlyphs.playPause(0),
-          tooltip: context.tr(_paused == null ? 'Pause' : 'Resume'), onPressed: () => setState(() => _paused = _paused == null ? List.of(box.logs) : null)),
-        IconButtonData(glyph: AppGlyphs.delete, tooltip: context.tr('Clear'), onPressed: () async {
+      iconActions: [IconButtonData(glyph: AppGlyphs.export, tooltip: context.tr('Export'), onPressed: () => box.act('document.save', {
+        'name': 'B-box.log', 'content': logs.map((line) => '${recordTime(line['receivedAt'])} [${line['level']}] ${line['message']}').join('\n'),
+      }))],
+      menuItems: [
+        CommonPopupMenuItem(glyph: _paused == null ? AppGlyphs.playPause(1) : AppGlyphs.playPause(0),
+          label: context.tr(_paused == null ? 'Pause' : 'Resume'), onPressed: _paused == null ? _pause : _resume),
+        CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear'), onPressed: () async {
           if (await box.act('logs.clear') && mounted) setState(() => _paused = null);
         }),
-        IconButtonData(glyph: AppGlyphs.upload, tooltip: context.tr('Export'), onPressed: () => box.act('document.save', {
-          'name': 'B-box.log', 'content': logs.map((line) => '[' + line['level'].toString() + '] ' + line['message'].toString()).join('\n'),
-        })),
+        for (final level in ['All', 'Trace', 'Debug', 'Info', 'Warn', 'Error', 'Fatal', 'Panic'])
+          CommonPopupMenuItem(label: context.tr(level), checked: _level == level,
+            section: level == 'All' ? CommonPopupMenuSection(title: context.tr('Log level')) : null,
+            onPressed: () => setState(() => _level = level)),
       ],
-      menuItems: [for (final level in ['All', 'Trace', 'Debug', 'Info', 'Warn', 'Error', 'Fatal', 'Panic'])
-        CommonPopupMenuItem(label: level, checked: _level == level, onPressed: () => setState(() => _level = level)),
-      ],
-      body: logs.isEmpty ? const Center(child: EmptyState('No logs', glyph: AppGlyphs.logs)) : ListView.builder(
-        controller: _scroll,
-        padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 24 + context.bottomInset),
-        itemCount: logs.length,
-        itemBuilder: (context, index) {
-          final log = logs[index];
-          final level = log['level'].toString();
-          final color = ['Error', 'Fatal', 'Panic'].contains(level) ? context.colorScheme.error
-              : level == 'Warn' ? context.colorScheme.warning : context.colorScheme.primary;
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              SizedBox(width: 44, child: Text(level.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color))),
-              const SizedBox(width: 8),
-              Expanded(child: SelectableText(log['message'].toString(), style: const TextStyle(fontFamily: 'JetBrainsMono', fontSize: 12, height: 1.5))),
-            ]),
-          );
-        },
+      body: NullStatusSwitcher(
+        isEmpty: logs.isEmpty, isSearching: _query.trim().isNotEmpty || _level != 'All',
+        nullStatus: NullStatus(label: context.tr('No logs'), illustration: NullStatusIllustration.logs),
+        child: logs.isEmpty ? const SizedBox.shrink() : Align(
+          alignment: Alignment.topCenter,
+          child: FloatingScrollbar(
+            controller: _scroll,
+            hintBuilder: (fraction) => recordTime(logs[(fraction * (logs.length - 1)).round()]['receivedAt']),
+            child: ScrollToEndBox(
+              controller: _scroll, enable: _paused == null,
+              onCancelToEnd: _pause, onResumeToEnd: _resume,
+              child: SuperListView.separated(
+                controller: _scroll, physics: _physics, reverse: true, shrinkWrap: true,
+                padding: EdgeInsets.only(top: context.contentTopPadding, bottom: 16 + context.bottomInset),
+                extentEstimation: recordListExtentEstimation,
+                itemCount: logs.length,
+                separatorBuilder: (_, _) => const SizedBox(height: recordListGap),
+                itemBuilder: (context, index) {
+                  final log = logs[index];
+                  final level = log['level'].toString().toLowerCase();
+                  final tone = ['error', 'fatal', 'panic'].contains(level) ? RecordTone.error
+                      : ['warn', 'warning'].contains(level) ? RecordTone.warning : RecordTone.neutral;
+                  return RecordListItem(
+                    key: ValueKey(log['id']), onTap: () {},
+                    header: RecordHeader(children: [
+                      if ((log['receivedAt'] as num? ?? 0) > 0) RecordTimestamp(recordTime(log['receivedAt'])),
+                      RecordLabel(label: level, tone: tone, onPressed: () => context.commonScaffoldState?.addKeyword(level)),
+                    ]),
+                    body: SelectableText(log['message'].toString(), style: RecordTextStyles.of(context).primary),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

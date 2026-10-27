@@ -21,13 +21,7 @@ class _PageSwitcherState extends State<PageSwitcher> with SingleTickerProviderSt
     _motion.forward(from: 0).orCancel.then((_) { if (mounted) setState(() => _previous = null); }).catchError((_) {});
   }
   @override void dispose() { _motion.dispose(); super.dispose(); }
-  @override Widget build(BuildContext context) => GestureDetector(
-    onHorizontalDragEnd: (details) {
-      final velocity = details.primaryVelocity ?? 0;
-      if (velocity.abs() < 250) return;
-      widget.onSelected((widget.index + (velocity < 0 ? 1 : -1)).clamp(0, widget.children.length - 1));
-    },
-    child: AnimatedBuilder(animation: _motion, builder: (context, _) {
+  @override Widget build(BuildContext context) => AnimatedBuilder(animation: _motion, builder: (context, _) {
       final fade = widget.animation == TabAnimation.fade;
       final progress = (fade ? fadeTabCurve : Curves.easeOut).transform(_motion.value);
       final direction = _previous == null || widget.index >= _previous! ? 1.0 : -1.0;
@@ -41,6 +35,5 @@ class _PageSwitcherState extends State<PageSwitcher> with SingleTickerProviderSt
           )),
         ),
       ]);
-    }),
-  );
+    });
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import '../widgets.dart';
+import '../components/record.dart';
 
 class ConnectionsPage extends StatefulWidget {
   const ConnectionsPage({super.key});
@@ -7,7 +8,7 @@ class ConnectionsPage extends StatefulWidget {
 }
 class _ConnectionsPageState extends State<ConnectionsPage> {
   BoxController? _box;
-  String _query = '', _filter = 'Active', _sort = 'Created';
+  String _query = '', _filter = 'Active', _sort = 'Speed';
   @override void didChangeDependencies() {
     super.didChangeDependencies();
     if (_box == null) {
@@ -34,57 +35,74 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
       ].join(' ').toLowerCase();
       return _query.toLowerCase().split(' ').every(search.contains);
     }).toList();
-    final key = {'Created': 'createdAt', 'Upload': 'uploadTotal', 'Download': 'downloadTotal'}[_sort]!;
-    list.sort((a, b) => (b[key] as num? ?? 0).compareTo(a[key] as num? ?? 0));
+    final key = {'Created': 'createdAt', 'Upload': 'uploadTotal', 'Download': 'downloadTotal'}[_sort];
+    num rank(Json c) => key == null ? (c['upload'] as num? ?? 0) + (c['download'] as num? ?? 0) : c[key] as num? ?? 0;
+    list.sort((a, b) => rank(b).compareTo(rank(a)));
     return CommonScaffold(
       title: context.tr('Connections'),
+      onKeywordsUpdate: (words) => setState(() => _query = words.join(' ')),
       searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
-      iconActions: [IconButtonData(glyph: AppGlyphs.close, tooltip: context.tr('Close all connections'), onPressed: box.running ? _closeAll : null)],
+      iconActions: [IconButtonData(glyph: AppGlyphs.clearAll, tooltip: context.tr('Close all connections'), onPressed: box.running ? _closeAll : null)],
       menuItems: [
-        for (final sort in ['Created', 'Upload', 'Download'])
+        for (final filter in ['Active', 'Closed', 'All'])
+          CommonPopupMenuItem(label: context.tr(filter), checked: filter == _filter,
+            section: filter == 'Active' ? CommonPopupMenuSection(title: context.tr('Connections')) : null,
+            onPressed: () => setState(() => _filter = filter)),
+        for (final sort in ['Speed', 'Created', 'Upload', 'Download'])
           CommonPopupMenuItem(glyph: AppGlyphs.sort, label: context.tr(sort), checked: sort == _sort, onPressed: () => setState(() => _sort = sort)),
       ],
-      body: Padding(
-        padding: EdgeInsets.only(top: context.contentTopPadding),
-        child: Column(children: [
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: SegmentedControl<String>(
-            segments: [for (final filter in ['Active', 'Closed', 'All']) (filter, context.tr(filter))],
-            value: _filter, onChanged: (value) => setState(() => _filter = value),
-          )),
-          const SizedBox(height: 12),
-          Expanded(child: list.isEmpty ? const Center(child: EmptyState('No connections', glyph: AppGlyphs.connections)) : ListView.separated(
-            padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + context.bottomInset),
+      body: NullStatusSwitcher(
+        isEmpty: list.isEmpty, isSearching: _query.trim().isNotEmpty,
+        nullStatus: NullStatus(label: context.tr('No connections'), illustration: NullStatusIllustration.connections),
+        child: ListView.separated(
+            padding: EdgeInsets.only(top: context.contentTopPadding, bottom: 16 + context.bottomInset),
             itemCount: list.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            separatorBuilder: (_, _) => const SizedBox(height: recordListGap),
             itemBuilder: (context, index) {
               final connection = list[index];
-              return CommonCard(
-                radius: AppCorner.xl,
-                onPressed: () => openPage(context, ConnectionDetail(initial: connection)),
-                child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Row(children: [
-                    Expanded(child: Text(connection['displayDestination'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyle.headline.of(context))),
-                    const SizedBox(width: 8),
-                    Text(connection['network'].toString().toUpperCase(), style: context.listCaptionStyle),
-                  ]),
-                  const SizedBox(height: 8),
-                  Text(connection['outbound'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.listSubtitleStyle),
-                  const SizedBox(height: 8),
-                  Row(children: [
-                    const GlyphIcon(AppGlyphs.arrowUp, size: 14),
-                    Text(bytes(connection['uploadTotal'] as num? ?? 0), style: context.listCaptionStyle),
-                    const SizedBox(width: 18),
-                    const GlyphIcon(AppGlyphs.arrowDown, size: 14),
-                    Text(bytes(connection['downloadTotal'] as num? ?? 0), style: context.listCaptionStyle),
-                    const Spacer(),
-                    if ((connection['closedAt'] as num? ?? 0) > 0) Text(context.tr('Closed'), style: context.listCaptionStyle),
-                  ]),
-                ])),
-              );
+              return ConnectionRecord(connection: connection);
             },
-          )),
-        ]),
+          ),
       ),
+    );
+  }
+}
+
+class ConnectionRecord extends StatelessWidget {
+  const ConnectionRecord({super.key, required this.connection});
+  final Json connection;
+  @override Widget build(BuildContext context) {
+    final c = connection, box = context.box;
+    final styles = RecordTextStyles.of(context);
+    final closed = (c['closedAt'] as num? ?? 0) > 0;
+    return RecordListItem(
+      key: ValueKey(c['id']),
+      onTap: () => openPage(context, ConnectionDetail(initial: c)),
+      header: RecordHeader(
+        children: [
+          RecordTimestamp(recordTime(c['createdAt'])),
+          RecordLabel(label: c['network'].toString().toUpperCase(), onPressed: () => context.commonScaffoldState?.addKeyword(c['network'].toString())),
+          if (closed) RecordLabel(label: context.tr('Closed')),
+        ],
+        trailing: !closed && box.running ? Tooltip(
+          message: context.tr('Close this connection'), child: Semantics(button: true, child: InkWell(
+            customBorder: AppShape.circle, onTap: () => box.act('connections.close', {'id': c['id']}),
+            child: SizedBox.square(dimension: 28, child: Center(child: GlyphIcon(AppGlyphs.block, size: 16, color: context.colorScheme.onSurfaceVariant))),
+          )),
+        ) : null,
+      ),
+      body: Column(crossAxisAlignment: CrossAxisAlignment.start, spacing: 4, children: [
+        Text(c['displayDestination']?.toString() ?? c['destination']?.toString() ?? '—', style: styles.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+        Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 6, children: [
+          if ((c['rule'] as String? ?? '').isNotEmpty) ...[Text(c['rule'].toString(), style: styles.secondary), const RecordArrow()],
+          Text(c['outbound']?.toString() ?? '—', style: AppTextStyle.footnote.of(context, emphasized: true).copyWith(color: context.colorScheme.primary)),
+        ]),
+        Text(c['source']?.toString() ?? '—', style: styles.secondary, maxLines: 1, overflow: TextOverflow.ellipsis),
+        Wrap(spacing: 16, runSpacing: 4, children: [for (final upload in [true, false]) Row(mainAxisSize: MainAxisSize.min, spacing: 4, children: [
+          GlyphIcon(upload ? AppGlyphs.arrowUp : AppGlyphs.arrowDown, size: 12, color: context.colorScheme.onSurfaceVariant),
+          Text('${bytes(c[upload ? 'uploadTotal' : 'downloadTotal'] as num? ?? 0)} · ${bytes(c[upload ? 'upload' : 'download'] as num? ?? 0)}/s', style: styles.secondary.toTabular),
+        ])]),
+      ]),
     );
   }
 }
@@ -122,7 +140,7 @@ class _ConnectionDetailState extends State<ConnectionDetail> {
         IconButtonData(glyph: AppGlyphs.close, tooltip: context.tr('Close this connection'),
           onPressed: box.running && present && (c['closedAt'] as num? ?? 0) == 0 ? () => box.act('connections.close', {'id': c['id']}) : null),
       ],
-      children: [DetailRows(values)],
+      children: [generateGroup([for (final value in values.entries) DetailRow.text(title: context.tr(value.key), value: value.value?.toString() ?? '—')])],
     );
   }
 }

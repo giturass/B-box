@@ -32,7 +32,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Pure black'));
     await tester.pumpAndSettle();
-    expect(Theme.of(tester.element(find.byType(AppearancePage))).colorScheme.surface, Colors.black);
+    expect(stored['pureBlack'], true);
+    expect(tester.widget<MaterialApp>(find.byType(MaterialApp)).darkTheme!.colorScheme.surface, Colors.black);
     await Scrollable.ensureVisible(tester.element(find.text('Fade')), alignment: .5);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Fade'));

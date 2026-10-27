@@ -64,7 +64,10 @@ void main() {
         {'id': 2, 'name': 'Local configuration', 'remote': false},
       ]});
       events.add({'type': 'dashboard', 'value': {'status': 'Started', 'selectedProfileId': 1,
-        'modes': ['rule', 'global'], 'mode': 'rule', 'uploadTotal': '1.2 MB', 'downloadTotal': '5.4 MB'}});
+        'modes': ['rule', 'global', 'direct'], 'mode': 'rule', 'uploadTotal': '1.2 MB', 'downloadTotal': '5.4 MB'}});
+      events.add({'type': 'lan', 'value': {'addresses': ['192.168.1.20', 'fd00::20'], 'bindings': [{'type': 'mixed', 'listen': '127.0.0.1', 'port': 2080}]}});
+      events.add({'type': 'memory', 'value': {'total': 120 * 1024 * 1024, 'rss': 120 * 1024 * 1024, 'app': 80 * 1024 * 1024,
+        'core': 40 * 1024 * 1024, 'running': true, 'remote': false, 'heapInuse': 24 * 1024 * 1024, 'heapIdle': 8 * 1024 * 1024, 'stack': 4 * 1024 * 1024, 'runtimeOther': 4 * 1024 * 1024, 'goroutines': 47}});
       events.add({'type': 'groups', 'value': [{'tag': 'Select', 'selected': 'Node A', 'selectable': true, 'items': [
         {'tag': 'Node A', 'type': 'Shadowsocks', 'delay': 43, 'testedAt': 1},
         {'tag': 'Node B with a long name', 'type': 'WireGuard', 'delay': 0, 'testedAt': 1},
@@ -80,6 +83,16 @@ void main() {
       await tester.tap(find.text('Dashboard').last);
       await tester.pumpAndSettle();
       final rootContext = tester.element(find.byType(HomePage));
+      events.add({'type': 'connections', 'value': [
+        {'id': 'live-1', 'displayDestination': 'example.org:443', 'network': 'tcp', 'source': '192.0.2.1:51234',
+          'outbound': 'Node A', 'rule': 'domain_suffix=example.org', 'createdAt': 1793030400000,
+          'upload': 1024, 'download': 8192, 'uploadTotal': 32768, 'downloadTotal': 65536},
+      ]});
+      events.add({'type': 'logs', 'value': [
+        {'id': 1, 'level': 'Info', 'receivedAt': 1793030400000, 'message': 'inbound/tun[0]: inbound connection from 192.0.2.1:51234'},
+        {'id': 2, 'level': 'Warn', 'receivedAt': 1793030401000, 'message': 'outbound/shadowsocks[Node A]: connection timed out'},
+      ]});
+      await tester.pumpAndSettle();
       for (final (label, page) in <(String, Widget)>[
         ('Connections', const ConnectionsPage()), ('Logs', const LogsPage()),
         ('Appearance', const AppearancePage()), ('Access', const AccessPage()),

@@ -64,6 +64,7 @@ jobs:
         run: |
           git apply --check ../patches/libbox-no-legacy.patch
           git apply ../patches/libbox-no-legacy.patch
+          cp ../libbox/ui_dashboard.go experimental/libbox/ui_dashboard.go
 
       # The upstream libbox builder explicitly requires OpenJDK 17.
       - name: Set up Java for libbox

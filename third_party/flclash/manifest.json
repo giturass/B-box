@@ -149,6 +149,36 @@
       "source": "lib/views/theme.dart",
       "sourceSHA256": "a5751491fbabb34065309577f84eb12f54a085cc9b827f2e3786156a17811bba",
       "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Desktop-only controls omitted."
+    },
+    "lib/components/status_panel.dart": {
+      "source": "lib/views/dashboard/widgets/current_outbound.dart",
+      "sourceSHA256": "ee6f397a9b1bc78968699e2852c7a6ba36d1d1a05dfa4cbcd6545e09c6b55f28",
+      "changes": "Mobile status layout, country badge, IP chips, runtime and organization cells. Egress requests use the real sing-box router; unavailable remote probes are not simulated."
+    },
+    "lib/components/memory_panel.dart": {
+      "source": "lib/views/dashboard/widgets/memory_info.dart",
+      "sourceSHA256": "4cf6921e7d03b57bbccfa27506774623cf2119f57f8b6c4c8cc1831b5443ccb4",
+      "changes": "Mobile memory figure, segmented bar, legend and details. Reads Go runtime statistics from libbox and subtracts them from shared-process RSS."
+    },
+    "lib/components/intranet_panel.dart": {
+      "source": "lib/views/dashboard/widgets/intranet_ip.dart",
+      "sourceSHA256": "c1f99b03a80f79a2044566b4fb1b9c8cea5a03ff4936a277130485e611bd284f",
+      "changes": "Mobile LAN IP presentation and copy action. Shows actual sing-box local proxy listeners instead of a Clash global allow-LAN setting."
+    },
+    "lib/components/dashboard_chip.dart": {
+      "source": "lib/views/dashboard/widgets/card.dart",
+      "sourceSHA256": "7e1a759eae758576c4005fe250c7441bb606b4256a09e327f502e30d0851c8ab",
+      "changes": "Shared status and quality chips, using the same surface and semantic color roles."
+    },
+    "lib/components/group_tabs.dart": {
+      "source": "lib/views/proxies/group_tabs.dart",
+      "sourceSHA256": "e8346fa81cedc40e7ff22227b2c78cc76a84d25b052b784038b31fe69c0ccf6b",
+      "changes": "Group chip strip, lazy variable-width layout, overflow menu, edge fade and selected-group reveal retained; names come from sing-box groups."
+    },
+    "lib/components/record.dart": {
+      "source": "lib/widgets/record.dart",
+      "sourceSHA256": "1a29b9c8e41a2f3dec32e496019dd3299234947c2dbad8c037094a8c0a67cd92",
+      "changes": "Shared log/connection record surfaces, header, timestamp, labels, typography and copyable detail rows retained; semantic color roles copied from the reference RecordTone enum."
     }
   }
 }

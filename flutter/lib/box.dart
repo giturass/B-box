@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -24,6 +25,7 @@ class BoxController extends ChangeNotifier {
   Json dashboard = {}, settings = {}, preferences = {}, rates = {};
   Json toolState = {}, stun = {}, quality = {}, inbox = {}, ping = {};
   Json terminal = {};
+  Json memory = {}, lan = {};
   List<Json> transfers = [], usbDevices = [];
   List<Json> outbounds = [];
   List<Json> profiles = [], groups = [], connections = [], logs = [];
@@ -37,6 +39,12 @@ class BoxController extends ChangeNotifier {
   String? startupError;
   final pendingIntents = <String>[];
   String? applyRequired;
+  final appIcons = <String, Future<Uint8List?>>{};
+
+  Future<Uint8List?> appIcon(String package) => appIcons.putIfAbsent(package, () async {
+    try { return await call('apps.icon', {'package': package}) as Uint8List?; }
+    catch (_) { return null; }
+  });
 
   bool get remote => dashboard['remote'] != null;
   bool get running => remote
@@ -92,14 +100,16 @@ class BoxController extends ChangeNotifier {
     }
   }
 
-  Future<void> setPreference(String key, dynamic value) => setPreferences({key: value});
+  Future<bool> setPreference(String key, dynamic value) => setPreferences({key: value});
 
-  Future<void> setPreferences(Json values) async {
+  Future<bool> setPreferences(Json values) async {
     try {
       preferences = json(await call('preferences.set', {'value': values}));
       notifyListeners();
+      return true;
     } catch (error) {
       report(error);
+      return false;
     }
   }
 
@@ -111,6 +121,15 @@ class BoxController extends ChangeNotifier {
     } catch (error) {
       report(error);
     }
+  }
+
+  Future<bool> setSettings(Json values, {bool restart = true}) async {
+    try {
+      settings = json(await call('settings.patch', {'value': values}));
+      if (restart && running && !remote) applyRequired = 'Restart';
+      notifyListeners();
+      return true;
+    } catch (error) { report(error); return false; }
   }
 
   void report(Object error) { if (!_disposed) messages.add(describe(error)); }
@@ -130,6 +149,8 @@ class BoxController extends ChangeNotifier {
       case 'transfers': transfers = rows(value);
       case 'usbDevices': usbDevices = rows(value);
       case 'terminal': terminal = json(value);
+      case 'memory': memory = json(value);
+      case 'lan': lan = json(value);
       case 'browserComplete': browserEvents.add(json(value)); return;
       case 'dashboard': dashboard = json(value);
       case 'profiles': profiles = rows(value);

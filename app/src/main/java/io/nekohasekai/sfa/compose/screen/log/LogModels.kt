@@ -5,7 +5,7 @@ import io.nekohasekai.sfa.constant.Status
 
 data class LogEntryData(val level: LogLevel, val message: String)
 
-data class ProcessedLogEntry(val id: Long, val entry: LogEntryData, val annotatedString: AnnotatedString)
+data class ProcessedLogEntry(val id: Long, val entry: LogEntryData, val annotatedString: AnnotatedString, val receivedAt: Long = System.currentTimeMillis())
 
 enum class LogLevel(val label: String, val priority: Int) {
     Default("Default", 7),

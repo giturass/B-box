@@ -137,12 +137,12 @@ class PanelTitle extends StatelessWidget {
   final Glyph glyph;
   final Widget? trailing;
   @override
-  Widget build(BuildContext context) => Row(children: [
+  Widget build(BuildContext context) => SizedBox(height: 26 * MediaQuery.textScalerOf(context).scale(1), child: Row(children: [
     GlyphIcon(glyph, size: 18, color: context.colorScheme.onSurfaceVariant),
     const SizedBox(width: 8),
-    Expanded(child: Text(context.tr(title), style: AppTextStyle.subheadline.of(context, emphasized: true))),
+    Expanded(child: Text(context.tr(title), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyle.subheadline.of(context, emphasized: true))),
     if (trailing != null) trailing!,
-  ]);
+  ]));
 }
 
 String localDate(dynamic value) {
