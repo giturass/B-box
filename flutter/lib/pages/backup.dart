@@ -159,7 +159,7 @@ class _BackupPageState extends State<BackupPage> {
                 title: TooltipText(text: Text((account['user'] as String).isEmpty ? account['uri'] as String : account['user'] as String,
                   maxLines: 1, overflow: TextOverflow.ellipsis)),
                 subtitle: Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Row(spacing: 8, children: [
-                  Text(context.tr('Connectivity')), _indicator(),
+                  Flexible(child: Text(context.tr('Connectivity'), maxLines: 1, overflow: TextOverflow.ellipsis)), _indicator(),
                 ])), trailing: TonalButton(label: context.tr('Edit'), onPressed: _locked ? null : _edit)),
               ListItem.input(title: Text(context.tr('File')), subtitle: Text(account['fileName'] as String),
                 dialogTitle: context.tr('File'), value: account['fileName'] as String, resetValue: defaultBackupFileName,
