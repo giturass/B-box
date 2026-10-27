@@ -34,6 +34,7 @@ class BoxController extends ChangeNotifier {
   int systemAccentColor = 0xff007aff;
   int sampleRevision = 0;
   int profilesRevision = 0;
+  int dashboardEditRevision = 0;
   bool _disposed = false;
   bool ready = false;
   String? startupError;
@@ -61,6 +62,8 @@ class BoxController extends ChangeNotifier {
     }
     return null;
   }
+
+  void editDashboard() { dashboardEditRevision++; notifyListeners(); }
 
   Future<void> initialize() async {
     startupError = null;

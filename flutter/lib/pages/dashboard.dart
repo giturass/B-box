@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 import '../widgets.dart';
+import '../components/dashboard_editor.dart';
+
 import '../components/connected_buttons.dart';
 import 'connections.dart';
 import '../components/status_panel.dart';
@@ -7,6 +9,8 @@ import '../components/memory_panel.dart';
 import '../components/intranet_panel.dart';
 import '../components/profile_panel.dart';
 import '../components/proxy_groups_panel.dart';
+
+export '../components/dashboard_editor.dart' show DashboardEditor;
 
 const dashboardCards = ['Status', 'Network speed', 'Outbound mode', 'Current profile', 'Connections', 'Proxy groups', 'Memory', 'Intranet IP'];
 const defaultDashboardCards = ['Status', 'Network speed', 'Outbound mode', 'Current profile', 'Proxy groups'];
@@ -17,13 +21,31 @@ List<String> dashboardOrder(Json prefs) {
   return {...saved, ...dashboardCards}.toList();
 }
 
-class DashboardPage extends StatelessWidget {
+class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
-  @override Widget build(BuildContext context) {
+  @override State<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<DashboardPage> {
+  final _cardKeys = <String, GlobalKey>{};
+  final _editor = GlobalKey<DashboardEditorState>();
+  late final _scroll = sheetScrollController(context);
+  bool _editing = false, _saving = false;
+  int _editRevision = 0;
+  GlobalKey _keyOf(String card) => _cardKeys.putIfAbsent(card, GlobalKey.new);
+
+  @override void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_editRevision != context.box.dashboardEditRevision) {
+      _editRevision = context.box.dashboardEditRevision;
+      _editing = true;
+    }
+  }
+  @override void dispose() { _scroll.dispose(); super.dispose(); }
+
+  Map<String, Widget> _cards() {
     final box = context.box;
-    final saved = dashboardOrder(box.preferences);
-    final hidden = (box.preferences['hiddenCards'] as List?) ?? defaultHiddenCards;
-    final cards = <String, Widget>{
+    return <String, Widget>{
       'Status': const StatusPanel(),
       'Intranet IP': const IntranetPanel(),
       'Network speed': const _SpeedPanel(),
@@ -37,41 +59,62 @@ class DashboardPage extends StatelessWidget {
       'Proxy groups': const ProxyGroupsPanel(),
       'Memory': const MemoryPanel(),
     };
-    return CommonScaffold(
-      title: context.tr('Dashboard'),
-      iconActions: [IconButtonData(glyph: AppGlyphs.edit, tooltip: context.tr('Dashboard cards'), onPressed: () => openForm(context, const DashboardEditor()))],
+  }
+
+  Future<bool> _saveLayout(List<String> shown) async {
+    final box = context.box, available = _cards().keys.toSet();
+    final order = dashboardOrder(box.preferences), result = List<String>.of(shown);
+    final hidden = (box.preferences['hiddenCards'] as List? ?? defaultHiddenCards).whereType<String>().toSet();
+    var at = 0;
+    for (final card in order) {
+      if (available.contains(card)) {
+        final index = result.indexOf(card);
+        if (index >= 0) at = index + 1;
+      } else { result.insert(at++, card); }
+    }
+    for (final card in order) { if (!result.contains(card)) result.add(card); }
+    for (final card in available) {
+      shown.contains(card) ? hidden.remove(card) : hidden.add(card);
+    }
+    hidden.remove('Status');
+    return box.setPreferences({'dashboardCards': result, 'hiddenCards': hidden.toList()});
+  }
+
+  @override Widget build(BuildContext context) {
+    final box = context.box, cards = _cards();
+    final hidden = box.preferences['hiddenCards'] as List? ?? defaultHiddenCards;
+    final shown = [for (final card in dashboardOrder(box.preferences))
+      if (cards.containsKey(card) && (card == 'Status' || !hidden.contains(card))) card];
+    return CommonScaffold(title: context.tr(_editing ? 'Edit dashboard' : 'Dashboard'),
+      isLoading: _saving, backgroundColor: SurfaceLevel.page.colorOf(context.colorScheme),
+      confirmationAction: _editing ? IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Done'),
+        onPressed: _saving ? null : () { _editor.currentState?.finish(); }) : null,
+      iconActions: [if (!_editing) IconButtonData(glyph: AppGlyphs.edit, tooltip: context.tr('Dashboard cards'),
+        onPressed: () => setState(() => _editing = true))],
       body: LayoutBuilder(builder: (context, constraints) {
-        final side = math.max(16.0, (constraints.maxWidth - 560) / 2);
-        return ListView(
-          padding: EdgeInsets.fromLTRB(side, context.contentTopPadding, side, 16 + context.bottomInset),
-          children: [
-            if (box.remote) Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: ListItem(title: Text(box.dashboard['remote'].toString()), subtitle: Text(context.tr('Remote control')),
+        final side = math.max(16.0, (constraints.maxWidth - 560) / 2), gap = context.isMobileView ? 8.0 : 12.0;
+        final padding = EdgeInsets.fromLTRB(side, context.contentTopPadding, side, 16 + context.bottomInset);
+        return CustomScrollView(key: const PageStorageKey('dashboard'), controller: _scroll,
+          scrollCacheExtent: _editing ? ScrollCacheExtent.viewport(dashboardCards.length.toDouble()) : null,
+          slivers: [
+            if (_editing) DashboardEditor(key: _editor, shown: shown,
+              available: [for (final card in dashboardCards) if (cards.containsKey(card)) card],
+              cardKeyOf: _keyOf, cardBuilder: (card) => cards[card]!, padding: padding, gap: gap,
+              onChanged: _saveLayout, onBusyChanged: (busy) { if (mounted) setState(() => _saving = busy); },
+              onDone: () { if (mounted) setState(() => _editing = false); })
+            else SliverPadding(padding: padding, sliver: SliverToBoxAdapter(child: Column(spacing: gap, children: [
+              if (box.remote) ListItem(title: Text(box.dashboard['remote'].toString()), subtitle: Text(context.tr('Remote control')),
                 trailing: TextButton(onPressed: () => box.act('remote.disconnect'), child: Text(context.tr('Disconnect')))),
-            ),
-            if (box.applyRequired != null) Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: ListItem(title: Text(context.tr('Restart required')), trailing: TextButton(
-                onPressed: () async {
-                  if (await box.act('service.reload', {'restart': true})) box.clearApplyRequired();
-                },
-                child: Text(context.tr('Apply')),
-              )),
-            ),
-            for (final card in saved)
-              if (cards.containsKey(card) && (card == 'Status' || !hidden.contains(card)))
-                Padding(padding: const EdgeInsets.only(bottom: 16), child: cards[card]),
-            if (box.dashboard['systemProxyAvailable'] == true)
-              BoxPanel(child: ListItem.toggle(
-                title: Text(context.tr('System HTTP proxy')),
-                value: box.dashboard['systemProxy'] == true,
-                onChanged: (value) => box.act('systemProxy.set', {'enabled': value}),
-              )),
-            for (final note in rows(box.dashboard['deprecated'])) Padding(
-              padding: const EdgeInsets.only(top: 16),
-              child: ListItem(title: Text(note['message'].toString()), onTap: note['url'] == null ? null : () => box.act('url.open', {'url': note['url']})),
-            ),
+              if (box.applyRequired != null) ListItem(title: Text(context.tr('Restart required')), trailing: TextButton(
+                onPressed: () async { if (await box.act('service.reload', {'restart': true})) box.clearApplyRequired(); },
+                child: Text(context.tr('Apply')))),
+              for (final card in shown) RepaintBoundary(key: _keyOf(card), child: cards[card]),
+              if (box.dashboard['systemProxyAvailable'] == true) BoxPanel(child: ListItem.toggle(
+                title: Text(context.tr('System HTTP proxy')), value: box.dashboard['systemProxy'] == true,
+                onChanged: (value) => box.act('systemProxy.set', {'enabled': value}))),
+              for (final note in rows(box.dashboard['deprecated'])) ListItem(title: Text(note['message'].toString()),
+                onTap: note['url'] == null ? null : () => box.act('url.open', {'url': note['url']})),
+            ]))),
           ],
         );
       }),
@@ -157,42 +200,5 @@ class _ModePanel extends StatelessWidget {
         )),
       ]),
     ]));
-  }
-}
-
-class DashboardEditor extends StatefulWidget {
-  const DashboardEditor({super.key});
-  @override State<DashboardEditor> createState() => _DashboardEditorState();
-}
-class _DashboardEditorState extends State<DashboardEditor> {
-  List<String>? _order;
-  Set<String>? _hidden;
-  bool _saving = false;
-  @override Widget build(BuildContext context) {
-    final box = context.box;
-    _order ??= dashboardOrder(box.preferences);
-    _hidden ??= (box.preferences['hiddenCards'] as List?)?.cast<String>().toSet() ?? defaultHiddenCards.toSet();
-    return CommonScaffold(
-      title: context.tr('Dashboard cards'),
-      isLoading: _saving,
-      confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Done'), onPressed: _saving ? null : () async {
-        setState(() => _saving = true);
-        final saved = await box.setPreferences({'dashboardCards': List.of(_order!), 'hiddenCards': _hidden!.toList()});
-        if (!context.mounted) return;
-        setState(() => _saving = false);
-        if (saved) context.safeNestedPop();
-      }),
-      body: ReorderableListView.builder(
-        padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 24 + context.bottomInset),
-        itemCount: _order!.length,
-        onReorder: (old, next) { if (!_saving) setState(() { if (old < next) next--; _order!.insert(next, _order!.removeAt(old)); }); },
-        itemBuilder: (context, index) {
-          final name = _order![index];
-          return ListItem.toggle(key: ValueKey(name), title: Text(context.tr(name)),
-            value: !_hidden!.contains(name), onChanged: _saving || name == 'Status' ? null : (shown) => setState(() { shown ? _hidden!.remove(name) : _hidden!.add(name); }),
-          );
-        },
-      ),
-    );
   }
 }

@@ -219,6 +219,11 @@
       "source": "lib/widgets/icon.dart",
       "sourceSHA256": "2d5a8e8f1c36085316da66988ed251f33df288dc0eb9028c0307c08a907d5161",
       "changes": "Group-name monogram and typography retained; empty names use the existing proxy glyph."
+    },
+    "lib/components/dashboard_editor.dart": {
+      "source": "lib/views/dashboard/edit.dart",
+      "sourceSHA256": "22c6b0d835e2b7c7c0bd5d9e2e50580a816fff889d0f8eda0b4c561bf084e462",
+      "changes": "In-place live cards, sway, long-press reordering, remove badges, presence motion and addable rows retained. Saves native preferences, preserves card keys and retries failed saves before leaving."
     }
   }
 }

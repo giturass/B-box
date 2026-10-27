@@ -42,6 +42,10 @@ source of truth. No action may launch an old Compose page as a fallback.
   fixed-extent lazy rows, folding motion and filled/plain/hidden group icons.
   Fold state is stored per selected profile. Locating a node uses its row
   offset and works before the node has entered the viewport.
+- Dashboard editing happens on the live cards, with the reference's sway,
+  long-press reordering, remove badges and addable rows. Global card keys
+  preserve state and prevent duplicate probes during editing. Changes save
+  immediately; a failed save retains the draft and Done retries it.
 
 ## Validation
 

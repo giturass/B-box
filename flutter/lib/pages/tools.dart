@@ -1,7 +1,6 @@
 import '../widgets.dart';
 import 'connections.dart';
 import 'logs.dart';
-import 'dashboard.dart';
 import 'settings.dart';
 import 'diagnostics.dart';
 import 'endpoints.dart';
@@ -35,7 +34,7 @@ class ToolsPage extends StatelessWidget {
       generateSection(title: 'B-box', items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Ghostty settings')), widget: const TerminalSettingsPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(context.tr('Remote control')), widget: const RemotePage()),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.dashboard), title: Text(context.tr('Dashboard cards')), widget: const DashboardEditor()),
+        ListItem(leading: const GlyphIcon(AppGlyphs.dashboard), title: Text(context.tr('Dashboard cards')), onTap: box.editDashboard),
       ]),
       generateSection(title: context.tr('Network diagnostics'), items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.speed), title: Text(context.tr('Network quality')), widget: const DiagnosticsPage(quality: true)),
