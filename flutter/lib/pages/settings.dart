@@ -3,6 +3,7 @@ import '../widgets.dart';
 
 export 'appearance.dart';
 export 'access.dart';
+export 'about.dart';
 
 class NativeToggle extends StatelessWidget {
   const NativeToggle(this.title, this.setting, {super.key, this.restart = true});
@@ -12,6 +13,16 @@ class NativeToggle extends StatelessWidget {
     title: Text(context.tr(title)), value: context.box.settings[setting] == true,
     onChanged: (value) => context.box.setSetting(setting, value, restart: restart),
   );
+}
+
+class GeneralSettingsPage extends StatelessWidget {
+  const GeneralSettingsPage({super.key});
+  @override Widget build(BuildContext context) => BoxPage(title: 'General', children: [
+    generateSection(items: [
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.vpn), title: Text(context.tr('Service')), widget: const ServiceSettingsPage()),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.cpu), title: Text(context.tr('Core')), widget: const CoreSettingsPage()),
+    ]),
+  ]);
 }
 
 class ServiceSettingsPage extends StatelessWidget {
@@ -147,23 +158,6 @@ class _BackupPageState extends State<BackupPage> {
     generateSection(items: [
       ListItem(leading: const GlyphIcon(AppGlyphs.upload), title: Text(context.tr('Create backup')), onTap: _busy ? null : () => _backup(false)),
       ListItem(leading: const GlyphIcon(AppGlyphs.profiles), title: Text(context.tr('Restore backup')), onTap: _busy || context.box.remote ? null : () => _backup(true)),
-    ]),
-  ]);
-}
-
-class AboutPage extends StatelessWidget {
-  const AboutPage({super.key});
-  @override Widget build(BuildContext context) => BoxPage(title: 'About', children: [
-    const SizedBox(height: 24),
-    Center(child: Text('B-box', style: AppTextStyle.largeTitle.of(context, emphasized: true))),
-    const SizedBox(height: 24),
-    DetailRows({'Version': context.box.version, 'Core version': context.box.coreVersion, 'FlClash interface': 'v0.9.2'}),
-    generateSection(items: [
-      ListItem(title: Text(context.tr('Source code')), subtitle: const Text('giturass/B-box'),
-        onTap: () => context.box.act('url.open', {'url': 'https://github.com/giturass/B-box'})),
-      ListItem(title: const Text('FlClash'), subtitle: const Text('chen08209/FlClash · GPL-3.0'),
-        onTap: () => context.box.act('url.open', {'url': 'https://github.com/chen08209/FlClash'})),
-      ListItem(title: Text(context.tr('Open-source licenses')), onTap: () => showLicensePage(context: context, applicationName: 'B-box', applicationVersion: context.box.version)),
     ]),
   ]);
 }

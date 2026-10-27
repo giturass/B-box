@@ -34,6 +34,10 @@ source of truth. No action may launch an old Compose page as a fallback.
   hidden. Memory, LAN and connection cards are optional.
 - First launch opens the dashboard directly, without a disclaimer acceptance
   gate. Fresh-start Flutter and Android smoke scenarios cover this behavior.
+- Tools use the Android reference section order and open Flutter settings,
+  configuration, resources and About pages. About keeps B-box branding and
+  checks B-box release metadata against the installed application ID and
+  version code, including prereleases, before offering a matching ABI APK.
 
 ## Validation
 

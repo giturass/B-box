@@ -194,6 +194,16 @@
       "source": "lib/widgets/record.dart",
       "sourceSHA256": "1a29b9c8e41a2f3dec32e496019dd3299234947c2dbad8c037094a8c0a67cd92",
       "changes": "Shared log/connection record surfaces, header, timestamp, labels, typography and copyable detail rows retained; semantic color roles copied from the reference RecordTone enum."
+    },
+    "lib/pages/tools.dart": {
+      "source": "lib/views/tools.dart",
+      "sourceSHA256": "d493b7cfa19c3eb9d69e5c753603a26eb6b37cbca832a2021376765bcb6d0a9e",
+      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools."
+    },
+    "lib/pages/about.dart": {
+      "source": "lib/views/about.dart",
+      "sourceSHA256": "0031e1fe57fae5e8f1b92b3db31acc167e7ec1a1e039e1535652b7fca18bf9e1",
+      "changes": "Hero geometry, version and license pills, update control and link badges retained with B-box branding and B-box release metadata."
     }
   }
 }

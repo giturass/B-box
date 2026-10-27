@@ -164,6 +164,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         fun string(key: String): String = args[key] as? String ?: error("Missing argument: " + key)
         fun id(key: String = "id"): Long = (args[key] as? Number)?.toLong() ?: error("Missing argument: " + key)
         return when (call.method) {
+            "updates.check" -> withContext(Dispatchers.IO) { BoxUpdates.check() }
             "dashboard.egress" -> dashboardDetails.egress()
             "dashboard.releaseMemory" -> dashboardDetails.releaseMemory()
             "ready" -> mapOf(

@@ -134,7 +134,13 @@ void main() {
     await tester.tap(find.text('Group B'));
     await tester.pumpAndSettle();
     expect(find.text('Group B node 150'), findsNothing);
-    await tester.tap(find.byTooltip('Scroll to selected'));
+    if (find.byTooltip('Scroll to selected').evaluate().isNotEmpty) {
+      await tester.tap(find.byTooltip('Scroll to selected'));
+    } else {
+      await tester.tap(find.byTooltip('More').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Scroll to selected').last);
+    }
     await tester.pumpAndSettle();
     expect(find.text('Group B node 150').hitTestable(), findsOneWidget);
     events.add({'type': 'groups', 'value': [group('New group', 1, 0), ...groups]});
