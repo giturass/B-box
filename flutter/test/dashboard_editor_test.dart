@@ -52,15 +52,22 @@ void main() {
       expect(tester.state(find.byType(StatusPanel)), same(status));
       expect(find.byTooltip('Remove Status'), findsNothing);
       if (scenario == 'reorder') {
-        final start = tester.getCenter(find.byType(ReorderableDelayedDragStartListener).at(1));
+        final handle = find.byType(ReorderableDelayedDragStartListener).at(1);
+        // The centre of this tall card can sit behind the navigation bar.
+        // Start on its visible upper part, as a finger would on a phone.
+        final start = tester.getTopLeft(handle) + const Offset(80, 40);
+        final destination = tester.getTopLeft(find.byType(StatusPanel)) + const Offset(80, 40);
         final gesture = await tester.startGesture(start);
+        await tester.pump();
         await tester.pump(const Duration(milliseconds: 600));
         await gesture.moveBy(const Offset(0, -20));
+        await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
-        await gesture.moveTo(tester.getCenter(find.byType(StatusPanel)));
+        await gesture.moveTo(destination);
         await tester.pump(const Duration(milliseconds: 600));
         await gesture.up();
         await advance();
+        expect(calls.where((call) => call.method == 'preferences.set'), isNotEmpty);
         final order = preferences['dashboardCards'] as List;
         expect(order.indexOf('Network speed'), lessThan(order.indexOf('Status')));
       } else {
@@ -91,6 +98,7 @@ void main() {
         await tester.pumpAndSettle();
         await tester.scrollUntilVisible(find.text('Dashboard cards'), 300,
           scrollable: find.descendant(of: find.byType(ToolsPage), matching: find.byType(Scrollable)).first);
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Dashboard cards'));
         await advance();
         expect(find.byType(DashboardEditor).hitTestable(), findsOneWidget);
