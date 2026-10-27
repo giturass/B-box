@@ -6,6 +6,7 @@ import 'package:b_box_ui/pages/configuration.dart';
 import 'package:b_box_ui/pages/profile_editor.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/errors.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -75,6 +76,7 @@ void main() {
   });
 
   testWidgets('config sheet keeps edits after canceling dismissal and a failed save', (tester) async {
+    reportFlutterErrors();
     const channel = MethodChannel('test.config-sheet');
     final events = StreamController<dynamic>.broadcast();
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -95,6 +97,9 @@ void main() {
     await tester.pumpAndSettle();
     const draft = '{"type":"local","tag":"system"}';
     await tester.enterText(find.byType(TextField).last, draft);
+    await tester.pumpAndSettle();
+    expect(tester.widget<BoxEditGuard>(find.byType(BoxEditGuard)).dirty, isTrue);
+    expect(SheetProvider.of(tester.element(find.descendant(of: find.byType(ConfigValueEditor), matching: find.byType(CommonScaffold))))?.onClose, isNotNull);
     await tester.tap(find.text('Cancel').last);
     await tester.pumpAndSettle();
     expect(find.text('Discard changes?'), findsOneWidget);

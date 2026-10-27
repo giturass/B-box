@@ -4,9 +4,11 @@ import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/pages/terminal_settings.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/errors.dart';
 
 void main() {
   testWidgets('Ghostty settings are reachable while stopped and persist native configuration', (tester) async {
+    reportFlutterErrors();
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);

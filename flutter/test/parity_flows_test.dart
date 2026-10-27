@@ -5,6 +5,7 @@ import 'package:b_box_ui/pages/access.dart';
 import 'package:b_box_ui/pages/proxies.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/errors.dart';
 
 void main() {
   testWidgets('fresh startup opens the dashboard without accepting a disclaimer', (tester) async {
@@ -27,6 +28,7 @@ void main() {
   });
 
   testWidgets('app selections are saved together and remain editable after a failed save', (tester) async {
+    reportFlutterErrors();
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -76,6 +78,7 @@ void main() {
   });
 
   testWidgets('the toolbar tests the displayed group and group swipes keep the primary page', (tester) async {
+    reportFlutterErrors();
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
