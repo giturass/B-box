@@ -3,6 +3,13 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../widgets.dart';
 import 'profile_editor.dart';
 
+// libbox remote_profile.go stores the display name in the URL fragment.
+String remoteProfileLink(Json profile) => Uri(
+  scheme: 'sing-box', host: 'import-remote-profile',
+  queryParameters: {'url': profile['url'].toString()},
+  fragment: profile['name'].toString(),
+).toString();
+
 class ProfilesPage extends StatefulWidget {
   const ProfilesPage({super.key, this.picker = false});
   final bool picker;
@@ -27,7 +34,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
   Future<void> _share(Json profile) async {
     final box = context.box;
     try {
-      final content = profile['remote'] == true ? profile['url'] : await box.call('profiles.read', {'id': profile['id']});
+      final content = profile['remote'] == true ? remoteProfileLink(profile) : await box.call('profiles.read', {'id': profile['id']});
       await box.call('share.text', {'content': content});
     } catch (error) { box.report(error); }
   }
@@ -40,8 +47,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
     CommonPopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Export'), onPressed: () => _export(profile)),
     if (profile['remote'] == true)
       CommonPopupMenuItem(glyph: AppGlyphs.qrCode, label: context.tr('QR code'), onPressed: () => openForm(context, BoxPage(title: 'QR code', children: [
-        Center(child: QrCodeView(data: Uri(scheme: 'sing-box', host: 'import-remote-profile',
-          queryParameters: {'name': profile['name'].toString(), 'url': profile['url'].toString()}).toString())),
+        Center(child: QrCodeView(data: remoteProfileLink(profile))),
       ]))),
     CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Delete'), onPressed: () async {
       final box = context.box;

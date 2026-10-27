@@ -123,7 +123,9 @@ class BoxPanel extends StatelessWidget {
         type: MaterialType.transparency,
         shape: AppShape.all(34),
         clipBehavior: Clip.antiAlias,
-        child: InkWell(customBorder: AppShape.all(34), onTap: onTap, child: Padding(padding: padding, child: child)),
+        child: onTap == null ? Padding(padding: padding, child: child) : InkWell(
+          customBorder: AppShape.all(34), onTap: onTap, child: Padding(padding: padding, child: child),
+        ),
       ),
     );
   }

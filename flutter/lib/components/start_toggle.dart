@@ -101,6 +101,7 @@ class _StartToggleState extends State<StartToggle>
     return Tooltip(
       message: tooltip,
       child: Semantics(
+        container: true,
         button: true,
         enabled: enabled,
         label: tooltip,

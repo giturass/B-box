@@ -16,8 +16,8 @@ OUT = Path("build/android-smoke")
 OUT.mkdir(parents=True, exist_ok=True)
 
 
-def adb(*args, binary=False):
-    return subprocess.check_output(["adb", *args], text=not binary, timeout=45)
+def adb(*args, binary=False, timeout=45):
+    return subprocess.check_output(["adb", *args], text=not binary, timeout=timeout)
 
 
 def nodes():
@@ -31,7 +31,7 @@ def matching(label, items):
     return [n for n in items if label in (n.get("text", "") + "\n" + n.get("content-desc", "")).splitlines()]
 
 
-def wait_for(label, timeout=45):
+def wait_for(label, timeout=90):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         found = matching(label, nodes())
@@ -42,7 +42,11 @@ def wait_for(label, timeout=45):
 
 
 def click(label):
-    item = wait_for(label)[-1]
+    found = wait_for(label)
+    exact = [n for n in found if n.get("text") == label or n.get("content-desc") == label]
+    item = (exact or found)[-1]
+    if label in ("Start", "Stop"):
+        assert exact, "The VPN button must have its own accessible tap target"
     x1, y1, x2, y2 = map(int, re.findall(r"\d+", item.attrib["bounds"]))
     adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
     time.sleep(0.6)
@@ -65,14 +69,14 @@ server = http.server.ThreadingHTTPServer(("127.0.0.1", 18763), handler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 try:
     apk, = Path("build/apk").glob("*.apk")
-    adb("install", "-r", str(apk))
+    adb("install", "--no-streaming", "-r", str(apk), timeout=240)
     adb("logcat", "-c")
     adb("reverse", "tcp:18763", "tcp:18763")
     adb("shell", "am", "start", "-W", "-n", COMPONENT)
     wait_for("Dashboard")
     capture("01-startup")
-    uri = "sing-box://import-remote-profile?" + urllib.parse.urlencode({"name": "Smoke profile", "url": "http://127.0.0.1:18763/profile.json"})
-    # ADB's shell parses this argument again; quote the URI's ampersand.
+    uri = "sing-box://import-remote-profile?" + urllib.parse.urlencode({"url": "http://127.0.0.1:18763/profile.json"}) + "#" + urllib.parse.quote("Smoke profile")
+    # ADB's shell parses this argument again; quote the encoded URI.
     adb("shell", "am", "start", "-W", "-n", COMPONENT, "-a", "android.intent.action.VIEW", "-d", "'" + uri + "'")
     click("Save")
     wait_for("Smoke profile")
@@ -102,6 +106,15 @@ try:
     capture("05-restored-profile")
     print("Real Android import, VPN permission, service, groups, stop and profile persistence passed")
 finally:
-    (OUT / "logcat.txt").write_text(adb("logcat", "-d"))
-    capture("last-screen")
+    try:
+        capture("last-screen")
+    except (subprocess.SubprocessError, OSError) as error:
+        print(f"Screenshot capture failed: {error}")
+    # Some emulator logcat versions return 255 after dumping their buffers.
+    # Preserve that output and the original test failure independently.
+    with (OUT / "logcat.txt").open("wb") as log:
+        try:
+            subprocess.run(["adb", "logcat", "-d", "-t", "5000"], stdout=log, stderr=subprocess.STDOUT, timeout=45)
+        except subprocess.SubprocessError as error:
+            print(f"Log collection failed: {error}")
     server.shutdown()

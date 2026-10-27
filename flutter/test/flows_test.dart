@@ -4,10 +4,38 @@ import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/pages/profiles.dart';
 import 'package:b_box_ui/pages/proxies.dart';
 import 'package:b_box_ui/pages/connections.dart';
+import 'package:b_box_ui/components/start_toggle.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('remote profile links preserve names in the sing-box fragment', () {
+    const name = '工作 #1 & home';
+    const url = 'https://example.com/profile.json?token=a%26b';
+    final link = Uri.parse(remoteProfileLink({'name': name, 'url': url}));
+    expect(link.scheme, 'sing-box');
+    expect(link.host, 'import-remote-profile');
+    expect(link.fragment, name);
+    expect(link.queryParameters, {'url': url});
+  });
+
+  testWidgets('VPN start has a separate accessible tap target', (tester) async {
+    final semantics = tester.ensureSemantics();
+    addTearDown(semantics.dispose);
+    final events = StreamController<dynamic>.broadcast();
+    const channel = MethodChannel('test.start-semantics');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (call) async =>
+      call.method == 'ready' ? {'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'}} : null);
+    final box = BoxController(channel: channel, events: events.stream);
+    await tester.pumpWidget(BoxApp(controller: box));
+    await tester.pumpAndSettle();
+    final button = tester.getSemantics(find.byType(StartToggle));
+    expect(button.getSemanticsData().label, 'Start');
+    expect(button.rect.width, 88);
+    await tester.pumpWidget(const SizedBox());
+    await events.close();
+  });
+
   testWidgets('automatic groups cannot send manual selection commands', (tester) async {
     final calls = <MethodCall>[];
     final events = StreamController<dynamic>.broadcast();
