@@ -173,7 +173,7 @@ class _BackupPageState extends State<BackupPage> {
             ListItem(key: const ValueKey('local-restore'), title: Text(context.tr('Restore')), onTap: context.box.remote ? null : () => _restore(false)),
           ]),
           generateSection(title: context.tr('Options'), items: [
-            ListItem.options<String>(title: Text(context.tr('Restore strategy')), options: const ['Compatible', 'Override'],
+            ListItem<String>.options(title: Text(context.tr('Restore strategy')), options: const ['Compatible', 'Override'],
               value: context.box.preferences['restoreStrategy'] as String? ?? 'Compatible', textBuilder: context.tr,
               onChanged: (value) => context.box.setPreference('restoreStrategy', value)),
           ]),
