@@ -11,8 +11,8 @@ class _ProfileEditorState extends State<ProfileEditor> {
   final _text = JsonEditorController();
   final _undo = UndoHistoryController();
   final _find = TextEditingController();
-  String? _original, _error;
-  bool _saving = false, _checking = false, _search = false, _allowPop = false;
+  String? _original, _error, _revision;
+  bool _saving = false, _checking = false, _loading = false, _search = false;
   bool get _dirty => _original != null && _text.text != _original;
 
   @override void initState() {
@@ -23,32 +23,29 @@ class _ProfileEditorState extends State<ProfileEditor> {
   void _changed() { if (mounted) setState(() {}); }
   @override void dispose() { _text.dispose(); _undo.dispose(); _find.dispose(); super.dispose(); }
 
-  Future<void> _load() async {
-    setState(() => _error = null);
+  Future<void> _load({bool confirmDiscard = false}) async {
+    if (_saving || _checking || _loading) return;
+    if (confirmDiscard && _dirty && !await confirm(context, 'Discard changes?', action: 'Discard')) return;
+    if (!mounted) return;
+    setState(() { _error = null; _loading = true; });
     try {
-      final content = await context.box.call('profiles.read', {'id': widget.profile['id']}) as String;
+      final data = json(await context.box.call('profiles.config', {'id': widget.profile['id']}));
+      final content = data['content'] as String;
       if (!mounted) return;
       _text.text = content;
-      setState(() => _original = content);
+      setState(() { _original = content; _revision = data['revision'] as String; });
     } catch (error) { if (mounted) setState(() => _error = BoxController.describe(error)); }
-  }
-
-  Future<void> _back() async {
-    if (_saving) return;
-    if (_dirty && !await confirm(context, 'Discard changes?', action: 'Discard')) return;
-    if (!mounted) return;
-    setState(() => _allowPop = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) context.safeNestedPop(); });
+    finally { if (mounted) setState(() => _loading = false); }
   }
 
   Future<void> _save() async {
-    if (_saving) return;
+    if (_saving || _checking || _loading || _revision == null) return;
     final box = context.box;
     setState(() { _saving = true; _error = null; });
     try {
-      await box.call('profiles.save', {...widget.profile, 'content': _text.text});
+      final saved = json(await box.call('profiles.write', {'id': widget.profile['id'], 'content': _text.text, 'revision': _revision}));
       if (mounted) {
-        setState(() => _original = _text.text);
+        setState(() { _original = _text.text; _revision = saved['revision'] as String; });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(context.tr('Done'))));
       }
     } catch (error) { if (mounted) setState(() => _error = BoxController.describe(error)); }
@@ -56,7 +53,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
   }
 
   Future<void> _check({bool format = false}) async {
-    if (_checking) return;
+    if (_checking || _saving || _loading) return;
     final box = context.box;
     setState(() { _checking = true; _error = null; });
     try {
@@ -78,21 +75,19 @@ class _ProfileEditorState extends State<ProfileEditor> {
     _text.selection = TextSelection(baseOffset: index, extentOffset: index + query.length);
   }
 
-  @override Widget build(BuildContext context) => PopScope(
-    canPop: _allowPop || !_dirty,
-    onPopInvokedWithResult: (didPop, _) { if (!didPop) _back(); },
+  @override Widget build(BuildContext context) => BoxEditGuard(dirty: _dirty, busy: _saving || _checking || _loading,
     child: CommonScaffold(
       title: widget.profile['name'].toString() + (_dirty ? ' •' : ''),
-      backAction: _back,
-      isLoading: _saving || _checking || (_original == null && _error == null),
+      isLoading: _saving || _checking || _loading || (_original == null && _error == null),
       confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'),
-        onPressed: _saving || _original == null ? null : _save),
+        onPressed: _saving || _checking || _loading || _original == null ? null : _save),
       iconActions: [
-        IconButtonData(glyph: AppGlyphs.code, tooltip: context.tr('Format'), onPressed: _checking || _original == null ? null : () => _check(format: true)),
-        IconButtonData(glyph: AppGlyphs.verified, tooltip: context.tr('Validate'), onPressed: _checking || _original == null ? null : _check),
+        IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Reload'), onPressed: _saving || _checking || _loading ? null : () => _load(confirmDiscard: true)),
+        IconButtonData(glyph: AppGlyphs.code, tooltip: context.tr('Format'), onPressed: _saving || _checking || _loading || _original == null ? null : () => _check(format: true)),
+        IconButtonData(glyph: AppGlyphs.verified, tooltip: context.tr('Validate'), onPressed: _saving || _checking || _loading || _original == null ? null : _check),
         IconButtonData(glyph: AppGlyphs.search, tooltip: context.tr('Search'), onPressed: () => setState(() => _search = !_search)),
-        IconButtonData(glyph: AppGlyphs.undo, tooltip: 'Undo', onPressed: _undo.undo),
-        IconButtonData(glyph: AppGlyphs.redo, tooltip: 'Redo', onPressed: _undo.redo),
+        IconButtonData(glyph: AppGlyphs.undo, tooltip: context.tr('Undo'), onPressed: _saving || _checking || _loading ? null : _undo.undo),
+        IconButtonData(glyph: AppGlyphs.redo, tooltip: context.tr('Redo'), onPressed: _saving || _checking || _loading ? null : _undo.redo),
       ],
       body: Padding(
         padding: EdgeInsets.only(top: context.appBarInset, bottom: MediaQuery.paddingOf(context).bottom),
@@ -112,7 +107,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
               ? _error == null ? const SizedBox.shrink() : ErrorState(_error!, retry: _load)
               : TextField(
                   controller: _text, undoController: _undo, expands: true, maxLines: null, minLines: null,
-                  readOnly: _saving, autocorrect: false, enableSuggestions: false,
+                  readOnly: _saving || _checking || _loading, autocorrect: false, enableSuggestions: false,
                   smartDashesType: SmartDashesType.disabled, smartQuotesType: SmartQuotesType.disabled,
                   keyboardType: TextInputType.multiline,
                   textAlignVertical: TextAlignVertical.top,

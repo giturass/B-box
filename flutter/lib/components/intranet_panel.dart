@@ -18,7 +18,7 @@ class IntranetPanel extends StatelessWidget {
         child: Text(addresses.isEmpty ? context.tr('No network') : addresses.first, maxLines: 1, overflow: TextOverflow.ellipsis,
           style: AppTextStyle.title1.of(context, emphasized: true).toTabular.copyWith(letterSpacing: 0))),
       const SizedBox(height: 14),
-      Container(decoration: ShapeDecoration(color: SurfaceLevel.block.colorOf(context.colorScheme), shape: AppShape.all(20)),
+      Material(color: SurfaceLevel.block.colorOf(context.colorScheme), shape: AppShape.all(20), clipBehavior: Clip.antiAlias,
         child: ListItem(leading: const GlyphIcon(AppGlyphs.wifi, size: 32),
           title: Text(context.tr(box.remote ? 'This device' : 'Local proxy listeners')),
           subtitle: Text(box.remote ? context.tr('Device network addresses') : bindings.isEmpty ? context.tr('No local proxy listener') : bindings.map(bindingAddress).join('\n')),

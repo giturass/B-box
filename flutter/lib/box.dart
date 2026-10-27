@@ -33,12 +33,16 @@ class BoxController extends ChangeNotifier {
   String version = '', coreVersion = '';
   int systemAccentColor = 0xff007aff;
   int sampleRevision = 0;
+  int profilesRevision = 0;
   bool _disposed = false;
   bool ready = false;
   String? startupError;
   final pendingIntents = <String>[];
   String? applyRequired;
   final appIcons = <String, Future<Uint8List?>>{};
+  final _profileStats = <int, Future<Json>>{};
+
+  Future<Json> profileStats(int id) => _profileStats.putIfAbsent(id, () async => json(await call('profiles.stats', {'id': id})));
 
   Future<Uint8List?> appIcon(String package) => appIcons.putIfAbsent(package, () async {
     try { return await call('apps.icon', {'package': package}) as Uint8List?; }
@@ -152,7 +156,7 @@ class BoxController extends ChangeNotifier {
       case 'lan': lan = json(value);
       case 'browserComplete': browserEvents.add(json(value)); return;
       case 'dashboard': dashboard = json(value);
-      case 'profiles': profiles = rows(value);
+      case 'profiles': profilesRevision++; _profileStats.clear(); profiles = rows(value);
       case 'groups': groups = rows(value);
       case 'connections': connections = rows(value);
       case 'logs': logs = rows(value);

@@ -1,29 +1,77 @@
 package io.nekohasekai.sfa.flutter
 
-import android.util.AtomicFile
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.HTTPClient
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 import java.net.URI
 import java.util.Date
 import java.util.UUID
 
 internal class BoxProfiles(private val applySelected: suspend () -> Unit) {
-    private val mutex = Mutex()
+    private val mutex = ProfileContent.mutex
 
     suspend fun get(id: Long): Profile = ProfileManager.get(id) ?: error("Profile no longer exists")
 
     suspend fun list(): List<Map<String, Any>> = ProfileManager.list().map { it.toWire() }
 
-    suspend fun read(id: Long): String = File(get(id).typed.path).readText()
+    suspend fun read(id: Long): String = mutex.withLock { File(get(id).typed.path).readText() }
+
+    suspend fun config(id: Long): Map<String, Any?> = mutex.withLock { configLocked(id) }
+
+    private suspend fun configLocked(id: Long): Map<String, Any?> {
+        val content = File(get(id).typed.path).readText()
+        val formatted = Libbox.formatConfig(content).value
+        val root = JSONObject(formatted)
+        val outbounds = root.optJSONArray("outbounds")
+        var groupCount = 0
+        for (index in 0 until (outbounds?.length() ?: 0)) {
+            if (outbounds?.optJSONObject(index)?.optString("type") in setOf("selector", "urltest")) groupCount++
+        }
+        val route = root.optJSONObject("route")
+        return mapOf("content" to content, "formatted" to formatted, "revision" to revision(content), "stats" to mapOf(
+            "groups" to groupCount, "outbounds" to (outbounds?.length() ?: 0),
+            "rules" to (route?.optJSONArray("rules")?.length() ?: 0),
+            "ruleSets" to (route?.optJSONArray("rule_set")?.length() ?: 0),
+            "dnsServers" to (root.optJSONObject("dns")?.optJSONArray("servers")?.length() ?: 0),
+            "endpoints" to (root.optJSONArray("endpoints")?.length() ?: 0),
+        ))
+    }
+
+    suspend fun stats(id: Long): Any? = mutex.withLock {
+        if (File(get(id).typed.path).length() > 8L * 1024 * 1024) null else configLocked(id)["stats"]
+    }
+
+    suspend fun writeContent(id: Long, content: String, expectedRevision: String): Map<String, Any?> = mutex.withLock {
+        val profile = get(id)
+        val file = File(profile.typed.path)
+        val previous = file.readText()
+        require(revision(previous) == expectedRevision) { "Configuration changed; reload it before saving" }
+        validate(content)
+        if (previous != content) {
+            write(file, content)
+            try {
+                if (id == Settings.selectedProfile) applySelected()
+            } catch (e: Exception) {
+                withContext(NonCancellable) {
+                    write(file, previous)
+                    if (id == Settings.selectedProfile) runCatching { applySelected() }.exceptionOrNull()?.let(e::addSuppressed)
+                }
+                throw e
+            }
+        }
+        configLocked(id)
+    }
 
     suspend fun select(id: Long) = mutex.withLock {
         get(id)
@@ -123,10 +171,8 @@ internal class BoxProfiles(private val applySelected: suspend () -> Unit) {
     }
 
     companion object {
-        fun validate(content: String) {
-            require(content.toByteArray().size <= 16 * 1024 * 1024) { "Configuration exceeds 16 MiB" }
-            Libbox.checkConfig(content)
-        }
+        fun revision(content: String): String = ProfileContent.revision(content)
+        fun validate(content: String) = ProfileContent.validate(content)
 
         fun validateUrl(value: String): String {
             val uri = URI(value)
@@ -134,17 +180,7 @@ internal class BoxProfiles(private val applySelected: suspend () -> Unit) {
             return value
         }
 
-        fun write(file: File, content: String) {
-            val atomic = AtomicFile(file)
-            val stream = atomic.startWrite()
-            try {
-                stream.write(content.toByteArray())
-                atomic.finishWrite(stream)
-            } catch (e: Exception) {
-                atomic.failWrite(stream)
-                throw e
-            }
-        }
+        fun write(file: File, content: String) = ProfileContent.write(file, content)
     }
 }
 

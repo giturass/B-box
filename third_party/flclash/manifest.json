@@ -105,6 +105,21 @@
     "lib/ui/icons/icons.dart": "c2f5d927854f69f9ef871a86b14eda72bbd0a88585398351f28fba62cc85186e"
   },
   "adaptedFiles": {
+    "lib/components/profile_panel.dart": {
+      "source": "lib/views/dashboard/widgets/profiles.dart",
+      "sourceSHA256": "f04f71f02f4a1c6dc5af00e005248371e370a0150dd68a021914939c0f48864d",
+      "changes": "Mobile profile summary, update and profile-switch controls. Counts describe the actual sing-box configuration, with unavailable remote counts left unknown."
+    },
+    "lib/pages/profile_details.dart": {
+      "source": "lib/views/dashboard/widgets/profile_detail.dart",
+      "sourceSHA256": "37b7ae1ba8c16f6861c7b50b60267c6e0ae3bc207995035b51d3ae51c10f27e6",
+      "changes": "Profile detail entry and count presentation adapted to live Room metadata and sing-box configuration editing. Clash subscription counters are not invented."
+    },
+    "lib/components/proxy_groups_panel.dart": {
+      "source": "lib/views/dashboard/widgets/proxy_groups.dart",
+      "sourceSHA256": "c2ad5126d9af4a9c7786ef7a569c70a9855a615f0aaed2159b42022b6a1be47c",
+      "changes": "Mobile group count, overlapping badges and timeout count adapted to sing-box groups."
+    },
     "lib/components/start_toggle.dart": {
       "source": "lib/views/dashboard/widgets/current_outbound.dart",
       "sourceSHA256": "ee6f397a9b1bc78968699e2852c7a6ba36d1d1a05dfa4cbcd6545e09c6b55f28",

@@ -10,10 +10,12 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
+import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.HTTPClient
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.Date
 import java.util.concurrent.TimeUnit
@@ -67,7 +69,6 @@ class UpdateProfileWork {
                     .filter { it.typed.type == TypedProfile.Type.Remote && it.typed.autoUpdate }
             if (remoteProfiles.isEmpty()) return Result.success()
             var success = true
-            val selectedProfile = Settings.selectedProfile
             for (profile in remoteProfiles) {
                 val lastSeconds =
                     (System.currentTimeMillis() - profile.typed.lastUpdated.time) / 1000L
@@ -75,17 +76,21 @@ class UpdateProfileWork {
                     continue
                 }
                 try {
-                    val content = HTTPClient().use { it.getString(profile.typed.remoteURL) }
-                    Libbox.checkConfig(content)
-                    val file = File(profile.typed.path)
-                    if (file.readText() != content) {
-                        File(profile.typed.path).writeText(content)
-                        if (profile.id == selectedProfile) {
-                            selectedProfileUpdated = true
+                    ProfileContent.mutex.withLock {
+                        val current = ProfileManager.get(profile.id) ?: return@withLock
+                        if (current.typed.type != TypedProfile.Type.Remote || !current.typed.autoUpdate) return@withLock
+                        val age = (System.currentTimeMillis() - current.typed.lastUpdated.time) / 1000L
+                        if (age < current.typed.autoUpdateInterval * 60) return@withLock
+                        val content = HTTPClient().use { it.getString(current.typed.remoteURL) }
+                        ProfileContent.validate(content)
+                        val file = File(current.typed.path)
+                        if (file.readText() != content) {
+                            ProfileContent.write(file, content)
+                            if (current.id == Settings.selectedProfile) selectedProfileUpdated = true
                         }
+                        current.typed.lastUpdated = Date()
+                        ProfileManager.update(current)
                     }
-                    profile.typed.lastUpdated = Date()
-                    ProfileManager.update(profile)
                 } catch (e: Exception) {
                     Log.e(TAG, "update profile ${profile.name}", e)
                     success = false

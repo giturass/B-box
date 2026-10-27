@@ -24,6 +24,16 @@ source of truth. No action may launch an old Compose page as a fallback.
   remote sing-box session. They are never populated with demonstration data.
 - Existing sing-box-only capabilities use the same Flutter presentation;
   they do not justify bringing Clash-only controls into the app.
+- Advanced configuration and resources edit native sing-box DNS, routing,
+  rule sets, listeners, outbounds, endpoints and logging. Each save validates
+  the whole configuration, checks its content revision and writes atomically.
+  Raw edits preserve profile metadata and the subscription URL. The background
+  updater shares the profile content mutex with foreground edits.
+- Android defaults use the reference's five cards: status, network speed,
+  outbound mode, profile and proxy groups. Unsupported routing modes remain
+  hidden. Memory, LAN and connection cards are optional.
+- First launch opens the dashboard directly, without a disclaimer acceptance
+  gate. Fresh-start Flutter and Android smoke scenarios cover this behavior.
 
 ## Validation
 

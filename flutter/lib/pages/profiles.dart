@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../widgets.dart';
 import 'profile_editor.dart';
+import 'profile_details.dart';
 
 // libbox remote_profile.go stores the display name in the URL fragment.
 String remoteProfileLink(Json profile) => Uri(
@@ -39,6 +40,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
     } catch (error) { box.report(error); }
   }
   List<CommonPopupMenuItem> _menu(Json profile) => [
+    CommonPopupMenuItem(glyph: AppGlyphs.info, label: context.tr('Profile details'), onPressed: () => openForm(context, ProfileDetailsPage(profile: profile))),
     CommonPopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => openForm(context, ProfileForm(initial: profile))),
     CommonPopupMenuItem(glyph: AppGlyphs.profiles, label: context.tr('Open configuration'), onPressed: () => openPage(context, ProfileEditor(profile: profile))),
     if (profile['remote'] == true)

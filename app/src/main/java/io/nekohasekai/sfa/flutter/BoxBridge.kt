@@ -192,6 +192,13 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             }
             "profiles.list" -> withContext(Dispatchers.IO) { profiles.list() }
             "profiles.read" -> withContext(Dispatchers.IO) { profiles.read(id()) }
+            "profiles.config" -> withContext(Dispatchers.IO) { profiles.config(id()) }
+            "profiles.stats" -> withContext(Dispatchers.IO) { profiles.stats(id()) }
+            "profiles.write" -> localProfiles {
+                val saved = profiles.writeContent(id(), string("content"), string("revision"))
+                publishProfiles()
+                saved
+            }
             "profiles.select" -> localProfiles {
                 profiles.select(id())
                 publishProfiles()

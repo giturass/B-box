@@ -1,17 +1,19 @@
 import 'dart:math' as math;
 import '../widgets.dart';
 import '../components/connected_buttons.dart';
-import 'profiles.dart';
-import 'proxies.dart';
 import 'connections.dart';
 import '../components/status_panel.dart';
 import '../components/memory_panel.dart';
 import '../components/intranet_panel.dart';
+import '../components/profile_panel.dart';
+import '../components/proxy_groups_panel.dart';
 
 const dashboardCards = ['Status', 'Network speed', 'Outbound mode', 'Current profile', 'Connections', 'Proxy groups', 'Memory', 'Intranet IP'];
+const defaultDashboardCards = ['Status', 'Network speed', 'Outbound mode', 'Current profile', 'Proxy groups'];
+const defaultHiddenCards = ['Connections', 'Memory', 'Intranet IP'];
 
 List<String> dashboardOrder(Json prefs) {
-  final saved = (prefs['dashboardCards'] as List? ?? dashboardCards).whereType<String>().where(dashboardCards.contains).toList();
+  final saved = (prefs['dashboardCards'] as List? ?? defaultDashboardCards).whereType<String>().where(dashboardCards.contains).toList();
   return {...saved, ...dashboardCards}.toList();
 }
 
@@ -20,24 +22,19 @@ class DashboardPage extends StatelessWidget {
   @override Widget build(BuildContext context) {
     final box = context.box;
     final saved = dashboardOrder(box.preferences);
-    final hidden = (box.preferences['hiddenCards'] as List?) ?? [];
+    final hidden = (box.preferences['hiddenCards'] as List?) ?? defaultHiddenCards;
     final cards = <String, Widget>{
       'Status': const StatusPanel(),
       'Intranet IP': const IntranetPanel(),
       'Network speed': const _SpeedPanel(),
       if ((box.dashboard['modes'] as List? ?? []).isNotEmpty) 'Outbound mode': const _ModePanel(),
-      'Current profile': BoxPanel(
-        onTap: () => openForm(context, const ProfilesPage(picker: true)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const PanelTitle('Current profile', AppGlyphs.profiles),
-          const SizedBox(height: 16),
-          Text(box.selectedProfile?['name'] as String? ?? context.tr('No profile'), maxLines: 2, overflow: TextOverflow.ellipsis, style: AppTextStyle.title3.of(context)),
-          const SizedBox(height: 6),
-          Text(context.tr(box.selectedProfile?['remote'] == true ? 'Remote' : 'Local'), style: context.listSubtitleStyle),
-        ]),
-      ),
-      'Connections': _SummaryPanel('Connections', AppGlyphs.connections, (box.dashboard['connections'] ?? 0).toString(), () => openPage(context, const ConnectionsPage())),
-      'Proxy groups': _SummaryPanel('Proxy groups', AppGlyphs.layers, box.groups.length.toString(), () => openPage(context, const ProxiesPage())),
+      'Current profile': const ProfilePanel(),
+      'Connections': BoxPanel(padding: const EdgeInsets.all(8), onTap: () => openPage(context, const ConnectionsPage()),
+        child: Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Column(spacing: 2, children: [
+          Text((box.dashboard['connections'] ?? 0).toString(), maxLines: 1, style: AppTextStyle.title2.of(context, emphasized: true).toTabular.copyWith(letterSpacing: 0)),
+          Text(context.tr('Connections'), maxLines: 1, style: AppTextStyle.caption1.of(context).copyWith(color: context.colorScheme.onSurfaceVariant)),
+        ]))),
+      'Proxy groups': const ProxyGroupsPanel(),
       'Memory': const MemoryPanel(),
     };
     return CommonScaffold(
@@ -163,18 +160,6 @@ class _ModePanel extends StatelessWidget {
   }
 }
 
-class _SummaryPanel extends StatelessWidget {
-  const _SummaryPanel(this.title, this.glyph, this.value, this.onTap);
-  final String title, value;
-  final Glyph glyph;
-  final VoidCallback onTap;
-  @override Widget build(BuildContext context) => BoxPanel(onTap: onTap, child: Column(children: [
-    PanelTitle(title, glyph, trailing: const GlyphIcon(AppGlyphs.chevronForward, size: 18)),
-    const SizedBox(height: 14),
-    Align(alignment: AlignmentDirectional.centerStart, child: Text(value, style: AppTextStyle.largeTitle.of(context, emphasized: true).toTabular)),
-  ]));
-}
-
 class DashboardEditor extends StatefulWidget {
   const DashboardEditor({super.key});
   @override State<DashboardEditor> createState() => _DashboardEditorState();
@@ -186,7 +171,7 @@ class _DashboardEditorState extends State<DashboardEditor> {
   @override Widget build(BuildContext context) {
     final box = context.box;
     _order ??= dashboardOrder(box.preferences);
-    _hidden ??= (box.preferences['hiddenCards'] as List?)?.cast<String>().toSet() ?? {};
+    _hidden ??= (box.preferences['hiddenCards'] as List?)?.cast<String>().toSet() ?? defaultHiddenCards.toSet();
     return CommonScaffold(
       title: context.tr('Dashboard cards'),
       isLoading: _saving,

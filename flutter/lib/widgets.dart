@@ -43,6 +43,56 @@ class BoxPage extends StatelessWidget {
 Future<T?> openPage<T>(BuildContext context, Widget page) => showExtend<T>(context, builder: (_) => page);
 Future<T?> openForm<T>(BuildContext context, Widget page) => showFormSheet<T>(context: context, builder: (_) => page);
 
+/// Applies the same edit guard to system back, sheet close and sheet dismissal.
+class BoxEditGuard extends StatefulWidget {
+  const BoxEditGuard({super.key, required this.dirty, required this.child, this.busy = false});
+  final bool dirty, busy;
+  final Widget child;
+  @override State<BoxEditGuard> createState() => _BoxEditGuardState();
+}
+
+class _BoxEditGuardState extends State<BoxEditGuard> {
+  ValueNotifier<SheetDismissHandler?>? _dismissHandler;
+  SheetDismissHandler? _previousHandler;
+  bool _confirming = false;
+
+  @override void didChangeDependencies() {
+    super.didChangeDependencies();
+    final handler = SheetDismissScope.of(context);
+    if (identical(handler, _dismissHandler)) return;
+    _release();
+    _dismissHandler = handler;
+    _previousHandler = handler?.value;
+    if (handler != null) handler.value = _dismiss;
+  }
+
+  void _release() {
+    if (_dismissHandler?.value == _dismiss) _dismissHandler!.value = _previousHandler;
+    _dismissHandler = null;
+    _previousHandler = null;
+  }
+  @override void dispose() { _release(); super.dispose(); }
+
+  Future<bool> _canLeave(BuildContext context) async {
+    if (widget.busy || _confirming) return false;
+    if (!widget.dirty) return true;
+    _confirming = true;
+    try {
+      final discard = await confirm(context, 'Discard changes?', action: 'Discard');
+      return mounted && discard && !widget.busy;
+    } finally { _confirming = false; }
+  }
+
+  Future<void> _dismiss() async {
+    if (await _canLeave(context) && mounted) context.safeNestedPop();
+  }
+
+  @override Widget build(BuildContext context) {
+    final guarded = CommonPopScope(onPop: widget.dirty || widget.busy ? _canLeave : null, child: widget.child);
+    return SheetProvider.of(context)?.copyWith(onClose: _dismiss, child: guarded) ?? guarded;
+  }
+}
+
 class EmptyState extends StatelessWidget {
   const EmptyState(this.title, {super.key, this.message, this.action, this.glyph = AppGlyphs.info});
   final String title;

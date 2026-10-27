@@ -62,11 +62,11 @@ class _StatusPanelState extends State<StatusPanel> {
       )),
       Padding(padding: const EdgeInsetsDirectional.fromSTEB(20, 18, 16, 18), child: Row(spacing: 10, children: [
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SizedBox(height: 26 * MediaQuery.textScalerOf(context).scale(1), child: Row(spacing: 8, children: [
+          SizedBox(height: 26 * MediaQuery.textScalerOf(context).scale(1), child: FittedBox(fit: BoxFit.scaleDown, alignment: AlignmentDirectional.centerStart, child: Row(mainAxisSize: MainAxisSize.min, spacing: 8, children: [
             GlyphIcon(AppGlyphs.status, size: 18, color: color.onSurfaceVariant),
-            Flexible(child: Text(context.tr('Status'), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyle.subheadline.of(context, emphasized: true))),
+            Text(context.tr('Status'), maxLines: 1, style: AppTextStyle.subheadline.of(context, emphasized: true)),
             DashboardChip(label: context.tr(status), tone: box.running ? DashboardChipTone.ok : DashboardChipTone.idle, dot: box.running),
-          ])),
+          ]))),
           const SizedBox(height: 12),
           Row(spacing: 12, children: [
             _CountryBadge(country: info?['country'] as String?, active: box.running, checking: _checking,
@@ -94,7 +94,8 @@ class _StatusPanelState extends State<StatusPanel> {
           ]),
           const SizedBox(height: 16),
           Row(spacing: 24, children: [
-            _StatusCell(label: 'Run time', child: _RuntimeValue(startedAt: box.running ? (box.dashboard['startedAt'] as num?)?.toInt() : null)),
+            Flexible(child: _StatusCell(label: 'Run time', child: FittedBox(fit: BoxFit.scaleDown, alignment: AlignmentDirectional.centerStart,
+              child: _RuntimeValue(startedAt: box.running ? (box.dashboard['startedAt'] as num?)?.toInt() : null)))),
             Flexible(child: _StatusCell(label: 'Organization', child: _checking && info == null
               ? SkeletonText(width: 96, style: AppTextStyle.subheadline.of(context))
               : Text((info?['organization'] as String?)?.isNotEmpty == true ? info!['organization'] as String : info?['asn'] as String? ?? '—',
