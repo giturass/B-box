@@ -4,7 +4,6 @@ import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/pages/profiles.dart';
 import 'package:b_box_ui/pages/proxies.dart';
 import 'package:b_box_ui/pages/connections.dart';
-import 'package:b_box_ui/components/start_toggle.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -15,7 +14,7 @@ void main() {
     final link = Uri.parse(remoteProfileLink({'name': name, 'url': url}));
     expect(link.scheme, 'sing-box');
     expect(link.host, 'import-remote-profile');
-    expect(link.fragment, name);
+    expect(Uri.decodeComponent(link.fragment), name);
     expect(link.queryParameters, {'url': url});
   });
 
@@ -29,7 +28,9 @@ void main() {
     final box = BoxController(channel: channel, events: events.stream);
     await tester.pumpWidget(BoxApp(controller: box));
     await tester.pumpAndSettle();
-    final button = tester.getSemantics(find.byType(StartToggle));
+    final target = find.bySemanticsLabel('Start');
+    expect(target, findsOneWidget);
+    final button = tester.getSemantics(target);
     expect(button.getSemanticsData().label, 'Start');
     expect(button.rect.width, 88);
     await tester.pumpWidget(const SizedBox());
