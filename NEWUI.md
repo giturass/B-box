@@ -38,6 +38,10 @@ source of truth. No action may launch an old Compose page as a fallback.
   configuration, resources and About pages. About keeps B-box branding and
   checks B-box release metadata against the installed application ID and
   version code, including prereleases, before offering a matching ABI APK.
+- Proxy list mode keeps the reference's pinned rounded group headers,
+  fixed-extent lazy rows, folding motion and filled/plain/hidden group icons.
+  Fold state is stored per selected profile. Locating a node uses its row
+  offset and works before the node has entered the viewport.
 
 ## Validation
 

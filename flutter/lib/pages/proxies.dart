@@ -1,5 +1,7 @@
 import '../widgets.dart';
 import '../components/group_tabs.dart';
+import '../components/proxy_card.dart';
+import '../components/proxy_list.dart';
 
 class ProxiesPage extends StatefulWidget {
   const ProxiesPage({super.key});
@@ -8,7 +10,6 @@ class ProxiesPage extends StatefulWidget {
 class _ProxiesPageState extends State<ProxiesPage> {
   String _query = '';
   final _testing = <String>{};
-  final _folded = <String>{};
   final _scrolls = <String, ScrollController>{};
   final _selectedOffsets = <String, double>{};
   String? _currentGroup;
@@ -33,7 +34,7 @@ class _ProxiesPageState extends State<ProxiesPage> {
   );
 
   Future<void> _test(String tag) async {
-    if (_testing.contains(tag)) return;
+    if (_testing.contains(tag) || !context.box.running) return;
     setState(() => _testing.add(tag));
     await context.box.act('groups.test', {'tag': tag});
     if (mounted) setState(() => _testing.remove(tag));
@@ -60,94 +61,30 @@ class _ProxiesPageState extends State<ProxiesPage> {
     return nodes;
   }
 
-  Widget _grid(Json group, {bool nested = false}) {
+  Widget _card(BuildContext context, Json group, Json node) => ProxyNodeCard(
+    group: group, node: node, testing: _testing.contains(group['tag']) || _testing.contains(node['tag']),
+    onSelect: () => _select(group, node), onTest: () => _test(node['tag'] as String),
+  );
+
+  Widget _grid(Json group) {
     final nodes = _nodes(group);
     if (nodes.isEmpty) {
       _selectedOffsets.remove(group['tag']);
       return NullStatus(label: context.tr('No results'), illustration: NullStatusIllustration.proxies);
     }
-    final prefs = context.box.preferences;
-    final compact = prefs['proxyCardSize'] == 'Compact' || prefs['proxyCardSize'] == null && prefs['proxyLayout'] == 'Compact';
-    final loose = prefs['proxyCardSize'] == 'Loose';
     return LayoutBuilder(builder: (context, constraints) {
-      final standard = ((constraints.maxWidth - 32) / 250).ceil().clamp(2, 8);
-      final density = prefs['proxyDensity'] ?? 'Standard';
-      final columns = (standard + (density == 'Tight' ? 1 : density == 'Loose' ? -1 : 0)).clamp(1, 8);
-      final measure = MeasureScope.of(context);
-      final nameHeight = measure.textHeight(AppTextStyle.subheadline) * (compact ? 1 : 2);
-      final detailHeight = measure.textHeight(AppTextStyle.footnote);
-      final extent = 28 + nameHeight + detailHeight + (loose ? measure.textHeight(AppTextStyle.caption2) + 6 : 0);
-      final selectedIndex = nodes.indexWhere((node) => node['tag'] == group['selected']);
-      if (!nested) {
-        if (selectedIndex < 0) _selectedOffsets.remove(group['tag']);
-        else _selectedOffsets[group['tag'].toString()] = (selectedIndex ~/ columns) * (extent + 8);
-      }
+      final columns = proxyColumns(constraints.maxWidth - 32, context.box.preferences);
+      final metrics = ProxyCardMetrics.of(context, context.box.preferences);
+      final selected = nodes.indexWhere((node) => node['tag'] == group['selected']);
+      if (selected < 0) _selectedOffsets.remove(group['tag']);
+      else _selectedOffsets[group['tag'].toString()] = (selected ~/ columns) * metrics.rowExtent;
       return GridView.builder(
-        key: PageStorageKey('proxy-grid:${group['tag']}:$nested'),
-        controller: nested ? null : _scrolls.putIfAbsent(group['tag'].toString(), () => sheetScrollController(context)),
-        shrinkWrap: nested, physics: nested ? const NeverScrollableScrollPhysics() : null,
-        padding: EdgeInsets.fromLTRB(16, 0, 16, nested ? 10 : 16 + context.bottomInset),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: columns, mainAxisSpacing: 8, crossAxisSpacing: 8,
-          mainAxisExtent: extent,
-        ),
-        itemCount: nodes.length,
-        itemBuilder: (context, index) {
-          final node = nodes[index];
-          final selected = group['selected'] == node['tag'];
-          final delay = (node['delay'] as num?)?.toInt() ?? 0;
-          final tested = (node['testedAt'] as num? ?? 0) > 0;
-          final delayText = delay > 0 ? delay.toString() + ' ms' : tested ? context.tr('Unreachable') : '—';
-          final delayColor = !tested ? context.colorScheme.onSurfaceVariant : delay <= 0
-              ? context.colorScheme.error : delay < 300 ? context.colorScheme.success : context.colorScheme.warning;
-          final menu = [
-            if (group['selectable'] == true)
-              CommonPopupMenuItem(glyph: AppGlyphs.checkCircle, label: context.tr('Select'), checked: selected, onPressed: () => _select(group, node)),
-            CommonPopupMenuItem(glyph: AppGlyphs.bolt, label: context.tr('Test latency'), onPressed: () => _test(node['tag'] as String)),
-            CommonPopupMenuItem(glyph: AppGlyphs.info, label: context.tr('Details'), onPressed: () => openForm(context, BoxPage(title: 'Details', children: [
-              DetailRows({'Name': node['tag'], 'Protocol': node['type'], 'Latency': delayText, 'Proxy groups': group['tag']}),
-            ]))),
-          ];
-          return ContextMenuRegion(
-            key: ValueKey('${group['tag']}:${node['tag']}'),
-            menuItems: menu,
-            child: CommonCard(
-              radius: AppCorner.lg, enterActionsOnRight: true,
-              isSelected: selected,
-              onPressed: group['selectable'] == true ? () => _select(group, node) : null,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Expanded(child: SizedBox(height: nameHeight, child: EmojiText(node['tag'].toString(), maxLines: compact ? 1 : 2, overflow: TextOverflow.ellipsis, style: AppTextStyle.subheadline.of(context)))),
-                    if (selected) const Padding(padding: EdgeInsetsDirectional.only(start: 4), child: SelectionBadge()),
-                  ]),
-                  const SizedBox(height: 8),
-                  if (loose) SizedBox(height: detailHeight, child: Text(node['type'].toString(), maxLines: 1,
-                    overflow: TextOverflow.ellipsis, style: AppTextStyle.footnote.of(context).copyWith(color: context.colorScheme.onSurface.opacity80))),
-                  if (loose) const SizedBox(height: 6),
-                  SizedBox(height: loose ? measure.textHeight(AppTextStyle.caption2) : detailHeight, child: Row(children: [
-                    if (!loose)
-                    Expanded(child: TooltipText(text: Text(node['type'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: AppTextStyle.footnote.of(context).copyWith(color: context.colorScheme.onSurface.opacity80)))),
-                    if (!loose) const SizedBox(width: 4),
-                    Flexible(child: Semantics(button: true, label: context.tr('Test latency'), child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => _test(node['tag'] as String),
-                      child: FadeBox(alignment: loose ? Alignment.centerLeft : Alignment.centerRight, child:
-                        _testing.contains(node['tag']) || _testing.contains(group['tag'])
-                          ? CommonCircleLoading(size: measure.textHeight(AppTextStyle.caption2))
-                          : !tested ? GlyphIcon(AppGlyphs.bolt, size: measure.textHeight(AppTextStyle.caption2))
-                          : Text(delayText, maxLines: 1, overflow: TextOverflow.ellipsis,
-                              style: AppTextStyle.caption2.of(context, emphasized: true).copyWith(color: delayColor)),
-                      ),
-                    ))),
-                  ])),
-                ]),
-              ),
-            ),
-          );
-        },
+        key: PageStorageKey('proxy-grid:${group['tag']}'),
+        controller: _scrolls.putIfAbsent(group['tag'].toString(), () => sheetScrollController(context)),
+        padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + context.bottomInset),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: columns,
+          mainAxisSpacing: 8, crossAxisSpacing: 8, mainAxisExtent: metrics.extent),
+        itemCount: nodes.length, itemBuilder: (context, index) => _card(context, group, nodes[index]),
       );
     });
   }
@@ -156,7 +93,6 @@ class _ProxiesPageState extends State<ProxiesPage> {
     final box = context.box;
     final groups = box.groups;
     final liveTags = groups.map((group) => group['tag'].toString()).toSet();
-    _folded.removeWhere((tag) => !liveTags.contains(tag));
     _selectedOffsets.removeWhere((tag, _) => !liveTags.contains(tag));
     if (_scrolls.keys.any((tag) => !liveTags.contains(tag))) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -183,6 +119,7 @@ class _ProxiesPageState extends State<ProxiesPage> {
         _options('Sort', AppGlyphs.sort, 'proxySort', const ['Default', 'Latency', 'Name'], 'Default'),
         _options('Layout', AppGlyphs.dashboard, 'proxyDensity', const ['Tight', 'Standard', 'Loose'], 'Standard'),
         _options('Size', AppGlyphs.textSize, 'proxyCardSize', const ['Compact', 'Standard', 'Loose'], 'Standard'),
+        if (list) _options('Icon style', AppGlyphs.iconTile, 'proxyIconStyle', const ['Filled', 'Plain', 'Hidden'], 'Filled'),
         CommonPopupMenuItem(glyph: AppGlyphs.eyeOff, label: context.tr('Hide timeout proxies'), checked: box.preferences['hideTimeoutProxies'] == true,
           section: const CommonPopupMenuSection(), onPressed: () => box.setPreference('hideTimeoutProxies', box.preferences['hideTimeoutProxies'] != true)),
         CommonPopupMenuItem(glyph: AppGlyphs.bolt, label: context.tr('Test all'), onPressed: () async {
@@ -195,14 +132,11 @@ class _ProxiesPageState extends State<ProxiesPage> {
       body: groups.isEmpty ? NullStatus(
         label: context.tr(box.running ? 'No proxy groups in this configuration' : 'Start the service to view proxy groups'),
         illustration: NullStatusIllustration.proxies,
-      ) : list ? ListView(
-        padding: EdgeInsets.only(top: context.contentTopPadding, bottom: 24 + context.bottomInset),
-        children: [for (final group in groups) Column(children: [
-          ListItem(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(group['tag'].toString()), subtitle: Text(group['selected'].toString()),
-            onTap: () => setState(() { final tag = group['tag'].toString(); _folded.contains(tag) ? _folded.remove(tag) : _folded.add(tag); }),
-            trailing: IconButton(icon: const GlyphIcon(AppGlyphs.bolt), tooltip: context.tr('Test latency'), onPressed: () => _test(group['tag'] as String))),
-          if (!_folded.contains(group['tag'])) _grid(group, nested: true),
-        ])],
+      ) : list ? ProxyListView(
+        key: ValueKey(box.remote ? 'remote:${box.dashboard['remote']}' : 'local:${box.selectedProfileId}'),
+        profileKey: box.remote ? 'remote:${box.dashboard['remote']}' : 'local:${box.selectedProfileId}',
+        groups: [for (final group in groups) ProxyListGroup(group, _nodes(group))],
+        testing: Set.of(_testing), cardBuilder: _card, onTest: _test,
       ) : DefaultTabController(
         key: ValueKey(groups.map((group) => '${group['tag'].toString().length}:${group['tag']}').join()),
         initialIndex: groups.indexWhere((group) => group['tag'] == _currentGroup).clamp(0, groups.length - 1),

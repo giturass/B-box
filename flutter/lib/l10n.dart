@@ -50,6 +50,7 @@ const _zh = <String, String>{
   'Test latency': '测试延迟', 'Test all': '全部测速', 'Testing': '测速中',
   'Unreachable': '不可达', 'Not tested': '未测试', 'Selected': '已选择', 'Select': '选择',
   'Automatic selection': '内核自动选择', 'Close connections after switching': '切换后关闭连接',
+  'Selector': '手动选择', 'Icon style': '图标样式', 'Filled': '填充', 'Plain': '简洁', 'Hidden': '隐藏',
   'Start the service to view proxy groups': '启动服务后查看代理组',
   'No proxy groups in this configuration': '当前配置没有代理组',
   'View': '查看', 'Details': '详情', 'Active': '活动', 'Closed': '已关闭', 'All': '全部',

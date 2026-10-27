@@ -204,6 +204,21 @@
       "source": "lib/views/about.dart",
       "sourceSHA256": "0031e1fe57fae5e8f1b92b3db31acc167e7ec1a1e039e1535652b7fca18bf9e1",
       "changes": "Hero geometry, version and license pills, update control and link badges retained with B-box branding and B-box release metadata."
+    },
+    "lib/components/proxy_list.dart": {
+      "source": "lib/views/proxies/list.dart",
+      "sourceSHA256": "898dc1d01e800f46b03754dc2e574643670157f9d9bcbae3c1f87a94ad0ae9a6",
+      "changes": "Pinned rounded group headers, fixed-extent lazy rows, folding motion and group controls adapted to real sing-box groups. Fold state persists per profile; no external group icon URLs are invented."
+    },
+    "lib/components/proxy_card.dart": {
+      "source": "lib/views/proxies/card.dart",
+      "sourceSHA256": "c82793561e6769d1532c8c2a62100fbe65d3551923d3f2b7f862b6b69a0f2500",
+      "changes": "Shared card metrics and node interactions for tabs and list rows. Selection is available only for selectable sing-box groups."
+    },
+    "lib/components/group_monogram.dart": {
+      "source": "lib/widgets/icon.dart",
+      "sourceSHA256": "2d5a8e8f1c36085316da66988ed251f33df288dc0eb9028c0307c08a907d5161",
+      "changes": "Group-name monogram and typography retained; empty names use the existing proxy glyph."
     }
   }
 }

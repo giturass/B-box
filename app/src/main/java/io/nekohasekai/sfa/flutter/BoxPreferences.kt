@@ -10,6 +10,7 @@ internal object BoxPreferences {
         "proxyLayout" to setOf("Tabs", "List", "Compact"),
         "proxyCardSize" to setOf("Compact", "Standard", "Loose"),
         "proxyDensity" to setOf("Tight", "Standard", "Loose"),
+        "proxyIconStyle" to setOf("Filled", "Plain", "Hidden"),
         "tabAnimation" to setOf("slide", "fade"),
         "liquidGlass" to setOf("none", "standard", "ultra"),
     )
@@ -20,6 +21,10 @@ internal object BoxPreferences {
                 in choices -> value in choices.getValue(key)
                 "floatingNavigation", "closeConnectionsOnSelect", "hideTimeoutProxies", "pureBlack", "systemColor", "customFontScale" -> value is Boolean
                 "proxyColumns" -> value is Number && value.toDouble() == value.toInt().toDouble() && value.toInt() in 1..4
+                "proxyUnfolded" -> value is Map<*, *> && value.size <= 128 && value.all { (profile, groups) ->
+                    profile is String && profile.length in 1..4096 && groups is List<*> && groups.size <= 4096 &&
+                        groups.distinct().size == groups.size && groups.all { it is String && it.length in 1..4096 }
+                }
                 "fontScale" -> value is Number && value.toDouble().isFinite() && value.toDouble() in 0.8..1.4
                 "fontFamily" -> value == null || value is String && value.length in 1..128
                 "accentColors" -> value is List<*> && value.size <= 64 && value.distinct().size == value.size && value.all { it is Number && it.toLong() in 0..0xffffffffL }
