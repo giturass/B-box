@@ -22,7 +22,9 @@ class ServiceStartResultTest {
         val failure = IllegalStateException("Port already in use")
         start.failed(failure)
         runCurrent()
-        assertSame(failure, outcome!!.exceptionOrNull())
+        // Coroutine stack-trace recovery may copy the exception across await.
+        assertEquals(failure.javaClass, outcome!!.exceptionOrNull()!!.javaClass)
+        assertEquals(failure.message, outcome!!.exceptionOrNull()!!.message)
         outcome = null
         launch { outcome = runCatching { start.awaitStarted {} } }
         runCurrent()
