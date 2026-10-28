@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/widgets.dart';
+import 'package:b_box_ui/pages/terminal.dart';
 import 'package:b_box_ui/pages/terminal_settings.dart';
 import 'package:b_box_ui/pages/tools.dart';
 import 'package:flutter/services.dart';
@@ -8,7 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/errors.dart';
 
 void main() {
-  testWidgets('Ghostty settings are reachable while stopped and persist native configuration', (tester) async {
+  testWidgets('Ghostty settings open from Terminal while stopped and persist native configuration', (tester) async {
     reportFlutterErrors();
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1;
@@ -20,6 +21,7 @@ void main() {
       'fontFollowTheme': true, 'fontFamily': '', 'fontPath': '', 'fontSize': 14, 'defaultLightTheme': 'Alabaster', 'defaultDarkTheme': 'Afterglow'};
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (call) async {
       if (call.method == 'ready') return {'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'}, 'preferences': {'locale': 'en'}};
+      if (call.method == 'ssh.snapshot') return {'sessions': []};
       if (call.method == 'terminal.settings') return settings;
       if (call.method == 'terminal.set') { final args = call.arguments as Map; settings[args['key'] as String] = args['value']; return settings; }
       return null;
@@ -28,10 +30,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Tools').last);
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Ghostty settings'), 300,
+    await tester.scrollUntilVisible(find.text('Terminal'), 300,
       scrollable: find.descendant(of: find.byType(ToolsPage), matching: find.byType(Scrollable)).first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Ghostty settings'));
+    await tester.tap(find.text('Terminal'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TerminalPage), findsOneWidget);
+    await tester.tap(find.byTooltip('Ghostty settings'));
     await tester.pumpAndSettle();
     expect(find.byType(TerminalSettingsPage), findsOneWidget);
     await tester.tap(find.text('Custom configuration').first);

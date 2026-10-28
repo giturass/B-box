@@ -31,7 +31,11 @@ source of truth. No action may launch an old Compose page as a fallback.
   updater shares the profile content mutex with foreground edits.
 - Android defaults use the reference's five cards: status, network speed,
   outbound mode, profile and proxy groups. Unsupported routing modes remain
-  hidden. Memory, LAN and connection cards are optional.
+  hidden. Mode labels, glyphs and selection match case-insensitively, while
+  actions and button order preserve the core's mode values. Memory and LAN
+  cards are optional; connections remain accessible from Tools without a
+  dashboard card. Older layouts and
+  backups ignore the removed card, and the next layout save removes its keys.
 - First launch opens the dashboard directly, without a disclaimer acceptance
   gate. Fresh-start Flutter and Android smoke scenarios cover this behavior.
 - Tools use the Android reference section order and open Flutter settings,
@@ -46,6 +50,8 @@ source of truth. No action may launch an old Compose page as a fallback.
   long-press reordering, remove badges and addable rows. Global card keys
   preserve state and prevent duplicate probes during editing. Changes save
   immediately; a failed save retains the draft and Done retries it.
+- Tools keeps terminal settings inside Terminal and dashboard editing on the
+  dashboard toolbar. The B-box section contains Remote control.
 - Backup follows the reference's remote/local sections, WebDAV account form,
   connectivity indicator, filename, scope dialog and Compatible/Override
   strategy. The native `bbox-1` format stores stable profile identities,

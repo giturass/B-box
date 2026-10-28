@@ -13,7 +13,7 @@
 | 版本 / versionCode | `1.15.0-alpha.13` / `747` |
 | 安装包名 / applicationId | `io.ericlee.bfa` |
 | 源码 namespace | `io.nekohasekai.sfa` |
-| 更新日期 | 2026-10-27 |
+| 更新日期 | 2026-10-28 |
 
 MOD-017 正在替代 MOD-001～004、MOD-007～008、MOD-012 的 Compose 界面；这些历史条目用于记录旧实现，不再定义当前启动器的界面。
 
@@ -50,6 +50,8 @@ MOD-017 正在替代 MOD-001～004、MOD-007～008、MOD-012 的 Compose 界面�
 `compose.MainActivity` 和 `compose.ShareActivity` 都继承 `BoxActivity`。旧 Compose 页面源码仍供后端 ViewModel/DTO 所在模块编译，但不提供导航入口。OpenConnect WebView 使用平台视图嵌入新页面；它复用原浏览器控制器，不调用旧 Compose 对话框。
 
 配置保存与导入调用 `Libbox.checkConfig`；只显示内核返回的路由模式。不能手动选择自动测速组。新 UI 不提供 Clash YAML、覆写脚本、Mihomo 提供者或其他 Clash 专用开关。sing-box 扩展功能统一放在 Flutter 工具页。
+
+首页出站模式对齐 FlClash Android 的规则、全局、直连字形，保留内核返回的排列顺序。模式名称和选中态忽略大小写，切换时传回内核提供的原始值。首页及卡片编辑列表均移除连接卡片，旧布局中的记录被忽略并在下次编辑保存时清理。工具页 B-box 分区仅保留远程控制；Ghostty 设置从终端进入，仪表盘卡片从首页编辑，移除两个重复入口。
 
 Gradle 从 `flutter/build/host/outputs/repo` 消费 Flutter AAR。先用 Flutter 3.47.6 执行 `flutter pub get` 和 `flutter build aar --no-profile`，再构建 Android；CI 已包含这些步骤。本机不执行构建，按项目 AGENTS.md 在 Actions 验证。Flutter 无法发布 x86 AOT，因此通用 ABI 列表保留 ARMv7、ARM64、x86_64，发布工作流仍限定 ARM64。
 

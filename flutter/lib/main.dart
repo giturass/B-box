@@ -132,7 +132,6 @@ class _HomePageState extends State<HomePage> {
   StreamSubscription<String>? _intents;
   BoxController? _box;
   bool _handlingIntent = false;
-  int _dashboardEditRevision = 0;
   static const _items = <(String, Glyph)>[
     ('Dashboard', AppGlyphs.dashboard), ('Proxies', AppGlyphs.proxies),
     ('Profiles', AppGlyphs.profiles), ('Tools', AppGlyphs.tools),
@@ -141,10 +140,6 @@ class _HomePageState extends State<HomePage> {
 
   @override void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_dashboardEditRevision != context.box.dashboardEditRevision) {
-      _dashboardEditRevision = context.box.dashboardEditRevision;
-      _index = 0;
-    }
     if (_box != null) return;
     _box = context.box;
     _intents = _box!.intents.stream.listen((_) => _drainIntents());

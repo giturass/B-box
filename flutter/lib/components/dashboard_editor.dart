@@ -21,11 +21,11 @@ const _liftGrowth = .03;
 
 const dashboardGlyphs = <String, Glyph>{
   'Status': AppGlyphs.status, 'Network speed': AppGlyphs.speed, 'Outbound mode': AppGlyphs.split,
-  'Current profile': AppGlyphs.profiles, 'Connections': AppGlyphs.connections, 'Proxy groups': AppGlyphs.layers,
+  'Current profile': AppGlyphs.profiles, 'Proxy groups': AppGlyphs.layers,
   'Memory': AppGlyphs.cpu, 'Intranet IP': AppGlyphs.devices,
 };
 const _descriptions = <String, String>{
-  'Connections': 'Active sing-box connections', 'Memory': 'App and core memory', 'Intranet IP': 'Device network addresses',
+  'Memory': 'App and core memory', 'Intranet IP': 'Device network addresses',
   'Network speed': 'Upload and download traffic', 'Current profile': 'Selected sing-box configuration', 'Proxy groups': 'Groups and selected nodes',
   'Outbound mode': 'Available routing modes',
 };

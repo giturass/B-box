@@ -4,7 +4,6 @@ import '../widgets.dart';
 import '../components/dashboard_editor.dart';
 
 import '../components/connected_buttons.dart';
-import 'connections.dart';
 import '../components/status_panel.dart';
 import '../components/memory_panel.dart';
 import '../components/intranet_panel.dart';
@@ -13,9 +12,9 @@ import '../components/proxy_groups_panel.dart';
 
 export '../components/dashboard_editor.dart' show DashboardEditor;
 
-const dashboardCards = ['Status', 'Network speed', 'Outbound mode', 'Current profile', 'Connections', 'Proxy groups', 'Memory', 'Intranet IP'];
+const dashboardCards = ['Status', 'Network speed', 'Outbound mode', 'Current profile', 'Proxy groups', 'Memory', 'Intranet IP'];
 const defaultDashboardCards = ['Status', 'Network speed', 'Outbound mode', 'Current profile', 'Proxy groups'];
-const defaultHiddenCards = ['Connections', 'Memory', 'Intranet IP'];
+const defaultHiddenCards = ['Memory', 'Intranet IP'];
 
 List<String> dashboardOrder(Json prefs) {
   final saved = (prefs['dashboardCards'] as List? ?? defaultDashboardCards).whereType<String>().where(dashboardCards.contains).toList();
@@ -32,16 +31,8 @@ class _DashboardPageState extends State<DashboardPage> {
   final _editor = GlobalKey<DashboardEditorState>();
   late final _scroll = sheetScrollController(context);
   bool _editing = false, _saving = false;
-  int _editRevision = 0;
   GlobalKey _keyOf(String card) => _cardKeys.putIfAbsent(card, GlobalKey.new);
 
-  @override void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_editRevision != context.box.dashboardEditRevision) {
-      _editRevision = context.box.dashboardEditRevision;
-      _editing = true;
-    }
-  }
   @override void dispose() { _scroll.dispose(); super.dispose(); }
 
   Map<String, Widget> _cards() {
@@ -52,11 +43,6 @@ class _DashboardPageState extends State<DashboardPage> {
       'Network speed': const _SpeedPanel(),
       if ((box.dashboard['modes'] as List? ?? []).isNotEmpty) 'Outbound mode': const _ModePanel(),
       'Current profile': const ProfilePanel(),
-      'Connections': BoxPanel(padding: const EdgeInsets.all(8), onTap: () => openPage(context, const ConnectionsPage()),
-        child: Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Column(spacing: 2, children: [
-          Text((box.dashboard['connections'] ?? 0).toString(), maxLines: 1, style: AppTextStyle.title2.of(context, emphasized: true).toTabular.copyWith(letterSpacing: 0)),
-          Text(context.tr('Connections'), maxLines: 1, style: AppTextStyle.caption1.of(context).copyWith(color: context.colorScheme.onSurfaceVariant)),
-        ]))),
       'Proxy groups': const ProxyGroupsPanel(),
       'Memory': const MemoryPanel(),
     };
@@ -65,7 +51,8 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<bool> _saveLayout(List<String> shown) async {
     final box = context.box, available = _cards().keys.toSet();
     final order = dashboardOrder(box.preferences), result = List<String>.of(shown);
-    final hidden = (box.preferences['hiddenCards'] as List? ?? defaultHiddenCards).whereType<String>().toSet();
+    final hidden = (box.preferences['hiddenCards'] as List? ?? defaultHiddenCards)
+      .whereType<String>().where(dashboardCards.contains).toSet();
     var at = 0;
     for (final card in order) {
       if (available.contains(card)) {
@@ -176,24 +163,26 @@ class _SpeedTile extends StatelessWidget {
   }
 }
 
+// FlClash Android's outbound_mode.dart, using sing-box's case-insensitive modes.
 class _ModePanel extends StatelessWidget {
   const _ModePanel();
   @override Widget build(BuildContext context) {
     final box = context.box;
     final modes = (box.dashboard['modes'] as List).cast<String>();
+    final selected = (box.dashboard['mode'] as String? ?? '').toLowerCase();
     return BoxPanel(child: Column(children: [
       const PanelTitle('Outbound mode', AppGlyphs.split),
       const SizedBox(height: 12),
       DashboardConnectedGroup(children: [
-        for (final (index, mode) in modes.indexed) Expanded(child: DashboardConnectedButton(
-          selected: mode == box.dashboard['mode'], first: index == 0, last: index == modes.length - 1,
+        for (final (index, mode) in modes.indexed) Expanded(key: ValueKey(mode), child: DashboardConnectedButton(
+          selected: mode.toLowerCase() == selected, first: index == 0, last: index == modes.length - 1,
           outer: 26, inner: 12, background: SurfaceLevel.block.colorOf(context.colorScheme),
-          semanticLabel: context.tr({'rule': 'Rule', 'global': 'Global', 'direct': 'Direct'}[mode] ?? mode),
-          onTap: () { if (mode != box.dashboard['mode']) box.act('mode.set', {'mode': mode}); },
+          semanticLabel: context.tr({'rule': 'Rule', 'global': 'Global', 'direct': 'Direct'}[mode.toLowerCase()] ?? mode),
+          onTap: () { if (mode.toLowerCase() != selected) box.act('mode.set', {'mode': mode}); },
           builder: (foreground) => SizedBox(height: 52, child: Column(
             mainAxisAlignment: MainAxisAlignment.center, spacing: 2, children: [
-              GlyphIcon({'rule': AppGlyphs.rules, 'global': AppGlyphs.proxies, 'direct': AppGlyphs.target}[mode] ?? AppGlyphs.split, size: 18, color: foreground),
-              Text(context.tr({'rule': 'Rule', 'global': 'Global', 'direct': 'Direct'}[mode] ?? mode),
+              GlyphIcon({'rule': AppGlyphs.rules, 'global': AppGlyphs.proxies, 'direct': AppGlyphs.target}[mode.toLowerCase()] ?? AppGlyphs.split, size: 18, color: foreground),
+              Text(context.tr({'rule': 'Rule', 'global': 'Global', 'direct': 'Direct'}[mode.toLowerCase()] ?? mode),
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: AppTextStyle.footnote.of(context, emphasized: true).copyWith(color: foreground)),
             ],

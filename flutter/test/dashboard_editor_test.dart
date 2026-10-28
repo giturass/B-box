@@ -19,6 +19,10 @@ void main() {
       final events = StreamController<dynamic>.broadcast();
       const channel = MethodChannel('test.dashboard-edit');
       final preferences = <String, dynamic>{'locale': 'en'};
+      if (scenario == 'add-remove') preferences.addAll({
+        'dashboardCards': ['Status', 'Network speed', 'Outbound mode', 'Current profile', 'Connections', 'Proxy groups'],
+        'hiddenCards': ['Connections', 'Memory', 'Intranet IP'],
+      });
       final calls = <MethodCall>[];
       var reject = scenario == 'failed-save';
       final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -51,6 +55,8 @@ void main() {
       expect(find.byType(DashboardEditor), findsOneWidget);
       expect(tester.state(find.byType(StatusPanel)), same(status));
       expect(find.byTooltip('Remove Status'), findsNothing);
+      expect(find.byTooltip('Remove Connections'), findsNothing);
+      expect(find.byTooltip('Add Connections'), findsNothing);
       if (scenario == 'reorder') {
         final handle = find.byType(ReorderableDelayedDragStartListener).at(1);
         // The centre of this tall card can sit behind the navigation bar.
@@ -92,6 +98,8 @@ void main() {
           reject = false;
         } else {
           expect(preferences['hiddenCards'], contains('Network speed'));
+          expect(preferences['dashboardCards'], isNot(contains('Connections')));
+          expect(preferences['hiddenCards'], isNot(contains('Connections')));
           await tester.scrollUntilVisible(find.byTooltip('Add Memory'), 250,
             scrollable: find.ancestor(of: find.byType(DashboardEditor), matching: find.byType(Scrollable)).first);
           await advance();
@@ -108,10 +116,14 @@ void main() {
       if (scenario == 'add-remove') {
         await tester.tap(find.text('Tools').last);
         await tester.pumpAndSettle();
-        await tester.scrollUntilVisible(find.text('Dashboard cards'), 300,
+        await tester.scrollUntilVisible(find.text('Remote control'), 300,
           scrollable: find.descendant(of: find.byType(ToolsPage), matching: find.byType(Scrollable)).first);
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Dashboard cards'));
+        expect(find.text('Ghostty settings'), findsNothing);
+        expect(find.text('Dashboard cards'), findsNothing);
+        await tester.tap(find.text('Dashboard').last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Dashboard cards'));
         await advance();
         expect(find.byType(DashboardEditor), findsOneWidget);
         expect(find.byTooltip('Done').hitTestable(), findsOneWidget);

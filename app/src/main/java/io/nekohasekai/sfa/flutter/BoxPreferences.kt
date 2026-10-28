@@ -1,6 +1,7 @@
 package io.nekohasekai.sfa.flutter
 
 internal object BoxPreferences {
+    // Keep accepting the retired Connections key so older layouts and backups retain their other preferences.
     private val cards = setOf("Status", "Network speed", "Outbound mode", "Current profile", "Connections", "Proxy groups", "Memory", "Intranet IP")
     private val choices = mapOf(
         "theme" to setOf("system", "light", "dark"),

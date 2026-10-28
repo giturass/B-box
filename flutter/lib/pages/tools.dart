@@ -6,7 +6,6 @@ import 'diagnostics.dart';
 import 'endpoints.dart';
 import 'reports.dart';
 import 'terminal.dart';
-import 'terminal_settings.dart';
 import 'configuration.dart';
 
 class ToolsPage extends StatelessWidget {
@@ -32,9 +31,7 @@ class ToolsPage extends StatelessWidget {
         ListItem.open(leading: const GlyphIcon(AppGlyphs.settings), title: Text(context.tr('General')), widget: const GeneralSettingsPage()),
       ], footer: context.tr('Manage DNS, routing and rule sets for the selected profile.')),
       generateSection(title: 'B-box', items: [
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Ghostty settings')), widget: const TerminalSettingsPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(context.tr('Remote control')), widget: const RemotePage()),
-        ListItem(leading: const GlyphIcon(AppGlyphs.dashboard), title: Text(context.tr('Dashboard cards')), onTap: box.editDashboard),
       ]),
       generateSection(title: context.tr('Network diagnostics'), items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.speed), title: Text(context.tr('Network quality')), widget: const DiagnosticsPage(quality: true)),
