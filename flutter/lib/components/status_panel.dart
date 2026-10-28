@@ -24,6 +24,7 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
   bool _busy = false, _checking = false, _qualityChecking = false;
   Json? _egress;
   String? _error, _qualityError, _stamp;
+  BoxController? _box;
   RoutedIpProbe? _probe;
   Timer? _qualityExpiry, _cooldown, _settle;
   final _detailsRevision = ValueNotifier(0);
@@ -49,6 +50,17 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
   @override void didChangeDependencies() {
     super.didChangeDependencies();
     final box = context.box;
+    if (!identical(_box, box)) {
+      _box?.removeListener(_syncRoute);
+      _box = box;
+      box.addListener(_syncRoute);
+    }
+    _syncRoute();
+  }
+  void _syncRoute() {
+    // Paused applications do not render frames. Observe controller events so
+    // route changes cancel stale requests without waiting for a widget rebuild.
+    final box = _box!;
     final selections = box.groups.map((g) => '${g['tag']}:${g['selected']}').toList()..sort();
     final addresses = box.lanAddresses..sort();
     final route = box.running ? '${box.dashboard['startedAt']}:${box.selectedProfileId}:${box.dashboard['mode']?.toString().toLowerCase()}:${selections.join(',')}' : '';
@@ -59,9 +71,11 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
     _generation++;
     _probe?.cancel(); _probe = null;
     _qualityExpiry?.cancel();
-    _egress = null; _error = null; _qualityError = null; _checking = false; _qualityChecking = false;
-    _ipDue = true; _qualityDue = false; _manual = false;
-    _routeChanged = changed;
+    setState(() {
+      _egress = null; _error = null; _qualityError = null; _checking = false; _qualityChecking = false;
+      _ipDue = true; _qualityDue = false; _manual = false;
+      _routeChanged = changed;
+    });
     if (changed && _settle == null) {
       _settle = Timer(_moveSettleDuration, () { _settle = null; _scheduleRefresh(); });
     }
@@ -145,6 +159,7 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
   }
   @override void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _box?.removeListener(_syncRoute);
     _generation++; _probe?.cancel(); _qualityExpiry?.cancel(); _cooldown?.cancel(); _settle?.cancel(); _detailsRevision.dispose();
     super.dispose();
   }
