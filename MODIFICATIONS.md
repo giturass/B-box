@@ -53,6 +53,8 @@ MOD-017 正在替代 MOD-001～004、MOD-007～008、MOD-012 的 Compose 界面�
 
 首页出站模式对齐 FlClash Android 的规则、全局、直连字形，保留内核返回的排列顺序。模式名称和选中态忽略大小写，切换时传回内核提供的原始值。首页及卡片编辑列表均移除连接卡片，旧布局中的记录被忽略并在下次编辑保存时清理。工具页 B-box 分区仅保留远程控制；Ghostty 设置从终端进入，仪表盘卡片从首页编辑，移除两个重复入口。
 
+状态卡片查询改为同一参考版本的实现：IP 使用 Cloudflare、IP.SB、IPinfo、ipwho.is、GeoJS、country.is、IPQuery、ident.me 八源错峰竞速；组织、ASN、类型和质量使用 ident.me、ip-api.com、IPQuery、IPLocate、ipapi.is、proxycheck.io 分批查询，保留其解析、回退和质量判定规则。成功结果按 IP 持久缓存三天，失败仅在内存保留五分钟，手动重试可跳过失败缓存。先显示 IP，再补充质量；质量失败保留 IP。请求通过 sing-box 路由和 libbox TLS 证书库发出，切换模式、节点、配置、网络或进入后台时取消旧请求。来源与失败原因可在 IP 详情查看。
+
 Gradle 从 `flutter/build/host/outputs/repo` 消费 Flutter AAR。先用 Flutter 3.47.6 执行 `flutter pub get` 和 `flutter build aar --no-profile`，再构建 Android；CI 已包含这些步骤。本机不执行构建，按项目 AGENTS.md 在 Actions 验证。Flutter 无法发布 x86 AOT，因此通用 ABI 列表保留 ARMv7、ARM64、x86_64，发布工作流仍限定 ARM64。
 
 当前验证记录见 NEWUI.md；不能把共享源码复用或编译成功表述为已经完成逐像素验收。

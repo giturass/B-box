@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'common/ip_quality_cache.dart';
 
 typedef Json = Map<String, dynamic>;
 
@@ -41,6 +42,11 @@ class BoxController extends ChangeNotifier {
   String? applyRequired;
   final appIcons = <String, Future<Uint8List?>>{};
   final _profileStats = <int, Future<Json>>{};
+  late final ipQualities = IpQualityCache(
+    read: (ip) => call('dashboard.qualityCache.get', {'ip': ip}),
+    write: (ip, record) async { await call('dashboard.qualityCache.put', {'ip': ip, 'value': record}); },
+    onCacheError: (error) => debugPrint('IP quality cache: ${describe(error)}'),
+  );
 
   Future<Json> profileStats(int id) => _profileStats.putIfAbsent(id, () async => json(await call('profiles.stats', {'id': id})));
 

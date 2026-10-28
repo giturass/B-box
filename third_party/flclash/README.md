@@ -10,6 +10,12 @@ in `JetBrainsMono-OFL.txt` and `Twemoji-LICENSE.md`; the unmodified Twemoji
 art is by Twitter and the font conversion by Mozilla. These notices also ship
 in the app license page.
 
+The status-card IP race, quality source parsers, wave schedule, quality rules
+and cache lifetime also adapt this revision. Flutter query adaptations and
+their reference fixtures are listed under `adaptedFiles`; the routed Go
+transport is listed under `adaptedNativeFiles`. HTTP calls use libbox and the
+active sing-box router instead of Mihomo/Dio.
+
 `manifest.json` records the imported file hashes after that mechanical rename.
 
 The B-box application screens and Android bridge adapt this presentation to

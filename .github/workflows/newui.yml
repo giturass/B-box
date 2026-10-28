@@ -31,12 +31,12 @@ jobs:
         with:
           go-version: ${{ steps.versions.outputs.go }}
           cache-dependency-path: .core/go.sum
-      - name: WebDAV transport tests against the matching core
+      - name: HTTP and routed IP probe tests against the matching core
         working-directory: .core
         run: |
           git apply ../patches/libbox-no-legacy.patch
-          cp ../libbox/ui_http.go ../libbox/ui_http_test.go experimental/libbox/
-          go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(WebDAV|HTTPGet)' -count=1
+          cp ../libbox/ui_http.go ../libbox/ui_http_test.go ../libbox/ui_egress.go ../libbox/ui_egress_test.go experimental/libbox/
+          go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(WebDAV|HTTPGet|Egress)' -count=1
   flutter:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

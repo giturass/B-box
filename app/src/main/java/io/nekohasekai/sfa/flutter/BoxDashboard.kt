@@ -4,6 +4,8 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import androidx.lifecycle.lifecycleScope
 import io.nekohasekai.libbox.Libbox
+import io.nekohasekai.libbox.CommandServer
+import io.nekohasekai.libbox.UIEgressProbe
 import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
@@ -11,6 +13,7 @@ import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.AppLifecycleObserver
 import io.nekohasekai.sfa.utils.CommandTarget
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
@@ -23,6 +26,22 @@ import java.io.File
 internal class BoxDashboard(private val activity: BoxActivity, private val emit: (String, Any?) -> Unit) : Closeable {
     @Volatile var remoteMemory = 0L
     private var networkStamp = ""
+    private class EgressSession(val server: CommandServer) {
+        @Volatile var closed = false
+            private set
+        private var probe: UIEgressProbe? = null
+        fun attach(value: UIEgressProbe) = synchronized(this) {
+            if (closed) { value.close(); throw CancellationException("IP probe cancelled") }
+            probe = value
+        }
+        fun get(): UIEgressProbe = synchronized(this) { probe ?: error("IP probe is not available") }
+        fun close() {
+            val value = synchronized(this) { closed = true; probe.also { probe = null } }
+            value?.close()
+        }
+    }
+    private val egressSessions = mutableMapOf<String, EgressSession>()
+    private val qualityCache = activity.getSharedPreferences("dashboard_ip_quality", 0)
     private val polling = activity.lifecycleScope.launch {
         AppLifecycleObserver.isForeground.collectLatest { foreground ->
             if (!foreground) return@collectLatest
@@ -77,33 +96,64 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
         return mapOf("addresses" to addresses, "bindings" to bindings)
     }
 
-    suspend fun egress(): Map<String, Any?> {
+    private fun requireLocalService() {
         require(!CommandTarget.isRemote) { "Remote servers do not expose an egress probe" }
         require(activity.serviceStatus.value == Status.Started) { "Start the service to check its egress IP" }
+    }
+
+    private fun session(id: String): EgressSession {
+        requireLocalService()
+        val session = egressSessions[id] ?: error("IP probe is no longer active")
+        check(!session.closed && BoxService.dashboardServer === session.server) { "Service changed during egress check" }
+        return session
+    }
+
+    suspend fun egress(id: String): Map<String, Any?> {
+        requireLocalService()
+        require(id.length in 1..128 && id !in egressSessions && egressSessions.size < 8) { "Invalid IP probe session" }
         val server = BoxService.dashboardServer ?: error("Service is not available")
-        return withContext(Dispatchers.IO) {
-            // The source is also used by FlClash; classification comes from its
-            // explicit risk fields, not guesses about addresses or providers.
-            val data = JSONObject(server.queryUIEgress("https://api.ipquery.io/?format=json"))
-            val ip = data.optString("ip")
-            require(ip.matches(Regex("[0-9a-fA-F:.]+"))) { "Invalid egress response" }
-            val location = data.optJSONObject("location")
-            val isp = data.optJSONObject("isp")
-            val risk = data.optJSONObject("risk")
-            val type = when {
-                risk == null -> "Unknown type"
-                risk.optBoolean("is_datacenter") -> "Hosting"
-                risk.optBoolean("is_mobile") -> "Mobile"
-                risk.has("is_datacenter") && risk.has("is_mobile") -> "Residential"
-                else -> "Unknown type"
+        val active = EgressSession(server)
+        egressSessions[id] = active
+        return try {
+            val info = withContext(Dispatchers.IO) {
+                val probe = server.newUIEgressProbe()
+                active.attach(probe)
+                jsonObject(JSONObject(probe.lookupOutboundIP()))
             }
-            val risky = risk?.let { it.optBoolean("is_tor") || it.optBoolean("is_abuser") } == true
-            val quality = when { risk == null -> null; risky -> "Risky"; type == "Hosting" -> "Normal"; type != "Unknown type" -> "Good"; else -> null }
-            check(BoxService.dashboardServer === server && !CommandTarget.isRemote && activity.serviceStatus.value == Status.Started) { "Service changed during egress check" }
-            mapOf("ip" to ip, "country" to location?.optString("country_code"), "organization" to isp?.optString("org")?.ifBlank { isp.optString("isp") },
-                "asn" to isp?.optString("asn"), "city" to location?.optString("city"), "type" to type, "quality" to quality,
-                "source" to "ipquery.io", "checkedAt" to System.currentTimeMillis())
+            check(session(id) === active) { "IP probe changed during egress check" }
+            info
+        } catch (error: Exception) {
+            if (egressSessions[id] === active) egressSessions.remove(id)
+            active.close()
+            throw error
         }
+    }
+
+    suspend fun query(id: String, url: String, timeoutMillis: Long): Map<String, Any?> {
+        val active = session(id)
+        val response = withContext(Dispatchers.IO) { active.get().get(url, timeoutMillis) }
+        check(session(id) === active) { "IP probe changed during query" }
+        return mapOf("status" to response.status, "body" to response.content.toString(Charsets.UTF_8))
+    }
+
+    fun closeProbe(id: String) { egressSessions.remove(id)?.close() }
+
+    fun readQualityCache(ip: String): Map<String, Any?>? = runCatching {
+        qualityCache.getString(ip, null)?.let { jsonObject(JSONObject(it)) }
+    }.getOrNull()
+
+    suspend fun writeQualityCache(ip: String, value: Map<String, Any?>) = withContext(Dispatchers.IO) {
+        val encoded = JSONObject(value).toString()
+        val record = JSONObject(encoded)
+        val now = System.currentTimeMillis()
+        require(ip.length in 1..128 && encoded.toByteArray().size <= 16384 &&
+            record.optJSONObject("quality")?.optString("ip") == ip && record.optLong("checkedAt", -1) in 0..now) { "Invalid IP quality record" }
+        val editor = qualityCache.edit().putString(ip, encoded)
+        qualityCache.all.forEach { (key, stored) ->
+            val checkedAt = runCatching { JSONObject(stored as String).optLong("checkedAt", -1) }.getOrDefault(-1)
+            if (key != ip && (checkedAt < now - 3 * 24 * 60 * 60 * 1000L || checkedAt > now)) editor.remove(key)
+        }
+        check(editor.commit()) { "Unable to cache IP quality" }
     }
 
     suspend fun releaseMemory(): Map<String, Any?> = withContext(Dispatchers.IO) {
@@ -112,5 +162,9 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
         memory().also { emit("memory", it) }
     }
 
-    override fun close() { polling.cancel() }
+    override fun close() {
+        polling.cancel()
+        egressSessions.values.forEach { it.close() }
+        egressSessions.clear()
+    }
 }

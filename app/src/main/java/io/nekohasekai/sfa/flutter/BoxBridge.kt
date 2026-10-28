@@ -166,7 +166,16 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         fun id(key: String = "id"): Long = (args[key] as? Number)?.toLong() ?: error("Missing argument: " + key)
         return when (call.method) {
             "updates.check" -> withContext(Dispatchers.IO) { BoxUpdates.check() }
-            "dashboard.egress" -> dashboardDetails.egress()
+            "dashboard.egress" -> dashboardDetails.egress(string("id"))
+            "dashboard.probe.get" -> dashboardDetails.query(string("id"), string("url"), id("timeoutMillis"))
+            "dashboard.probe.close" -> { dashboardDetails.closeProbe(string("id")); null }
+            "dashboard.qualityCache.get" -> dashboardDetails.readQualityCache(string("ip"))
+            "dashboard.qualityCache.put" -> {
+                @Suppress("UNCHECKED_CAST")
+                val value = args["value"] as? Map<String, Any?> ?: error("Missing IP quality record")
+                dashboardDetails.writeQualityCache(string("ip"), value)
+                null
+            }
             "dashboard.releaseMemory" -> dashboardDetails.releaseMemory()
             "ready" -> mapOf(
                 "version" to BuildConfig.VERSION_NAME, "coreVersion" to Libbox.version(),

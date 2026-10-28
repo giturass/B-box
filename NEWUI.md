@@ -22,6 +22,20 @@ source of truth. No action may launch an old Compose page as a fallback.
   handling. An HTTP proxy switch is conditional on libbox availability.
 - Connections, logs, traffic and session state reflect the active local or
   remote sing-box session. They are never populated with demonstration data.
+- Status-card IP queries use FlClash's eight sources: Cloudflare trace, IP.SB,
+  IPinfo, ipwho.is, GeoJS, country.is, IPQuery and ident.me. The race has a
+  six-second deadline, an 800 ms stagger, three concurrent requests and a
+  4096-byte response limit; the first public-IP answer cancels the losers.
+  Organization, ASN, type and quality follow the reference's separate waves:
+  ident.me/ip-api.com/IPQuery, IPLocate, ipapi.is, then proxycheck.io. Later
+  waves start after one second or when outstanding requests fail; each request
+  has an eight-second deadline. Source parsing, explicit-type preference,
+  residential inference and Tor/abuser quality rules match the reference.
+  Successful quality records persist by IP for three days; failures have a
+  five-minute memory cooldown that manual retry bypasses. IP remains visible
+  while quality loads or fails. Route changes and backgrounding cancel the
+  refresh, and late results are ignored. All requests use the active sing-box
+  router and libbox TLS store; remote sessions do not expose this probe.
 - Existing sing-box-only capabilities use the same Flutter presentation;
   they do not justify bringing Clash-only controls into the app.
 - Advanced configuration and resources edit native sing-box DNS, routing,
@@ -66,5 +80,9 @@ source of truth. No action may launch an old Compose page as a fallback.
 
 Local compilation is prohibited by `../AGENTS.md` unless explicitly requested.
 Flutter analysis/tests and Android compilation belong in GitHub Actions.
+Routed probe tests cover concurrency, fallback, public-IP validation, response
+limits, cancellation and service replacement. Flutter tests adapt the pinned
+reference's quality fixtures and cover cache lifetime, retry, progressive
+status updates and stale results after route/lifecycle changes.
 Pixel parity must be checked against the pinned reference at equal viewport,
 font scale, locale and theme; source reuse alone is not visual acceptance.

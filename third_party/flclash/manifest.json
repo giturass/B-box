@@ -168,7 +168,7 @@
     "lib/components/status_panel.dart": {
       "source": "lib/views/dashboard/widgets/current_outbound.dart",
       "sourceSHA256": "ee6f397a9b1bc78968699e2852c7a6ba36d1d1a05dfa4cbcd6545e09c6b55f28",
-      "changes": "Mobile status layout, country badge, IP chips, runtime and organization cells. Egress requests use the real sing-box router; unavailable remote probes are not simulated."
+      "changes": "Mobile status layout, country badge, IP chips, runtime and organization cells. Egress requests use the real sing-box router; unavailable remote probes are not simulated. IP is shown before quality, with cancellation, cache expiry, retry and live source details."
     },
     "lib/components/memory_panel.dart": {
       "source": "lib/views/dashboard/widgets/memory_info.dart",
@@ -234,6 +234,47 @@
       "source": "lib/views/backup_and_restore.dart",
       "sourceSHA256": "616b6c7c23c7e3011da256db3e5f2d4b3cabb636c229c2b9d1b2788454bb8ce6",
       "changes": "Remote/local sections, WebDAV form, connectivity indicator, restore scopes and strategy adapted to bounded bbox-1 backups. Waits for native writes and preserves edits on error."
+    },
+    "lib/common/ip_quality.dart": {
+      "source": "lib/common/ip_quality.dart",
+      "sourceSHA256": "9386dbef872f4e41b54b5abd8153fda4910be78b772ded3f36f972956e12cd02",
+      "changes": "Source URLs, parsers, wave order, explicit and inferred types, flags and quality rules preserved; Dio replaced by a cancellable sing-box transport."
+    },
+    "lib/common/ip_quality_models.dart": {
+      "source": "lib/models/ip_quality.dart",
+      "sourceSHA256": "52515055bbf02dd07fb88a81a5b92a8ba850a6812d4f221f76578ef084a6e2e3",
+      "changes": "Immutable model, JSON serialization and quality-level rules adapted without generated files; enum values follow lib/enum/enum.dart."
+    },
+    "lib/common/ip_quality_cache.dart": {
+      "source": "lib/providers/ip_quality.dart",
+      "sourceSHA256": "3a7895dced90ab6121eaa397d1796aaa6e49009959e48f8a6d82265cf6a5c9e0",
+      "changes": "Three-day successful cache and five-minute failure cooldown adapted to native persistence and in-memory pending results; manual retry and nonfatal cache errors preserved."
+    },
+    "test/ip_quality_test.dart": {
+      "source": "test/common/ip_quality_test.dart",
+      "sourceSHA256": "6c0d658eb1714a7fde07bd472a62060b461d6080224e7cc8a5813f088b798caf",
+      "changes": "Reference provider fixtures and scheduling assertions retained; Dio adapter replaced by a fake transport, with cancellation and quality-level coverage added."
+    }
+  },
+  "adaptedNativeFiles": {
+    "libbox/ui_egress.go": {
+      "sources": [
+        {
+          "source": "core/outbound_ip.go",
+          "sourceSHA256": "3fe24d2501c91dd4e6a9a3e5c734b92fa1e0fd9e6e54d7d27266659de256c1a0",
+          "changes": "IP race concurrency, stagger, response limit, browser user agent and public-IP validation preserved; routed HTTP transport uses sing-box."
+        },
+        {
+          "source": "lib/common/service_probe.dart",
+          "sourceSHA256": "fd64b97ee725b5c471dfd361aae3290609eefd9688cb657d547b23eda879b3db",
+          "changes": "Eight IP query URLs and source order preserved."
+        },
+        {
+          "source": "lib/models/common.dart",
+          "sourceSHA256": "af8884a550912ee1bbd7ced944ca81b894fa5c90090bbf4268c2fc4d490b84ea",
+          "changes": "IpInfo response fields adapted to Go JSON/trace parsers."
+        }
+      ]
     }
   }
 }
