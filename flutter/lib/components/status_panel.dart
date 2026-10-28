@@ -147,10 +147,12 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           SizedBox(height: 26 * scale, child: Row(spacing: 8, children: [
             GlyphIcon(AppGlyphs.status, size: 18, color: color.onSurfaceVariant),
-            Expanded(child: Row(spacing: 8, children: [
+            Expanded(child: LayoutBuilder(builder: (context, constraints) => Row(spacing: 8, children: [
               Flexible(child: Text(context.tr('Status'), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyle.subheadline.of(context, emphasized: true))),
-              DashboardChip(label: context.tr(status), tone: box.running ? DashboardChipTone.ok : DashboardChipTone.idle, dot: box.running),
-            ])),
+              ConstrainedBox(constraints: BoxConstraints(maxWidth: math.max(0, constraints.maxWidth - 8)),
+                child: FittedBox(fit: BoxFit.scaleDown, alignment: AlignmentDirectional.centerStart,
+                  child: DashboardChip(label: context.tr(status), tone: box.running ? DashboardChipTone.ok : DashboardChipTone.idle, dot: box.running))),
+            ]))),
           ])),
           const SizedBox(height: 12),
           Row(spacing: 12, children: [
@@ -181,13 +183,14 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
             ])),
           ]),
           const SizedBox(height: 16),
-          Row(spacing: 24, children: [
-            _StatusCell(label: 'Run time', child: _RuntimeValue(startedAt: box.running ? (box.dashboard['startedAt'] as num?)?.toInt() : null)),
+          LayoutBuilder(builder: (context, constraints) => Row(spacing: 24, children: [
+            ConstrainedBox(constraints: BoxConstraints(maxWidth: math.max(0, constraints.maxWidth - 24)),
+              child: _StatusCell(label: 'Run time', child: _RuntimeValue(startedAt: box.running ? (box.dashboard['startedAt'] as num?)?.toInt() : null))),
             Flexible(child: _StatusCell(label: 'Organization', child: organization != null
               ? Text(organization, maxLines: 1, overflow: TextOverflow.ellipsis, style: _statusCellStyle(context))
               : loading ? SkeletonText(width: 96, style: _statusCellStyle(context))
               : Text('—', maxLines: 1, style: _statusCellStyle(context)))),
-          ]),
+          ])),
         ])),
         SizedBox(width: 88, child: Center(child: box.remote ? const GlyphIcon(AppGlyphs.proxies, size: 60) : StartToggle(
           size: 88, enabled: (box.running || box.selectedProfile != null) && !_busy && !box.transitioning, running: box.running, suspended: false, onTap: _toggle))),
