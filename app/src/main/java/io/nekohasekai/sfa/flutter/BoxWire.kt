@@ -1,15 +1,14 @@
 package io.nekohasekai.sfa.flutter
 
-import io.nekohasekai.sfa.compose.model.Connection
-import io.nekohasekai.sfa.compose.model.Group
-import io.nekohasekai.sfa.compose.screen.dashboard.DashboardUiState
+import io.nekohasekai.sfa.backend.model.Connection
+import io.nekohasekai.sfa.backend.model.Group
+import io.nekohasekai.sfa.backend.dashboard.DashboardUiState
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.RemoteControlManager
 
 internal fun DashboardUiState.toWire(): Map<String, Any?> = mapOf(
     "status" to serviceStatus.name,
     "selectedProfileId" to Settings.selectedProfile,
-    "profileName" to selectedProfileName,
     "startedAt" to (RemoteControlManager.startedAt.value ?: serviceStartTime),
     "memory" to memory,
     "goroutines" to goroutines,

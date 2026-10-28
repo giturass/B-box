@@ -28,6 +28,7 @@ import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.ktx.hasPermission
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -47,6 +48,7 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
     private val shares = java.util.concurrent.ConcurrentHashMap<String, Intent>()
     private var launching = false
     private var startGeneration = 0
+    private val startResult = ServiceStartResult()
 
     private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (startPending && (granted || !Settings.dynamicNotification)) resumeStart() else {
@@ -60,11 +62,11 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
     private val backgroundLocationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted && startPending) resumeStart() else {
             startPending = false
-            bridge?.reportError(getString(R.string.location_permission_description))
+            failStart(getString(R.string.location_permission_description))
         }
     }
-    private val locationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted && startPending) {
+    private val locationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        if ((grants[Manifest.permission.ACCESS_FINE_LOCATION] == true || hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) && startPending) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !hasPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
                 backgroundLocationPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             } else {
@@ -72,7 +74,7 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
             }
         } else {
             startPending = false
-            bridge?.reportError(getString(R.string.location_permission_description))
+            failStart(getString(R.string.location_permission_description))
         }
     }
     private val vpnPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -167,17 +169,17 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
 
     fun discardShare(token: String) { shares.remove(token) }
 
-    fun openShare(token: String): List<io.nekohasekai.sfa.compose.screen.tools.TaildropSendFile> {
+    fun openShare(token: String): List<io.nekohasekai.sfa.backend.tools.TaildropSendFile> {
         val shared = shares[token] ?: error("Shared content no longer exists")
         val uris = if (shared.action == Intent.ACTION_SEND_MULTIPLE) {
             IntentCompat.getParcelableArrayListExtra(shared, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
         } else listOfNotNull(IntentCompat.getParcelableExtra(shared, Intent.EXTRA_STREAM, Uri::class.java))
         val files = if (uris.isNotEmpty()) {
-            io.nekohasekai.sfa.compose.screen.tools.TaildropSendManager.openURIs(uris)
+            io.nekohasekai.sfa.backend.tools.TaildropSendManager.openURIs(uris)
         } else {
             val text = shared.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()?.takeIf { it.isNotBlank() }
                 ?: error("No shared content")
-            listOf(io.nekohasekai.sfa.compose.screen.tools.TaildropSendManager.createTextFile("shared.txt", text))
+            listOf(io.nekohasekai.sfa.backend.tools.TaildropSendManager.createTextFile("shared.txt", text))
         }
         shares.remove(token)
         return files
@@ -237,7 +239,7 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
                 launchService()
             }.onFailure {
                 startPending = false
-                bridge?.reportError(it.message ?: it.toString())
+                failStart(it.message ?: it.toString())
             }
             launching = false
         }
@@ -250,27 +252,39 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
         runCatching {
             ContextCompat.startForegroundService(this, Intent(this, Settings.serviceClass()))
             Settings.startedByUser = true
-        }.onFailure { serviceStatus.value = Status.Stopped; bridge?.reportError(it.message ?: it.toString()) }
+        }.onFailure { serviceStatus.value = Status.Stopped; failStart(it.message ?: it.toString()) }
     }
 
     fun stopService() {
         startGeneration++
         startPending = false
+        startResult.failed(IllegalStateException("Service start cancelled"))
         BoxService.stop()
     }
 
-    suspend fun applyProfile(restart: Boolean = false) {
-        if (serviceStatus.value != Status.Started) return
+    suspend fun applyProfile(restart: Boolean = false, recover: Boolean = false) {
+        if (serviceStatus.value != Status.Started && !recover) return
         if (Settings.selectedProfile == -1L) {
             stopService()
+            withTimeout(15000) { serviceStatus.first { it == Status.Stopped } }
             return
         }
-        if (!restart && Settings.detectServiceMode() == Settings.serviceMode) {
+        if (!restart && !recover && serviceStatus.value == Status.Started && Settings.detectServiceMode() == Settings.serviceMode) {
             withContext(Dispatchers.IO) { Libbox.newStandaloneCommandClient().serviceReload() }
         } else {
             stopService()
             withTimeout(15000) { serviceStatus.first { it == Status.Stopped } }
-            withContext(Dispatchers.Main) { startService() }
+            try {
+                startResult.awaitStarted { startService() }
+            } catch (error: Exception) {
+                // Finish the failed attempt before the caller restores its files.
+                withContext(NonCancellable) {
+                    stopService()
+                    runCatching { withTimeout(15000) { serviceStatus.first { it == Status.Stopped } } }
+                        .exceptionOrNull()?.let(error::addSuppressed)
+                }
+                throw error
+            }
         }
     }
 
@@ -313,6 +327,7 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
 
     override fun onServiceStatusChanged(status: Status) {
         serviceStatus.value = status
+        if (status == Status.Started) startResult.started()
     }
 
     override fun onServiceAlert(type: Alert, message: String?) {
@@ -322,7 +337,7 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
     private fun handleServiceAlert(type: Alert, message: String?) {
         if (type == Alert.RequestLocationPermission) {
             startPending = true
-            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
             return
         }
         startPending = false
@@ -336,11 +351,18 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
                 else -> R.string.error_start_service
             },
         )
+        failStart(description)
+    }
+
+    private fun failStart(description: String) {
+        startPending = false
+        startResult.failed(IllegalStateException(description))
         bridge?.reportError(description)
     }
 
     override fun onDestroy() {
         documentRequest?.cancel()
+        startResult.failed(IllegalStateException("Activity closed during service start"))
         connection.disconnect()
         super.onDestroy()
     }

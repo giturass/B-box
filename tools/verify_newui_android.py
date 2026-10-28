@@ -80,7 +80,7 @@ handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(
 server = http.server.ThreadingHTTPServer(("127.0.0.1", 18763), handler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 try:
-    apk, = Path("build/apk").glob("*.apk")
+    apk, = (p for p in Path("build/apk").rglob("*.apk") if not p.name.endswith("-androidTest.apk"))
     adb("install", "--no-streaming", "-r", str(apk), timeout=240)
     adb("shell", "pm", "clear", PACKAGE)
     adb("logcat", "-c")

@@ -32,7 +32,13 @@ class _AccessPageState extends State<AccessPage> {
     _apps ??= _load();
   }
 
-  Future<List<Json>> _load() async => rows(await context.box.call('apps.list'));
+  Future<List<Json>> _load() async {
+    final box = context.box;
+    if (box.settings['perAppManaged'] == true) {
+      box.settings = json(await box.call('apps.rescan'));
+    }
+    return rows(await box.call('apps.list'));
+  }
   void _reload() {
     context.box.appIcons.clear();
     setState(() => _apps = _load());

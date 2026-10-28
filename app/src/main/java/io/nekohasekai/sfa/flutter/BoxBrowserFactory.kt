@@ -8,7 +8,7 @@ import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
 import io.nekohasekai.sfa.R
-import io.nekohasekai.sfa.compose.screen.tools.OpenConnectWebViewBrowser
+import io.nekohasekai.sfa.backend.tools.OpenConnectWebViewBrowser
 
 internal class BoxBrowserFactory(private val bridge: BoxBridge) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
     override fun create(context: Context, viewId: Int, args: Any?): PlatformView {

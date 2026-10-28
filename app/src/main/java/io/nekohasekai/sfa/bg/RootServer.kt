@@ -60,10 +60,6 @@ class RootServer : RootService() {
             return ParceledListSlice(allPackages)
         }
 
-        override fun installPackage(apk: ParcelFileDescriptor?, size: Long, userId: Int) {
-            if (apk == null) throw IOException("APK file descriptor is null")
-            PrivilegedServiceUtils.installPackage(apk, size, userId)
-        }
 
         override fun registerNeighborTableCallback(callback: INeighborTableCallback?) {
             if (callback == null) return

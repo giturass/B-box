@@ -2,8 +2,8 @@ package io.nekohasekai.sfa.utils
 
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.R
-import io.nekohasekai.sfa.compose.base.GlobalEventBus
-import io.nekohasekai.sfa.compose.base.UiEvent
+import io.nekohasekai.sfa.backend.base.GlobalEventBus
+import io.nekohasekai.sfa.backend.base.UiEvent
 import io.nekohasekai.sfa.database.RemoteServer
 import io.nekohasekai.sfa.database.RemoteServerManager
 import io.nekohasekai.sfa.database.Settings

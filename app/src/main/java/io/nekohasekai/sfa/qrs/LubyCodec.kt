@@ -1,9 +1,8 @@
 package io.nekohasekai.sfa.qrs
 
 import java.util.zip.CRC32
-import kotlin.random.Random
 
-class LubyCodec(private val sliceSize: Int = QRSConstants.DEFAULT_SLICE_SIZE) {
+class LubyCodec(private val sliceSize: Int) {
     internal class IntArrayKey(val indices: IntArray) {
         private val hash = indices.contentHashCode()
 
@@ -59,42 +58,6 @@ class LubyCodec(private val sliceSize: Int = QRSConstants.DEFAULT_SLICE_SIZE) {
         class PendingBlock(var indices: MutableList<Int>, var data: ByteArray)
     }
 
-    fun encode(originalData: ByteArray, compressedData: ByteArray, compressedSize: Int): Sequence<EncodedBlock> = sequence {
-        val k = (compressedData.size + sliceSize - 1) / sliceSize
-        if (k == 0) return@sequence
-
-        val paddedData = compressedData.copyOf(k * sliceSize)
-        val blocks = (0 until k).map { i ->
-            paddedData.copyOfRange(i * sliceSize, (i + 1) * sliceSize)
-        }
-
-        val crc = CRC32()
-        crc.update(originalData)
-        // Official: (raw_crc ^ k ^ 0xFFFFFFFF)
-        // Java CRC32.getValue() = raw_crc ^ 0xFFFFFFFF
-        // So: official = getValue() ^ 0xFFFFFFFF ^ k ^ 0xFFFFFFFF = getValue() ^ k
-        val checksum = (crc.value xor k.toLong()) and 0xFFFFFFFFL
-
-        var seed = 0L
-        while (true) {
-            val random = Random(seed++)
-            val degree = SolitonDistribution.sample(k, random)
-            val indices = selectIndices(k, degree, random)
-            val blockData = xorBlocks(blocks, indices)
-
-            yield(
-                EncodedBlock(
-                    degree = degree,
-                    indices = indices,
-                    totalBlocks = k,
-                    compressedSize = compressedSize,
-                    checksum = checksum,
-                    data = blockData,
-                ),
-            )
-        }
-    }
-
     fun createDecodingState(firstBlock: EncodedBlock): DecodingState = DecodingState(
         totalBlocks = firstBlock.totalBlocks,
         compressedSize = firstBlock.compressedSize,
@@ -144,11 +107,12 @@ class LubyCodec(private val sliceSize: Int = QRSConstants.DEFAULT_SLICE_SIZE) {
         if (indices.size > 2) {
             for (i in indices.indices) {
                 val subkey = indicesToKey(indices.filterIndexed { j, _ -> j != i })
-                state.blockKeyMap[subkey]?.let { subblock ->
+                val subblock = state.blockKeyMap[subkey]
+                if (subblock != null) {
                     xorInPlace(data, subblock.data)
                     indices = mutableListOf(indices[i])
                     pending.indices = indices
-                    return@let
+                    break
                 }
             }
         }
@@ -259,19 +223,6 @@ class LubyCodec(private val sliceSize: Int = QRSConstants.DEFAULT_SLICE_SIZE) {
         // So: official = getValue() ^ 0xFFFFFFFF ^ k ^ 0xFFFFFFFF = getValue() ^ k
         val computed = (crc.value xor k.toLong()) and 0xFFFFFFFFL
         return computed == expectedChecksum
-    }
-
-    private fun selectIndices(k: Int, degree: Int, random: Random): IntArray {
-        val indices = (0 until k).shuffled(random).take(degree.coerceAtMost(k))
-        return indices.toIntArray()
-    }
-
-    private fun xorBlocks(blocks: List<ByteArray>, indices: IntArray): ByteArray {
-        val result = blocks[indices[0]].clone()
-        for (i in 1 until indices.size) {
-            xorInPlace(result, blocks[indices[i]])
-        }
-        return result
     }
 
     private fun xorInPlace(dest: ByteArray, src: ByteArray) {

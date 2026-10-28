@@ -141,8 +141,7 @@ class _AddProfilePageState extends State<AddProfilePage> {
           if (text == null || text.isEmpty) throw StateError(context.tr('Empty clipboard'));
           data = await decodeImport(box, text);
         case 'Scan QR code':
-          final text = await openPage<String>(context, const ScanPage());
-          if (text != null) data = await decodeImport(box, text);
+          data = await openPage<Json>(context, const ScanPage());
       }
       if (data != null && mounted) await openForm(context, ProfileForm(initial: data));
     } catch (error) { box.report(error); }
@@ -258,24 +257,53 @@ class ScanPage extends StatefulWidget {
 }
 class _ScanPageState extends State<ScanPage> {
   final _camera = MobileScannerController(formats: const [BarcodeFormat.qrCode]);
-  bool _complete = false;
-  @override void dispose() { _camera.dispose(); super.dispose(); }
+  final _session = DateTime.now().microsecondsSinceEpoch.toString();
+  BoxController? _box;
+  bool _complete = false, _busy = false;
+  int _decoded = 0, _total = 0;
+  String? _error;
+  @override void didChangeDependencies() { super.didChangeDependencies(); _box ??= context.box; }
+  @override void dispose() {
+    _box?.act('profiles.scan.close', {'session': _session});
+    _camera.dispose();
+    super.dispose();
+  }
+
+  Future<void> _scan(String text) async {
+    if (_busy || _complete) return;
+    _busy = true;
+    try {
+      final result = json(await _box!.call('profiles.scan', {'session': _session, 'text': text}));
+      if (!mounted) return;
+      final profile = result['profile'] is Map ? json(result['profile'])
+          : result['text'] is String ? await decodeImport(_box!, result['text'] as String) : null;
+      if (!mounted) return;
+      if (profile != null) { _complete = true; context.safeNestedPop(profile); }
+      else { setState(() { _decoded = (result['decoded'] as num).toInt(); _total = (result['total'] as num).toInt(); _error = null; }); }
+    } catch (error) { if (mounted) setState(() => _error = BoxController.describe(error)); }
+    finally { _busy = false; }
+  }
   @override Widget build(BuildContext context) => CommonScaffold(
     title: context.tr('Scan QR code'),
     iconActions: [IconButtonData(glyph: AppGlyphs.torch, tooltip: 'Flash', onPressed: _camera.toggleTorch)],
-    body: Padding(padding: EdgeInsets.only(top: context.appBarInset), child: MobileScanner(
+    body: Padding(padding: EdgeInsets.only(top: context.appBarInset), child: Column(children: [Expanded(child: MobileScanner(
       controller: _camera,
       onDetect: (capture) {
-        if (_complete) return;
+        if (_complete || _busy) return;
         for (final code in capture.barcodes) {
           final text = code.rawValue;
           if (text == null || text.isEmpty) continue;
-          _complete = true;
-          context.safeNestedPop(text);
+          _scan(text);
           break;
         }
       },
       errorBuilder: (context, error) => ErrorState(error, retry: _camera.start),
     )),
+      if (_total > 0) Padding(padding: const EdgeInsets.all(16), child: Column(children: [
+        LinearProgressIndicator(value: _decoded / _total),
+        Text('${context.tr('Scanning configuration')} $_decoded / $_total'),
+      ])),
+      if (_error != null) Padding(padding: const EdgeInsets.all(16), child: Text(_error!)),
+    ])),
   );
 }

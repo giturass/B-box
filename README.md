@@ -9,7 +9,8 @@
 - 保留 VPN、分应用代理、Root/Shizuku 应用查询、远程控制、连接管理和日志。
 - Tailscale、Taildrop、SSH、OpenConnect/OpenVPN 认证、USB/IP、网络诊断和报告通过新页面使用现有后端。
 - 支持配置和设置备份；原包名、数据库及已有配置保持兼容。
-- 移除过的 Xposed/LSPosed、Android 5/6 和应用内更新入口不会重新引入。
+- 旧 Compose 页面、导航、编辑器及更新下载/静默安装链路已移除。关于页使用独立的 B-box Release 检查；配置订阅更新继续保留。
+- Xposed/LSPosed 和 Android 5/6 支持已移除。
 
 维护指南：[MODIFICATIONS.md](MODIFICATIONS.md)。新界面架构、能力边界和验证状态：[NEWUI.md](NEWUI.md)。组件来源及许可证：[third_party/flclash](third_party/flclash)。
 

@@ -18,7 +18,6 @@ import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.MutableLiveData
-import go.Seq
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
 import io.nekohasekai.libbox.Libbox
@@ -35,11 +34,11 @@ import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.ktx.hasPermission
-import io.nekohasekai.sfa.vendor.Vendor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
@@ -56,7 +55,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             private set
         @Volatile internal var dashboardConfig: DashboardConfig? = null
             private set
-        private const val PROFILE_UPDATE_INTERVAL = 15L * 60 * 1000 // 15 minutes in milliseconds
         private const val TAG = "BoxService"
 
         @OptIn(DelicateCoroutinesApi::class)
@@ -127,6 +125,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private var lastProfileName = ""
+    private var startupJob: Job? = null
+    @Volatile private var stopRequested = false
 
     private suspend fun startService() {
         try {
@@ -160,7 +160,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     content,
                     OverrideOptions().apply {
                         autoRedirect = Settings.autoRedirect
-                        if (Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled) {
+                        if (Settings.perAppProxyEnabled) {
                             val appList = Settings.getEffectivePerAppProxyList()
                             if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
                                 includePackage =
@@ -192,11 +192,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 }
             }
 
-            status.postValue(Status.Started)
             withContext(Dispatchers.Main) {
+                if (stopRequested) return@withContext
                 notification.show(lastProfileName, R.string.status_started)
+                notification.start()
+                if (!stopRequested) status.value = Status.Started
             }
-            notification.start()
         } catch (e: Exception) {
             stopAndAlert(Alert.StartService, e.message)
             return
@@ -244,7 +245,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 content,
                 OverrideOptions().apply {
                     autoRedirect = Settings.autoRedirect
-                    if (Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled) {
+                    if (Settings.perAppProxyEnabled) {
                         val appList = Settings.getEffectivePerAppProxyList()
                         if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
                             includePackage = PlatformInterfaceWrapper.StringArray((appList + Application.application.packageName).iterator())
@@ -299,7 +300,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     @OptIn(DelicateCoroutinesApi::class)
     private fun stopService() {
-        if (status.value != Status.Started) return
+        if (status.value != Status.Started && status.value != Status.Starting) return
+        stopRequested = true
         status.value = Status.Stopping
         if (receiverRegistered) {
             service.unregisterReceiver(receiver)
@@ -307,16 +309,16 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
         notification.close()
         GlobalScope.launch(Dispatchers.IO) {
+            startupJob?.join()
             val pfd = fileDescriptor
             if (pfd != null) {
                 pfd.close()
                 fileDescriptor = null
             }
             DefaultNetworkMonitor.stop()
-            closeService()
-            commandServer.apply {
-                close()
-//                Seq.destroyRef(refnum)
+            if (::commandServer.isInitialized) {
+                closeService()
+                runCatching { commandServer.close() }
             }
             Libbox.discardPowerReportDraft()
             PowerReportManager.refresh()
@@ -340,6 +342,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private suspend fun stopAndAlert(type: Alert, message: String? = null) {
+        if (stopRequested) return // The stop job joins startup and owns teardown.
         Settings.startedByUser = false
         Settings.dataStore.flush()
         val pfd = fileDescriptor
@@ -353,6 +356,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             commandServer.close()
         }
         withContext(Dispatchers.Main) {
+            if (stopRequested) return@withContext
             if (receiverRegistered) {
                 service.unregisterReceiver(receiver)
                 receiverRegistered = false
@@ -370,6 +374,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     @Suppress("SameReturnValue")
     internal fun onStartCommand(): Int {
         if (status.value != Status.Stopped) return Service.START_NOT_STICKY
+        stopRequested = false
         status.value = Status.Starting
         notification.show(lastProfileName, R.string.status_starting)
 
@@ -388,7 +393,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             receiverRegistered = true
         }
 
-        GlobalScope.launch(Dispatchers.IO) {
+        startupJob = GlobalScope.launch(Dispatchers.IO) {
             Settings.startedByUser = true
             try {
                 Application.application.setupLibbox()

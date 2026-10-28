@@ -59,11 +59,11 @@ object ShizukuPackageManager {
         Shizuku.removeRequestPermissionResultListener(permissionResultListener)
     }
 
-    fun isAvailable(): Boolean = ShizukuInstaller.isAvailable()
+    fun isAvailable(): Boolean = ShizukuAccess.isAvailable()
 
-    fun checkPermission(): Boolean = ShizukuInstaller.checkPermission()
+    fun checkPermission(): Boolean = ShizukuAccess.checkPermission()
 
-    fun requestPermission() = ShizukuInstaller.requestPermission()
+    fun requestPermission() = ShizukuAccess.requestPermission()
 
     fun refresh() {
         _shizukuInstalled.value = isShizukuInstalled()

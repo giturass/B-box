@@ -13,7 +13,7 @@ class ProfileDetailsPage extends StatelessWidget {
     final p = box.remote ? null : profile == null ? box.selectedProfile : box.profiles.where((p) => p['id'] == profile!['id']).firstOrNull;
     if (!box.remote && profile != null && p == null) return const BoxPage(title: 'Profile details', children: [EmptyState('Profile no longer exists')]);
     if (p == null) return BoxPage(title: 'Profile details', children: [DetailRows({
-      'Name': box.dashboard['profileName'] ?? '—', 'Remote control': box.dashboard['remote'] ?? '—',
+      'Name': '—', 'Remote control': box.dashboard['remote'] ?? '—',
       'Proxy groups': box.groups.length,
     })]);
     return BoxPage(title: 'Profile details', actions: [

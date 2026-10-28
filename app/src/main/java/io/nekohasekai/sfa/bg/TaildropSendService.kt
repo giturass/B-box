@@ -14,8 +14,8 @@ import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.compose.MainActivity
-import io.nekohasekai.sfa.compose.screen.tools.TaildropSendManager
-import io.nekohasekai.sfa.compose.screen.tools.TaildropSendState
+import io.nekohasekai.sfa.backend.tools.TaildropSendManager
+import io.nekohasekai.sfa.backend.tools.TaildropSendState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

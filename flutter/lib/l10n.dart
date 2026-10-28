@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'ui/l10n.dart';
 
 const _zh = <String, String>{
+  'Remote configuration': '远程配置', 'Scanning configuration': '正在扫描配置',
   'Dashboard': '仪表盘', 'Proxies': '代理', 'Profiles': '配置', 'Tools': '工具',
   'Connections': '连接', 'Logs': '日志', 'Settings': '设置', 'Status': '状态',
   'Running': '运行中', 'Not running': '未运行', 'Starting': '启动中', 'Stopping': '停止中',

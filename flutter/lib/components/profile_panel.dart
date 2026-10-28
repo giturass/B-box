@@ -11,7 +11,7 @@ class _ProfilePanelState extends State<ProfilePanel> {
   @override Widget build(BuildContext context) {
     final box = context.box;
     final profile = box.remote ? null : box.selectedProfile;
-    final name = box.remote ? box.dashboard['profileName'] : profile?['name'];
+    final name = box.remote ? context.tr('Remote configuration') : profile?['name'];
     final label = AppTextStyle.caption1.of(context).copyWith(color: context.colorScheme.onSurfaceVariant);
     final updated = (profile?['updatedAt'] as num?)?.toInt() ?? 0;
     return BoxPanel(onTap: () => box.remote ? openForm(context, const ProfileDetailsPage()) : profile == null

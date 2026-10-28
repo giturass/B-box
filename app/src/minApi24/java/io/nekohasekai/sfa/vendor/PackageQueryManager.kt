@@ -53,6 +53,8 @@ object PackageQueryManager {
     suspend fun checkRootAvailable(): Boolean = RootClient.checkRootAvailable()
 
     fun setQueryMode(mode: String) {
+        require(mode in setOf(Settings.PACKAGE_QUERY_MODE_ROOT, Settings.PACKAGE_QUERY_MODE_SHIZUKU))
+        Settings.perAppProxyPackageQueryMode = mode
         _queryMode.value = mode
     }
 

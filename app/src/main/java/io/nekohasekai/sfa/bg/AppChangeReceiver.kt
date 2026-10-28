@@ -6,7 +6,7 @@ import android.content.Intent
 import android.util.Log
 import android.widget.Toast
 import io.nekohasekai.sfa.R
-import io.nekohasekai.sfa.compose.screen.profileoverride.PerAppProxyScanner
+import io.nekohasekai.sfa.vendor.PerAppProxyScanner
 import io.nekohasekai.sfa.database.Settings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

@@ -1,6 +1,6 @@
 package io.nekohasekai.sfa.flutter
 
-import io.nekohasekai.sfa.compose.screen.tools.TailscaleStatusViewModel
+import io.nekohasekai.sfa.backend.tools.TailscaleStatusViewModel
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.terminal.DEFAULT_SSH_TERMINAL_TYPE
 import io.nekohasekai.sfa.terminal.TailscaleSSHPresentedSession

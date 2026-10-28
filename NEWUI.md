@@ -8,7 +8,16 @@ name and package identity remain stable, while the Activity hosts Flutter and
 the original sing-box service permission flow. Shared FlClash widgets, shapes,
 glyphs, typography, sheets and navigation are vendored with provenance in
 `third_party/flclash`. B-box's Room databases and libbox bindings remain the
-source of truth. No action may launch an old Compose page as a fallback.
+source of truth. Native state holders and the OpenConnect WebView controller
+live in `backend/`; the old Compose pages, navigation, editors and dependencies
+have been removed. `compose/` contains only the two stable Android component
+names, both extending the Flutter host.
+
+The retired GitHub/F-Droid/Play updater, APK download/install helpers,
+installer Binder methods, permissions, preferences and UI resources are gone.
+About uses `BoxUpdates`; subscription refresh uses `UpdateProfileWork`.
+`UpdateWorker` is only a no-op compatibility class for old WorkManager records,
+and startup cancels their `AutoUpdate` work.
 
 ## Capability boundary
 
@@ -92,11 +101,25 @@ source of truth. No action may launch an old Compose page as a fallback.
   Compatible preserves other profiles; Override removes absent profiles after
   a visible confirmation. Reads/transfers are bounded to 64 MiB; canceled
   pickers and unacknowledged uploads do not report success.
+- Configuration restart waits for Android's Started callback; startup errors
+  restore the previous files/settings and restart the previous service.
+  Android 12 precise-location requests include both fine and coarse location.
+- Managed application mode scans before activation, refreshes when its page
+  opens, and persists the package-query strategy. Native logs keep every
+  received level for Flutter's filters. Remote profile cards do not use local
+  configuration names.
+- Binary `.bpf` import preserves subscription URL, update interval, auto-update
+  and timestamp. Animated QRS imports accumulate bounded frames per camera
+  session, check CRC and support the original compressed file envelope.
 
 ## Validation
 
 Local compilation is prohibited by `../AGENTS.md` unless explicitly requested.
 Flutter analysis/tests and Android compilation belong in GitHub Actions.
+Native JVM regressions cover startup acknowledgement/failure/timeout, log
+levels/bounds and QRS frame handling. Android smoke runs on APIs 24, 31 and 35,
+compiles both flavors, and exercises actual libbox binary imports, query-mode
+persistence and occupied-port rollback for configuration/full-backup restores.
 Routed probe tests cover concurrency, fallback, public-IP validation, response
 limits, cancellation and service replacement. Flutter tests adapt the pinned
 reference's quality fixtures and cover cache lifetime, retry, progressive

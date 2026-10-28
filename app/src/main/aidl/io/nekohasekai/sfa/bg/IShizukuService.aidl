@@ -1,6 +1,5 @@
 package io.nekohasekai.sfa.bg;
 
-import android.os.ParcelFileDescriptor;
 import io.nekohasekai.sfa.bg.ParceledListSlice;
 
 interface IShizukuService {
@@ -8,5 +7,5 @@ interface IShizukuService {
 
     ParceledListSlice getInstalledPackages(int flags, int userId) = 1;
 
-    void installPackage(in ParcelFileDescriptor apk, long size, int userId) = 2;
+    // Transaction 2 was the retired APK installer; do not reuse it.
 }

@@ -21,7 +21,7 @@ internal class BoxBackups(
     private val activity: BoxActivity,
     private val readSettings: () -> Map<String, Any?>,
     private val writeSettings: suspend (Map<String, Any?>) -> Unit,
-    private val applySelected: suspend (Boolean) -> Unit,
+    private val applySelected: suspend (restart: Boolean, recover: Boolean) -> Unit,
     private val publish: suspend () -> Unit,
     private val emit: (String, Any?) -> Unit,
     private val webdav: BoxWebDAV,
@@ -120,6 +120,7 @@ internal class BoxBackups(
         require(strategy in setOf("Compatible", "Override")) { "Invalid restore strategy" }
         val entries = validate(backup, scope)
         val count = ProfileContent.mutex.withLock {
+            val wasRunning = activity.serviceStatus.value == io.nekohasekai.sfa.constant.Status.Started
             val oldProfiles = ProfileManager.list()
             val oldServers = RemoteServerManager.list()
             val oldSelection = Settings.selectedProfile
@@ -198,7 +199,7 @@ internal class BoxBackups(
                     check(preferences.edit().putString("value", JSONObject(restoredPreferences).toString()).commit()) { "Unable to restore preferences" }
                 }
                 Settings.dataStore.flush()
-                applySelected(scope == "all")
+                applySelected(scope == "all", false)
                 val keptPaths = current.map { it.typed.path }.toSet()
                 publish()
                 emit("preferences", readPreferences())
@@ -236,7 +237,7 @@ internal class BoxBackups(
                     }
                     newFont?.delete()
                     attempt { Settings.dataStore.flush() }
-                    attempt { applySelected(true) }
+                    if (wasRunning) attempt { applySelected(true, true) }
                     attempt { publish(); emit("preferences", readPreferences()) }
                 }
                 throw error

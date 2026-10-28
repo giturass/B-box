@@ -13,12 +13,12 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.StatusMessage
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.BuildConfig
-import io.nekohasekai.sfa.compose.base.GlobalEventBus
-import io.nekohasekai.sfa.compose.base.UiEvent
-import io.nekohasekai.sfa.compose.screen.connections.ConnectionsViewModel
-import io.nekohasekai.sfa.compose.screen.dashboard.DashboardViewModel
-import io.nekohasekai.sfa.compose.screen.dashboard.groups.GroupsViewModel
-import io.nekohasekai.sfa.compose.screen.log.LogViewModel
+import io.nekohasekai.sfa.backend.base.GlobalEventBus
+import io.nekohasekai.sfa.backend.base.UiEvent
+import io.nekohasekai.sfa.backend.connections.ConnectionsViewModel
+import io.nekohasekai.sfa.backend.dashboard.DashboardViewModel
+import io.nekohasekai.sfa.backend.dashboard.groups.GroupsViewModel
+import io.nekohasekai.sfa.backend.log.LogViewModel
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.RemoteServer
@@ -28,6 +28,7 @@ import io.nekohasekai.sfa.utils.CommandClient
 import io.nekohasekai.sfa.utils.CommandTarget
 import io.nekohasekai.sfa.utils.RemoteControlManager
 import io.nekohasekai.sfa.vendor.PackageQueryManager
+import io.nekohasekai.sfa.vendor.PerAppProxyScanner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -57,11 +58,12 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private var connectionsVisible = false
     private val operations = Mutex()
     private val reports = BoxReports(activity)
-    private val profiles = BoxProfiles { withContext(Dispatchers.Main) { activity.applyProfile() } }
+    private val profiles = BoxProfiles { recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) } }
+    private val qrScanner = BoxQrScanner(profiles::decode)
     private val preferences = activity.getSharedPreferences("flclash_ui", 0)
     private val webdav = BoxWebDAV(activity)
     private val backups = BoxBackups(activity, ::settings, ::patchSettings,
-        { restart -> withContext(Dispatchers.Main) { activity.applyProfile(restart) } }, ::publishProfiles, ::emit, webdav)
+        { restart, recover -> withContext(Dispatchers.Main) { activity.applyProfile(restart, recover) } }, ::publishProfiles, ::emit, webdav)
     private val rates = object : CommandClient.Handler {
         override fun updateStatus(status: StatusMessage) {
             if (::dashboardDetails.isInitialized) dashboardDetails.remoteMemory = status.memory
@@ -98,10 +100,6 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             GlobalEventBus.events.collect { event ->
                 when (event) {
                     is UiEvent.ErrorMessage -> reportError(event.message)
-                    is UiEvent.RequestStartService -> activity.startService()
-                    is UiEvent.ApplyServiceChange -> emit("applyRequired", event.mode.name)
-                    is UiEvent.OpenUrl -> emit("openUrl", event.url)
-                    else -> Unit
                 }
             }
         }
@@ -135,7 +133,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                                 if (connectionsVisible) emit("connections", withContext(Dispatchers.Default) { state.allConnections.map { it.toWire() } })
                             } }
                             launch { logs.uiState.collect { state ->
-                                emit("logs", withContext(Dispatchers.Default) { state.logs.map { mapOf("id" to it.id, "level" to it.entry.level.label, "message" to it.annotatedString.text, "receivedAt" to it.receivedAt) } })
+                                emit("logs", withContext(Dispatchers.Default) { state.logs.map { mapOf("id" to it.id, "level" to it.entry.level.label, "message" to it.entry.message, "receivedAt" to it.receivedAt) } })
                             } }
                             launch { RemoteControlManager.remoteServer.collect { emit("dashboard", dashboard.uiState.value.toWire()) } }
                             launch { RemoteControlManager.isConnected.collect { emit("dashboard", dashboard.uiState.value.toWire()) } }
@@ -255,6 +253,8 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                     profiles.decode(bytes, name)
                 }
             }
+            "profiles.scan" -> withContext(Dispatchers.Default) { qrScanner.scan(string("session"), string("text")) }
+            "profiles.scan.close" -> { qrScanner.close(string("session")); null }
             "profiles.decodeIntent" -> {
                 val value = string("uri")
                 val uri = Uri.parse(value)
@@ -370,6 +370,14 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 } finally { bitmap.recycle() }
             }
             "apps.permission" -> { PackageQueryManager.requestShizukuPermission(); null }
+            "apps.rescan" -> operations.withLock {
+                if (Settings.perAppProxyManagedMode) {
+                    Settings.perAppProxyManagedList = PerAppProxyScanner.scanAllChinaApps()
+                    withContext(Dispatchers.IO) { Settings.dataStore.flush() }
+                    emit("settings", settings())
+                }
+                settings()
+            }
             "battery.open" -> {
                 activity.startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + activity.packageName)))
                 null
@@ -465,6 +473,20 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
 
     private suspend fun patchSettings(values: Map<String, Any?>) {
         BoxSettings.validate(values)
+        val managed = values["perAppManaged"] as? Boolean ?: Settings.perAppProxyManagedMode
+        val enabled = values["perAppEnabled"] as? Boolean ?: Settings.perAppProxyEnabled
+        val oldQueryMode = Settings.perAppProxyPackageQueryMode
+        val managedApps = try {
+            (values["queryMode"] as? String)?.let(PackageQueryManager::setQueryMode)
+            if (managed && enabled && values.keys.any { it in setOf("perAppManaged", "perAppEnabled", "queryMode") }) {
+                PerAppProxyScanner.scanAllChinaApps()
+            } else null
+        } catch (error: Exception) {
+            PackageQueryManager.setQueryMode(oldQueryMode)
+            throw error
+        }
+        // Do not enable managed mode until its first scan has succeeded.
+        if (managedApps != null) Settings.perAppProxyManagedList = managedApps
         for ((key, item) in values) {
         val args = mapOf("value" to item)
         when (key) {
@@ -512,7 +534,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         }
     }
 
-    internal fun submitBrowserResult(endpoint: String, challengeID: String, value: io.nekohasekai.sfa.compose.screen.tools.OpenConnectBrowserResultData) {
+    internal fun submitBrowserResult(endpoint: String, challengeID: String, value: io.nekohasekai.sfa.backend.tools.OpenConnectBrowserResultData) {
         scope.launch {
             try {
                 require(toolBridge.openConnect.endpoint(endpoint)?.authChallenge?.id == challengeID) { "Authentication request expired" }
@@ -540,6 +562,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     }
 
     override fun close() {
+        qrScanner.close()
         channel.setMethodCallHandler(null)
         events.setStreamHandler(null)
         streamJob?.cancel()

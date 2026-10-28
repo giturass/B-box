@@ -13,7 +13,7 @@ interface IRootService {
 
     ParceledListSlice getInstalledPackages(int flags, int userId) = 1;
 
-    void installPackage(in ParcelFileDescriptor apk, long size, int userId) = 2;
+    // Transaction 2 was the retired APK installer; do not reuse it.
 
     void registerNeighborTableCallback(in INeighborTableCallback callback) = 4;
 

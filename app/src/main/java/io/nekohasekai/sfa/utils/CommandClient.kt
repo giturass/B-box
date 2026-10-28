@@ -78,7 +78,6 @@ open class CommandClient(
 
         fun updateStatus(status: StatusMessage) {}
 
-        fun setDefaultLogLevel(level: Int) {}
 
         fun clearLogs() {}
 
@@ -234,10 +233,8 @@ open class CommandClient(
             getAllHandlers().forEach { it.updateOutbounds(outbounds) }
         }
 
-        override fun setDefaultLogLevel(level: Int) {
-            if (!isActiveEpoch(epoch)) return
-            getAllHandlers().forEach { it.setDefaultLogLevel(level) }
-        }
+        // The frontend selects its own filter; retain every received level.
+        override fun setDefaultLogLevel(level: Int) {}
 
         override fun clearLogs() {
             if (!isActiveEpoch(epoch)) return

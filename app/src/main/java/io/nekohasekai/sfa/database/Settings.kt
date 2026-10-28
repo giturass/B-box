@@ -1,10 +1,8 @@
 package io.nekohasekai.sfa.database
 
-import android.os.Build
 import androidx.room.Room
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
-import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.bg.ProxyService
 import io.nekohasekai.sfa.bg.VPNService
 import io.nekohasekai.sfa.constant.Path
@@ -41,33 +39,9 @@ object Settings {
     var serviceMode by dataStore.string(SettingsKey.SERVICE_MODE) { ServiceMode.NORMAL }
     var startedByUser by dataStore.boolean(SettingsKey.STARTED_BY_USER)
 
-    var updateSource by dataStore.string(SettingsKey.UPDATE_SOURCE) { "github" }
-    var updateTrack by dataStore.string(SettingsKey.UPDATE_TRACK) {
-        val versionName = BuildConfig.VERSION_NAME.lowercase()
-        if (versionName.contains("-alpha") ||
-            versionName.contains("-beta") ||
-            versionName.contains("-rc")
-        ) {
-            "beta"
-        } else {
-            "stable"
-        }
-    }
-    var githubToken by dataStore.string(SettingsKey.GITHUB_TOKEN) { "" }
-    var silentInstallEnabled by dataStore.boolean(SettingsKey.SILENT_INSTALL_ENABLED) { false }
-    var silentInstallMethod by dataStore.string(SettingsKey.SILENT_INSTALL_METHOD) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            "PACKAGE_INSTALLER"
-        } else {
-            "SHIZUKU"
-        }
-    }
-    var fdroidMirrorUrl by dataStore.string(SettingsKey.FDROID_MIRROR_URL) { "https://f-droid.org/repo" }
-    var fdroidCustomMirrors by dataStore.stringSet(SettingsKey.FDROID_CUSTOM_MIRRORS) { emptySet() }
     var dynamicNotification by dataStore.boolean(SettingsKey.DYNAMIC_NOTIFICATION) { true }
     var disableDeprecatedWarnings by dataStore.boolean(SettingsKey.DISABLE_DEPRECATED_WARNINGS) { false }
 
-    const val PER_APP_PROXY_DISABLED = 0
     const val PER_APP_PROXY_EXCLUDE = 1
     const val PER_APP_PROXY_INCLUDE = 2
 
@@ -103,8 +77,6 @@ object Settings {
 
     var powerReportEnabled by dataStore.boolean(SettingsKey.POWER_REPORT_ENABLED) { false }
 
-    var dashboardItemOrder by dataStore.string(SettingsKey.DASHBOARD_ITEM_ORDER) { "" }
-    var dashboardDisabledItems by dataStore.stringSet(SettingsKey.DASHBOARD_DISABLED_ITEMS) { emptySet() }
 
     var activeRemoteServerId by dataStore.long(SettingsKey.ACTIVE_REMOTE_SERVER_ID) { 0L }
 
@@ -121,8 +93,6 @@ object Settings {
     var tailscaleSSHDarkConfig by dataStore.string(SettingsKey.TAILSCALE_SSH_DARK_CONFIG)
     var tailscaleSSHFontFollowTheme by dataStore.boolean(SettingsKey.TAILSCALE_SSH_FONT_FOLLOW_THEME) { true }
 
-    var cachedUpdateInfo by dataStore.string(SettingsKey.CACHED_UPDATE_INFO) { "" }
-    var cachedApkPath by dataStore.string(SettingsKey.CACHED_APK_PATH) { "" }
 
     fun serviceClass(): Class<*> = when (serviceMode) {
         ServiceMode.VPN -> VPNService::class.java

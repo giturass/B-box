@@ -1,6 +1,5 @@
 package io.nekohasekai.sfa.qrs
 
-import android.util.Base64
 import java.io.ByteArrayOutputStream
 import java.util.zip.Inflater
 
@@ -8,10 +7,12 @@ class QRSDecoder {
     private var codec: LubyCodec? = null
     private var state: LubyCodec.DecodingState? = null
     private val processedHashes = mutableSetOf<Int>()
+    private var sliceSize = 0
+    private var frameBudget = 0L
 
-    private val inflater = Inflater()
-    private val decompressBuffer = ByteArray(8192)
-    private val outputBuffer = ByteArrayOutputStream(32768)
+    companion object {
+        const val MAX_BYTES = 16 * 1024 * 1024
+    }
 
     data class DecodeProgress(
         val decodedBlocks: Int,
@@ -42,33 +43,19 @@ class QRSDecoder {
     }
 
     @Synchronized
-    fun processFrame(base64Content: String): DecodeProgress? {
-        val payload = try {
-            Base64.decode(base64Content, Base64.NO_WRAP)
-        } catch (e: Exception) {
-            return null
-        }
-        return processFrame(payload)
-    }
-
-    @Synchronized
     fun processFrame(payload: ByteArray): DecodeProgress? {
-        val hash = payload.contentHashCode()
-        if (hash in processedHashes) {
-            return state?.let {
-                DecodeProgress(it.decodedCount, it.totalBlocks, it.decodedCount == it.totalBlocks)
-            }
-        }
-        processedHashes.add(hash)
-
         val block = parsePayload(payload) ?: return null
-
-        // Auto-detect dataset switch: if checksum changes, reset decoder
-        if (state != null && state!!.checksum != block.checksum) {
-            reset()
-        }
+        if (state != null && state!!.checksum != block.checksum) reset()
+        val current = state
+        require(current == null || current.totalBlocks == block.totalBlocks && current.compressedSize == block.compressedSize && sliceSize == block.data.size) { "Inconsistent QRS frames" }
+        val hash = payload.contentHashCode()
+        if (!processedHashes.add(hash)) return progress
+        // Subset registrations cost O(degree²); bound them as well as payloads.
+        frameBudget += payload.size + block.degree.toLong() * block.degree * 16
+        require(frameBudget <= 64L * 1024 * 1024) { "Too many QRS frames" }
 
         if (codec == null) {
+            sliceSize = block.data.size
             codec = LubyCodec(sliceSize = block.data.size)
             state = codec!!.createDecodingState(block)
         }
@@ -127,6 +114,8 @@ class QRSDecoder {
         codec = null
         state = null
         processedHashes.clear()
+        sliceSize = 0
+        frameBudget = 0
     }
 
     val progress: DecodeProgress?
@@ -135,13 +124,13 @@ class QRSDecoder {
         }
 
     private fun parsePayload(payload: ByteArray): LubyCodec.EncodedBlock? {
-        if (payload.size < 16) return null
+        if (payload.size !in 20..8192) return null
 
         var offset = 0
         val degree = payload.readIntLE(offset)
         offset += 4
 
-        if (degree <= 0 || payload.size < 4 + 4 * degree + 12) return null
+        if (degree !in 1..1000 || payload.size <= 4 + 4 * degree + 12) return null
 
         val indices = IntArray(degree) {
             val idx = payload.readIntLE(offset)
@@ -162,20 +151,25 @@ class QRSDecoder {
 
         val data = payload.copyOfRange(offset, payload.size)
 
+        if (totalBlocks !in 1..32768 || compressedSize !in 1..MAX_BYTES ||
+            totalBlocks.toLong() * data.size > MAX_BYTES || compressedSize.toLong() > totalBlocks.toLong() * data.size ||
+            degree > totalBlocks || indices.any { it !in 0 until totalBlocks } || indices.toSet().size != degree) return null
         return LubyCodec.EncodedBlock(degree, indices, totalBlocks, compressedSize, checksum, data)
     }
 
     private fun decompress(data: ByteArray): ByteArray {
-        inflater.reset()
-        inflater.setInput(data)
-        outputBuffer.reset()
-
-        while (!inflater.finished()) {
-            val count = inflater.inflate(decompressBuffer)
-            if (count == 0 && inflater.needsInput()) break
-            outputBuffer.write(decompressBuffer, 0, count)
-        }
-
-        return outputBuffer.toByteArray()
+        val inflater = Inflater()
+        try {
+            inflater.setInput(data)
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (!inflater.finished()) {
+                val count = inflater.inflate(buffer)
+                check(count > 0 || inflater.finished()) { "Incomplete compressed QRS data" }
+                require(output.size() + count <= MAX_BYTES) { "QRS data exceeds 16 MiB" }
+                output.write(buffer, 0, count)
+            }
+            return output.toByteArray()
+        } finally { inflater.end() }
     }
 }

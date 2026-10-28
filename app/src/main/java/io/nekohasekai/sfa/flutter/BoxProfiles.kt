@@ -19,7 +19,7 @@ import java.net.URI
 import java.util.Date
 import java.util.UUID
 
-internal class BoxProfiles(private val applySelected: suspend () -> Unit) {
+internal class BoxProfiles(private val applySelected: suspend (recover: Boolean) -> Unit) {
     private val mutex = ProfileContent.mutex
 
     suspend fun get(id: Long): Profile = ProfileManager.get(id) ?: error("Profile no longer exists")
@@ -64,7 +64,7 @@ internal class BoxProfiles(private val applySelected: suspend () -> Unit) {
         require(revision(previous) == expectedRevision) { "Configuration changed; reload it before saving" }
         val content = Libbox.setUILANProxyEnabled(previous, enabled, initialPort).value
         val saved = writeContentLocked(id, content, expectedRevision)
-        if (previous == content && id == Settings.selectedProfile) applySelected()
+        if (previous == content && id == Settings.selectedProfile) applySelected(false)
         saved
     }
 
@@ -77,11 +77,11 @@ internal class BoxProfiles(private val applySelected: suspend () -> Unit) {
         if (previous != content) {
             write(file, content)
             try {
-                if (id == Settings.selectedProfile) applySelected()
+                if (id == Settings.selectedProfile) applySelected(false)
             } catch (e: Exception) {
                 withContext(NonCancellable) {
                     write(file, previous)
-                    if (id == Settings.selectedProfile) runCatching { applySelected() }.exceptionOrNull()?.let(e::addSuppressed)
+                    if (id == Settings.selectedProfile) runCatching { applySelected(true) }.exceptionOrNull()?.let(e::addSuppressed)
                 }
                 throw e
             }
@@ -93,7 +93,7 @@ internal class BoxProfiles(private val applySelected: suspend () -> Unit) {
         get(id)
         Settings.selectedProfile = id
         Settings.dataStore.flush()
-        applySelected()
+        applySelected(false)
     }
 
     suspend fun save(args: Map<String, Any?>): Long = mutex.withLock {
@@ -126,7 +126,10 @@ internal class BoxProfiles(private val applySelected: suspend () -> Unit) {
         profile.typed.remoteURL = url
         profile.typed.autoUpdate = url.isNotEmpty() && args["autoUpdate"] == true
         profile.typed.autoUpdateInterval = interval
-        if (id == 0L && url.isNotEmpty()) profile.typed.lastUpdated = Date()
+        if (id == 0L && url.isNotEmpty()) {
+            val importedAt = (args["updatedAt"] as? Number)?.toLong()?.takeIf { it >= 0L }
+            profile.typed.lastUpdated = if (args["content"] is String && importedAt != null) Date(importedAt) else Date()
+        }
         try {
             if (id == 0L) {
                 profile.userOrder = ProfileManager.nextOrder()
@@ -139,7 +142,7 @@ internal class BoxProfiles(private val applySelected: suspend () -> Unit) {
             throw e
         }
         UpdateProfileWork.reconfigureUpdater()
-        if (profile.id == Settings.selectedProfile && content != oldContent) applySelected()
+        if (profile.id == Settings.selectedProfile && content != oldContent) applySelected(false)
         profile.id
     }
 
@@ -153,7 +156,7 @@ internal class BoxProfiles(private val applySelected: suspend () -> Unit) {
         if (changed) write(file, content)
         profile.typed.lastUpdated = Date()
         ProfileManager.update(profile)
-        if (changed && id == Settings.selectedProfile) applySelected()
+        if (changed && id == Settings.selectedProfile) applySelected(false)
     }
 
     suspend fun delete(id: Long) = mutex.withLock {
@@ -163,7 +166,7 @@ internal class BoxProfiles(private val applySelected: suspend () -> Unit) {
         if (Settings.selectedProfile == id) {
             Settings.selectedProfile = ProfileManager.list().firstOrNull()?.id ?: -1L
             Settings.dataStore.flush()
-            applySelected()
+            applySelected(false)
         }
         UpdateProfileWork.reconfigureUpdater()
     }
@@ -183,7 +186,13 @@ internal class BoxProfiles(private val applySelected: suspend () -> Unit) {
         }
         val profile = Libbox.decodeProfileContent(data)
         validate(profile.config)
-        return mapOf("name" to profile.name, "content" to profile.config)
+        require(profile.type == Libbox.ProfileTypeLocal || profile.type == Libbox.ProfileTypeRemote) { "Unsupported profile type" }
+        val remote = profile.type == Libbox.ProfileTypeRemote
+        val url = if (remote) validateUrl(profile.remotePath) else ""
+        return mapOf("name" to profile.name, "content" to profile.config,
+            "remote" to remote, "url" to url, "autoUpdate" to (remote && profile.autoUpdate),
+            "interval" to if (remote) profile.autoUpdateInterval.coerceAtLeast(15) else 60,
+            "updatedAt" to if (remote) profile.lastUpdated.coerceAtLeast(0) else 0L)
     }
 
     companion object {

@@ -21,6 +21,20 @@ for name in ("MainActivity", "ShareActivity"):
     source = (native / f"compose/{name}.kt").read_text()
     if f"class {name} : BoxActivity()" not in source or "setContent" in source:
         errors.append(f"{name} must enter the Flutter host")
+for path in (ROOT / "app/src").rglob("*.kt"):
+    source = path.read_text()
+    if re.search(r"(?:androidx\.compose|androidx\.navigation|sfa\.compose\.(?:screen|navigation|component)|sfa\.update)\b", source):
+        errors.append(f"{path.relative_to(ROOT)}: retired UI/update dependency")
+for path in (ROOT / "app/build.gradle.kts", ROOT / "build.gradle.kts"):
+    if re.search(r"plugin\.compose|androidx\.compose|navigation-(?:compose|fragment|ui)|sora-editor|libghostty-android-compose|app-update-ktx", path.read_text()):
+        errors.append(f"{path.name}: retired UI/update build dependency")
+for path in (ROOT / "app/src").rglob("AndroidManifest.xml"):
+    if re.search(r"REQUEST_INSTALL_PACKAGES|UPDATE_PACKAGES_WITHOUT_USER_ACTION|InstallResultReceiver|WRITE_EXTERNAL_STORAGE", path.read_text()):
+        errors.append(f"{path.relative_to(ROOT)}: retired installer/QR export permission")
+for directory in (native / "compose", native / "update", native / "compat", ROOT / "app/src/github"):
+    for path in directory.rglob("*"):
+        if path.is_file() and path.name not in ("MainActivity.kt", "ShareActivity.kt"):
+            errors.append(f"{path.relative_to(ROOT)}: retired source remains")
 for path in (native / "flutter").glob("*.kt"):
     source = path.read_text()
     if re.search(r"(?:Screen|Dialog|ComposeView)\(", source):

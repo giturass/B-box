@@ -7,7 +7,6 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
-import androidx.appcompat.app.AppCompatActivity
 import androidx.preference.PreferenceDataStore
 import io.nekohasekai.sfa.aidl.IService
 import io.nekohasekai.sfa.aidl.IServiceCallback
@@ -43,7 +42,7 @@ class ServiceConnection(private val context: Context, callback: Callback, privat
             Settings.dataStore.initialize()
             Settings.dataStore.registerChangeListener(this@ServiceConnection)
             val intent = Intent(context, Settings.serviceClass()).setAction(Action.SERVICE)
-            context.bindService(intent, this@ServiceConnection, AppCompatActivity.BIND_AUTO_CREATE)
+            context.bindService(intent, this@ServiceConnection, Context.BIND_AUTO_CREATE)
             Log.d(TAG, "request connect")
         }
     }
@@ -52,6 +51,11 @@ class ServiceConnection(private val context: Context, callback: Callback, privat
         connectJob?.cancel()
         connectJob = null
         Settings.dataStore.unregisterChangeListener(this)
+        try {
+            service?.unregisterCallback(callback)
+        } catch (_: RemoteException) {
+        }
+        service = null
         try {
             context.unbindService(this)
         } catch (_: IllegalArgumentException) {
