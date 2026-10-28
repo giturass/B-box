@@ -76,7 +76,7 @@ const _zh = <String, String>{
   'Pause': '暂停', 'Resume': '继续', 'Clear': '清空', 'No logs': '暂无日志',
   'Level': '级别', 'Error': '错误', 'Retry': '重试', 'Done': '完成', 'OK': '确定',
   'Appearance': '外观', 'Theme': '主题', 'System': '跟随系统', 'Light': '浅色', 'Dark': '深色',
-  'Language': '语言', 'Accent color': '主题色',
+  'Accent color': '主题色',
   'Ghostty settings': 'Ghostty 设置', 'Terminal preview': '终端预览',
   'Light configuration': '浅色配置', 'Dark configuration': '深色配置',
   'Light theme': '浅色主题', 'Dark theme': '深色主题',

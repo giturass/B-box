@@ -29,6 +29,8 @@ class _Dashboard {
 
   Future<void> mount(WidgetTester tester, {String locale = 'en', double scale = 1}) async {
     reportFlutterErrors();
+    tester.binding.platformDispatcher.localesTestValue = [Locale(locale)];
+    addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -41,7 +43,7 @@ class _Dashboard {
       switch (call.method) {
         case 'ready': return {
           'version': 'test', 'coreVersion': 'test',
-          'preferences': {'locale': locale, 'fontScale': scale,
+          'preferences': {'fontScale': scale,
             'hiddenCards': ['Network speed', 'Outbound mode', 'Current profile', 'Proxy groups', 'Memory', 'Intranet IP']},
           'dashboard': {'status': status, 'mode': 'rule'},
         };

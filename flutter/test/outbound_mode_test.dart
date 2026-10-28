@@ -13,6 +13,8 @@ void main() {
   ]) {
     testWidgets('outbound mode glyphs match Android while preserving core order and live selection: $provided', (tester) async {
       reportFlutterErrors();
+      tester.binding.platformDispatcher.localesTestValue = [Locale(locale)];
+      addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
       tester.view.physicalSize = const Size(360, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -25,7 +27,7 @@ void main() {
         calls.add(call);
         if (call.method == 'ready') return {
           'version': 'test', 'coreVersion': 'test',
-          'preferences': {'locale': locale, 'fontScale': scale},
+          'preferences': {'fontScale': scale},
           'dashboard': {'status': 'Started', 'modes': provided, 'mode': cachedMode},
         };
         if (call.method == 'dashboard.egress') return {'ip': '203.0.113.1', 'country': 'CN'};

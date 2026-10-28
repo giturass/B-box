@@ -37,6 +37,8 @@ class _LAN {
 
   Future<void> mount(WidgetTester tester, {String locale = 'en', double scale = 1, double width = 360}) async {
     reportFlutterErrors();
+    tester.binding.platformDispatcher.localesTestValue = [Locale(locale)];
+    addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
     tester.view.physicalSize = Size(width, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -53,7 +55,7 @@ class _LAN {
           'version': 'test', 'coreVersion': 'test',
           'dashboard': {'status': started ? 'Started' : 'Stopped', 'selectedProfileId': state['profileId']},
           'profiles': [{'id': 1, 'name': 'Local profile'}], 'lan': state,
-          'preferences': {'locale': locale, 'fontScale': scale, 'dashboardCards': ['Intranet IP', 'Status'],
+          'preferences': {'fontScale': scale, 'dashboardCards': ['Intranet IP', 'Status'],
             'hiddenCards': ['Network speed', 'Outbound mode', 'Current profile', 'Proxy groups', 'Memory']},
         };
         case 'dashboard.egress': throw PlatformException(code: 'unavailable', message: 'No IP probe in this fixture');

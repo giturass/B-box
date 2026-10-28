@@ -64,8 +64,12 @@ source of truth. No action may launch an old Compose page as a fallback.
   backups ignore the removed card, and the next layout save removes its keys.
 - First launch opens the dashboard directly, without a disclaimer acceptance
   gate. Fresh-start Flutter and Android smoke scenarios cover this behavior.
-- Tools use the Android reference section order and open Flutter settings,
-  configuration, resources and About pages. About keeps B-box branding and
+- Tools open Flutter settings, configuration, resources and About pages.
+  Settings appear in this order: Appearance, General, Advanced configuration,
+  Access control, Resources, Backup and restore. The app follows the system
+  language, including live changes; older settings and backups discard their
+  retired language choice while preserving the other preferences.
+  About keeps B-box branding and
   checks B-box release metadata against the installed application ID and
   version code, including prereleases, before offering a matching ABI APK.
 - Proxy list mode keeps the reference's pinned rounded group headers,
@@ -77,7 +81,8 @@ source of truth. No action may launch an old Compose page as a fallback.
   preserve state and prevent duplicate probes during editing. Changes save
   immediately; a failed save retains the draft and Done retries it.
 - Tools keeps terminal settings inside Terminal and dashboard editing on the
-  dashboard toolbar. The B-box section contains Remote control.
+  dashboard toolbar. Remote control appears directly after Terminal in the
+  first section.
 - Backup follows the reference's remote/local sections, WebDAV account form,
   connectivity indicator, filename, scope dialog and Compatible/Override
   strategy. The native `bbox-1` format stores stable profile identities,

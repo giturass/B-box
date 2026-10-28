@@ -5,7 +5,6 @@ internal object BoxPreferences {
     private val cards = setOf("Status", "Network speed", "Outbound mode", "Current profile", "Connections", "Proxy groups", "Memory", "Intranet IP")
     private val choices = mapOf(
         "theme" to setOf("system", "light", "dark"),
-        "locale" to setOf("system", "en", "zh"),
         "colorStyle" to setOf("vivid", "tinted", "soft", "monochrome"),
         "proxySort" to setOf("Default", "Name", "Latency"),
         "proxyLayout" to setOf("Tabs", "List", "Compact"),
@@ -18,7 +17,9 @@ internal object BoxPreferences {
     )
 
     fun validate(values: Map<String, Any?>): Map<String, Any?> {
-        values.forEach { (key, value) ->
+        // Ignore the retired language choice in older settings and backups.
+        val activeValues = values.filterKeys { it != "locale" }
+        activeValues.forEach { (key, value) ->
             val valid = when (key) {
                 in choices -> value in choices.getValue(key)
                 "floatingNavigation", "closeConnectionsOnSelect", "hideTimeoutProxies", "pureBlack", "systemColor", "customFontScale" -> value is Boolean
@@ -38,6 +39,6 @@ internal object BoxPreferences {
             }
             require(valid) { "Invalid interface preference: " + key }
         }
-        return values
+        return activeValues
     }
 }

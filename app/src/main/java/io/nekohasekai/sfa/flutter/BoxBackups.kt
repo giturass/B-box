@@ -189,7 +189,7 @@ internal class BoxBackups(
                     writeSettings(backup["settings"] as? Map<String, Any?> ?: emptyMap())
                     (backup["terminal"] as? Map<String, Any?>)?.let { newFont = terminal.restoreBackup(it) }
                     if (backup.containsKey("webdav")) webdav.save(objectValue(backup, "webdav"))
-                    val restoredPreferences = (backup["preferences"] as? Map<String, Any?> ?: emptyMap()).toMutableMap()
+                    val restoredPreferences = BoxPreferences.validate(backup["preferences"] as? Map<String, Any?> ?: emptyMap()).toMutableMap()
                     val folds = restoredPreferences["proxyUnfolded"] as? Map<String, Any?>
                     if (folds != null) restoredPreferences["proxyUnfolded"] = folds.entries.associate { (key, value) ->
                         val id = key.removePrefix("local:").toLongOrNull()

@@ -21,4 +21,12 @@ class BoxSettingsTest {
         assertThrows(IllegalArgumentException::class.java) { BoxPreferences.validate(mapOf("proxyColumns" to 1.5)) }
         BoxPreferences.validate(mapOf("theme" to "dark", "proxyColumns" to 2, "hiddenCards" to listOf("Memory")))
     }
+
+    @Test
+    fun retiredLanguageChoicePreservesOtherPreferences() {
+        val current = mapOf("theme" to "dark", "fontScale" to 1.4, "proxyLayout" to "List")
+        for (locale in listOf("system", "en", "zh")) {
+            assertEquals(current, BoxPreferences.validate(current + ("locale" to locale)))
+        }
+    }
 }

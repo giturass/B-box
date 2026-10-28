@@ -24,6 +24,8 @@ void main() {
   });
   for (final (size, dark, fontScale) in [(const Size(360, 800), false, 1.0), (const Size(360, 800), true, 1.4), (const Size(800, 1000), false, 1.0)]) {
     testWidgets('all primary routes render at $size dark=$dark scale=$fontScale', (tester) async {
+      tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];
+      addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -32,7 +34,7 @@ void main() {
       final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready' ? {
         'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped', 'modes': []},
-        'profiles': [], 'preferences': {'locale': 'en', 'theme': dark ? 'dark' : 'light', 'fontScale': fontScale},
+        'profiles': [], 'preferences': {'locale': 'zh', 'theme': dark ? 'dark' : 'light', 'fontScale': fontScale},
       } : null);
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
       final events = StreamController<dynamic>.broadcast();
@@ -41,6 +43,8 @@ void main() {
       await tester.pumpWidget(RepaintBoundary(key: boundaryKey, child: BoxApp(controller: box)));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
+      expect(Localizations.localeOf(tester.element(find.byType(HomePage))).languageCode, 'en',
+        reason: 'A saved language choice must not override the system locale.');
       Future<void> capture(String label) async {
         await tester.runAsync(() async {
           final boundary = boundaryKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
@@ -110,9 +114,12 @@ void main() {
         await closed;
         expect(find.byWidget(page), findsNothing, reason: '$label closes within the new UI');
       }
-      events.add({'type': 'preferences', 'value': {'locale': 'zh', 'theme': dark ? 'dark' : 'light', 'fontScale': fontScale}});
+      events.add({'type': 'preferences', 'value': {'locale': 'en', 'theme': dark ? 'dark' : 'light', 'fontScale': fontScale}});
+      tester.binding.platformDispatcher.localesTestValue = const [Locale('zh', 'CN')];
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'Chinese locale');
+      expect(Localizations.localeOf(tester.element(find.byType(HomePage))).languageCode, 'zh',
+        reason: 'System language changes must update the running app.');
       await capture('Dashboard-Chinese');
       await tester.pumpWidget(const SizedBox());
       await events.close();

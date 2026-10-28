@@ -27,17 +27,19 @@ class BoxApp extends StatefulWidget {
   @override State<BoxApp> createState() => _BoxAppState();
 }
 
-class _BoxAppState extends State<BoxApp> {
+class _BoxAppState extends State<BoxApp> with WidgetsBindingObserver {
   final _messenger = GlobalKey<ScaffoldMessengerState>();
   StreamSubscription<String>? _messages;
   @override void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _messages = widget.controller.messages.stream.listen((message) {
       _messenger.currentState?.showSnackBar(SnackBar(content: Text(message)));
     });
     widget.controller.initialize();
   }
   @override void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _messages?.cancel();
     widget.controller.dispose();
     super.dispose();
@@ -45,11 +47,13 @@ class _BoxAppState extends State<BoxApp> {
 
   final _themes = <String, ThemeData>{};
 
+  @override void didChangeLocales(List<Locale>? locales) => setState(_themes.clear);
+
   ThemeData _theme(Brightness brightness) {
     final prefs = widget.controller.preferences;
     final scheme = appColorScheme(widget.controller, brightness);
     final family = prefs['fontFamily'] as String?;
-    final key = "$brightness:${scheme.hashCode}:$family:${prefs['locale']}";
+    final key = "$brightness:${scheme.hashCode}:$family";
     return _themes.putIfAbsent(key, () => ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
@@ -73,7 +77,6 @@ class _BoxAppState extends State<BoxApp> {
       listenable: widget.controller,
       builder: (context, _) {
         final prefs = widget.controller.preferences;
-        final locale = prefs['locale'] as String?;
         return MaterialApp(
           title: 'B-box',
           debugShowCheckedModeBanner: false,
@@ -81,7 +84,6 @@ class _BoxAppState extends State<BoxApp> {
           theme: _theme(Brightness.light),
           darkTheme: _theme(Brightness.dark),
           themeMode: ThemeMode.values.firstWhere((mode) => mode.name == prefs['theme'], orElse: () => ThemeMode.system),
-          locale: locale == null || locale == 'system' ? null : Locale(locale),
           supportedLocales: const [Locale('en'), Locale('zh')],
           localizationsDelegates: const [
             BoxUiDelegate(), ...GlobalMaterialLocalizations.delegates,
