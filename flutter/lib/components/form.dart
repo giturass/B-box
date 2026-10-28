@@ -20,8 +20,10 @@ class FormPage extends StatelessWidget {
     body: AbsorbPointer(absorbing: saving, child: ListView(shrinkWrap: true,
       padding: EdgeInsets.fromLTRB(16, context.sectionsTopPadding, 16, 20 + context.bottomInset),
       children: [
+        // Keep form children at stable indices when the validation message changes.
         if (error != null) Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: Text(error!, style: context.listCaptionStyle.copyWith(color: context.colorScheme.error))),
+          child: Text(error!, style: context.listCaptionStyle.copyWith(color: context.colorScheme.error)))
+        else const SizedBox.shrink(),
         ...children,
       ],
     )),

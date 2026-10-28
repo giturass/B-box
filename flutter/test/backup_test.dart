@@ -168,9 +168,6 @@ void main() {
     expect(json(calls.lastWhere((call) => call.method == 'webdav.set').arguments)['value'], {
       'uri': 'https://dav.example.test/directory', 'user': 'account', 'password': 'synthetic', 'fileName': defaultBackupFileName,
     });
-    await tester.scrollUntilVisible(find.text('account'), -160,
-      scrollable: find.descendant(of: find.byType(BackupPage), matching: find.byType(Scrollable)).first);
-    await tester.pumpAndSettle();
     expect(find.text('account'), findsOneWidget);
     expect(calls.where((call) => call.method == 'webdav.check'), hasLength(1));
     expect(tester.takeException(), isNull);
