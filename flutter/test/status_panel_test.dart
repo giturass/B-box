@@ -133,9 +133,9 @@ void main() {
       scrollable: find.descendant(of: find.byType(EgressDetails), matching: find.byType(Scrollable)).first);
     await tester.pumpAndSettle();
     expect(find.text('IP quality unavailable'), findsOneWidget);
-    final dismissed = SheetDismissScope.of(tester.element(find.byType(EgressDetails)))!.value!();
+    await tester.tap(find.byTooltip('Close'));
     await tester.pumpAndSettle();
-    await dismissed;
+    expect(find.byType(EgressDetails), findsNothing);
 
     dashboard.failQuality = false;
     await tester.tap(find.byTooltip('Retry'));
@@ -171,24 +171,24 @@ void main() {
   });
 
   for (final change in ['mode', 'network']) {
-  testWidgets('$change changes cancel quality requests and ignore stale organizations', (tester) async {
-    final dashboard = _Dashboard()..lateOnClose = true;
-    await dashboard.mount(tester);
-    final old = dashboard.ids.single;
-    dashboard.ip = '198.51.100.2';
-    dashboard.autoQuality = true;
-    dashboard.changeRoute(network: change == 'network');
-    await tester.pumpAndSettle();
-    expect(dashboard.closed, contains(old));
-    expect(find.text('198.51.100.2'), findsOneWidget);
-    expect(find.text('203.0.113.9'), findsNothing);
-    expect(find.text('Example Business'), findsOneWidget);
-    expect(find.text('Stale Organization'), findsNothing);
-    final writes = dashboard.calls.where((call) => call.method == 'dashboard.qualityCache.put');
-    expect(writes, hasLength(1));
-    expect((writes.single.arguments as Map)['ip'], '198.51.100.2');
-    expect(tester.takeException(), isNull);
-  });
+    testWidgets('$change changes cancel quality requests and ignore stale organizations', (tester) async {
+      final dashboard = _Dashboard()..lateOnClose = true;
+      await dashboard.mount(tester);
+      final old = dashboard.ids.single;
+      dashboard.ip = '198.51.100.2';
+      dashboard.autoQuality = true;
+      dashboard.changeRoute(network: change == 'network');
+      await tester.pumpAndSettle();
+      expect(dashboard.closed, contains(old));
+      expect(find.text('198.51.100.2'), findsOneWidget);
+      expect(find.text('203.0.113.9'), findsNothing);
+      expect(find.text('Example Business'), findsOneWidget);
+      expect(find.text('Stale Organization'), findsNothing);
+      final writes = dashboard.calls.where((call) => call.method == 'dashboard.qualityCache.put');
+      expect(writes, hasLength(1));
+      expect((writes.single.arguments as Map)['ip'], '198.51.100.2');
+      expect(tester.takeException(), isNull);
+    });
   }
 
   testWidgets('backgrounding cancels the probe and resume queries the current route', (tester) async {
