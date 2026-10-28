@@ -75,13 +75,17 @@ class _Dashboard {
       await events.close();
       messenger.setMockMethodCallHandler(channel, null);
     });
-    await tester.pumpWidget(BoxApp(controller: BoxController(channel: channel, events: events.stream)));
+    final controller = BoxController(channel: channel, events: events.stream)
+      ..lan = {'addresses': ['192.168.1.2'], 'stamp': 'wifi:1'};
+    await tester.pumpWidget(BoxApp(controller: controller));
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
   }
 
-  void changeRoute() => events.add({'type': 'dashboard', 'value': {'status': 'Started', 'mode': 'global'}});
+  void changeRoute({bool network = false}) => events.add(network
+    ? {'type': 'lan', 'value': {'addresses': ['192.168.1.2'], 'stamp': 'wifi:2'}}
+    : {'type': 'dashboard', 'value': {'status': 'Started', 'mode': 'global'}});
   void answerQuality(String id) => pendingQuality[id]!.complete(quality(id));
 }
 
@@ -125,6 +129,9 @@ void main() {
     expect(find.text('Unknown type'), findsOneWidget);
     await tester.tap(find.text('203.0.113.9'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('IP quality unavailable'), 250,
+      scrollable: find.descendant(of: find.byType(EgressDetails), matching: find.byType(Scrollable)).first);
+    await tester.pumpAndSettle();
     expect(find.text('IP quality unavailable'), findsOneWidget);
     final dismissed = SheetDismissScope.of(tester.element(find.byType(EgressDetails)))!.value!();
     await tester.pumpAndSettle();
@@ -163,13 +170,14 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('route changes cancel quality requests and ignore stale organizations', (tester) async {
+  for (final change in ['mode', 'network']) {
+  testWidgets('$change changes cancel quality requests and ignore stale organizations', (tester) async {
     final dashboard = _Dashboard()..lateOnClose = true;
     await dashboard.mount(tester);
     final old = dashboard.ids.single;
     dashboard.ip = '198.51.100.2';
     dashboard.autoQuality = true;
-    dashboard.changeRoute();
+    dashboard.changeRoute(network: change == 'network');
     await tester.pumpAndSettle();
     expect(dashboard.closed, contains(old));
     expect(find.text('198.51.100.2'), findsOneWidget);
@@ -181,6 +189,7 @@ void main() {
     expect((writes.single.arguments as Map)['ip'], '198.51.100.2');
     expect(tester.takeException(), isNull);
   });
+  }
 
   testWidgets('backgrounding cancels the probe and resume queries the current route', (tester) async {
     final dashboard = _Dashboard();

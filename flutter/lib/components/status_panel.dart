@@ -25,16 +25,18 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
   Timer? _qualityExpiry;
   final _detailsRevision = ValueNotifier(0);
   int _generation = 0;
-  bool _foreground = true;
+  bool _foreground = true, _refreshScheduled = false;
   @override void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _foreground = WidgetsBinding.instance.lifecycleState == null || WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
   }
   @override void didChangeAppLifecycleState(AppLifecycleState state) {
-    _foreground = state == AppLifecycleState.resumed;
+    final foreground = state == AppLifecycleState.resumed;
+    if (_foreground == foreground) return;
+    _foreground = foreground;
     if (_foreground) {
-      if (mounted && context.box.running && !context.box.remote) _refresh();
+      if (mounted && context.box.running && !context.box.remote) _scheduleRefresh();
     } else {
       _generation++;
       _probe?.cancel(); _probe = null;
@@ -45,14 +47,22 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
   @override void didChangeDependencies() {
     super.didChangeDependencies();
     final box = context.box;
-    final stamp = '${box.running}:${box.remote}:${box.dashboard['remote']}:${box.dashboard['startedAt']}:${box.selectedProfileId}:${box.dashboard['mode']}:${box.groups.map((g) => '${g['tag']}:${g['selected']}').join(',')}:${box.lan['addresses']}';
+    final stamp = '${box.running}:${box.remote}:${box.dashboard['remote']}:${box.dashboard['startedAt']}:${box.selectedProfileId}:${box.dashboard['mode']}:${box.groups.map((g) => '${g['tag']}:${g['selected']}').join(',')}:${box.lan['stamp']}:${box.lan['addresses']}';
     if (_stamp == stamp) return;
     _stamp = stamp;
     _generation++;
     _probe?.cancel(); _probe = null;
     _qualityExpiry?.cancel();
     _egress = null; _error = null; _qualityError = null; _checking = false; _qualityChecking = false;
-    if (_foreground && box.running && !box.remote) WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _refresh(); });
+    if (_foreground && box.running && !box.remote) _scheduleRefresh();
+  }
+  void _scheduleRefresh() {
+    if (_refreshScheduled) return;
+    _refreshScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshScheduled = false;
+      if (mounted) _refresh();
+    });
   }
   Future<void> _refresh() async {
     final box = context.box;

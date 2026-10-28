@@ -73,9 +73,9 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
     @Suppress("DEPRECATION")
     private suspend fun network(): Map<String, Any?> {
         val manager = activity.getSystemService(ConnectivityManager::class.java)
-        val addresses = manager.allNetworks.flatMap { network ->
-            if (manager.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != false) emptyList()
-            else manager.getLinkProperties(network)?.linkAddresses.orEmpty().map { it.address }
+        val networks = manager.allNetworks.filter { manager.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == false }
+        val addresses = networks.flatMap { network ->
+            manager.getLinkProperties(network)?.linkAddresses.orEmpty().map { it.address }
                 .filterNot { it.isLoopbackAddress || it.isLinkLocalAddress || it.isAnyLocalAddress || it.isMulticastAddress }
                 .mapNotNull { it.hostAddress?.substringBefore('%') }
         }.distinct().sortedWith(compareBy<String> { ':' in it }.thenBy { it })
@@ -93,7 +93,8 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
                 }
             }
         }
-        return mapOf("addresses" to addresses, "bindings" to bindings)
+        val stamp = "${manager.activeNetwork}:${networks.map { "$it:${manager.getNetworkCapabilities(it)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}" }.sorted()}"
+        return mapOf("addresses" to addresses, "bindings" to bindings, "stamp" to stamp)
     }
 
     private fun requireLocalService() {
