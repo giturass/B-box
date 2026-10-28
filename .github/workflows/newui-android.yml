@@ -96,7 +96,7 @@ jobs:
           arch: x86_64
           profile: pixel_2
           disable-animations: true
-          script: python3 tool/verify_newui_android.py
+          script: python3 tools/verify_newui_android.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
