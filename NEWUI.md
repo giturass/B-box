@@ -98,3 +98,11 @@ reference's quality fixtures and cover cache lifetime, retry, progressive
 status updates and stale results after route/lifecycle changes.
 Pixel parity must be checked against the pinned reference at equal viewport,
 font scale, locale and theme; source reuse alone is not visual acceptance.
+Status-card tests compare pixels against a frozen reference renderer across
+twelve mobile scenarios, including both locales/themes, 0.8/1.0/1.4 text scales,
+IPv6, pending/failed probes, organization/ASN fallback and quality levels.
+Stopped start buttons are compared separately. The oracle retains the reference
+header, chips, badge, morph, card surface and typography without importing the
+adapted B-box dashboard components. Both images are saved as CI artifacts.
+Stopped and remote sessions keep unavailable IP data as placeholders because
+the routed sing-box probe requires an active local service.

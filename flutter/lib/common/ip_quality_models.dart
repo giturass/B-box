@@ -1,6 +1,6 @@
 // Adapted from FlClash v0.9.2 models/ip_quality.dart and enum/enum.dart (GPL-3.0).
 enum IpType {
-  residential('Residential'), mobile('Mobile'), business('Business'), hosting('Hosting');
+  residential('Residential'), mobile('Mobile network'), business('Business'), hosting('Data center');
   const IpType(this.label);
   final String label;
 }

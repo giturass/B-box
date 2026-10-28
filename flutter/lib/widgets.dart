@@ -151,10 +151,11 @@ class DetailRows extends StatelessWidget {
 }
 
 class BoxPanel extends StatelessWidget {
-  const BoxPanel({super.key, required this.child, this.onTap, this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 18)});
+  const BoxPanel({super.key, required this.child, this.onTap, this.padding = const EdgeInsets.symmetric(horizontal: 20, vertical: 18), this.clipBehavior = Clip.antiAlias});
   final Widget child;
   final VoidCallback? onTap;
   final EdgeInsetsGeometry padding;
+  final Clip clipBehavior;
   @override
   Widget build(BuildContext context) {
     final dark = context.colorScheme.brightness == Brightness.dark;
@@ -172,7 +173,7 @@ class BoxPanel extends StatelessWidget {
       child: Material(
         type: MaterialType.transparency,
         shape: AppShape.all(34),
-        clipBehavior: Clip.antiAlias,
+        clipBehavior: clipBehavior,
         child: onTap == null ? Padding(padding: padding, child: child) : InkWell(
           customBorder: AppShape.all(34), onTap: onTap, child: Padding(padding: padding, child: child),
         ),

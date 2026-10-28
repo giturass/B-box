@@ -18,6 +18,12 @@ active sing-box router instead of Mihomo/Dio.
 
 `manifest.json` records the imported file hashes after that mechanical rename.
 
+`flutter/test/support/flclash_status_reference.dart` freezes the status card's
+presentation with provider reads and actions replaced by fixtures. Its header,
+chips, country badge, start-button morph and card surface are independent of
+B-box's adapted components. The parity tests compare the two rendered images
+at identical viewport, font scale, locale and theme, and save both to CI artifacts.
+
 The B-box application screens and Android bridge adapt this presentation to
 sing-box. No FlClash/Mihomo native library, Clash configuration model, scripts,
 subscription converter, or Clash-specific service is included.

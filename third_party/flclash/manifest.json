@@ -168,7 +168,7 @@
     "lib/components/status_panel.dart": {
       "source": "lib/views/dashboard/widgets/current_outbound.dart",
       "sourceSHA256": "ee6f397a9b1bc78968699e2852c7a6ba36d1d1a05dfa4cbcd6545e09c6b55f28",
-      "changes": "Mobile status layout, country badge, IP chips, runtime and organization cells. Egress requests use the real sing-box router; unavailable remote probes are not simulated. IP is shown before quality, with cancellation, cache expiry, retry and live source details."
+      "changes": "Mobile header, intrinsic runtime column, caption/figure styles, readable IP fitting, country badge states and decoration clipping retained. Reads native sing-box session and routed IP/quality data; unavailable stopped/remote data stays explicit."
     },
     "lib/components/memory_panel.dart": {
       "source": "lib/views/dashboard/widgets/memory_info.dart",
@@ -254,6 +254,37 @@
       "source": "test/common/ip_quality_test.dart",
       "sourceSHA256": "6c0d658eb1714a7fde07bd472a62060b461d6080224e7cc8a5813f088b798caf",
       "changes": "Reference provider fixtures and scheduling assertions retained; Dio adapter replaced by a fake transport, with cancellation and quality-level coverage added."
+    },
+    "test/support/flclash_status_reference.dart": {
+      "source": "lib/views/dashboard/widgets/current_outbound.dart",
+      "sourceSHA256": "ee6f397a9b1bc78968699e2852c7a6ba36d1d1a05dfa4cbcd6545e09c6b55f28",
+      "supportingSources": [
+        {
+          "source": "lib/views/dashboard/widgets/card.dart",
+          "sourceSHA256": "7e1a759eae758576c4005fe250c7441bb606b4256a09e327f502e30d0851c8ab"
+        },
+        {
+          "source": "lib/views/dashboard/style.dart",
+          "sourceSHA256": "317abf6becbc79b2162ec1f518971916e81c9d7662d3b463b7374a6c0609044b"
+        },
+        {
+          "source": "lib/views/dashboard/layout.dart",
+          "sourceSHA256": "6441fc27a9cc679fdba67a55f615b3dea5e3e6080eae2b7aab2ff5866515fc92"
+        },
+        {
+          "source": "lib/features/ip_quality/labels.dart",
+          "sourceSHA256": "b40e7fb586a74dc1f1c6859f5fb73c74f642b4578f5396c51765a9574850615a"
+        },
+        {
+          "source": "lib/l10n/intl/messages_en.dart",
+          "sourceSHA256": "6292be55b042add7d2a988d8151ab5d9ba10d0d61ded91f0058443593af2aaea"
+        },
+        {
+          "source": "lib/l10n/intl/messages_zh_CN.dart",
+          "sourceSHA256": "e2f06977b797d99df50eff5dec973e54d1dc230504d28526200c2599bc1dee86"
+        }
+      ],
+      "changes": "Frozen pixel comparison oracle. Extracted rendering declarations retain the reference layout, shapes, styles and labels. Provider reads, models, runtime and actions use fixtures; imports use the vendored shared UI. Does not import adapted B-box dashboard components."
     }
   },
   "adaptedNativeFiles": {

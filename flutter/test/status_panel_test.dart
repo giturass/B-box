@@ -17,6 +17,7 @@ class _Dashboard {
   final pendingIP = <String, Completer<Object?>>{};
   final pendingQuality = <String, Completer<Object?>>{};
   String ip = '203.0.113.9';
+  String status = 'Started';
   bool holdIP = false, failQuality = false, autoQuality = false, lateOnClose = false;
 
   Map<String, Object?> ipInfo(String id) => {'ip': addresses[id], 'country': 'GB',
@@ -42,7 +43,7 @@ class _Dashboard {
           'version': 'test', 'coreVersion': 'test',
           'preferences': {'locale': locale, 'fontScale': scale,
             'hiddenCards': ['Network speed', 'Outbound mode', 'Current profile', 'Proxy groups', 'Memory', 'Intranet IP']},
-          'dashboard': {'status': 'Started', 'mode': 'rule'},
+          'dashboard': {'status': status, 'mode': 'rule'},
         };
         case 'dashboard.egress':
           ids.add(id!);
@@ -96,6 +97,34 @@ Future<void> _advance(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('start is disabled until a usable profile is selected', (tester) async {
+    final dashboard = _Dashboard()..status = 'Stopped';
+    await dashboard.mount(tester);
+    await tester.pumpAndSettle();
+    final toggle = find.byTooltip('Start');
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(dashboard.calls.where((call) => call.method == 'service.start'), isEmpty);
+    expect(dashboard.ids, isEmpty);
+    dashboard.events.add({'type': 'profiles', 'value': [{'id': 1, 'name': 'Profile'}]});
+    dashboard.events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 1}});
+    await tester.pumpAndSettle();
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(dashboard.calls.where((call) => call.method == 'service.start'), hasLength(1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a running tunnel can stop after its selected profile disappears', (tester) async {
+    final dashboard = _Dashboard()..autoQuality = true;
+    await dashboard.mount(tester);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Stop'));
+    await tester.pumpAndSettle();
+    expect(dashboard.calls.where((call) => call.method == 'service.stop'), hasLength(1));
+    expect(tester.takeException(), isNull);
+  });
+
   for (final (locale, scale) in [('en', 1.0), ('zh', 1.4)]) {
     testWidgets('IP appears before quality and open details update: $locale', (tester) async {
       final dashboard = _Dashboard();
@@ -114,7 +143,7 @@ void main() {
       expect(find.descendant(of: details, matching: find.text('Example Business')), findsOneWidget);
       expect(find.descendant(of: details, matching: find.text('AS64500')), findsOneWidget);
       expect(find.descendant(of: details, matching: find.text('ident.me')), findsOneWidget);
-      expect(find.descendant(of: details, matching: find.text(locale == 'zh' ? '商业网络' : 'Business')), findsOneWidget);
+      expect(find.descendant(of: details, matching: find.text(locale == 'zh' ? '商业' : 'Business')), findsOneWidget);
       expect(dashboard.calls.where((call) => call.method == 'dashboard.qualityCache.put'), hasLength(1));
       expect(tester.takeException(), isNull);
     });
