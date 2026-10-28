@@ -79,4 +79,19 @@ class BoxQrScannerTest {
         assertEquals("done", (scanner.scan("second", encoded(0))["profile"] as Map<*, *>)["name"])
         assertEquals("sing-box://import-remote-profile?url=https://example.com/a", scanner.scan("plain", "sing-box://import-remote-profile?url=https://example.com/a")["text"])
     }
+
+    @Test fun failedImportReleasesTheCompletedDecoderForRetry() {
+        val raw = "{}".toByteArray()
+        var reject = true
+        val scanner = BoxQrScanner { _, _ ->
+            check(!reject) { "Invalid profile" }
+            mapOf("name" to "done")
+        }
+        // Ordinary base64 text must not allocate long-lived QRS sessions.
+        repeat(5) { scanner.scan("text-$it", "aGVsbG8=") }
+        val value = Base64.getEncoder().encodeToString(frame(raw, raw, 2, 0))
+        assertThrows(IllegalStateException::class.java) { scanner.scan("camera", value) }
+        reject = false
+        assertEquals("done", (scanner.scan("camera", value)["profile"] as Map<*, *>)["name"])
+    }
 }

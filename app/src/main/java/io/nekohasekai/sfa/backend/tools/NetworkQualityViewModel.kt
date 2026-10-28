@@ -139,9 +139,18 @@ class NetworkQualityViewModel : BaseViewModel<NetworkQualityState>() {
         } else {
             val test = Libbox.newNetworkQualityTest()
             standaloneTest = test
-            launch {
-                withContext(Dispatchers.IO) {
-                    test.start(configURL, serial, maxRuntimeSeconds, http3, handler)
+            viewModelScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        test.start(configURL, serial, maxRuntimeSeconds, http3, handler)
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (standaloneTest !== test || !currentState.isRunning) return@launch
+                    standaloneTest = null
+                    updateState { copy(isRunning = false) }
+                    sendError(e)
                 }
             }
         }

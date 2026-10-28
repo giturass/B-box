@@ -78,9 +78,18 @@ class STUNTestViewModel : BaseViewModel<STUNTestState>() {
         } else {
             val test = Libbox.newSTUNTest()
             standaloneTest = test
-            launch {
-                withContext(Dispatchers.IO) {
-                    test.start(server, handler)
+            viewModelScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        test.start(server, handler)
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (standaloneTest !== test || !currentState.isRunning) return@launch
+                    standaloneTest = null
+                    updateState { copy(isRunning = false) }
+                    sendError(e)
                 }
             }
         }

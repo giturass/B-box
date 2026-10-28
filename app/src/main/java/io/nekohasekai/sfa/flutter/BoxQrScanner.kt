@@ -14,20 +14,20 @@ internal class BoxQrScanner(private val decode: (ByteArray, String) -> Map<Strin
         val encoded = if (text.startsWith("http://") || text.startsWith("https://")) text.substringAfter('#', "") else text
         val payload = runCatching { Base64.Default.decode(encoded.filterNot(Char::isWhitespace)) }.getOrNull()
         if (payload == null) return mapOf("text" to text)
-        require(id in sessions || sessions.size < 4) { "Too many QR scanners" }
-        val decoder = sessions.getOrPut(id) { QRSDecoder() }
+        val decoder = sessions[id] ?: QRSDecoder()
         val progress = try {
             decoder.processFrame(payload)
         } catch (error: Exception) {
             sessions.remove(id)
             throw error
         } ?: return mapOf("text" to text)
+        require(id in sessions || sessions.size < 4) { "Too many QR scanners" }
         if (progress.error != null) {
             sessions.remove(id)
             error(progress.error)
         }
+        if (progress.isComplete) sessions.remove(id) else sessions[id] = decoder
         val profile = progress.data?.let { decode(unwrap(it), "Profile.bpf") }
-        if (profile != null) sessions.remove(id)
         return mapOf("decoded" to progress.decodedBlocks, "total" to progress.totalBlocks, "profile" to profile)
     }
 
