@@ -44,6 +44,18 @@ func TestUIEgressSourceParsers(t *testing.T) {
 	if err != nil || info["ip"] != "2001:db8::9" {
 		t.Fatalf("IPv6 trace: %v %v", info, err)
 	}
+	for _, fixture := range []struct {
+		source uiIPSource
+		body   string
+	}{
+		{uiIPSources[0], "ip=203.0.113.9\rloc="},
+		{uiIPSources[2], "{\"ip\":\"203.0.113.9\",\"country\":\"\"}"},
+	} {
+		info, err := parseUIOutboundIP(fixture.source, fixture.body)
+		if err != nil || info["ip"] != "203.0.113.9" || info["country"] != "" {
+			t.Fatalf("an unknown country must preserve the public IP as in FlClash: %v %v", info, err)
+		}
+	}
 	for _, body := range []string{
 		"captcha", "{}", "{\"ip\":1,\"country\":\"GB\"}",
 		"{\"ip\":\"203.0.113.9\"}", "{\"ip\":\"10.0.0.1\",\"country\":\"GB\"}",

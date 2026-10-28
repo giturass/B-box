@@ -74,8 +74,11 @@ func newUIEgressProbe(current func() bool, route func(context.Context, net.Conn,
 	wrapped := NewHTTPClient().(*httpClient)
 	wrapped.ModernTLS()
 	probe := &UIEgressProbe{
-		ctx: ctx, cancel: cancel, client: &wrapped.client, closeClient: wrapped.Close,
-		current: current,
+		ctx:         ctx,
+		cancel:      cancel,
+		client:      &wrapped.client,
+		closeClient: wrapped.Close,
+		current:     current,
 	}
 	// Each request owns its routed connection and deadline. A pooled connection
 	// must not survive the IP race and carry the subsequent quality lookup.
@@ -256,14 +259,16 @@ func mentionsUIPublicIP(body string) bool {
 
 func parseUIOutboundIP(source uiIPSource, body string) (map[string]any, error) {
 	var ip, country string
+	var hasCountry bool
 	if source.CountryKey == "loc" {
-		for _, line := range strings.Split(body, "\n") {
-			key, value, found := strings.Cut(strings.TrimSuffix(line, "\r"), "=")
+		for _, line := range strings.FieldsFunc(body, func(r rune) bool { return r == '\n' || r == '\r' }) {
+			key, value, found := strings.Cut(line, "=")
 			if found && key == "ip" {
 				ip = value
 			}
 			if found && key == "loc" {
 				country = value
+				hasCountry = true
 			}
 		}
 	} else {
@@ -274,13 +279,13 @@ func parseUIOutboundIP(source uiIPSource, body string) (map[string]any, error) {
 		ip, _ = data["ip"].(string)
 		if source.CountryKey == "location.country_code" {
 			if location, ok := data["location"].(map[string]any); ok {
-				country, _ = location["country_code"].(string)
+				country, hasCountry = location["country_code"].(string)
 			}
 		} else {
-			country, _ = data[source.CountryKey].(string)
+			country, hasCountry = data[source.CountryKey].(string)
 		}
 	}
-	if !uiPublicIP(ip) || country == "" {
+	if !uiPublicIP(ip) || !hasCountry {
 		return nil, fmt.Errorf("invalid egress response")
 	}
 	return map[string]any{"ip": ip, "country": country}, nil
