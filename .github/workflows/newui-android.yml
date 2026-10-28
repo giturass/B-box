@@ -40,6 +40,7 @@ jobs:
           cp ../libbox/ui_dashboard.go experimental/libbox/ui_dashboard.go
           cp ../libbox/ui_http.go experimental/libbox/ui_http.go
           cp ../libbox/ui_egress.go experimental/libbox/ui_egress.go
+          cp ../libbox/ui_lan.go experimental/libbox/ui_lan.go
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
           make lib_install
           export PATH="$PATH:$(go env GOPATH)/bin"

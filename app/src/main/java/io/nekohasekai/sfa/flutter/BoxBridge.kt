@@ -177,12 +177,25 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 null
             }
             "dashboard.releaseMemory" -> dashboardDetails.releaseMemory()
+            "dashboard.lan.refresh" -> dashboardDetails.refreshNetwork()
+            "dashboard.lan.set" -> localProfiles {
+                val enabled = args["enabled"] as? Boolean ?: error("Missing LAN proxy state")
+                val port = args["port"]?.let {
+                    val number = it as? Number ?: error("Invalid proxy port")
+                    require(number.toDouble() == number.toInt().toDouble() && number.toInt() in 1..65535) { "Invalid proxy port" }
+                    number.toInt()
+                } ?: 0
+                profiles.setLanProxy(id("profileId"), string("revision"), enabled, port)
+                publishProfiles()
+                dashboardDetails.refreshNetwork()
+            }
             "ready" -> mapOf(
                 "version" to BuildConfig.VERSION_NAME, "coreVersion" to Libbox.version(),
                 "systemAccentColor" to systemAccentColor(),
                 "dashboard" to dashboard.uiState.value.toWire(),
                 "profiles" to withContext(Dispatchers.IO) { profiles.list() },
                 "settings" to settings(), "preferences" to readPreferences(),
+                "lan" to dashboardDetails.refreshNetwork(),
                 "tools" to toolBridge.snapshot(), "diagnostics" to toolBridge.diagnostics(),
                 "intent" to activity.takeIntent(),
             )

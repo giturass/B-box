@@ -49,8 +49,12 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 class BoxService(private val service: Service, private val platformInterface: PlatformInterface) : CommandServerHandler {
+    internal data class DashboardConfig(val server: CommandServer, val profileId: Long, val content: String)
+
     companion object {
         @Volatile internal var dashboardServer: CommandServer? = null
+            private set
+        @Volatile internal var dashboardConfig: DashboardConfig? = null
             private set
         private const val PROFILE_UPDATE_INTERVAL = 15L * 60 * 1000 // 15 minutes in milliseconds
         private const val TAG = "BoxService"
@@ -174,6 +178,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
 
             dashboardServer = commandServer
+            dashboardConfig = DashboardConfig(commandServer, selectedProfileId, content)
             if (commandServer.needWIFIState()) {
                 val wifiPermission =
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -251,10 +256,13 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             )
         } catch (e: Exception) {
             stopAndAlert(Alert.CreateService, e.message)
-            return
+            // Return reload failures to the command client so configuration
+            // editors can restore their previous content instead of reporting success.
+            throw e
         }
 
         dashboardServer = commandServer
+        dashboardConfig = DashboardConfig(commandServer, selectedProfileId, content)
         if (commandServer.needWIFIState()) {
             val wifiPermission =
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -322,6 +330,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private fun closeService() {
+        if (dashboardConfig?.server === commandServer) dashboardConfig = null
         if (dashboardServer === commandServer) dashboardServer = null
         runCatching {
             commandServer.closeService()
@@ -396,6 +405,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     internal fun onBind(): IBinder = binder
 
     internal fun onDestroy() {
+        if (::commandServer.isInitialized && dashboardConfig?.server === commandServer) dashboardConfig = null
         if (::commandServer.isInitialized && dashboardServer === commandServer) dashboardServer = null
         idleModeUpdates.cancel()
         idleModeScope.cancel()

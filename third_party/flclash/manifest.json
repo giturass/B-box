@@ -178,7 +178,7 @@
     "lib/components/intranet_panel.dart": {
       "source": "lib/views/dashboard/widgets/intranet_ip.dart",
       "sourceSHA256": "c1f99b03a80f79a2044566b4fb1b9c8cea5a03ff4936a277130485e611bd284f",
-      "changes": "Mobile LAN IP presentation and copy action. Shows actual sing-box local proxy listeners instead of a Clash global allow-LAN setting."
+      "changes": "Mobile LAN IP, sharing switch, cookie/circle Wi-Fi badge, adaptive row and compact switch track from intranet_ip.dart/card.dart. Sharing changes native sing-box proxy inbound listen fields with independent ports and existing authentication/TLS. Copy expands actual running binds to device endpoints; stopped and remote sessions retain device IP copying."
     },
     "lib/components/dashboard_chip.dart": {
       "source": "lib/views/dashboard/widgets/card.dart",

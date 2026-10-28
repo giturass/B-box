@@ -35,8 +35,8 @@ jobs:
         working-directory: .core
         run: |
           git apply ../patches/libbox-no-legacy.patch
-          cp ../libbox/ui_http.go ../libbox/ui_http_test.go ../libbox/ui_egress.go ../libbox/ui_egress_test.go experimental/libbox/
-          go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(WebDAV|HTTPGet|Egress)' -count=1
+          cp ../libbox/ui_http.go ../libbox/ui_http_test.go ../libbox/ui_egress.go ../libbox/ui_egress_test.go ../libbox/ui_lan.go ../libbox/ui_lan_test.go experimental/libbox/
+          go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(WebDAV|HTTPGet|Egress|LAN)' -count=1
   flutter:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

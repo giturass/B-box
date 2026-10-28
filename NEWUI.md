@@ -38,6 +38,18 @@ source of truth. No action may launch an old Compose page as a fallback.
   router and libbox TLS store; remote sessions do not expose this probe.
 - Existing sing-box-only capabilities use the same Flutter presentation;
   they do not justify bringing Clash-only controls into the app.
+- The optional LAN card retains the reference's sharing switch, port subtitle,
+  cookie/circle Wi-Fi badge and copy action. Sharing edits the selected
+  profile's native mixed/http/socks listen fields, retaining independent
+  ports, authentication, TLS, interface restrictions and routing. It uses
+  revision checks, whole-config validation, atomic writes and service reload;
+  failed applies restore the previous configuration. A profile without a
+  proxy inbound offers an explicit mixed-listener form with a selectable
+  port. No global allow-lan or mixed-port fields are invented. Omitted listen
+  follows the matching core's TCP default of 127.0.0.1. Copy uses the running
+  service's configuration snapshot and expands wildcard binds to physical
+  device addresses, respecting IPv4/IPv6 and bind_interface; stopped and
+  remote sessions copy the device IP. Details expose all active ports.
 - Advanced configuration and resources edit native sing-box DNS, routing,
   rule sets, listeners, outbounds, endpoints and logging. Each save validates
   the whole configuration, checks its content revision and writes atomically.

@@ -8,6 +8,7 @@ import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
+import io.nekohasekai.sfa.utils.CommandTarget
 import io.nekohasekai.sfa.utils.HTTPClient
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.NonCancellable
@@ -53,6 +54,21 @@ internal class BoxProfiles(private val applySelected: suspend () -> Unit) {
     }
 
     suspend fun writeContent(id: Long, content: String, expectedRevision: String): Map<String, Any?> = mutex.withLock {
+        writeContentLocked(id, content, expectedRevision)
+    }
+
+    suspend fun setLanProxy(id: Long, expectedRevision: String, enabled: Boolean, initialPort: Int): Map<String, Any?> = mutex.withLock {
+        require(!CommandTarget.isRemote) { "Disconnect remote session to edit local profiles" }
+        require(id == Settings.selectedProfile) { "Selected profile changed; reload it before saving" }
+        val previous = File(get(id).typed.path).readText()
+        require(revision(previous) == expectedRevision) { "Configuration changed; reload it before saving" }
+        val content = Libbox.setUILANProxyEnabled(previous, enabled, initialPort).value
+        val saved = writeContentLocked(id, content, expectedRevision)
+        if (previous == content && id == Settings.selectedProfile) applySelected()
+        saved
+    }
+
+    private suspend fun writeContentLocked(id: Long, content: String, expectedRevision: String): Map<String, Any?> {
         val profile = get(id)
         val file = File(profile.typed.path)
         val previous = file.readText()
@@ -70,7 +86,7 @@ internal class BoxProfiles(private val applySelected: suspend () -> Unit) {
                 throw e
             }
         }
-        configLocked(id)
+        return configLocked(id)
     }
 
     suspend fun select(id: Long) = mutex.withLock {

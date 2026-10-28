@@ -55,6 +55,8 @@ MOD-017 正在替代 MOD-001～004、MOD-007～008、MOD-012 的 Compose 界面�
 
 状态卡片查询改为同一参考版本的实现：IP 使用 Cloudflare、IP.SB、IPinfo、ipwho.is、GeoJS、country.is、IPQuery、ident.me 八源错峰竞速；组织、ASN、类型和质量使用 ident.me、ip-api.com、IPQuery、IPLocate、ipapi.is、proxycheck.io 分批查询，保留其解析、回退和质量判定规则。成功结果按 IP 持久缓存三天，失败仅在内存保留五分钟，手动重试可跳过失败缓存。先显示 IP，再补充质量；质量失败保留 IP。请求通过 sing-box 路由和 libbox TLS 证书库发出，切换模式、节点、配置、网络或进入后台时取消旧请求。来源与失败原因可在 IP 详情查看。
 
+内网 IP 卡片补齐参考版的局域网代理开关、端口副标题、Wi-Fi 徽章和复制行为。开关修改当前 sing-box 配置中 mixed/http/socks 入站的 listen，保留各入站独立的端口、认证、TLS、接口绑定及路由；不引入 Mihomo 的全局 allow-lan/mixed-port。无代理入站时先打开端口表单，再明确添加 mixed 入站。保存沿用内容修订检查、全量内核校验、原子写入、服务重载和失败恢复。未填写 listen 按当前内核 TCP 实现视为 127.0.0.1；通配监听转换成本机实际地址，IPv6 使用方括号，遵守 bind_interface，端口 0 不作为可用端点展示。运行时复制来自已成功启动配置的快照，停服或远程会话仅复制本机 IP；详情保留多入站、多端口信息。
+
 Gradle 从 `flutter/build/host/outputs/repo` 消费 Flutter AAR。先用 Flutter 3.47.6 执行 `flutter pub get` 和 `flutter build aar --no-profile`，再构建 Android；CI 已包含这些步骤。本机不执行构建，按项目 AGENTS.md 在 Actions 验证。Flutter 无法发布 x86 AOT，因此通用 ABI 列表保留 ARMv7、ARM64、x86_64，发布工作流仍限定 ARM64。
 
 当前验证记录见 NEWUI.md；不能把共享源码复用或编译成功表述为已经完成逐像素验收。

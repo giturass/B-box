@@ -37,6 +37,7 @@ class BoxController extends ChangeNotifier {
   int profilesRevision = 0;
   bool _disposed = false;
   bool ready = false;
+  bool lanChanging = false;
   String? startupError;
   final pendingIntents = <String>[];
   String? applyRequired;
@@ -68,6 +69,56 @@ class BoxController extends ChangeNotifier {
     return null;
   }
 
+  List<String> get lanAddresses => (lan['addresses'] as List? ?? []).whereType<String>().toList();
+  bool get canSetLanProxy => !remote && !transitioning && !lanChanging &&
+      lan['canToggle'] == true && lan['profileId'] == selectedProfileId;
+  List<String> get lanProxyEndpoints => remote || !running || lan['running'] != true ? [] :
+      rows(lan['activeBindings']).expand((binding) =>
+          (binding['endpoints'] as List? ?? []).whereType<String>()).toSet().toList();
+
+  String? get lanCopyText {
+    final addresses = lanAddresses, endpoints = lanProxyEndpoints;
+    for (final address in addresses) {
+      for (final endpoint in endpoints) {
+        if (endpoint.startsWith('$address:') || endpoint.startsWith('[$address]:')) return endpoint;
+      }
+    }
+    return endpoints.isNotEmpty ? endpoints.first : addresses.isNotEmpty ? addresses.first : null;
+  }
+
+  Future<void> refreshLan() async {
+    try {
+      final value = await call('dashboard.lan.refresh');
+      if (!_disposed && value is Map) { lan = json(value); notifyListeners(); }
+    } catch (error) { report(error); }
+  }
+
+  Future<bool> setLanProxy(bool enabled, {int? port, int? profileId, String? revision}) async {
+    if (!canSetLanProxy) return false;
+    final target = profileId ?? selectedProfileId;
+    if (target != selectedProfileId) {
+      report(StateError('Selected profile changed; reload it before saving'));
+      return false;
+    }
+    lanChanging = true;
+    notifyListeners();
+    try {
+      final value = json(await call('dashboard.lan.set', {
+        'profileId': target, 'revision': revision ?? lan['revision'], 'enabled': enabled,
+        if (port != null) 'port': port,
+      }));
+      if (!_disposed && !remote && selectedProfileId == target) lan = value;
+      return true;
+    } catch (error) {
+      report(error);
+      if (!_disposed) await refreshLan();
+      return false;
+    } finally {
+      lanChanging = false;
+      if (!_disposed) notifyListeners();
+    }
+  }
+
   Future<void> initialize() async {
     startupError = null;
     notifyListeners();
@@ -82,6 +133,7 @@ class BoxController extends ChangeNotifier {
       profiles = rows(result['profiles']);
       settings = json(result['settings']);
       preferences = json(result['preferences']);
+      if (result['lan'] is Map) lan = json(result['lan']);
       toolState = json(result['tools']);
       final diagnostics = json(result['diagnostics']);
       stun = json(diagnostics['stun']);

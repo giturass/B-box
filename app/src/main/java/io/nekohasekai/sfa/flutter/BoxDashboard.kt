@@ -8,6 +8,7 @@ import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.UIEgressProbe
 import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.constant.Status
+import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.AppLifecycleObserver
@@ -18,14 +19,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.Closeable
 import java.io.File
+import java.net.NetworkInterface
 
 internal class BoxDashboard(private val activity: BoxActivity, private val emit: (String, Any?) -> Unit) : Closeable {
     @Volatile var remoteMemory = 0L
     private var networkStamp = ""
+    private val networkMutex = Mutex()
     private class EgressSession(val server: CommandServer) {
         @Volatile var closed = false
             private set
@@ -48,11 +54,7 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
             while (isActive) {
                 val memory = withContext(Dispatchers.IO) { memory() }
                 emit("memory", memory)
-                val network = withContext(Dispatchers.IO) { network() }
-                if (network.toString() != networkStamp) {
-                    networkStamp = network.toString()
-                    emit("lan", network)
-                }
+                refreshNetwork()
                 delay(2000)
             }
         }
@@ -73,28 +75,92 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
     @Suppress("DEPRECATION")
     private suspend fun network(): Map<String, Any?> {
         val manager = activity.getSystemService(ConnectivityManager::class.java)
-        val networks = manager.allNetworks.filter { manager.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == false }
-        val addresses = networks.flatMap { network ->
-            manager.getLinkProperties(network)?.linkAddresses.orEmpty().map { it.address }
-                .filterNot { it.isLoopbackAddress || it.isLinkLocalAddress || it.isAnyLocalAddress || it.isMulticastAddress }
-                .mapNotNull { it.hostAddress?.substringBefore('%') }
-        }.distinct().sortedWith(compareBy<String> { ':' in it }.thenBy { it })
-        val bindings = mutableListOf<Map<String, Any?>>()
-        if (!CommandTarget.isRemote) {
-            val profile = ProfileManager.get(Settings.selectedProfile)
-            if (profile != null) runCatching {
-                val root = JSONObject(Libbox.formatConfig(File(profile.typed.path).readText()).value)
-                val inbounds = root.optJSONArray("inbounds")
-                for (index in 0 until (inbounds?.length() ?: 0)) {
-                    val inbound = inbounds!!.getJSONObject(index)
-                    if (inbound.optString("type") !in setOf("mixed", "socks", "http")) continue
-                    bindings += mapOf("type" to inbound.optString("type"), "tag" to inbound.optString("tag"),
-                        "listen" to inbound.optString("listen", "::"), "port" to inbound.optInt("listen_port"))
-                }
+        val networks = manager.allNetworks.mapNotNull { network ->
+            val capabilities = manager.getNetworkCapabilities(network) ?: return@mapNotNull null
+            val properties = manager.getLinkProperties(network) ?: return@mapNotNull null
+            Triple(network, capabilities, properties)
+        }
+        val excluded = networks.filter { (_, capabilities, _) ->
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+        }.mapNotNull { it.third.interfaceName }.toSet()
+        val priorities = networks.associate { (_, capabilities, properties) ->
+            properties.interfaceName to when {
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 0
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 1
+                else -> 2
             }
         }
-        val stamp = "${manager.activeNetwork}:${networks.map { "$it:${manager.getNetworkCapabilities(it)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}" }.sorted()}"
-        return mapOf("addresses" to addresses, "bindings" to bindings, "stamp" to stamp)
+        // Interface enumeration also includes hotspot/tethering addresses, which
+        // ConnectivityManager.allNetworks does not necessarily expose.
+        val interfaces = NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+            .filter { it.name !in excluded && it.isUp && !it.isLoopback && !it.isPointToPoint }
+        fun priority(name: String) = priorities[name] ?: when {
+            name.startsWith("wlan") || name.startsWith("ap") || name.startsWith("swlan") -> 0
+            name.startsWith("eth") -> 1
+            else -> 2
+        }
+        val interfaceAddresses = interfaces.flatMap { networkInterface ->
+            networkInterface.inetAddresses.toList()
+                .filterNot { it.isLoopbackAddress || it.isLinkLocalAddress || it.isAnyLocalAddress || it.isMulticastAddress }
+                .mapNotNull { address -> address.hostAddress?.substringBefore('%')?.let {
+                    mapOf("address" to it, "interface" to networkInterface.name)
+                } }
+        }.distinct().sortedWith(compareBy<Map<String, String>> { ':' in it.getValue("address") }
+            .thenBy { priority(it.getValue("interface")) }.thenBy { it.getValue("address") })
+        val addresses = interfaceAddresses.map { it.getValue("address") }.distinct()
+        val encodedAddresses = JSONArray(interfaceAddresses).toString()
+        fun listeners(content: String): List<Map<String, Any?>> {
+            val values = JSONArray(Libbox.readUILANProxyListeners(content, encodedAddresses).value)
+            return (0 until values.length()).map { jsonObject(values.getJSONObject(it)) }
+        }
+        var bindings = emptyList<Map<String, Any?>>()
+        var activeBindings = emptyList<Map<String, Any?>>()
+        var profileId = -1L
+        var revision: String? = null
+        var configurationError: String? = null
+        var running = false
+        var activeProfileId = -1L
+        if (!CommandTarget.isRemote) {
+            try {
+                val content = ProfileContent.mutex.withLock {
+                    profileId = Settings.selectedProfile
+                    ProfileManager.get(profileId)?.let { File(it.typed.path).readText() }
+                }
+                if (content != null) {
+                    revision = ProfileContent.revision(content)
+                    bindings = listeners(content)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                configurationError = error.message ?: error.toString()
+            }
+            val active = BoxService.dashboardConfig
+            running = activity.serviceStatus.value == Status.Started && active != null &&
+                BoxService.dashboardServer === active.server
+            if (running && active != null) {
+                activeProfileId = active.profileId
+                activeBindings = if (configurationError == null && ProfileContent.revision(active.content) == revision) bindings else listeners(active.content)
+            }
+        }
+        val stamp = "${manager.activeNetwork}:$encodedAddresses:${networks.map { (network, capabilities, _) ->
+            "$network:${capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}"
+        }.sorted()}"
+        return mapOf("addresses" to addresses, "bindings" to bindings, "activeBindings" to activeBindings,
+            "enabled" to (if (running) activeBindings else bindings).any { it["lan"] == true },
+            "running" to running, "activeProfileId" to activeProfileId,
+            "profileId" to profileId, "revision" to revision, "canToggle" to (revision != null && configurationError == null),
+            "error" to configurationError, "stamp" to stamp)
+    }
+
+    suspend fun refreshNetwork(): Map<String, Any?> = networkMutex.withLock {
+        val value = withContext(Dispatchers.IO) { network() }
+        if (value.toString() != networkStamp) {
+            networkStamp = value.toString()
+            emit("lan", value)
+        }
+        value
     }
 
     private fun requireLocalService() {
