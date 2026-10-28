@@ -165,6 +165,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         return when (call.method) {
             "updates.check" -> withContext(Dispatchers.IO) { BoxUpdates.check() }
             "dashboard.egress" -> dashboardDetails.egress(string("id"))
+            "dashboard.probe.open" -> { dashboardDetails.openProbe(string("id")); null }
             "dashboard.probe.get" -> dashboardDetails.query(string("id"), string("url"), id("timeoutMillis"))
             "dashboard.probe.close" -> { dashboardDetails.closeProbe(string("id")); null }
             "dashboard.qualityCache.get" -> dashboardDetails.readQualityCache(string("ip"))

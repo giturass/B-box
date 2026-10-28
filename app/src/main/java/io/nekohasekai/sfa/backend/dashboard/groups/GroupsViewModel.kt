@@ -84,10 +84,14 @@ class GroupsViewModel : BaseViewModel<GroupsUiState>(), CommandClient.Handler {
     }
 
     override fun onDisconnected() {
+        // Closing the UI subscription in the background does not change the
+        // local route. Keep its snapshot until fresh groups arrive on return.
+        val keepSnapshot = !AppLifecycleObserver.isForeground.value &&
+            RemoteControlManager.remoteServer.value == null && serviceStatus.value == Status.Started
         viewModelScope.launch(Dispatchers.Main) {
             updateState {
                 copy(
-                    groups = emptyList(),
+                    groups = if (keepSnapshot) groups else emptyList(),
                     isLoading = false,
                 )
             }

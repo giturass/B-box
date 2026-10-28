@@ -6,7 +6,6 @@ import 'diagnostics.dart';
 import 'endpoints.dart';
 import 'reports.dart';
 import 'terminal.dart';
-import 'configuration.dart';
 
 class ToolsPage extends StatelessWidget {
   const ToolsPage({super.key});
@@ -22,11 +21,9 @@ class ToolsPage extends StatelessWidget {
       generateSection(title: context.tr('Settings'), items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.paintbrush), title: Text(context.tr('Appearance')), widget: const AppearancePage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.settings), title: Text(context.tr('General')), widget: const GeneralSettingsPage()),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.wrench), title: Text(context.tr('Advanced configuration')), widget: const ProfileConfigurationPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.appsList), title: Text(context.tr('Access control')), widget: const AccessPage()),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.customize), title: Text(context.tr('Resources')), widget: const ProfileConfigurationPage(resources: true)),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.cloudSync), title: Text(context.tr('Backup and restore')), widget: const BackupPage()),
-      ], footer: context.tr('Manage DNS, routing and rule sets for the selected profile.')),
+      ]),
       generateSection(title: context.tr('Network diagnostics'), items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.speed), title: Text(context.tr('Network quality')), widget: const DiagnosticsPage(quality: true)),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(context.tr('STUN test')), widget: const DiagnosticsPage(quality: false)),

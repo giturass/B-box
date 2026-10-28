@@ -28,7 +28,8 @@ and startup cancels their `AutoUpdate` work.
   libbox. A group that is not selectable must not expose selection. UI controls
   must not invent `rule/global/direct` modes absent from the configuration.
 - VPN startup continues through Android permission and foreground service
-  handling. An HTTP proxy switch is conditional on libbox availability.
+  handling. An HTTP proxy switch is conditional on libbox availability and
+  uses the LAN proxy row's emphasized label style with a leading network glyph.
 - Connections, logs, traffic and session state reflect the active local or
   remote sing-box session. They are never populated with demonstration data.
 - Status-card IP queries use FlClash's eight sources: Cloudflare trace, IP.SB,
@@ -42,9 +43,22 @@ and startup cancels their `AutoUpdate` work.
   residential inference and Tor/abuser quality rules match the reference.
   Successful quality records persist by IP for three days; failures have a
   five-minute memory cooldown that manual retry bypasses. IP remains visible
-  while quality loads or fails. Route changes and backgrounding cancel the
-  refresh, and late results are ignored. All requests use the active sing-box
-  router and libbox TLS store; remote sessions do not expose this probe.
+  while quality loads or fails. Returning to the foreground keeps a successful
+  IP for the unchanged route; failed IP checks retry with FlClash's five-second
+  throttle. Manual refresh bypasses it and retries failed quality explicitly.
+  Inactive windows remain visible, and requests already sent may finish in the
+  background; new refreshes wait for the foreground. Quality expiry refreshes only
+  quality, without another IP lookup. Service, mode, group-selection and network
+  changes cancel stale requests, ignore late results and coalesce for 300 ms
+  before a new probe, bypassing the previous route's cooldown. Background UI
+  disconnects retain the local group snapshot until it can be compared on return;
+  ordering, delay updates and stopped-profile selection do not invalidate it.
+  Stopped local sessions query the device
+  network even without a selected profile; running sessions use the active
+  sing-box router. Starting/stopping cancels the previous probe and waits for a
+  stable service state before refreshing the new exit. Both paths use the
+  libbox TLS store; failed routed requests never fall back to the device network,
+  and remote sessions do not expose this probe.
 - Existing sing-box-only capabilities use the same Flutter presentation;
   they do not justify bringing Clash-only controls into the app.
 - The optional LAN card retains the reference's sharing switch, port subtitle,
@@ -73,9 +87,10 @@ and startup cancels their `AutoUpdate` work.
   backups ignore the removed card, and the next layout save removes its keys.
 - First launch opens the dashboard directly, without a disclaimer acceptance
   gate. Fresh-start Flutter and Android smoke scenarios cover this behavior.
-- Tools open Flutter settings, configuration, resources and About pages.
-  Settings appear in this order: Appearance, General, Advanced configuration,
-  Access control, Resources, Backup and restore. The app follows the system
+- Tools open Flutter settings and About pages.
+  Settings appear in this order: Appearance, General, Access control,
+  Backup and restore. Advanced configuration opens from profile
+  details. The app follows the system
   language, including live changes; older settings and backups discard their
   retired language choice while preserving the other preferences.
   About keeps B-box branding and
@@ -120,19 +135,22 @@ Native JVM regressions cover startup acknowledgement/failure/timeout, log
 levels/bounds and QRS frame handling. Android smoke runs on APIs 24, 31 and 35,
 compiles both flavors, and exercises actual libbox binary imports, query-mode
 persistence and occupied-port rollback for configuration/full-backup restores.
-Routed probe tests cover concurrency, fallback, public-IP validation, response
-limits, cancellation and service replacement. Flutter tests adapt the pinned
-reference's quality fixtures and cover cache lifetime, retry, progressive
-status updates and stale results after route/lifecycle changes.
+Probe tests cover concurrency, source fallback, public-IP validation, response
+limits, direct/routed cancellation and service replacement. Flutter tests adapt
+the pinned reference's quality fixtures and cover cache lifetime, retry, progressive
+status updates, stopped queries/retries without a profile, start/stop transitions,
+cached results on resume, in-flight completion across visibility changes,
+throttled/manual retries, independent quality expiry and stale route results.
 Pixel parity must be checked against the pinned reference at equal viewport,
 font scale, locale and theme; source reuse alone is not visual acceptance.
 Status-card tests compare pixels against a frozen reference renderer across
-twelve mobile scenarios, including both locales/themes, 0.8/1.0/1.4 text scales,
+sixteen mobile scenarios, including both locales/themes, 0.8/1.0/1.4 text scales,
 IPv6, pending/failed probes, organization/ASN fallback and quality levels.
 Stopped start buttons are compared separately. The oracle retains the reference
 header, chips, badge, morph, card surface and typography without importing the
 adapted B-box dashboard components. Both images are saved as CI artifacts.
 Captures use the dashboard's natural card height and identical Roboto/Noto Sans
 SC fonts; a height assertion prevents the test frame from stretching the card.
-Stopped and remote sessions keep unavailable IP data as placeholders because
-the routed sing-box probe requires an active local service.
+Stopped cards also cover successful, pending and failed device-network queries,
+including a fresh installation without a profile. Remote sessions retain IP
+placeholders because the remote core does not expose an egress probe.

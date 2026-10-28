@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../box.dart';
 import 'ip_probe.dart';
 
+/// The native session uses the device network while stopped and sing-box while
+/// running, sharing cancellation between IP and quality requests.
 class RoutedIpProbe implements IpProbeTransport {
   RoutedIpProbe(this.box) : id = '${DateTime.now().microsecondsSinceEpoch}:${_serial++}';
   static int _serial = 0;
@@ -12,6 +14,12 @@ class RoutedIpProbe implements IpProbeTransport {
   bool _cancelled = false;
   Future<void>? _closing;
   @override bool get cancelled => _cancelled;
+
+  Future<void> open() async {
+    if (cancelled) throw const IpProbeCancelled();
+    await box.call('dashboard.probe.open', {'id': id});
+    if (cancelled) throw const IpProbeCancelled();
+  }
 
   Future<Json> egress() async {
     if (cancelled) throw const IpProbeCancelled();

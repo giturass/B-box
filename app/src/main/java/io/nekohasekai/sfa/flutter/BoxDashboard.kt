@@ -32,7 +32,7 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
     @Volatile var remoteMemory = 0L
     private var networkStamp = ""
     private val networkMutex = Mutex()
-    private class EgressSession(val server: CommandServer) {
+    private class EgressSession(val server: CommandServer?) {
         @Volatile var closed = false
             private set
         private var probe: UIEgressProbe? = null
@@ -47,6 +47,11 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
         }
     }
     private val egressSessions = mutableMapOf<String, EgressSession>()
+    private val serviceChanges = activity.lifecycleScope.launch {
+        activity.serviceStatus.collect {
+            egressSessions.filterValues { !isCurrent(it) }.keys.toList().forEach(::closeProbe)
+        }
+    }
     private val qualityCache = activity.getSharedPreferences("dashboard_ip_quality", 0)
     private val polling = activity.lifecycleScope.launch {
         AppLifecycleObserver.isForeground.collectLatest { foreground ->
@@ -163,30 +168,55 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
         value
     }
 
-    private fun requireLocalService() {
+    private fun requireLocalProbe() {
         require(!CommandTarget.isRemote) { "Remote servers do not expose an egress probe" }
-        require(activity.serviceStatus.value == Status.Started) { "Start the service to check its egress IP" }
+        require(activity.serviceStatus.value in listOf(Status.Stopped, Status.Started)) { "Service is changing during egress check" }
     }
 
+    private fun isCurrent(session: EgressSession): Boolean = !session.closed && !CommandTarget.isRemote &&
+        BoxService.dashboardServer === session.server &&
+        activity.serviceStatus.value == (if (session.server == null) Status.Stopped else Status.Started)
+
     private fun session(id: String): EgressSession {
-        requireLocalService()
+        requireLocalProbe()
         val session = egressSessions[id] ?: error("IP probe is no longer active")
-        check(!session.closed && BoxService.dashboardServer === session.server) { "Service changed during egress check" }
+        check(isCurrent(session)) { "Service changed during egress check" }
         return session
     }
 
-    suspend fun egress(id: String): Map<String, Any?> {
-        requireLocalService()
+    private suspend fun createProbe(id: String): EgressSession {
+        requireLocalProbe()
         require(id.length in 1..128 && id !in egressSessions && egressSessions.size < 8) { "Invalid IP probe session" }
-        val server = BoxService.dashboardServer ?: error("Service is not available")
+        val server = when (activity.serviceStatus.value) {
+            Status.Started -> BoxService.dashboardServer ?: error("Service is not available")
+            Status.Stopped -> {
+                check(BoxService.dashboardServer == null) { "Service is changing during egress check" }
+                null
+            }
+            else -> error("Service is changing during egress check")
+        }
         val active = EgressSession(server)
         egressSessions[id] = active
         return try {
-            val info = withContext(Dispatchers.IO) {
-                val probe = server.newUIEgressProbe()
+            withContext(Dispatchers.IO) {
+                val probe = if (server == null) Libbox.newUIDirectEgressProbe() else server.newUIEgressProbe()
                 active.attach(probe)
-                jsonObject(JSONObject(probe.lookupOutboundIP()))
             }
+            check(session(id) === active) { "IP probe changed during creation" }
+            active
+        } catch (error: Exception) {
+            if (egressSessions[id] === active) egressSessions.remove(id)
+            active.close()
+            throw error
+        }
+    }
+
+    suspend fun openProbe(id: String) { createProbe(id) }
+
+    suspend fun egress(id: String): Map<String, Any?> {
+        val active = createProbe(id)
+        return try {
+            val info = withContext(Dispatchers.IO) { jsonObject(JSONObject(active.get().lookupOutboundIP())) }
             check(session(id) === active) { "IP probe changed during egress check" }
             info
         } catch (error: Exception) {
@@ -230,6 +260,7 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
     }
 
     override fun close() {
+        serviceChanges.cancel()
         polling.cancel()
         egressSessions.values.forEach { it.close() }
         egressSessions.clear()

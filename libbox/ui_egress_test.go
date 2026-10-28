@@ -296,8 +296,63 @@ func TestUIEgressNeverFallsBackToDirect(t *testing.T) {
 	}
 }
 
+func TestUIEgressDirectDeadlineAndClose(t *testing.T) {
+	for _, manual := range []bool{false, true} {
+		t.Run(fmt.Sprintf("manual=%t", manual), func(t *testing.T) {
+			entered, stopped := make(chan struct{}), make(chan struct{})
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				close(entered)
+				<-r.Context().Done()
+				close(stopped)
+			}))
+			defer server.Close()
+			defer server.CloseClientConnections()
+			probe := NewUIDirectEgressProbe()
+			defer probe.Close()
+			completed := make(chan error, 1)
+			timeout := int64(1000)
+			if manual {
+				timeout = 8000
+			}
+			go func() { _, err := probe.Get(server.URL, timeout); completed <- err }()
+			select {
+			case <-entered:
+			case <-time.After(2 * time.Second):
+				t.Fatal("stopped-service probe did not reach the device network")
+			}
+			want := context.DeadlineExceeded
+			if manual {
+				probe.Close()
+				want = context.Canceled
+			}
+			select {
+			case err := <-completed:
+				if !errors.Is(err, want) {
+					t.Fatalf("got %v, want %v", err, want)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("direct request was not cancelled")
+			}
+			select {
+			case <-stopped:
+			case <-time.After(time.Second):
+				t.Fatal("direct connection was left open")
+			}
+			probe.Close()
+			if _, err := probe.Get(server.URL, 1000); !errors.Is(err, context.Canceled) || requests.Load() != 1 {
+				t.Fatalf("a closed direct session must not start another request: %v", err)
+			}
+		})
+	}
+}
+
 func TestUIEgressIPWinnerKeepsQualitySessionAlive(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("User-Agent") != uiProbeUserAgent {
+			t.Error("probe user agent differs from FlClash")
+		}
 		if r.URL.Path == "/trace" {
 			io.WriteString(w, "ip=203.0.113.9\nloc=GB\n")
 		} else {
@@ -308,17 +363,27 @@ func TestUIEgressIPWinnerKeepsQualitySessionAlive(t *testing.T) {
 	previous := uiIPSources
 	uiIPSources = []uiIPSource{{server.URL + "/trace", "loc"}}
 	defer func() { uiIPSources = previous }()
-	probe := uiTestRoutedProbe(t, func() bool { return true })
-	encoded, err := probe.LookupOutboundIP()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var info map[string]any
-	if err := json.Unmarshal([]byte(encoded), &info); err != nil || info["ip"] != "203.0.113.9" ||
-		info["country"] != "GB" || info["ipSource"] != "127.0.0.1" || info["checkedAt"].(float64) <= 0 {
-		t.Fatalf("invalid IP result metadata: %v %v", info, err)
-	}
-	if _, err := probe.Get(server.URL+"/quality", 1000); err != nil {
-		t.Fatalf("canceling the IP race must preserve its parent quality session: %v", err)
+	for _, direct := range []bool{false, true} {
+		t.Run(fmt.Sprintf("direct=%t", direct), func(t *testing.T) {
+			var probe *UIEgressProbe
+			if direct {
+				probe = NewUIDirectEgressProbe()
+				t.Cleanup(probe.Close)
+			} else {
+				probe = uiTestRoutedProbe(t, func() bool { return true })
+			}
+			encoded, err := probe.LookupOutboundIP()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var info map[string]any
+			if err := json.Unmarshal([]byte(encoded), &info); err != nil || info["ip"] != "203.0.113.9" ||
+				info["country"] != "GB" || info["ipSource"] != "127.0.0.1" || info["checkedAt"].(float64) <= 0 {
+				t.Fatalf("invalid IP result metadata: %v %v", info, err)
+			}
+			if response, err := probe.Get(server.URL+"/quality", 1000); err != nil || string(response.Content) != "{\"type\":\"isp\"}" {
+				t.Fatalf("canceling the IP race must preserve its parent quality session: %v", err)
+			}
+		})
 	}
 }

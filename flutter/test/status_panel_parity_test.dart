@@ -17,10 +17,10 @@ class _Scenario {
     this.type = reference.IpType.business, this.level = reference.IpQualityLevel.good,
     this.organization = 'Example Business', this.asn = 64500,
     this.pendingIP = false, this.pendingQuality = false,
-    this.failIP = false, this.failQuality = false});
+    this.failIP = false, this.failQuality = false, this.running = true, this.hasProfile = true});
 
   final String name, locale, ip;
-  final bool dark, pendingIP, pendingQuality, failIP, failQuality;
+  final bool dark, pendingIP, pendingQuality, failIP, failQuality, running, hasProfile;
   final double scale, width;
   final String? country, organization;
   final int? asn;
@@ -88,6 +88,10 @@ void main() {
     _Scenario('quality-failed', failQuality: true),
     _Scenario('asn-fallback', type: reference.IpType.hosting, level: reference.IpQualityLevel.normal, organization: null, asn: 64501),
     _Scenario('residential-risky', type: reference.IpType.residential, level: reference.IpQualityLevel.risky, width: 414),
+    _Scenario('stopped', running: false),
+    _Scenario('stopped-no-profile', running: false, hasProfile: false, locale: 'en'),
+    _Scenario('stopped-pending', running: false, pendingIP: true),
+    _Scenario('stopped-failed', running: false, failIP: true),
   ]) {
     testWidgets('status card matches FlClash pixels: ${scenario.name}', (tester) async {
       reportFlutterErrors();
@@ -122,9 +126,9 @@ void main() {
         return null;
       });
       final box = BoxController(channel: channel, events: const Stream.empty())
-        ..dashboard = {'status': 'Started', 'selectedProfileId': 1,
+        ..dashboard = {'status': scenario.running ? 'Started' : 'Stopped', 'selectedProfileId': scenario.hasProfile ? 1 : -1,
           'startedAt': DateTime.now().millisecondsSinceEpoch - 330000}
-        ..profiles = [{'id': 1, 'name': 'Profile'}];
+        ..profiles = scenario.hasProfile ? [{'id': 1, 'name': 'Profile'}] : [];
       final boundary = GlobalKey();
       addTearDown(() async {
         await tester.pumpWidget(const SizedBox());
@@ -138,7 +142,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pump();
       expect(tester.takeException(), isNull);
-      final runtime = tester.widgetList<Text>(find.byType(Text))
+      final runtime = !scenario.running ? '—' : tester.widgetList<Text>(find.byType(Text))
         .map((text) => text.data).whereType<String>()
         .singleWhere((text) => RegExp(r'^\d{2,3}:\d{2}:\d{2}$').hasMatch(text));
       if (scenario.name == 'zh-light-business') {
@@ -153,6 +157,7 @@ void main() {
       expect(actual.width, scenario.width.toInt());
       expect(actual.height, lessThan(320), reason: 'Dashboard cards use their natural content height');
       await tester.pumpWidget(_frame(scenario, boundary, reference.FlClashStatusCard(
+        running: scenario.running, hasProfile: scenario.hasProfile,
         info: scenario.pendingIP || scenario.failIP ? null : reference.IpInfo(scenario.ip, scenario.country),
         quality: scenario.quality, qualityLoading: scenario.pendingQuality,
         phase: scenario.failIP ? reference.ProbePhase.failed

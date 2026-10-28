@@ -18,75 +18,106 @@ class StatusPanel extends StatefulWidget {
   @override State<StatusPanel> createState() => _StatusPanelState();
 }
 class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
+  // FlClash common/constant.dart and providers/routed_probe.dart.
+  static const _throttleDuration = Duration(seconds: 5);
+  static const _moveSettleDuration = Duration(milliseconds: 300);
   bool _busy = false, _checking = false, _qualityChecking = false;
   Json? _egress;
   String? _error, _qualityError, _stamp;
   RoutedIpProbe? _probe;
-  Timer? _qualityExpiry;
+  Timer? _qualityExpiry, _cooldown, _settle;
   final _detailsRevision = ValueNotifier(0);
   int _generation = 0;
   bool _foreground = true, _refreshScheduled = false;
+  bool _ipDue = true, _qualityDue = false, _manual = false, _routeChanged = false;
+  static bool _visible(AppLifecycleState? state) => state == null ||
+    state == AppLifecycleState.resumed || state == AppLifecycleState.inactive;
   @override void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _foreground = WidgetsBinding.instance.lifecycleState == null || WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    _foreground = _visible(WidgetsBinding.instance.lifecycleState);
   }
   @override void didChangeAppLifecycleState(AppLifecycleState state) {
-    final foreground = state == AppLifecycleState.resumed;
-    if (_foreground == foreground) return;
-    _foreground = foreground;
+    _foreground = _visible(state);
+    // Like FlClash, visibility alone does not invalidate a successful answer
+    // or cancel work already sent. Route changes still cancel stale requests.
     if (_foreground) {
-      if (mounted && context.box.running && !context.box.remote) _scheduleRefresh();
-    } else {
-      _generation++;
-      _probe?.cancel(); _probe = null;
-      _qualityExpiry?.cancel();
-      if (mounted) setState(() { _checking = false; _qualityChecking = false; });
+      if (state == AppLifecycleState.resumed && !_checking && (_egress == null || _error != null)) _ipDue = true;
+      _scheduleRefresh();
     }
   }
   @override void didChangeDependencies() {
     super.didChangeDependencies();
     final box = context.box;
-    final stamp = '${box.running}:${box.remote}:${box.dashboard['remote']}:${box.dashboard['startedAt']}:${box.selectedProfileId}:${box.dashboard['mode']}:${box.groups.map((g) => '${g['tag']}:${g['selected']}').join(',')}:${box.lan['stamp']}:${box.lan['addresses']}';
+    final selections = box.groups.map((g) => '${g['tag']}:${g['selected']}').toList()..sort();
+    final addresses = box.lanAddresses..sort();
+    final route = box.running ? '${box.dashboard['startedAt']}:${box.selectedProfileId}:${box.dashboard['mode']?.toString().toLowerCase()}:${selections.join(',')}' : '';
+    final stamp = '${box.dashboard['status']}:${box.running}:${box.remote}:${box.dashboard['remote']}:$route:${box.lan['stamp']}:$addresses';
     if (_stamp == stamp) return;
+    final changed = _stamp != null;
     _stamp = stamp;
     _generation++;
     _probe?.cancel(); _probe = null;
     _qualityExpiry?.cancel();
     _egress = null; _error = null; _qualityError = null; _checking = false; _qualityChecking = false;
-    if (_foreground && box.running && !box.remote) _scheduleRefresh();
+    _ipDue = true; _qualityDue = false; _manual = false;
+    _routeChanged = changed;
+    if (changed && _settle == null) {
+      _settle = Timer(_moveSettleDuration, () { _settle = null; _scheduleRefresh(); });
+    }
+    _scheduleRefresh();
   }
   void _scheduleRefresh() {
     if (_refreshScheduled) return;
     _refreshScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshScheduled = false;
-      if (mounted) _refresh();
+      if (mounted) _flushRefresh();
     });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
-  Future<void> _refresh() async {
+  void _retry() {
+    if (_checking || _qualityChecking) return;
+    _ipDue = true; _manual = true;
+    _scheduleRefresh();
+  }
+  void _flushRefresh() {
     final box = context.box;
-    if (!_foreground || _checking || _qualityChecking || !box.running || box.remote) return;
-    final retryQualityFor = _qualityError == null ? null : _egress?['ip'];
+    if (!_foreground || _checking || _qualityChecking || box.transitioning || box.remote) return;
+    if (_ipDue && !_manual && (_settle != null || (!_routeChanged && _cooldown != null))) return;
+    if (_ipDue || _qualityDue) unawaited(_refresh(readIp: _ipDue, manual: _manual));
+  }
+  Future<void> _refresh({required bool readIp, required bool manual}) async {
+    final box = context.box;
+    final retryQualityFor = manual && _qualityError != null ? _egress?['ip'] : null;
+    _ipDue = false; _qualityDue = false; _manual = false; _routeChanged = false;
+    if (readIp) {
+      _cooldown?.cancel();
+      _cooldown = Timer(_throttleDuration, () { _cooldown = null; _scheduleRefresh(); });
+    }
     final generation = ++_generation;
     _qualityExpiry?.cancel();
     final probe = RoutedIpProbe(box);
     _probe?.cancel(); _probe = probe;
-    setState(() { _checking = true; _qualityChecking = false; _error = null; _qualityError = null; });
+    setState(() { _checking = readIp; _qualityChecking = !readIp; _error = null; _qualityError = null; });
     try {
-      final result = await probe.egress();
+      final result = readIp ? await probe.egress() : _egress!;
       if (!mounted || generation != _generation) return;
       final ip = result['ip'] as String?;
       setState(() { _egress = result.isEmpty ? null : result; _checking = false; _qualityChecking = ip != null; });
       if (ip == null) return;
       try {
-        final record = await box.ipQualities.lookup(probe, ip, refresh: ip == retryQualityFor);
+        if (!readIp) await probe.open();
+        final record = await box.ipQualities.lookup(probe, ip, refresh: !readIp || ip == retryQualityFor);
         if (!mounted || generation != _generation) return;
-        setState(() { result.addAll(record.quality.toDashboard(record.checkedAt)); _qualityChecking = false; });
+        setState(() {
+          result.remove('qualityError'); result.remove('qualityFailures');
+          result.addAll(record.quality.toDashboard(record.checkedAt)); _qualityChecking = false;
+        });
         _detailsRevision.value++;
         final remaining = record.checkedAt.add(IpQualityCache.maxAge).difference(DateTime.now());
         _qualityExpiry = Timer(remaining.isNegative ? Duration.zero : remaining, () {
-          if (mounted && generation == _generation) _refresh();
+          if (mounted && generation == _generation) { _qualityDue = true; _scheduleRefresh(); }
         });
       } catch (error) {
         if (mounted && generation == _generation) {
@@ -101,15 +132,20 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
           _detailsRevision.value++;
         }
       }
-    } catch (error) { if (mounted && generation == _generation) setState(() => _error = BoxController.describe(error)); }
+    } catch (error) {
+      if (mounted && generation == _generation) setState(() { _egress = null; _error = BoxController.describe(error); });
+    }
     finally {
       await probe.close();
-      if (mounted && generation == _generation) setState(() { _checking = false; _qualityChecking = false; _probe = null; });
+      if (mounted && generation == _generation) {
+        setState(() { _checking = false; _qualityChecking = false; _probe = null; });
+        if (_ipDue || _qualityDue) _scheduleRefresh();
+      }
     }
   }
   @override void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _generation++; _probe?.cancel(); _qualityExpiry?.cancel(); _detailsRevision.dispose();
+    _generation++; _probe?.cancel(); _qualityExpiry?.cancel(); _cooldown?.cancel(); _settle?.cancel(); _detailsRevision.dispose();
     super.dispose();
   }
   Future<void> _toggle() async {
@@ -128,7 +164,8 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
     final foreground = box.running ? color.onSurface : color.onSurfaceVariant;
     final scale = math.max(1.0, MediaQuery.textScalerOf(context).scale(1));
     final ipStyle = AppTextStyle.title2.of(context, emphasized: true).toTabular.copyWith(color: foreground, letterSpacing: 0);
-    final loading = (_checking && ip == null) || _qualityChecking;
+    final ipLoading = _checking || (_routeChanged && _ipDue && !box.transitioning && !box.remote);
+    final loading = (ipLoading && ip == null) || _qualityChecking;
     final organization = (info?['organization'] as String?)?.isNotEmpty == true
       ? info!['organization'] as String : info?['asn'] as String?;
     return Semantics(container: true, label: context.tr('Status'), child: BoxPanel(padding: EdgeInsets.zero, clipBehavior: Clip.none, child: Stack(children: [
@@ -156,15 +193,15 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
           ])),
           const SizedBox(height: 12),
           Row(spacing: 12, children: [
-            _CountryBadge(country: info?['country'] as String?, active: box.running, checking: _checking || _qualityChecking,
-              onRefresh: box.running && !box.remote && !_checking && !_qualityChecking ? _refresh : null),
+            _CountryBadge(country: info?['country'] as String?, active: box.running, checking: ipLoading || _qualityChecking,
+              onRefresh: !box.transitioning && !box.remote && !_checking && !_qualityChecking ? _retry : null),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               SizedBox(height: AppTextStyle.title2.leading * scale, child: Align(alignment: AlignmentDirectional.centerStart,
                 child: ip != null ? Tooltip(message: context.tr('Outbound IP details'), child: FocusRing(shape: AppShape.xs, standsOff: true,
                   child: InkWell(onTap: () => openForm(context, EgressDetails(info: info!, updates: _detailsRevision)),
                     customBorder: AppShape.xs, hoverColor: Colors.transparent, splashColor: Colors.transparent, highlightColor: Colors.transparent,
                     child: _IpText(ip: ip, style: ipStyle))))
-                  : _checking ? SkeletonText(width: 140, style: ipStyle)
+                  : ipLoading ? SkeletonText(width: 140, style: ipStyle)
                   : Text(_error == null ? '—' : context.tr('Check failed'), maxLines: 1, overflow: TextOverflow.ellipsis,
                     style: ipStyle.copyWith(color: _error == null ? foreground : color.error))),
               ),

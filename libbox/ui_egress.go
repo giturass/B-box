@@ -2,7 +2,7 @@ package libbox
 
 // Adapted from FlClash v0.9.2 (7fd417fb9a9a277c6a9339a8ac87f907df7c25f7):
 // core/outbound_ip.go and lib/common/service_probe.dart (GPL-3.0).
-// The probe schedule and sources use sing-box's router and Android TLS store.
+// Both device-network and sing-box-routed probes use the Android TLS store.
 import (
 	"context"
 	"encoding/json"
@@ -56,6 +56,12 @@ type UIEgressProbe struct {
 
 type uiEgressRequestContextKey struct{}
 
+// NewUIDirectEgressProbe checks the device's current network without starting
+// sing-box. The Android host permits it only while the local service is stopped.
+func NewUIDirectEgressProbe() *UIEgressProbe {
+	return newUIEgressProbe(func() bool { return true }, nil)
+}
+
 func (s *CommandServer) NewUIEgressProbe() (*UIEgressProbe, error) {
 	instance := s.Instance()
 	if instance == nil {
@@ -80,19 +86,24 @@ func newUIEgressProbe(current func() bool, route func(context.Context, net.Conn,
 		closeClient: wrapped.Close,
 		current:     current,
 	}
-	// Each request owns its routed connection and deadline. A pooled connection
+	// Each request owns its connection and deadline. A pooled connection
 	// must not survive the IP race and carry the subsequent quality lookup.
 	wrapped.transport.DisableKeepAlives = true
+	direct := &net.Dialer{}
 	wrapped.transport.DialContext = func(dialContext context.Context, network, address string) (net.Conn, error) {
 		if !probe.current() {
 			return nil, fmt.Errorf("service changed during egress check")
 		}
 		requestContext, ok := dialContext.Value(uiEgressRequestContextKey{}).(context.Context)
 		if !ok {
-			return nil, fmt.Errorf("missing routed probe context")
+			return nil, fmt.Errorf("missing probe context")
 		}
 		if err := requestContext.Err(); err != nil {
 			return nil, err
+		}
+		// Direct is an explicit session mode, never a fallback after route failure.
+		if route == nil {
+			return direct.DialContext(requestContext, network, address)
 		}
 		local, routed := net.Pipe()
 		stop := context.AfterFunc(requestContext, func() { local.Close(); routed.Close() })
@@ -133,7 +144,7 @@ func (p *UIEgressProbe) get(ctx context.Context, link string, limit int64) (*UIH
 		return nil, fmt.Errorf("invalid probe address")
 	}
 	// net/http may detach the dial context's cancellation for connection reuse;
-	// retain the owning request context as a value for the sing-box route.
+	// retain the owning request context for both direct and routed dials.
 	requestContext := context.WithValue(ctx, uiEgressRequestContextKey{}, ctx)
 	request, err := http.NewRequestWithContext(requestContext, http.MethodGet, link, nil)
 	if err != nil {

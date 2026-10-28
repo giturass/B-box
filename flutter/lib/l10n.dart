@@ -141,7 +141,6 @@ const _zh = <String, String>{
   'Other': '其他', 'General': '常规', 'Check for updates': '检查更新', 'Update available': '有可用更新',
   'You are up to date': '已是最新版本', 'No release metadata available': '暂无可验证的版本信息', 'Releases': '发布版本',
   'A sing-box client with the FlClash Android interface.': '采用 FlClash Android 界面的 sing-box 客户端。',
-  'Manage DNS, routing and rule sets for the selected profile.': '管理当前配置的 DNS、路由和规则集。',
   'FlClash interface': 'FlClash 界面', 'Version': '版本', 'Network diagnostics': '网络诊断',
   'Network quality': '网络质量', 'STUN test': 'STUN 测试',
   'No endpoints': '没有端点', 'Endpoints': '端点', 'Peers': '设备',

@@ -98,7 +98,9 @@ class _DashboardPageState extends State<DashboardPage> {
                 child: Text(context.tr('Apply')))),
               for (final card in shown) RepaintBoundary(key: _keyOf(card), child: cards[card]),
               if (box.dashboard['systemProxyAvailable'] == true) BoxPanel(child: ListItem.toggle(
-                title: Text(context.tr('System HTTP proxy')), value: box.dashboard['systemProxy'] == true,
+                leading: const GlyphIcon(AppGlyphs.proxies),
+                title: Text(context.tr('System HTTP proxy'), style: AppTextStyle.subheadline.of(context, emphasized: true)),
+                value: box.dashboard['systemProxy'] == true,
                 onChanged: (value) => box.act('systemProxy.set', {'enabled': value}))),
               for (final note in rows(box.dashboard['deprecated'])) ListItem(title: Text(note['message'].toString()),
                 onTap: note['url'] == null ? null : () => box.act('url.open', {'url': note['url']})),
