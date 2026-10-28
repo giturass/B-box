@@ -104,5 +104,7 @@ IPv6, pending/failed probes, organization/ASN fallback and quality levels.
 Stopped start buttons are compared separately. The oracle retains the reference
 header, chips, badge, morph, card surface and typography without importing the
 adapted B-box dashboard components. Both images are saved as CI artifacts.
+Captures use the dashboard's natural card height and identical Roboto/Noto Sans
+SC fonts; a height assertion prevents the test frame from stretching the card.
 Stopped and remote sessions keep unavailable IP data as placeholders because
 the routed sing-box probe requires an active local service.

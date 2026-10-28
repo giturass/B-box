@@ -35,7 +35,7 @@ Widget _frame(_Scenario scenario, GlobalKey boundary, Widget child, BoxControlle
   BoxScope(controller: box, child: MaterialApp(
     locale: Locale(scenario.locale), supportedLocales: const [Locale('en'), Locale('zh')],
     localizationsDelegates: const [BoxUiDelegate(), ...GlobalMaterialLocalizations.delegates],
-    theme: ThemeData(useMaterial3: true, fontFamily: 'Roboto',
+    theme: ThemeData(useMaterial3: true, fontFamily: 'Roboto', fontFamilyFallback: const ['BboxStatusCJK'],
       colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff007aff),
         brightness: scenario.dark ? Brightness.dark : Brightness.light))
       .withAppShapes.withAppSurfaces.withAppTypography,
@@ -45,10 +45,11 @@ Widget _frame(_Scenario scenario, GlobalKey boundary, Widget child, BoxControlle
           child: reference.DashboardDensityScope(density: reference.DashboardDensity.mobile, scale: math.max(1, scenario.scale),
             child: reference.ReferenceRuntimeScope(text: runtime,
               child: Scaffold(body: Align(alignment: Alignment.topCenter,
-                child: RepaintBoundary(key: boundary,
+                child: UnconstrainedBox(constrainedAxis: Axis.horizontal, alignment: Alignment.topCenter,
+                  child: RepaintBoundary(key: boundary,
                   child: ColoredBox(color: SurfaceLevel.page.colorOf(context.colorScheme),
                     child: Padding(padding: const EdgeInsets.all(16),
-                      child: SizedBox(width: scenario.width - 32, child: child)))))))))))),
+                      child: SizedBox(width: scenario.width - 32, child: child))))))))))))),
   ));
 
 Future<ui.Image> _capture(WidgetTester tester, GlobalKey key, String filename) async =>
@@ -64,6 +65,8 @@ Future<ui.Image> _capture(WidgetTester tester, GlobalKey key, String filename) a
 
 void main() {
   setUpAll(() async {
+    final cjk = await File('test/support/fonts/NotoSansSC-status.ttf').readAsBytes();
+    await (FontLoader('BboxStatusCJK')..addFont(Future.value(ByteData.sublistView(cjk)))).load();
     final root = Platform.environment['FLUTTER_ROOT'];
     if (root == null) return;
     final font = File('$root/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf');
@@ -147,6 +150,8 @@ void main() {
         expect(find.byTooltip('出站 IP详情'), findsOneWidget);
       }
       final actual = await _capture(tester, boundary, '${scenario.name}-bbox');
+      expect(actual.width, scenario.width.toInt());
+      expect(actual.height, lessThan(320), reason: 'Dashboard cards use their natural content height');
       await tester.pumpWidget(_frame(scenario, boundary, reference.FlClashStatusCard(
         info: scenario.pendingIP || scenario.failIP ? null : reference.IpInfo(scenario.ip, scenario.country),
         quality: scenario.quality, qualityLoading: scenario.pendingQuality,
