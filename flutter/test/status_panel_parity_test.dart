@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/components/status_panel.dart';
@@ -84,7 +83,7 @@ void main() {
     _Scenario('quality-pending', pendingQuality: true, locale: 'en'),
     _Scenario('ip-failed', failIP: true),
     _Scenario('quality-failed', failQuality: true),
-    _Scenario('asn-fallback', type: reference.IpType.hosting, level: reference.IpQualityLevel.normal, organization: null),
+    _Scenario('asn-fallback', type: reference.IpType.hosting, level: reference.IpQualityLevel.normal, organization: null, asn: 64501),
     _Scenario('residential-risky', type: reference.IpType.residential, level: reference.IpQualityLevel.risky, width: 414),
   ]) {
     testWidgets('status card matches FlClash pixels: ${scenario.name}', (tester) async {

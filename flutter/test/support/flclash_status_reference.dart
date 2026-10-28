@@ -16,6 +16,7 @@ class FlClashStatusCard extends StatelessWidget {
   const FlClashStatusCard({
     super.key,
     this.running = true,
+    this.suspended = false,
     this.hasProfile = true,
     this.info,
     this.quality,
@@ -23,7 +24,7 @@ class FlClashStatusCard extends StatelessWidget {
     this.phase = ProbePhase.fresh,
   });
 
-  final bool running, hasProfile, qualityLoading;
+  final bool running, suspended, hasProfile, qualityLoading;
   final IpInfo? info;
   final IpQuality? quality;
   final ProbePhase phase;
@@ -34,7 +35,7 @@ class FlClashStatusCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final density = DashboardDensityScope.of(context);
     final isStart = running;
-    const suspended = false;
+    final suspended = this.suspended;
     final ipInfo = info;
     final phase = this.phase;
     final failed = phase == ProbePhase.failed && ipInfo == null;
@@ -340,7 +341,7 @@ class _IpText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const hideIp = false;
+    final hideIp = ReferenceRuntimeScope.hideIpOf(context);
     return DashboardFitText(hideIp ? _ipMask : ip, style: style);
   }
 }
@@ -651,6 +652,7 @@ double _morphTurn(double progress) => progress * 2 * math.pi / 9;
 /// running tunnel, the way the M3 Expressive loader morphs between shapes.
 class FlClashStartToggle extends StatefulWidget {
   const FlClashStartToggle({
+    super.key,
     required this.size,
     required this.enabled,
     required this.running,
@@ -1526,10 +1528,13 @@ class IpQuality {
 }
 
 class ReferenceRuntimeScope extends InheritedWidget {
-  const ReferenceRuntimeScope({super.key, required this.text, required super.child});
+  const ReferenceRuntimeScope({super.key, required this.text, this.hideIp = false, required super.child});
   final String text;
+  final bool hideIp;
   static String of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<ReferenceRuntimeScope>()!.text;
+  static bool hideIpOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<ReferenceRuntimeScope>()!.hideIp;
   @override
   bool updateShouldNotify(ReferenceRuntimeScope oldWidget) => text != oldWidget.text;
 }
