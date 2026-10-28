@@ -89,7 +89,7 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
   }
   Future<void> _refresh({required bool readIp, required bool manual}) async {
     final box = context.box;
-    final retryQualityFor = manual && _qualityError != null ? _egress?['ip'] : null;
+    final retryQualityFor = manual && _qualityError != null ? (_egress?['ip']) : null;
     _ipDue = false; _qualityDue = false; _manual = false; _routeChanged = false;
     if (readIp) {
       _cooldown?.cancel();
