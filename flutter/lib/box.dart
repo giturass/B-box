@@ -38,6 +38,7 @@ class BoxController extends ChangeNotifier {
   bool _disposed = false;
   bool ready = false;
   bool lanChanging = false;
+  bool serviceSettingsChanging = false;
   String? startupError;
   final pendingIntents = <String>[];
   String? applyRequired;
@@ -174,13 +175,29 @@ class BoxController extends ChangeNotifier {
     }
   }
 
-  Future<void> setSetting(String key, dynamic value, {bool restart = true}) async {
-    try {
-      settings = json(await call('settings.set', {'key': key, 'value': value}));
-      if (restart && running && !remote) applyRequired = 'Restart';
+  Future<void> setSetting(String key, dynamic value, {bool restart = true, bool autoRestart = false}) async {
+    if (serviceSettingsChanging || autoRestart && transitioning && !remote) return;
+    final restartService = autoRestart && running && !remote;
+    if (autoRestart) {
+      serviceSettingsChanging = true;
       notifyListeners();
+    }
+    try {
+      final saved = json(await call('settings.set', {'key': key, 'value': value,
+        if (restartService) 'restart': true}));
+      if (!_disposed) {
+        settings = saved;
+        if (restartService) applyRequired = null;
+        else if (restart && !autoRestart && running && !remote) applyRequired = 'Restart';
+        notifyListeners();
+      }
     } catch (error) {
       report(error);
+    } finally {
+      if (autoRestart) {
+        serviceSettingsChanging = false;
+        if (!_disposed) notifyListeners();
+      }
     }
   }
 

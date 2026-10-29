@@ -469,7 +469,25 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     )
 
     private suspend fun saveSettings(args: Map<String, Any?>) {
-        patchSettings(mapOf((args["key"] as? String ?: error("Missing setting")) to args["value"]))
+        val key = args["key"] as? String ?: error("Missing setting")
+        val values = mapOf(key to args["value"])
+        if (args["restart"] != true) {
+            patchSettings(values)
+            return
+        }
+        require(key in setOf("allowBypass", "autoRedirect", "dynamicNotification")) { "Invalid automatic service restart setting" }
+        require(CommandTarget.isRemote || activity.serviceStatus.value in setOf(Status.Started, Status.Stopped)) {
+            "Wait for the service to finish starting or stopping"
+        }
+        val previous = mapOf(key to settings()[key])
+        if (previous == values) return
+        if (CommandTarget.isRemote || activity.serviceStatus.value != Status.Started) {
+            patchSettings(values)
+            return
+        }
+        ServiceSettingsChange.apply(previous, values, ::patchSettings) { recover ->
+            if (!CommandTarget.isRemote) activity.applyProfile(restart = true, recover = recover)
+        }
     }
 
     private suspend fun patchSettings(values: Map<String, Any?>) {

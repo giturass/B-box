@@ -6,13 +6,17 @@ export 'about.dart';
 export 'backup.dart';
 
 class NativeToggle extends StatelessWidget {
-  const NativeToggle(this.title, this.setting, {super.key, this.restart = true});
+  const NativeToggle(this.title, this.setting, {super.key, this.restart = true, this.autoRestart = false});
   final String title, setting;
-  final bool restart;
-  @override Widget build(BuildContext context) => ListItem.toggle(
-    title: Text(context.tr(title)), value: context.box.settings[setting] == true,
-    onChanged: (value) => context.box.setSetting(setting, value, restart: restart),
-  );
+  final bool restart, autoRestart;
+  @override Widget build(BuildContext context) {
+    final box = context.box;
+    return ListItem.toggle(
+      title: Text(context.tr(title)), value: box.settings[setting] == true,
+      onChanged: box.serviceSettingsChanging || autoRestart && box.transitioning && !box.remote
+        ? null : (value) => box.setSetting(setting, value, restart: restart, autoRestart: autoRestart),
+    );
+  }
 }
 
 class GeneralSettingsPage extends StatelessWidget {
@@ -27,19 +31,15 @@ class GeneralSettingsPage extends StatelessWidget {
 
 class ServiceSettingsPage extends StatelessWidget {
   const ServiceSettingsPage({super.key});
-  @override Widget build(BuildContext context) => BoxPage(title: 'Service', children: [
+  @override Widget build(BuildContext context) => BoxPage(title: 'Service', loading: context.box.serviceSettingsChanging, children: [
     generateSection(items: [
-      const NativeToggle('Allow VPN bypass', 'allowBypass'),
-      const NativeToggle('Auto redirect', 'autoRedirect'),
-      const NativeToggle('Dynamic notification', 'dynamicNotification'),
+      const NativeToggle('Allow VPN bypass', 'allowBypass', autoRestart: true),
+      const NativeToggle('Auto redirect', 'autoRedirect', autoRestart: true),
+      const NativeToggle('Dynamic notification', 'dynamicNotification', autoRestart: true),
       ListItem(title: Text(context.tr('Battery optimization')),
         subtitle: Text(context.tr(context.box.settings['batteryExempt'] == true ? 'Unrestricted' : 'Allow background operation')),
         onTap: () => context.box.act('battery.open')),
     ]),
-    if (context.box.running && !context.box.remote) Padding(padding: const EdgeInsets.all(16), child: FilledButton(
-      onPressed: () async { if (await context.box.act('service.reload', {'restart': true})) context.box.clearApplyRequired(); },
-      child: Text(context.tr('Apply service changes')),
-    )),
   ]);
 }
 

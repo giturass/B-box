@@ -116,7 +116,7 @@ const _zh = <String, String>{
   'Service': '服务', 'System HTTP proxy': '系统 HTTP 代理', 'Allow VPN bypass': '允许绕过 VPN',
   'Auto redirect': '自动重定向', 'Dynamic notification': '动态通知', 'Battery optimization': '电池优化',
   'Unrestricted': '无限制', 'Allow background operation': '允许后台运行',
-  'Apply service changes': '应用服务设置', 'Restart required': '需要重启服务',
+  'Restart required': '需要重启服务',
   'Apply': '应用', 'Later': '稍后', 'Core': '内核', 'Core version': '内核版本',
   'Disable deprecation warnings': '关闭弃用警告', 'Memory limit': '内存限制',
   'Enable memory protection': '启用内存保护', 'Disable core memory killer': '禁用内核内存终止机制',
