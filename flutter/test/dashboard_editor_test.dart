@@ -74,11 +74,6 @@ void main() {
       expect(find.byTooltip('Remove Connections'), findsNothing);
       expect(find.byTooltip('Add Connections'), findsNothing);
       if (scenario == 'reorder') {
-        if (systemProxy) {
-          await tester.tap(find.text(card));
-          await advance();
-          expect(calls.where((call) => call.method == 'systemProxy.set'), isEmpty);
-        }
         final handle = find.byType(ReorderableDelayedDragStartListener).at(1);
         // The centre of this tall card can sit behind the navigation bar.
         // Start on its visible upper part, as a finger would on a phone.
@@ -87,6 +82,11 @@ void main() {
         final listener = tester.renderObject(find.descendant(of: handle, matching: find.byType(Listener)).first);
         expect(tester.hitTestOnBinding(start).path.map((entry) => entry.target), contains(listener),
           reason: 'The long press must reach the drag listener at $start (target $destination).');
+        if (systemProxy) {
+          await tester.tapAt(start);
+          await advance();
+          expect(calls.where((call) => call.method == 'systemProxy.set'), isEmpty);
+        }
         final gesture = await tester.startGesture(start);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 600));
@@ -130,7 +130,8 @@ void main() {
             events.add({'type': 'dashboard', 'value': {...dashboard, 'systemProxyAvailable': false}});
             await advance();
             expect(find.byTooltip('Add $card'), findsNothing);
-            await tester.ensureVisible(find.byTooltip('Remove Network speed'));
+            await tester.scrollUntilVisible(find.byTooltip('Remove Network speed'), -250,
+              scrollable: find.ancestor(of: find.byType(DashboardEditor), matching: find.byType(Scrollable)).first);
             await advance();
             await tester.tap(find.byTooltip('Remove Network speed'));
             await advance();
