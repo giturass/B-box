@@ -11,12 +11,12 @@ class ProfileDetailsPage extends StatelessWidget {
   @override Widget build(BuildContext context) {
     final box = context.box;
     final p = box.remote ? null : profile == null ? box.selectedProfile : box.profiles.where((p) => p['id'] == profile!['id']).firstOrNull;
-    if (!box.remote && profile != null && p == null) return const BoxPage(title: 'Profile details', children: [EmptyState('Profile no longer exists')]);
-    if (p == null) return BoxPage(title: 'Profile details', children: [DetailRows({
+    if (!box.remote && profile != null && p == null) return const BoxPage(title: 'Edit', children: [EmptyState('Profile no longer exists')]);
+    if (p == null) return BoxPage(title: 'Edit', children: [DetailRows({
       'Name': '—', 'Remote control': box.dashboard['remote'] ?? '—',
       'Proxy groups': box.groups.length,
     })]);
-    return BoxPage(title: 'Profile details', actions: [
+    return BoxPage(title: 'Edit', actions: [
       IconButtonData(glyph: AppGlyphs.edit, tooltip: context.tr('Edit'), onPressed: () => openForm(context, ProfileForm(initial: p))),
       if (p['remote'] == true) IconButtonData(glyph: AppGlyphs.sync, tooltip: context.tr('Update'), onPressed: () => box.act('profiles.update', {'id': p['id']})),
     ], children: [

@@ -56,24 +56,21 @@ class _ProfilesPageState extends State<ProfilesPage> {
     } catch (error) { box.report(error); }
   }
   List<CommonPopupMenuItem> _menu(Json profile) => [
-    CommonPopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => openForm(context, ProfileForm(initial: profile))),
-    CommonPopupMenuItem(glyph: AppGlyphs.info, label: context.tr('Profile details'), onPressed: () => openForm(context, ProfileDetailsPage(profile: profile))),
+    CommonPopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => openForm(context, ProfileDetailsPage(profile: profile))),
     if (profile['remote'] == true)
       CommonPopupMenuItem(glyph: AppGlyphs.sync, label: context.tr('Update'), onPressed: () => _update(profile)),
-    CommonPopupMenuItem(glyph: AppGlyphs.moreCircle, label: context.tr('More'), subItems: [
-      CommonPopupMenuItem(glyph: AppGlyphs.code, label: context.tr('Open configuration'), onPressed: () => openPage(context, ProfileEditor(profile: profile))),
-      if (profile['remote'] == true) ...[
-        CommonPopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Copy link'), onPressed: () async {
-          await Clipboard.setData(ClipboardData(text: profile['url'].toString()));
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(context.tr('Copied'))));
-        }),
-        CommonPopupMenuItem(glyph: AppGlyphs.qrCode, label: context.tr('QR code'), onPressed: () => openForm(context, BoxPage(title: 'QR code', children: [
-          Center(child: QrCodeView(data: remoteProfileLink(profile))),
-        ]))),
-      ],
-      CommonPopupMenuItem(glyph: AppGlyphs.upload, label: context.tr('Share'), onPressed: () => _share(profile)),
-      CommonPopupMenuItem(glyph: AppGlyphs.export, label: context.tr('Export'), onPressed: () => _export(profile)),
-    ]),
+    CommonPopupMenuItem(glyph: AppGlyphs.code, label: context.tr('Open configuration'), onPressed: () => openPage(context, ProfileEditor(profile: profile))),
+    if (profile['remote'] == true) ...[
+      CommonPopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Copy link'), onPressed: () async {
+        await Clipboard.setData(ClipboardData(text: profile['url'].toString()));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(context.tr('Copied'))));
+      }),
+      CommonPopupMenuItem(glyph: AppGlyphs.qrCode, label: context.tr('QR code'), onPressed: () => openForm(context, BoxPage(title: 'QR code', children: [
+        Center(child: QrCodeView(data: remoteProfileLink(profile))),
+      ]))),
+    ],
+    CommonPopupMenuItem(glyph: AppGlyphs.upload, label: context.tr('Share'), onPressed: () => _share(profile)),
+    CommonPopupMenuItem(glyph: AppGlyphs.export, label: context.tr('Export'), onPressed: () => _export(profile)),
     CommonPopupMenuItem(danger: true, glyph: AppGlyphs.delete, label: context.tr('Delete'), onPressed: () async {
       final box = context.box;
       if (await confirm(context, 'Delete this profile?', message: 'This cannot be undone.')) await box.act('profiles.delete', {'id': profile['id']});
@@ -208,7 +205,7 @@ class _AddProfileMenuState extends State<AddProfileMenu> {
         onPressed: () => openForm(context, const ProfileForm(initial: {'url': '', 'remote': true}))),
       CommonPopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Clipboard'), onPressed: () => _import('Clipboard')),
       CommonPopupMenuItem(section: const CommonPopupMenuSection(), glyph: AppGlyphs.customize,
-        label: context.tr('New local profile'), onPressed: () => openForm(context, const ProfileForm(initial: {'content': '{}'}))),
+        label: context.tr('New profile'), onPressed: () => openForm(context, const ProfileForm(initial: {'content': '{}'}))),
     ]),
   ));
 }
@@ -233,7 +230,7 @@ class _AddProfilePageState extends State<AddProfilePage> {
           widget: const ProfileForm(initial: {'url': '', 'remote': true}), forceFull: false),
         for (final item in [('File', AppGlyphs.profiles), ('Clipboard', AppGlyphs.copy), ('Scan QR code', AppGlyphs.qrCode)])
           ListItem(leading: GlyphIcon(item.$2), title: Text(context.tr(item.$1)), onTap: _loading ? null : () => _import(item.$1)),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.add), title: Text(context.tr('New local profile')),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.add), title: Text(context.tr('New profile')),
           widget: const ProfileForm(initial: {'content': '{}'}), forceFull: false),
       ], footer: context.tr('This URL must serve a sing-box JSON configuration.')),
     ],

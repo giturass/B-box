@@ -113,7 +113,7 @@
     "lib/pages/profile_details.dart": {
       "source": "lib/views/dashboard/widgets/profile_detail.dart",
       "sourceSHA256": "37b7ae1ba8c16f6861c7b50b60267c6e0ae3bc207995035b51d3ae51c10f27e6",
-      "changes": "Profile detail entry and count presentation adapted to live Room metadata and sing-box configuration editing. Clash subscription counters are not invented."
+      "changes": "Profile summary and configuration editing page labeled Edit, with count presentation adapted to live Room metadata. Metadata editing and advanced/raw sing-box configuration entries are retained. Clash subscription counters are not invented."
     },
     "lib/components/proxy_groups_panel.dart": {
       "source": "lib/views/dashboard/widgets/proxy_groups.dart",
@@ -148,7 +148,7 @@
     "lib/pages/profiles.dart": {
       "source": "lib/views/profiles/profiles.dart",
       "sourceSHA256": "4a2cf3c73ca7dcff9f02883c1d684a80afedb76f80bc955ee6b1b3b81421407d",
-      "changes": "Anchored add menu, grouped metadata form, selected-item reveal, adaptive grid, nested actions and decorated reorder sheet. Imports and edits retain sing-box JSON, binary/QRS metadata and Room operations; preserve local/remote type conversion, clipboard import, a 15-minute Android update minimum and serialized native updates. No Mihomo custom generator, providers, overrides, age key or runtime-preview claim.",
+      "changes": "Anchored add menu with a New profile entry, grouped metadata form, selected-item reveal, adaptive grid, flat profile actions and decorated reorder sheet. Edit opens the configuration editing page; raw content, copy link, QR code, share and export are direct menu actions. Imports and edits retain sing-box JSON, binary/QRS metadata and Room operations; preserve local/remote type conversion, clipboard import, a 15-minute Android update minimum and serialized native updates. No Mihomo custom generator, providers, overrides, age key or runtime-preview claim.",
       "supportingSources": [
         {
           "source": "lib/views/profiles/add.dart",

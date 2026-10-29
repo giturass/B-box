@@ -69,7 +69,7 @@ void main() {
     await tester.tap(find.text('Add profile').last);
     await tester.pumpAndSettle();
     expect(find.byType(AddProfilePage), findsNothing);
-    for (final label in ['Scan QR code', 'File', 'Import from URL', 'Clipboard', 'New local profile']) {
+    for (final label in ['Scan QR code', 'File', 'Import from URL', 'Clipboard', 'New profile']) {
       expect(find.text(label), findsOneWidget);
     }
     await tester.tap(find.text('File'));
@@ -94,12 +94,10 @@ void main() {
     final localCard = find.byWidgetPredicate((w) => w is ProfileCard && w.profile['id'] == 2);
     final remote = tester.widget<ProfileCard>(remoteCard);
     final local = tester.widget<ProfileCard>(localCard);
-    expect(remote.menuItems.map((item) => item.label), ['Edit', 'Profile details', 'Update', 'More', 'Delete']);
-    expect(local.menuItems.map((item) => item.label), ['Edit', 'Profile details', 'More', 'Delete']);
+    expect(remote.menuItems.map((item) => item.label), ['Edit', 'Update', 'Open configuration', 'Copy link', 'QR code', 'Share', 'Export', 'Delete']);
+    expect(local.menuItems.map((item) => item.label), ['Edit', 'Open configuration', 'Share', 'Export', 'Delete']);
     expect(remote.menuItems.last.danger, isTrue);
-    final more = remote.menuItems.singleWhere((item) => item.label == 'More').subItems;
-    expect(more.map((item) => item.label), ['Open configuration', 'Copy link', 'QR code', 'Share', 'Export']);
-    more.singleWhere((item) => item.label == 'Copy link').onPressed!();
+    remote.menuItems.singleWhere((item) => item.label == 'Copy link').onPressed!();
     await tester.pump();
     expect(copied, _remote['url']);
     expect(find.descendant(of: localCard, matching: find.byType(ProfileUpdateTime)), findsNothing);
