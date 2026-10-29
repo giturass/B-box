@@ -91,7 +91,7 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 工作流将已有密钥解码至 `app/release.keystore`，结束时清理，不上传密钥。Gradle 属性优先读取直接环境变量，再回退 `LOCAL_PROPERTIES` 和 `local.properties`。本地签名文件不入库，不重新生成发布密钥。
 
-Release 流程运行 Flutter 分析/测试、`testOtherDebugUnitTest` 及保留 R8 的签名 Release 构建；上传前校验唯一 APK、最低 API 24、ARM64、应用包名/版本/标签、启动 Activity 和签名。Artifact 名为 `B-box-<版本>-arm64-v8a-release`，保留 30 天。
+Release 流程运行 Flutter 分析/测试、`testOtherDebugUnitTest` 及保留 R8 的签名 Release 构建；单元测试成功或失败后均上传 HTML/XML 报告至 `release-unit-tests` Artifact（报告已生成时），保留 30 天。APK 上传前校验唯一 APK、最低 API 24、ARM64、应用包名/版本/标签、启动 Activity 和签名。APK Artifact 名为 `B-box-<版本>-arm64-v8a-release`，保留 30 天。
 
 `publish_release` 默认开启；设为 `false` 时仍构建、校验并上传 Actions Artifact，仅跳过发布。Release tag 必须严格等于 `VERSION_NAME`（不加 `v`）且指向本次源码 SHA；已有 tag 指向其他提交时失败，不移动版本标签。同一提交重跑可重传资产。发布 APK 及 `B-box-version-metadata.json`，alpha/beta/rc 标为预发布。
 

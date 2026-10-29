@@ -47,7 +47,10 @@ class ProfileChangeTest {
         assertNull(outcome)
         start.started()
         runCurrent()
-        assertSame(original, outcome!!.exceptionOrNull())
+        // Coroutine stack-trace recovery may copy the exception across await.
+        val failure = outcome!!.exceptionOrNull()!!
+        assertEquals(original.javaClass, failure.javaClass)
+        assertEquals(original.message, failure.message)
     }
 
     @Test fun partiallyFailedSaveRestoresDataWithoutStartingAService() = runTest {

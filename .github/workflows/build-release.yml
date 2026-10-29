@@ -137,6 +137,17 @@ jobs:
             '-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8' \
             -Pkotlin.compiler.execution.strategy=in-process
 
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-unit-tests
+          path: |
+            app/build/reports/tests/testOtherDebugUnitTest/
+            app/build/test-results/testOtherDebugUnitTest/*.xml
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Build signed Release APK
         env:
           KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
