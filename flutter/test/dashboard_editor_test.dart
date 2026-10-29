@@ -66,6 +66,13 @@ void main() {
         await tester.pump(const Duration(milliseconds: 800));
         await tester.pump();
       }
+      Future<void> revealControl(Finder control, double delta) async {
+        await tester.scrollUntilVisible(control, delta,
+          scrollable: find.ancestor(of: find.byType(DashboardEditor), matching: find.byType(Scrollable)).first);
+        await Scrollable.ensureVisible(tester.element(control), alignment: .5);
+        await advance();
+        expect(control.hitTestable(), findsOneWidget);
+      }
       await tester.tap(find.byTooltip('Dashboard cards'));
       await advance();
       expect(find.byType(DashboardEditor), findsOneWidget);
@@ -111,9 +118,7 @@ void main() {
         expect(order.indexOf(card), lessThan(order.indexOf('Status')));
       } else {
         if (systemProxy && scenario == 'add-remove') {
-          await tester.scrollUntilVisible(find.byTooltip('Remove $card'), 250,
-            scrollable: find.ancestor(of: find.byType(DashboardEditor), matching: find.byType(Scrollable)).first);
-          await advance();
+          await revealControl(find.byTooltip('Remove $card'), 250);
         }
         await tester.tap(find.byTooltip('Remove $card'));
         await advance();
@@ -130,20 +135,18 @@ void main() {
             events.add({'type': 'dashboard', 'value': {...dashboard, 'systemProxyAvailable': false}});
             await advance();
             expect(find.byTooltip('Add $card'), findsNothing);
-            await tester.scrollUntilVisible(find.byTooltip('Remove Network speed'), -250,
-              scrollable: find.ancestor(of: find.byType(DashboardEditor), matching: find.byType(Scrollable)).first);
-            await advance();
+            await revealControl(find.byTooltip('Remove Network speed'), -250);
             await tester.tap(find.byTooltip('Remove Network speed'));
             await advance();
+            expect(find.byType(DashboardEditor), findsOneWidget);
+            expect(preferences['hiddenCards'], contains('Network speed'));
             expect(preferences['dashboardCards'], contains(card));
             expect(preferences['hiddenCards'], contains(card));
             events.add({'type': 'dashboard', 'value': dashboard});
             await advance();
           }
           final addCard = systemProxy ? card : 'Memory';
-          await tester.scrollUntilVisible(find.byTooltip('Add $addCard'), 250,
-            scrollable: find.ancestor(of: find.byType(DashboardEditor), matching: find.byType(Scrollable)).first);
-          await advance();
+          await revealControl(find.byTooltip('Add $addCard'), 250);
           await tester.tap(find.byTooltip('Add $addCard'));
           await advance();
           expect(preferences['hiddenCards'], isNot(contains(addCard)));
