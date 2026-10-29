@@ -179,7 +179,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 null
             }
             "dashboard.releaseMemory" -> dashboardDetails.releaseMemory()
-            "dashboard.lan.refresh" -> dashboardDetails.refreshNetwork()
+            "dashboard.lan.refresh" -> dashboardDetails.refreshNetwork(force = true)
             "dashboard.lan.set" -> localProfiles {
                 val enabled = args["enabled"] as? Boolean ?: error("Missing LAN proxy state")
                 val port = args["port"]?.let {

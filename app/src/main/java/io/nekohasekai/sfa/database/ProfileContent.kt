@@ -4,12 +4,17 @@ import android.util.AtomicFile
 import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.sync.Mutex
 import java.io.File
+import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.Date
+import java.util.concurrent.atomic.AtomicLong
 
 /** Serializes foreground edits with the background subscription updater. */
 internal object ProfileContent {
     val mutex = Mutex()
+    private val writeGeneration = AtomicLong()
+    // File timestamps/length alone can miss equal-size writes and recovery within one clock tick.
+    val generation: Long get() = writeGeneration.get()
 
     fun revision(content: String): String = MessageDigest.getInstance("SHA-256")
         .digest(content.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xff) }
@@ -65,15 +70,21 @@ internal object ProfileContent {
         )
     }
 
-    fun write(file: File, content: String) {
+    fun write(file: File, content: String) = write(file) { it.write(content.toByteArray()) }
+
+    fun write(file: File, writeContent: (OutputStream) -> Unit) {
         val atomic = AtomicFile(file)
-        val stream = atomic.startWrite()
         try {
-            stream.write(content.toByteArray())
-            atomic.finishWrite(stream)
-        } catch (e: Exception) {
-            atomic.failWrite(stream)
-            throw e
+            val stream = atomic.startWrite()
+            try {
+                writeContent(stream)
+                atomic.finishWrite(stream)
+            } catch (e: Exception) {
+                atomic.failWrite(stream)
+                throw e
+            }
+        } finally {
+            writeGeneration.incrementAndGet()
         }
     }
 }

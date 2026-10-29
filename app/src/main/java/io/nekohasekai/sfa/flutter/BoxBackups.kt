@@ -1,6 +1,5 @@
 package io.nekohasekai.sfa.flutter
 
-import android.util.AtomicFile
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileContent
@@ -266,10 +265,7 @@ internal class BoxBackups(
             lastUpdated = Date(profile.typed.lastUpdated.time); autoUpdate = profile.typed.autoUpdate; autoUpdateInterval = profile.typed.autoUpdateInterval
         })
         private fun restoreFile(file: File, original: File) {
-            val atomic = AtomicFile(file)
-            val output = atomic.startWrite()
-            try { original.inputStream().use { it.copyTo(output) }; atomic.finishWrite(output) }
-            catch (error: Exception) { atomic.failWrite(output); throw error }
+            ProfileContent.write(file) { output -> original.inputStream().use { it.copyTo(output) } }
         }
     }
 }

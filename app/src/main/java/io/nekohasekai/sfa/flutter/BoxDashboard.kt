@@ -30,8 +30,12 @@ import java.net.NetworkInterface
 
 internal class BoxDashboard(private val activity: BoxActivity, private val emit: (String, Any?) -> Unit) : Closeable {
     @Volatile var remoteMemory = 0L
-    private var networkStamp = ""
+    private var networkSnapshot: Map<String, Any?>? = null
     private val networkMutex = Mutex()
+    private val configCache = DashboardConfigCache(ProfileContent::revision) { content, addresses ->
+        val values = JSONArray(Libbox.readUILANProxyListeners(content, addresses).value)
+        (0 until values.length()).map { jsonObject(values.getJSONObject(it)) }
+    }
     private class EgressSession(val server: CommandServer?) {
         @Volatile var closed = false
             private set
@@ -115,10 +119,6 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
             .thenBy { priority(it.getValue("interface")) }.thenBy { it.getValue("address") })
         val addresses = interfaceAddresses.map { it.getValue("address") }.distinct()
         val encodedAddresses = JSONArray(interfaceAddresses).toString()
-        fun listeners(content: String): List<Map<String, Any?>> {
-            val values = JSONArray(Libbox.readUILANProxyListeners(content, encodedAddresses).value)
-            return (0 until values.length()).map { jsonObject(values.getJSONObject(it)) }
-        }
         var bindings = emptyList<Map<String, Any?>>()
         var activeBindings = emptyList<Map<String, Any?>>()
         var profileId = -1L
@@ -128,13 +128,22 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
         var activeProfileId = -1L
         if (!CommandTarget.isRemote) {
             try {
-                val content = ProfileContent.mutex.withLock {
+                val config = ProfileContent.mutex.withLock {
                     profileId = Settings.selectedProfile
-                    ProfileManager.get(profileId)?.let { File(it.typed.path).readText() }
+                    val profile = ProfileManager.get(profileId)
+                    if (profile == null) {
+                        configCache.clearSaved()
+                        null
+                    } else {
+                        val file = File(profile.typed.path)
+                        val key = DashboardConfigCache.FileKey(profileId, file.path, ProfileContent.generation,
+                            file.lastModified(), file.length(), file.exists())
+                        configCache.saved(key) { file.readText() }
+                    }
                 }
-                if (content != null) {
-                    revision = ProfileContent.revision(content)
-                    bindings = listeners(content)
+                if (config != null) {
+                    revision = config.revision
+                    bindings = config.listeners(encodedAddresses)
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -146,7 +155,15 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
                 BoxService.dashboardServer === active.server
             if (running && active != null) {
                 activeProfileId = active.profileId
-                activeBindings = if (configurationError == null && ProfileContent.revision(active.content) == revision) bindings else listeners(active.content)
+                try {
+                    activeBindings = configCache.active(active) { active.content }.listeners(encodedAddresses)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    configurationError = configurationError ?: error.message ?: error.toString()
+                }
+            } else {
+                configCache.clearActive()
             }
         }
         val stamp = "${manager.activeNetwork}:$encodedAddresses:${networks.map { (network, capabilities, _) ->
@@ -159,10 +176,13 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
             "error" to configurationError, "stamp" to stamp)
     }
 
-    suspend fun refreshNetwork(): Map<String, Any?> = networkMutex.withLock {
-        val value = withContext(Dispatchers.IO) { network() }
-        if (value.toString() != networkStamp) {
-            networkStamp = value.toString()
+    suspend fun refreshNetwork(force: Boolean = false): Map<String, Any?> = networkMutex.withLock {
+        val value = withContext(Dispatchers.IO) {
+            if (force) configCache.refresh()
+            network()
+        }
+        if (value != networkSnapshot) {
+            networkSnapshot = value
             emit("lan", value)
         }
         value

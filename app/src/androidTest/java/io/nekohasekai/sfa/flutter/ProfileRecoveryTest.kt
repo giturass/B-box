@@ -12,12 +12,14 @@ import io.nekohasekai.sfa.backend.log.LogViewModel
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.compose.MainActivity
 import io.nekohasekai.sfa.constant.Status
+import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.vendor.PackageQueryManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
@@ -92,6 +94,57 @@ class ProfileRecoveryTest {
         }
         profiles.writeContent(id, "{}", BoxProfiles.revision(profiles.read(id)))
         withTimeout(15_000) { logs.uiState.first { it.defaultLogLevel == LogLevel.TRACE } }
+    }
+
+    @Test fun lanCacheTracksEqualSizeWritesSuccessfulReloadsAndRecovery() = withRunningProfile { activity, profiles, id ->
+        val original = occupiedPortConfig(0)
+        val shared = original.replace("127.0.0.1", "0.0.0.0").padEnd(original.length)
+        profiles.writeContent(id, original, BoxProfiles.revision("{}"))
+        val details = withContext(Dispatchers.Main) { BoxDashboard(activity) { _, _ -> } }
+        try {
+            val initial = details.refreshNetwork()
+            assertEquals("127.0.0.1", rows(initial["activeBindings"]).single()["listen"])
+            val file = File(profiles.get(id).typed.path)
+            val modified = file.lastModified()
+            ProfileContent.mutex.withLock {
+                // Model saved but unapplied content with identical file size and timestamp.
+                ProfileContent.write(file, shared)
+                assertTrue(file.setLastModified(modified))
+                assertEquals(modified, file.lastModified())
+                assertEquals(original.length.toLong(), file.length())
+            }
+            val unapplied = details.refreshNetwork()
+            assertEquals(BoxProfiles.revision(shared), unapplied["revision"])
+            assertEquals("0.0.0.0", rows(unapplied["bindings"]).single()["listen"])
+            assertEquals("127.0.0.1", rows(unapplied["activeBindings"]).single()["listen"])
+            assertEquals(false, unapplied["enabled"])
+
+            profiles.writeContent(id, original, BoxProfiles.revision(shared))
+            profiles.writeContent(id, shared, BoxProfiles.revision(original))
+            val applied = details.refreshNetwork()
+            assertEquals(true, applied["running"])
+            assertEquals(true, applied["enabled"])
+            assertEquals("0.0.0.0", rows(applied["activeBindings"]).single()["listen"])
+            ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { occupied ->
+                assertNotNull(runCatching {
+                    profiles.writeContent(id, occupiedPortConfig(occupied.localPort), BoxProfiles.revision(shared))
+                }.exceptionOrNull())
+            }
+            val recovered = details.refreshNetwork()
+            assertEquals(BoxProfiles.revision(shared), recovered["revision"])
+            assertEquals(true, recovered["running"])
+            assertEquals(applied["bindings"], recovered["bindings"])
+            assertEquals(applied["activeBindings"], recovered["activeBindings"])
+
+            withContext(Dispatchers.Main) { activity.stopService() }
+            withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+            val stopped = details.refreshNetwork()
+            assertEquals(false, stopped["running"])
+            assertTrue(rows(stopped["activeBindings"]).isEmpty())
+            assertEquals(applied["bindings"], stopped["bindings"])
+        } finally {
+            withContext(Dispatchers.Main) { details.close() }
+        }
     }
 
     @Test fun failedSelectionRestoresThePreviousSelectionAndService() = withRunningProfile { activity, profiles, id ->
