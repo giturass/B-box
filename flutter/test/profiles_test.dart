@@ -90,8 +90,10 @@ void main() {
     addTearDown(() => messenger.setMockMethodCallHandler(SystemChannels.platform, null));
     await _mount(tester);
     await _profiles(tester);
-    final remote = tester.widget<ProfileCard>(find.byKey(const ValueKey(1)));
-    final local = tester.widget<ProfileCard>(find.byKey(const ValueKey(2)));
+    final remoteCard = find.byWidgetPredicate((w) => w is ProfileCard && w.profile['id'] == 1);
+    final localCard = find.byWidgetPredicate((w) => w is ProfileCard && w.profile['id'] == 2);
+    final remote = tester.widget<ProfileCard>(remoteCard);
+    final local = tester.widget<ProfileCard>(localCard);
     expect(remote.menuItems.map((item) => item.label), ['Edit', 'Profile details', 'Update', 'More', 'Delete']);
     expect(local.menuItems.map((item) => item.label), ['Edit', 'Profile details', 'More', 'Delete']);
     expect(remote.menuItems.last.danger, isTrue);
@@ -100,7 +102,7 @@ void main() {
     more.singleWhere((item) => item.label == 'Copy link').onPressed!();
     await tester.pump();
     expect(copied, _remote['url']);
-    expect(find.descendant(of: find.byKey(const ValueKey(2)), matching: find.byType(ProfileUpdateTime)), findsNothing);
+    expect(find.descendant(of: localCard, matching: find.byType(ProfileUpdateTime)), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -113,14 +115,14 @@ void main() {
     openForm(tester.element(find.byType(HomePage)), const ProfileForm(initial: _remote));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).at(2), '14');
-    await tester.tap(find.text('Save').last);
+    await tester.tap(find.byTooltip('Save').last);
     await tester.pumpAndSettle();
     expect(saved, isNull);
     expect(find.byType(ProfileForm), findsOneWidget);
     await tester.tap(find.text('Auto update'));
     await tester.pumpAndSettle();
     expect(find.text('Update interval'), findsNothing);
-    await tester.tap(find.text('Save').last);
+    await tester.tap(find.byTooltip('Save').last);
     await tester.pumpAndSettle();
     expect(saved, {..._remote, 'autoUpdate': false});
     expect(find.byType(ProfileForm), findsNothing);
@@ -166,12 +168,12 @@ void main() {
     await tester.pumpAndSettle();
     tester.widget<ReorderableListView>(find.byType(ReorderableListView)).onReorderItem!(0, 1);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Save').last);
+    await tester.tap(find.byTooltip('Save').last);
     await tester.pumpAndSettle();
     expect(orders, [[2, 1]]);
     expect(find.byType(ProfileOrderPage), findsOneWidget);
     fail = false;
-    await tester.tap(find.text('Save').last);
+    await tester.tap(find.byTooltip('Save').last);
     await tester.pumpAndSettle();
     expect(orders, [[2, 1], [2, 1]]);
     expect(find.byType(ProfileOrderPage), findsNothing);
