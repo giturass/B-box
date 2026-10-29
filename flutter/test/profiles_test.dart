@@ -1,0 +1,190 @@
+import 'dart:async';
+import 'package:b_box_ui/main.dart';
+import 'package:b_box_ui/widgets.dart';
+import 'package:b_box_ui/components/profile_card.dart';
+import 'package:b_box_ui/pages/profiles.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+const _remote = {'id': 1, 'name': 'Remote A', 'remote': true,
+  'url': 'https://example.org/config.json', 'autoUpdate': true, 'interval': 120, 'updatedAt': 1700000000000};
+const _local = {'id': 2, 'name': 'Local B', 'remote': false};
+
+Future<BoxController> _mount(WidgetTester tester, {List<Json> profiles = const [_remote, _local],
+  int selected = 1, bool remoteSession = false, Future<dynamic> Function(MethodCall)? handler}) async {
+  tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];
+  addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
+  tester.view.physicalSize = const Size(360, 800);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  const channel = MethodChannel('test.profiles');
+  final events = StreamController<dynamic>.broadcast();
+  final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready' ? {
+    'version': 'test', 'coreVersion': 'test', 'profiles': profiles,
+    'dashboard': {'status': 'Stopped', 'selectedProfileId': selected,
+      if (remoteSession) ...{'remote': 'Server', 'remoteConnected': true}},
+  } : await handler?.call(call));
+  final box = BoxController(channel: channel, events: events.stream);
+  await tester.pumpWidget(BoxApp(controller: box));
+  await tester.pumpAndSettle();
+  addTearDown(() async {
+    await tester.pumpWidget(const SizedBox());
+    await events.close();
+    messenger.setMockMethodCallHandler(channel, null);
+  });
+  return box;
+}
+
+Future<void> _profiles(WidgetTester tester) async {
+  await tester.tap(find.text('Profiles').last);
+  await tester.pumpAndSettle();
+}
+
+void main() {
+  test('compact update ages preserve unknown values and reference thresholds', () {
+    final now = DateTime.utc(2026, 10, 29, 12);
+    for (final (age, en, zh) in [
+      (const Duration(seconds: 59), 'Just now', '刚刚'),
+      (const Duration(minutes: 1), '1m ago', '1 分钟前'),
+      (const Duration(hours: 1), '1h ago', '1 小时前'),
+      (const Duration(days: 1), '1d ago', '1 天前'),
+      (const Duration(days: 30), '1mo ago', '1 个月前'),
+      (const Duration(days: 365), '1y ago', '1 年前'),
+    ]) {
+      final updated = now.subtract(age).millisecondsSinceEpoch;
+      expect(profileUpdateLabel(updated, now, chinese: false), en);
+      expect(profileUpdateLabel(updated, now, chinese: true), zh);
+    }
+    expect(profileUpdateLabel(0, now, chinese: false), 'Unknown');
+    expect(profileUpdateLabel(null, now, chinese: true), '未知');
+    expect(profileUpdateLabel(now.add(const Duration(days: 1)).millisecondsSinceEpoch, now, chinese: false), 'Just now');
+  });
+
+  testWidgets('empty state opens the add menu and canceled file import stays on profiles', (tester) async {
+    final calls = <String>[];
+    await _mount(tester, profiles: [], handler: (call) async { calls.add(call.method); return null; });
+    await _profiles(tester);
+    await tester.tap(find.text('Add profile').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(AddProfilePage), findsNothing);
+    for (final label in ['Scan QR code', 'File', 'Import from URL', 'Clipboard', 'New local profile']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    await tester.tap(find.text('File'));
+    await tester.pumpAndSettle();
+    expect(calls.where((method) => method == 'profiles.importFile'), hasLength(1));
+    expect(find.byType(ProfileForm), findsNothing);
+    expect(calls, isNot(contains('profiles.save')));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('remote and local menus keep sing-box operations and source link semantics', (tester) async {
+    String? copied;
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') copied = json(call.arguments)['text'] as String;
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(SystemChannels.platform, null));
+    await _mount(tester);
+    await _profiles(tester);
+    final remote = tester.widget<ProfileCard>(find.byKey(const ValueKey(1)));
+    final local = tester.widget<ProfileCard>(find.byKey(const ValueKey(2)));
+    expect(remote.menuItems.map((item) => item.label), ['Edit', 'Profile details', 'Update', 'More', 'Delete']);
+    expect(local.menuItems.map((item) => item.label), ['Edit', 'Profile details', 'More', 'Delete']);
+    expect(remote.menuItems.last.danger, isTrue);
+    final more = remote.menuItems.singleWhere((item) => item.label == 'More').subItems;
+    expect(more.map((item) => item.label), ['Open configuration', 'Copy link', 'QR code', 'Share', 'Export']);
+    more.singleWhere((item) => item.label == 'Copy link').onPressed!();
+    await tester.pump();
+    expect(copied, _remote['url']);
+    expect(find.descendant(of: find.byKey(const ValueKey(2)), matching: find.byType(ProfileUpdateTime)), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('only enabled automatic updates validate the minimum interval', (tester) async {
+    Json? saved;
+    await _mount(tester, handler: (call) async {
+      if (call.method == 'profiles.save') saved = json(call.arguments);
+      return null;
+    });
+    openForm(tester.element(find.byType(HomePage)), const ProfileForm(initial: _remote));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).at(2), '14');
+    await tester.tap(find.text('Save').last);
+    await tester.pumpAndSettle();
+    expect(saved, isNull);
+    expect(find.byType(ProfileForm), findsOneWidget);
+    await tester.tap(find.text('Auto update'));
+    await tester.pumpAndSettle();
+    expect(find.text('Update interval'), findsNothing);
+    await tester.tap(find.text('Save').last);
+    await tester.pumpAndSettle();
+    expect(saved, {..._remote, 'autoUpdate': false});
+    expect(find.byType(ProfileForm), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('normal page reveals selection while picker starts at the top and waits for success', (tester) async {
+    var fail = true;
+    await _mount(tester, selected: 39,
+      profiles: [for (var id = 1; id <= 40; id++) {'id': id, 'name': 'Profile $id', 'remote': false}],
+      handler: (call) async {
+        if (call.method == 'profiles.select' && fail) throw PlatformException(code: 'apply', message: 'Apply failed');
+        return null;
+      });
+    await _profiles(tester);
+    expect(find.text('Profile 39').hitTestable(), findsOneWidget);
+    expect(find.text('Profile 1').hitTestable(), findsNothing);
+    openForm(tester.element(find.byType(HomePage)), const ProfilesPage(picker: true));
+    await tester.pumpAndSettle();
+    expect(find.text('Profile 1').hitTestable(), findsOneWidget);
+    final picker = find.byWidgetPredicate((w) => w is ProfilesPage && w.picker);
+    await tester.tap(find.text('Profile 1'));
+    await tester.pumpAndSettle();
+    expect(picker, findsOneWidget);
+    fail = false;
+    await tester.tap(find.text('Profile 1'));
+    await tester.pumpAndSettle();
+    expect(picker, findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('sort uses final indices and keeps the draft after a native conflict', (tester) async {
+    var fail = true;
+    final orders = <dynamic>[];
+    await _mount(tester, handler: (call) async {
+      if (call.method == 'profiles.reorder') {
+        orders.add(json(call.arguments)['ids']);
+        if (fail) throw PlatformException(code: 'conflict', message: 'Profile list changed; refresh and retry');
+      }
+      return null;
+    });
+    openForm(tester.element(find.byType(HomePage)), const ProfileOrderPage());
+    await tester.pumpAndSettle();
+    tester.widget<ReorderableListView>(find.byType(ReorderableListView)).onReorderItem!(0, 1);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save').last);
+    await tester.pumpAndSettle();
+    expect(orders, [[2, 1]]);
+    expect(find.byType(ProfileOrderPage), findsOneWidget);
+    fail = false;
+    await tester.tap(find.text('Save').last);
+    await tester.pumpAndSettle();
+    expect(orders, [[2, 1], [2, 1]]);
+    expect(find.byType(ProfileOrderPage), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('remote sessions expose no local profile actions', (tester) async {
+    await _mount(tester, remoteSession: true);
+    await _profiles(tester);
+    expect(find.text('Disconnect remote session to edit local profiles'), findsOneWidget);
+    expect(find.byType(ProfileCard), findsNothing);
+    expect(find.byType(AddProfileMenu), findsNothing);
+    expect(find.byTooltip('Update all'), findsNothing);
+    expect(find.byTooltip('Reorder'), findsNothing);
+  });
+}

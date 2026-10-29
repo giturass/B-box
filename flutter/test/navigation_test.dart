@@ -11,6 +11,7 @@ import 'package:b_box_ui/pages/logs.dart';
 import 'package:b_box_ui/pages/settings.dart';
 import 'package:b_box_ui/pages/diagnostics.dart';
 import 'package:b_box_ui/pages/reports.dart';
+import 'package:b_box_ui/pages/profiles.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -113,6 +114,19 @@ void main() {
         await tester.pumpAndSettle();
         await closed;
         expect(find.byWidget(page), findsNothing, reason: '$label closes within the new UI');
+      }
+      for (final (label, page) in <(String, Widget)>[
+        ('Profile-edit', const ProfileForm(initial: {'id': 1, 'name': 'Primary sing-box profile',
+          'remote': true, 'url': 'https://example.org/config.json', 'autoUpdate': true, 'interval': 60})),
+        ('Profile-reorder', const ProfileOrderPage()),
+      ]) {
+        final closed = openForm(rootContext, page);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull, reason: label);
+        await capture(label);
+        tester.element(find.byWidget(page)).safeNestedPop();
+        await tester.pumpAndSettle();
+        await closed;
       }
       events.add({'type': 'preferences', 'value': {'locale': 'en', 'theme': dark ? 'dark' : 'light', 'fontScale': fontScale}});
       tester.binding.platformDispatcher.localesTestValue = const [Locale('zh', 'CN')];
