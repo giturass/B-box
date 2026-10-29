@@ -178,13 +178,9 @@ func (p *UIEgressProbe) get(ctx context.Context, link string, limit int64) (*UIH
 func (p *UIEgressProbe) LookupOutboundIP() (string, error) {
 	ctx, cancel := context.WithTimeout(p.ctx, uiIPTimeout)
 	defer cancel()
-	source, body, err := lookupUIOutboundIP(ctx, uiIPSources, uiIPStagger, uiIPConcurrency, func(ctx context.Context, source uiIPSource) (*UIHTTPResponse, error) {
+	source, info, err := lookupUIOutboundIP(ctx, uiIPSources, uiIPStagger, uiIPConcurrency, func(ctx context.Context, source uiIPSource) (*UIHTTPResponse, error) {
 		return p.get(ctx, source.URL, uiIPBodyLimit)
 	})
-	if err != nil {
-		return "", err
-	}
-	info, err := parseUIOutboundIP(source, body)
 	if err != nil {
 		return "", err
 	}
@@ -197,12 +193,12 @@ func (p *UIEgressProbe) LookupOutboundIP() (string, error) {
 
 type uiIPAnswer struct {
 	source uiIPSource
-	body   string
+	info   map[string]any
 }
 
 func lookupUIOutboundIP(ctx context.Context, sources []uiIPSource, stagger time.Duration, concurrency int,
 	fetch func(context.Context, uiIPSource) (*UIHTTPResponse, error),
-) (uiIPSource, string, error) {
+) (uiIPSource, map[string]any, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	answers := make(chan *uiIPAnswer, len(sources))
@@ -216,11 +212,15 @@ func lookupUIOutboundIP(ctx context.Context, sources []uiIPSource, stagger time.
 		inFlight++
 		go func() {
 			response, err := fetch(ctx, source)
-			if err == nil && response != nil && response.Status == http.StatusOK && mentionsUIPublicIP(string(response.Content)) {
-				answers <- &uiIPAnswer{source: source, body: string(response.Content)}
-			} else {
-				answers <- nil
+			if err == nil && response != nil && response.Status == http.StatusOK {
+				// Validate the full source response before it can win and cancel peers.
+				info, err := parseUIOutboundIP(source, string(response.Content))
+				if err == nil {
+					answers <- &uiIPAnswer{source: source, info: info}
+					return
+				}
 			}
+			answers <- nil
 		}()
 	}
 	start()
@@ -231,19 +231,19 @@ func lookupUIOutboundIP(ctx context.Context, sources []uiIPSource, stagger time.
 		case answer := <-answers:
 			inFlight--
 			if ctx.Err() != nil {
-				return uiIPSource{}, "", ctx.Err()
+				return uiIPSource{}, nil, ctx.Err()
 			}
 			if answer != nil {
-				return answer.source, answer.body, nil
+				return answer.source, answer.info, nil
 			}
 			start()
 		case <-ticker.C:
 			start()
 		case <-ctx.Done():
-			return uiIPSource{}, "", ctx.Err()
+			return uiIPSource{}, nil, ctx.Err()
 		}
 	}
-	return uiIPSource{}, "", fmt.Errorf("no egress IP source is available")
+	return uiIPSource{}, nil, fmt.Errorf("no egress IP source is available")
 }
 
 var uiSharedAddressSpace = netip.MustParsePrefix("100.64.0.0/10")
@@ -255,17 +255,6 @@ func uiPublicIP(text string) bool {
 	}
 	address = address.Unmap()
 	return address.IsGlobalUnicast() && !address.IsPrivate() && !uiSharedAddressSpace.Contains(address)
-}
-
-func mentionsUIPublicIP(body string) bool {
-	for _, token := range strings.FieldsFunc(body, func(r rune) bool {
-		return !(r == '.' || r == ':' || '0' <= r && r <= '9' || 'a' <= r && r <= 'z' || 'A' <= r && r <= 'Z')
-	}) {
-		if uiPublicIP(token) {
-			return true
-		}
-	}
-	return false
 }
 
 func parseUIOutboundIP(source uiIPSource, body string) (map[string]any, error) {

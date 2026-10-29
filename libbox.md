@@ -38,7 +38,7 @@
 
 `UIEgressProbe` 提供：
 
-- `LookupOutboundIP`：对八个来源错峰竞速，总时限 6 秒、间隔 800 毫秒、最多并发 3 个请求、响应上限 4096 字节；取得首个公网 IP 后取消其余请求。返回 IP、地理信息、来源与查询时间。
+- `LookupOutboundIP`：对八个来源错峰竞速，总时限 6 秒、间隔 800 毫秒、最多并发 3 个请求、响应上限 4096 字节；每个 HTTP 200 响应先按对应来源解析并校验公网 IP 与国家字段，首个完整解析成功的结果才取消其余请求。解析失败立即继续其他来源，国家字段允许空字符串表示未知。返回 IP、地理信息、来源与查询时间。
 - `Get`：供 Flutter 质量查询使用，保留 HTTP 状态，响应上限 128 KiB，调用方可指定 1～8000 毫秒超时。
 - `Close`：取消本次探测的请求和等待中的连接。每个请求独立持有连接与截止时间，不将 IP 竞速连接复用于后续质量查询。
 
@@ -63,7 +63,7 @@
 - [Release 工作流](.github/workflows/build-release.yml) 检查并应用 legacy 补丁，复制四个生产扩展，使用 JDK 17、版本文件指定的 Go 和 NDK 28.0.13004108，执行上游 `make lib_install` 与 `build_libbox -target android -platform android/arm64`。要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
 - [Android smoke 工作流](.github/workflows/newui-android.yml) 同样应用补丁和四个扩展，构建 `android/amd64` 核心用于 x86_64 模拟器。
 - [UI 验证工作流](.github/workflows/newui.yml) 在匹配核心中复制 HTTP、出口和 LAN 扩展及对应测试，运行 `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(WebDAV|HTTPGet|Egress|LAN)' -count=1`。它不是完整 AAR 构建，内存绑定由 Android/Release 构建覆盖。
-- 对应回归文件为 [ui_http_test.go](libbox/ui_http_test.go)、[ui_egress_test.go](libbox/ui_egress_test.go)、[ui_lan_test.go](libbox/ui_lan_test.go)，覆盖请求限制/重定向、源回退/公网 IP 校验/取消/服务替换、监听转换和端点生成。
+- 对应回归文件为 [ui_http_test.go](libbox/ui_http_test.go)、[ui_egress_test.go](libbox/ui_egress_test.go)、[ui_lan_test.go](libbox/ui_lan_test.go)，覆盖请求限制/重定向、源回退/公网 IP 校验/解析失败后继续竞速/取消/服务替换、监听转换和端点生成。
 
 升级核心时先检查补丁是否仍准确排除 legacy 分支，逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对上述各工作流的复制清单。
 

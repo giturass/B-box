@@ -68,7 +68,7 @@ func TestUIEgressSourceParsers(t *testing.T) {
 
 func TestUIEgressPublicIP(t *testing.T) {
 	for _, ip := range []string{"203.0.113.9", "8.8.8.8", "2001:db8::9", "::ffff:8.8.8.8"} {
-		if !uiPublicIP(ip) || !mentionsUIPublicIP("ip="+ip+"\nloc=GB") {
+		if !uiPublicIP(ip) {
 			t.Fatalf("public address rejected: %s", ip)
 		}
 	}
@@ -77,12 +77,9 @@ func TestUIEgressPublicIP(t *testing.T) {
 		"100.64.0.1", "100.127.255.254", "0.0.0.0", "224.0.0.1", "255.255.255.255",
 		"::", "::1", "fc00::1", "fe80::1", "ff02::1", "::ffff:192.168.1.1", "not-an-ip",
 	} {
-		if uiPublicIP(ip) || mentionsUIPublicIP("ip="+ip) {
+		if uiPublicIP(ip) {
 			t.Fatalf("nonpublic address accepted: %s", ip)
 		}
-	}
-	if mentionsUIPublicIP("<html>Captcha: verify you are human at www.cloudflare.com</html>") {
-		t.Fatal("captcha without a public IP must not win the race")
 	}
 }
 
@@ -112,7 +109,7 @@ func TestUIEgressRaceConcurrencyAndCancellation(t *testing.T) {
 				if source == uiIPSources[2] {
 					select {
 					case <-release:
-						return &UIHTTPResponse{Status: 200, Content: []byte("ip=203.0.113.9")}, nil
+						return &UIHTTPResponse{Status: 200, Content: []byte(`{"ip":"203.0.113.9","country":"GB"}`)}, nil
 					case <-ctx.Done():
 					}
 				} else {
@@ -153,7 +150,7 @@ func TestUIEgressRaceAdvancesAfterFailures(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	var calls int
-	source, _, err := lookupUIOutboundIP(ctx, uiIPSources, time.Hour, 3,
+	source, info, err := lookupUIOutboundIP(ctx, uiIPSources, time.Hour, 3,
 		func(ctx context.Context, source uiIPSource) (*UIHTTPResponse, error) {
 			calls++
 			switch calls {
@@ -162,11 +159,124 @@ func TestUIEgressRaceAdvancesAfterFailures(t *testing.T) {
 			case 2:
 				return &UIHTTPResponse{Status: 429, Content: []byte("203.0.113.9")}, nil
 			default:
-				return &UIHTTPResponse{Status: 200, Content: []byte("ip=203.0.113.9")}, nil
+				return &UIHTTPResponse{Status: 200, Content: []byte(`{"ip":"203.0.113.9","country":"GB"}`)}, nil
 			}
 		})
-	if err != nil || source != uiIPSources[2] || calls != 3 {
-		t.Fatalf("failed sources must immediately release their slot: %v %v %d", source, err, calls)
+	if err != nil || source != uiIPSources[2] || calls != 3 || info["ip"] != "203.0.113.9" || info["country"] != "GB" {
+		t.Fatalf("failed sources must immediately release their slot: %v %v %v %d", source, info, err, calls)
+	}
+}
+
+func TestUIEgressRaceAdvancesAfterParseFailures(t *testing.T) {
+	fixtures := []struct {
+		name   string
+		source uiIPSource
+		body   string
+	}{
+		{"trace missing country", uiIPSources[0], "ip=203.0.113.9\n"},
+		{"trace error page", uiIPSources[0], "<html>Your IP is 203.0.113.9</html>"},
+		{"malformed JSON", uiIPSources[2], `{"ip":"203.0.113.9","country":"GB"`},
+		{"non-JSON body", uiIPSources[2], "ip=203.0.113.9"},
+		{"missing IP", uiIPSources[2], `{"server_ip":"203.0.113.9","country":"GB"}`},
+		{"private IP with public IP elsewhere", uiIPSources[2], `{"ip":"10.0.0.1","country":"GB","server_ip":"203.0.113.9"}`},
+		{"missing country", uiIPSources[2], `{"ip":"203.0.113.9"}`},
+		{"invalid country type", uiIPSources[2], `{"ip":"203.0.113.9","country":1}`},
+		{"missing nested country", uiIPSources[6], `{"ip":"203.0.113.9","location":{}}`},
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			winner := uiIPSources[7]
+			var calls atomic.Int32
+			source, info, err := lookupUIOutboundIP(ctx, []uiIPSource{fixture.source, winner}, time.Hour, uiIPConcurrency,
+				func(ctx context.Context, source uiIPSource) (*UIHTTPResponse, error) {
+					calls.Add(1)
+					body := `{"ip":"203.0.113.9","cc":"GB"}`
+					if source == fixture.source {
+						body = fixture.body
+					}
+					return &UIHTTPResponse{Status: 200, Content: []byte(body)}, nil
+				})
+			if err != nil || source != winner || calls.Load() != 2 || info["ip"] != "203.0.113.9" || info["country"] != "GB" {
+				t.Fatalf("an unparseable response must advance to the next source: %v %v %v calls=%d", source, info, err, calls.Load())
+			}
+		})
+	}
+}
+
+func TestUIEgressRaceParseFailureKeepsOtherSourcesAlive(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	sources := uiIPSources[:3]
+	started := make(chan uiIPSource, len(sources))
+	cancelled := make(chan uiIPSource, len(sources))
+	releaseInvalid, releaseWinner := make(chan struct{}), make(chan struct{})
+	type result struct {
+		source uiIPSource
+		info   map[string]any
+		err    error
+	}
+	completed := make(chan result, 1)
+	go func() {
+		source, info, err := lookupUIOutboundIP(ctx, sources, 10*time.Millisecond, 2,
+			func(ctx context.Context, source uiIPSource) (*UIHTTPResponse, error) {
+				started <- source
+				switch source {
+				case sources[0]:
+					select {
+					case <-releaseInvalid:
+						return &UIHTTPResponse{Status: 200, Content: []byte("ip=203.0.113.9\n")}, nil
+					case <-ctx.Done():
+					}
+				case sources[1]:
+					select {
+					case <-releaseWinner:
+						return &UIHTTPResponse{Status: 200, Content: []byte(`{"ip":"203.0.113.9","country_code":"GB"}`)}, nil
+					case <-ctx.Done():
+					}
+				default:
+					<-ctx.Done()
+				}
+				cancelled <- source
+				return nil, ctx.Err()
+			})
+		completed <- result{source, info, err}
+	}()
+	for index := 0; index < 2; index++ {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Fatal("race did not start the first two sources")
+		}
+	}
+	close(releaseInvalid)
+	select {
+	case source := <-started:
+		if source != sources[2] {
+			t.Fatalf("unexpected fallback source: %v", source)
+		}
+	case answer := <-completed:
+		t.Fatalf("an unparseable response ended the race early: %v", answer)
+	case <-ctx.Done():
+		t.Fatal("parse failure did not release its slot for another source")
+	}
+	close(releaseWinner)
+	select {
+	case answer := <-completed:
+		if answer.err != nil || answer.source != sources[1] || answer.info["ip"] != "203.0.113.9" || answer.info["country"] != "GB" {
+			t.Fatalf("the in-flight valid source must survive parse failure: %v", answer)
+		}
+	case <-ctx.Done():
+		t.Fatal("the in-flight valid source was cancelled before it could win")
+	}
+	select {
+	case source := <-cancelled:
+		if source != sources[2] {
+			t.Fatalf("the valid source was cancelled instead of the losing source: %v", source)
+		}
+	case <-ctx.Done():
+		t.Fatal("the parsed winner did not cancel the remaining request")
 	}
 }
 
@@ -353,15 +463,18 @@ func TestUIEgressIPWinnerKeepsQualitySessionAlive(t *testing.T) {
 		if r.Header.Get("User-Agent") != uiProbeUserAgent {
 			t.Error("probe user agent differs from FlClash")
 		}
-		if r.URL.Path == "/trace" {
+		switch r.URL.Path {
+		case "/invalid":
+			io.WriteString(w, "ip=203.0.113.9\n")
+		case "/trace":
 			io.WriteString(w, "ip=203.0.113.9\nloc=GB\n")
-		} else {
+		default:
 			io.WriteString(w, "{\"type\":\"isp\"}")
 		}
 	}))
 	defer server.Close()
 	previous := uiIPSources
-	uiIPSources = []uiIPSource{{server.URL + "/trace", "loc"}}
+	uiIPSources = []uiIPSource{{server.URL + "/invalid", "loc"}, {server.URL + "/trace", "loc"}}
 	defer func() { uiIPSources = previous }()
 	for _, direct := range []bool{false, true} {
 		t.Run(fmt.Sprintf("direct=%t", direct), func(t *testing.T) {

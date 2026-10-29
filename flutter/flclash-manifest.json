@@ -326,7 +326,7 @@
         {
           "source": "core/outbound_ip.go",
           "sourceSHA256": "3fe24d2501c91dd4e6a9a3e5c734b92fa1e0fd9e6e54d7d27266659de256c1a0",
-          "changes": "IP race concurrency, stagger, response limit, browser user agent and public-IP validation preserved; routed HTTP transport uses sing-box."
+          "changes": "IP race concurrency, stagger, response limit, browser user agent and public-IP validation preserved; routed HTTP transport uses sing-box. A source wins only after its source-specific parser validates the public IP and country field; malformed or incomplete responses advance the race."
         },
         {
           "source": "lib/common/service_probe.dart",
