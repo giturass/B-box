@@ -12,7 +12,7 @@ import '../components/proxy_groups_panel.dart';
 
 export '../components/dashboard_editor.dart' show DashboardEditor;
 
-const dashboardCards = ['Status', 'Network speed', 'Outbound mode', 'Current profile', 'Proxy groups', 'Memory', 'Intranet IP'];
+const dashboardCards = ['Status', 'Network speed', 'Outbound mode', 'Current profile', 'Proxy groups', 'Memory', 'Intranet IP', 'System HTTP proxy'];
 const defaultDashboardCards = ['Status', 'Network speed', 'Outbound mode', 'Current profile', 'Proxy groups'];
 const defaultHiddenCards = ['Memory', 'Intranet IP'];
 
@@ -45,6 +45,11 @@ class _DashboardPageState extends State<DashboardPage> {
       'Current profile': const ProfilePanel(),
       'Proxy groups': const ProxyGroupsPanel(),
       'Memory': const MemoryPanel(),
+      if (box.dashboard['systemProxyAvailable'] == true) 'System HTTP proxy': BoxPanel(child: ListItem.toggle(
+        leading: const GlyphIcon(AppGlyphs.proxies),
+        title: Text(context.tr('System HTTP proxy'), style: AppTextStyle.subheadline.of(context, emphasized: true)),
+        value: box.dashboard['systemProxy'] == true,
+        onChanged: (value) => box.act('systemProxy.set', {'enabled': value}))),
     };
   }
 
@@ -97,11 +102,6 @@ class _DashboardPageState extends State<DashboardPage> {
                 onPressed: () async { if (await box.act('service.reload', {'restart': true})) box.clearApplyRequired(); },
                 child: Text(context.tr('Apply')))),
               for (final card in shown) RepaintBoundary(key: _keyOf(card), child: cards[card]),
-              if (box.dashboard['systemProxyAvailable'] == true) BoxPanel(child: ListItem.toggle(
-                leading: const GlyphIcon(AppGlyphs.proxies),
-                title: Text(context.tr('System HTTP proxy'), style: AppTextStyle.subheadline.of(context, emphasized: true)),
-                value: box.dashboard['systemProxy'] == true,
-                onChanged: (value) => box.act('systemProxy.set', {'enabled': value}))),
               for (final note in rows(box.dashboard['deprecated'])) ListItem(title: Text(note['message'].toString()),
                 onTap: note['url'] == null ? null : () => box.act('url.open', {'url': note['url']})),
             ]))),

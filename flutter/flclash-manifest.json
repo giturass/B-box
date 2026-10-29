@@ -138,7 +138,7 @@
     "lib/pages/dashboard.dart": {
       "source": "lib/views/dashboard/widgets/traffic.dart",
       "sourceSHA256": "e218e48571bb9ab33b840d2a52eb037b59fba2ee8831bec7971d8c63f339a619",
-      "changes": "NetworkSpeedCard and SpeedTile layout adapted to sing-box traffic samples; other dashboard cards use B-box capability state."
+      "changes": "NetworkSpeedCard and SpeedTile layout adapted to sing-box traffic samples; other dashboard cards use B-box capability state. The capability-gated system HTTP proxy uses the shared editable card order and visibility preferences."
     },
     "lib/pages/proxies.dart": {
       "source": "lib/views/proxies/card.dart",
@@ -237,7 +237,7 @@
     "lib/components/dashboard_editor.dart": {
       "source": "lib/views/dashboard/edit.dart",
       "sourceSHA256": "22c6b0d835e2b7c7c0bd5d9e2e50580a816fff889d0f8eda0b4c561bf084e462",
-      "changes": "In-place live cards, sway, long-press reordering, remove badges, presence motion and addable rows retained. Saves native preferences, preserves card keys and retries failed saves before leaving."
+      "changes": "In-place live cards, sway, long-press reordering, remove badges, presence motion and addable rows retained, including the B-box system HTTP proxy card. Saves native preferences, preserves card keys and retries failed saves before leaving."
     },
     "lib/components/form.dart": {
       "source": "lib/features/form/form_row.dart",

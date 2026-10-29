@@ -29,4 +29,12 @@ class BoxSettingsTest {
             assertEquals(current, BoxPreferences.validate(current + ("locale" to locale)))
         }
     }
+
+    @Test
+    fun systemHttpProxyCardLayoutSurvivesPreferenceAndBackupValidation() {
+        val shown = mapOf("dashboardCards" to listOf("System HTTP proxy", "Status"), "hiddenCards" to listOf("Memory"))
+        assertEquals(shown, BoxPreferences.validate(shown))
+        val hidden = shown + ("hiddenCards" to listOf("Memory", "System HTTP proxy"))
+        assertEquals(hidden, BoxPreferences.validate(hidden))
+    }
 }

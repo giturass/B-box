@@ -9,8 +9,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/errors.dart';
 
 void main() {
-  for (final scenario in ['add-remove', 'reorder', 'failed-save']) {
-    testWidgets('dashboard edits cards in place: $scenario', (tester) async {
+  for (final (card, scenario) in [
+    for (final card in ['Network speed', 'System HTTP proxy'])
+      for (final scenario in ['add-remove', 'reorder', 'failed-save']) (card, scenario),
+  ]) {
+    testWidgets('dashboard edits $card in place: $scenario', (tester) async {
       reportFlutterErrors();
       tester.view.physicalSize = const Size(360, 800);
       tester.view.devicePixelRatio = 1;
@@ -23,6 +26,14 @@ void main() {
         'dashboardCards': ['Status', 'Network speed', 'Outbound mode', 'Current profile', 'Connections', 'Proxy groups'],
         'hiddenCards': ['Connections', 'Memory', 'Intranet IP'],
       });
+      final systemProxy = card == 'System HTTP proxy';
+      if (systemProxy && scenario != 'add-remove') preferences['dashboardCards'] = [
+        'Status', card, 'Network speed', 'Outbound mode', 'Current profile', 'Proxy groups',
+      ];
+      final dashboard = <String, dynamic>{
+        'status': 'Started', 'selectedProfileId': 1, 'modes': ['rule', 'global', 'direct'], 'mode': 'rule',
+        'systemProxyAvailable': systemProxy, 'systemProxy': true,
+      };
       final calls = <MethodCall>[];
       var reject = scenario == 'failed-save';
       final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -31,8 +42,12 @@ void main() {
         switch (call.method) {
           case 'ready': return {'version': 'test', 'coreVersion': 'test', 'preferences': preferences,
             'profiles': [{'id': 1, 'name': 'Local profile', 'remote': false}],
-            'dashboard': {'status': 'Started', 'selectedProfileId': 1, 'modes': ['rule', 'global', 'direct'], 'mode': 'rule'}};
+            'dashboard': dashboard};
           case 'dashboard.egress': return {'ip': '203.0.113.1', 'country': 'CN', 'type': 'Residential'};
+          case 'systemProxy.set':
+            dashboard['systemProxy'] = json(call.arguments)['enabled'];
+            events.add({'type': 'dashboard', 'value': dashboard});
+            return null;
           case 'preferences.set':
             if (reject) throw PlatformException(code: 'disk', message: 'Save failed');
             preferences.addAll(json((call.arguments as Map)['value']));
@@ -43,6 +58,7 @@ void main() {
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
       await tester.pumpWidget(BoxApp(controller: BoxController(channel: channel, events: events.stream)));
       await tester.pumpAndSettle();
+      if (systemProxy) expect(find.text(card), findsOneWidget);
       final status = tester.state(find.byType(StatusPanel));
       final egressCalls = calls.where((call) => call.method == 'dashboard.egress').length;
       Future<void> advance() async {
@@ -58,6 +74,11 @@ void main() {
       expect(find.byTooltip('Remove Connections'), findsNothing);
       expect(find.byTooltip('Add Connections'), findsNothing);
       if (scenario == 'reorder') {
+        if (systemProxy) {
+          await tester.tap(find.text(card));
+          await advance();
+          expect(calls.where((call) => call.method == 'systemProxy.set'), isEmpty);
+        }
         final handle = find.byType(ReorderableDelayedDragStartListener).at(1);
         // The centre of this tall card can sit behind the navigation bar.
         // Start on its visible upper part, as a finger would on a phone.
@@ -87,30 +108,60 @@ void main() {
         await advance();
         expect(calls.where((call) => call.method == 'preferences.set'), isNotEmpty);
         final order = preferences['dashboardCards'] as List;
-        expect(order.indexOf('Network speed'), lessThan(order.indexOf('Status')));
+        expect(order.indexOf(card), lessThan(order.indexOf('Status')));
       } else {
-        await tester.tap(find.byTooltip('Remove Network speed'));
+        if (systemProxy && scenario == 'add-remove') {
+          await tester.scrollUntilVisible(find.byTooltip('Remove $card'), 250,
+            scrollable: find.ancestor(of: find.byType(DashboardEditor), matching: find.byType(Scrollable)).first);
+          await advance();
+        }
+        await tester.tap(find.byTooltip('Remove $card'));
         await advance();
-        expect(find.byTooltip('Remove Network speed'), findsNothing);
+        expect(find.byTooltip('Remove $card'), findsNothing);
         if (scenario == 'failed-save') {
           expect(preferences['hiddenCards'], isNull);
           expect(find.byType(DashboardEditor), findsOneWidget);
           reject = false;
         } else {
-          expect(preferences['hiddenCards'], contains('Network speed'));
+          expect(preferences['hiddenCards'], contains(card));
           expect(preferences['dashboardCards'], isNot(contains('Connections')));
           expect(preferences['hiddenCards'], isNot(contains('Connections')));
-          await tester.scrollUntilVisible(find.byTooltip('Add Memory'), 250,
+          if (systemProxy) {
+            events.add({'type': 'dashboard', 'value': {...dashboard, 'systemProxyAvailable': false}});
+            await advance();
+            expect(find.byTooltip('Add $card'), findsNothing);
+            await tester.ensureVisible(find.byTooltip('Remove Network speed'));
+            await advance();
+            await tester.tap(find.byTooltip('Remove Network speed'));
+            await advance();
+            expect(preferences['dashboardCards'], contains(card));
+            expect(preferences['hiddenCards'], contains(card));
+            events.add({'type': 'dashboard', 'value': dashboard});
+            await advance();
+          }
+          final addCard = systemProxy ? card : 'Memory';
+          await tester.scrollUntilVisible(find.byTooltip('Add $addCard'), 250,
             scrollable: find.ancestor(of: find.byType(DashboardEditor), matching: find.byType(Scrollable)).first);
           await advance();
-          await tester.tap(find.byTooltip('Add Memory'));
+          await tester.tap(find.byTooltip('Add $addCard'));
           await advance();
-          expect(preferences['hiddenCards'], isNot(contains('Memory')));
+          expect(preferences['hiddenCards'], isNot(contains(addCard)));
         }
       }
       await tester.tap(find.byTooltip('Done'));
       await tester.pumpAndSettle();
       expect(find.byType(DashboardEditor), findsNothing);
+      if (scenario == 'failed-save') expect(preferences['hiddenCards'], contains(card));
+      if (systemProxy) {
+        expect(find.text(card), scenario == 'failed-save' ? findsNothing : findsOneWidget);
+        if (scenario == 'reorder') {
+          await tester.tap(find.text(card));
+          await tester.pumpAndSettle();
+          final commands = calls.where((call) => call.method == 'systemProxy.set');
+          expect(commands, hasLength(1));
+          expect(json(commands.single.arguments), {'enabled': false});
+        }
+      }
       expect(tester.state(find.byType(StatusPanel)), same(status));
       expect(calls.where((call) => call.method == 'dashboard.egress'), hasLength(egressCalls));
       if (scenario == 'add-remove') {
