@@ -94,8 +94,8 @@ void main() {
     final localCard = find.byWidgetPredicate((w) => w is ProfileCard && w.profile['id'] == 2);
     final remote = tester.widget<ProfileCard>(remoteCard);
     final local = tester.widget<ProfileCard>(localCard);
-    expect(remote.menuItems.map((item) => item.label), ['Edit', 'Update', 'Open configuration', 'Copy link', 'QR code', 'Share', 'Export', 'Delete']);
-    expect(local.menuItems.map((item) => item.label), ['Edit', 'Open configuration', 'Share', 'Export', 'Delete']);
+    expect(remote.menuItems.map((item) => item.label), ['Edit', 'Update', 'Copy link', 'QR code', 'Share', 'Export', 'Delete']);
+    expect(local.menuItems.map((item) => item.label), ['Edit', 'Share', 'Export', 'Delete']);
     expect(remote.menuItems.last.danger, isTrue);
     remote.menuItems.singleWhere((item) => item.label == 'Copy link').onPressed!();
     await tester.pump();

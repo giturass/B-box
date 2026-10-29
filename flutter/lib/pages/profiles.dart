@@ -59,7 +59,6 @@ class _ProfilesPageState extends State<ProfilesPage> {
     CommonPopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => openForm(context, ProfileDetailsPage(profile: profile))),
     if (profile['remote'] == true)
       CommonPopupMenuItem(glyph: AppGlyphs.sync, label: context.tr('Update'), onPressed: () => _update(profile)),
-    CommonPopupMenuItem(glyph: AppGlyphs.code, label: context.tr('Open configuration'), onPressed: () => openPage(context, ProfileEditor(profile: profile))),
     if (profile['remote'] == true) ...[
       CommonPopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Copy link'), onPressed: () async {
         await Clipboard.setData(ClipboardData(text: profile['url'].toString()));
