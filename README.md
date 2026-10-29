@@ -8,11 +8,11 @@
 - 配置使用 sing-box JSON。代理组、可选节点、测速和路由模式来自 libbox，自动组由内核选择。
 - 保留 VPN、分应用代理、Root/Shizuku 应用查询、远程控制、连接管理和日志。
 - Tailscale、Taildrop、SSH、OpenConnect/OpenVPN 认证、USB/IP、网络诊断和报告通过新页面使用现有后端。
-- 支持配置和设置备份；原包名、数据库及已有配置保持兼容。
+- 支持配置和设置备份；B-box 既有包名、数据库及配置保持兼容。
 - 旧 Compose 页面、导航、编辑器及更新下载/静默安装链路已移除。关于页使用独立的 B-box Release 检查；配置订阅更新继续保留。
 - Xposed/LSPosed 和 Android 5/6 支持已移除。
 
-维护指南：[MODIFICATIONS.md](MODIFICATIONS.md)。新界面架构、能力边界和验证状态：[NEWUI.md](NEWUI.md)。组件来源及许可证：[third_party/flclash](third_party/flclash)。
+项目约束：[AGENTS.md](AGENTS.md)。核心差异：[libbox.md](libbox.md)。FlClash UI 使用情况及来源：[flclash.md](flclash.md)。Android 应用差异与构建发布：[app.md](app.md)。组件许可证：[flutter/assets/licenses](flutter/assets/licenses)。
 
 ## Documentation
 

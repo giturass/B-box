@@ -33,7 +33,7 @@ jobs:
         run: |
           for name in KEYSTORE_BASE64 KEYSTORE_PASS ALIAS_NAME ALIAS_PASS; do
             if [[ -z "${!name}" ]]; then
-              echo "::error::Missing repository secret: $name (see MODIFICATIONS.md)"
+              echo "::error::Missing repository secret: $name (see app.md)"
               exit 1
             fi
           done
@@ -62,8 +62,8 @@ jobs:
       - name: Disable legacy libbox build
         working-directory: .core
         run: |
-          git apply --check ../patches/libbox-no-legacy.patch
-          git apply ../patches/libbox-no-legacy.patch
+          git apply --check ../libbox/libbox-no-legacy.patch
+          git apply ../libbox/libbox-no-legacy.patch
           cp ../libbox/ui_dashboard.go experimental/libbox/ui_dashboard.go
           cp ../libbox/ui_http.go experimental/libbox/ui_http.go
           cp ../libbox/ui_egress.go experimental/libbox/ui_egress.go
