@@ -1,4 +1,5 @@
 """Run the real libbox/Room/service recovery regressions in the smoke emulator."""
+import re
 import subprocess
 from pathlib import Path
 
@@ -13,4 +14,4 @@ result = subprocess.run([
 ], capture_output=True, text=True, timeout=360)
 (out / "native-tests.txt").write_text(result.stdout + result.stderr)
 print(result.stdout)
-assert result.returncode == 0 and "OK (3 tests)" in result.stdout, result.stderr
+assert result.returncode == 0 and re.search(r"\bOK \([1-9]\d* tests?\)", result.stdout), result.stdout + result.stderr

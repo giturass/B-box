@@ -4,6 +4,7 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.database.Profile
+import io.nekohasekai.sfa.database.ProfileChange
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
@@ -11,8 +12,6 @@ import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.CommandTarget
 import io.nekohasekai.sfa.utils.HTTPClient
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.net.URI
@@ -69,31 +68,26 @@ internal class BoxProfiles(private val applySelected: suspend (recover: Boolean)
     }
 
     private suspend fun writeContentLocked(id: Long, content: String, expectedRevision: String): Map<String, Any?> {
-        val profile = get(id)
-        val file = File(profile.typed.path)
-        val previous = file.readText()
-        require(revision(previous) == expectedRevision) { "Configuration changed; reload it before saving" }
-        validate(content)
-        if (previous != content) {
-            write(file, content)
-            try {
-                if (id == Settings.selectedProfile) applySelected(false)
-            } catch (e: Exception) {
-                withContext(NonCancellable) {
-                    write(file, previous)
-                    if (id == Settings.selectedProfile) runCatching { applySelected(true) }.exceptionOrNull()?.let(e::addSuppressed)
-                }
-                throw e
-            }
-        }
+        ProfileContent.replaceLocked(get(id), content, expectedRevision = expectedRevision, applySelected = applySelected)
         return configLocked(id)
     }
 
     suspend fun select(id: Long) = mutex.withLock {
         get(id)
-        Settings.selectedProfile = id
-        Settings.dataStore.flush()
-        applySelected(false)
+        val previous = Settings.selectedProfile
+        val previousMode = Settings.serviceMode
+        ProfileChange.apply(
+            save = {
+                Settings.selectedProfile = id
+                Settings.dataStore.flush()
+            },
+            restore = listOf<suspend () -> Unit>({
+                Settings.selectedProfile = previous
+                if (Settings.serviceMode != previousMode) Settings.serviceMode = previousMode
+                Settings.dataStore.flush()
+            }),
+            applyService = applySelected,
+        )
     }
 
     suspend fun save(args: Map<String, Any?>): Long = mutex.withLock {
@@ -150,13 +144,7 @@ internal class BoxProfiles(private val applySelected: suspend (recover: Boolean)
         val profile = get(id)
         require(profile.typed.type == TypedProfile.Type.Remote) { "Only remote profiles can be updated" }
         val content = HTTPClient().use { it.getString(validateUrl(profile.typed.remoteURL)) }
-        validate(content)
-        val file = File(profile.typed.path)
-        val changed = !file.exists() || file.readText() != content
-        if (changed) write(file, content)
-        profile.typed.lastUpdated = Date()
-        ProfileManager.update(profile)
-        if (changed && id == Settings.selectedProfile) applySelected(false)
+        ProfileContent.replaceLocked(profile, content, updatedAt = Date(), applySelected = applySelected)
     }
 
     suspend fun delete(id: Long) = mutex.withLock {

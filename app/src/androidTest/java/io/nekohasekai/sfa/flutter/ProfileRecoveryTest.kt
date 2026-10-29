@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
+import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.compose.MainActivity
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
@@ -19,9 +20,13 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.Closeable
 import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
+import java.util.Date
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
 
 @RunWith(AndroidJUnit4::class)
 class ProfileRecoveryTest {
@@ -69,6 +74,181 @@ class ProfileRecoveryTest {
         } finally {
             PackageQueryManager.setQueryMode(before)
             Settings.dataStore.flush()
+        }
+    }
+
+    @Test fun failedSelectionRestoresThePreviousSelectionAndService() = withRunningProfile { activity, profiles, id ->
+        val previousMode = Settings.serviceMode
+        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { occupied ->
+            val content = occupiedPortConfig(occupied.localPort)
+            val candidate = profiles.save(mapOf("name" to "Broken selection", "content" to content))
+            try {
+                val failure = runCatching { profiles.select(candidate) }.exceptionOrNull()
+                assertNotNull("Selecting a configuration must report its reload failure", failure)
+                assertEquals(id, Settings.selectedProfile)
+                assertEquals(previousMode, Settings.serviceMode)
+                assertEquals(content, profiles.read(candidate))
+                withTimeout(15_000) { activity.serviceStatus.first { it == Status.Started } }
+                assertEquals(0, failure!!.suppressed.size)
+            } finally {
+                profiles.delete(candidate)
+            }
+        }
+    }
+
+    @Test fun failedManualUpdateRestoresContentTimestampAndService() {
+        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { occupied ->
+            SubscriptionServer(occupiedPortConfig(occupied.localPort)).use { server ->
+                withRunningProfile(server.url) { activity, profiles, id ->
+                    val before = profiles.get(id).typed.lastUpdated.time
+                    Libbox.checkConfig(server.content)
+                    val failure = runCatching { profiles.update(id) }.exceptionOrNull()
+                    assertNotNull("A failed subscription must report its reload failure", failure)
+                    assertEquals(1, server.requests.get())
+                    assertEquals("{}", profiles.read(id))
+                    assertEquals(before, profiles.get(id).typed.lastUpdated.time)
+                    withTimeout(15_000) { activity.serviceStatus.first { it == Status.Started } }
+                    assertEquals(0, failure!!.suppressed.size)
+                }
+            }
+        }
+    }
+
+    @Test fun failedAutomaticUpdateRestoresDataAndRequestsRetry() {
+        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { occupied ->
+            SubscriptionServer(occupiedPortConfig(occupied.localPort)).use { server ->
+                withRunningProfile(server.url) { activity, profiles, id ->
+                    Libbox.checkConfig(server.content)
+                    val profile = profiles.get(id)
+                    profile.typed.autoUpdate = true
+                    profile.typed.lastUpdated = Date(0)
+                    ProfileManager.update(profile)
+                    assertFalse(UpdateProfileWork.updateProfiles(activity.applicationContext))
+                    assertEquals(1, server.requests.get())
+                    assertEquals("{}", profiles.read(id))
+                    assertEquals(0L, profiles.get(id).typed.lastUpdated.time)
+                    assertEquals(id, Settings.selectedProfile)
+                    withTimeout(15_000) { activity.serviceStatus.first { it == Status.Started } }
+                }
+            }
+        }
+    }
+
+    @Test fun stoppedAndUnselectedUpdatesPreserveServiceState() {
+        SubscriptionServer("""{"log":{"disabled":true}}""").use { server ->
+            withRunningProfile(server.url) { activity, profiles, id ->
+                val other = profiles.save(mapOf("name" to "Unselected subscription", "content" to "{}", "url" to server.url))
+                try {
+                    profiles.update(other)
+                    assertEquals(server.content, profiles.read(other))
+                    assertEquals(id, Settings.selectedProfile)
+                    assertEquals(Status.Started, activity.serviceStatus.value)
+
+                    server.content = """{"log":{"level":"warn"}}"""
+                    val unselected = profiles.get(other)
+                    unselected.typed.autoUpdate = true
+                    unselected.typed.lastUpdated = Date(0)
+                    ProfileManager.update(unselected)
+                    assertTrue(UpdateProfileWork.updateProfiles(activity.applicationContext))
+                    assertEquals(server.content, profiles.read(other))
+                    assertEquals(id, Settings.selectedProfile)
+                    assertEquals(Status.Started, activity.serviceStatus.value)
+                    val updatedUnselected = profiles.get(other)
+                    updatedUnselected.typed.autoUpdate = false
+                    ProfileManager.update(updatedUnselected)
+
+                    withContext(Dispatchers.Main) { activity.stopService() }
+                    withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+                    profiles.update(id)
+                    assertEquals(server.content, profiles.read(id))
+                    assertEquals(Status.Stopped, activity.serviceStatus.value)
+
+                    server.content = "{}"
+                    val profile = profiles.get(id)
+                    profile.typed.autoUpdate = true
+                    profile.typed.lastUpdated = Date(0)
+                    ProfileManager.update(profile)
+                    assertTrue(UpdateProfileWork.updateProfiles(activity.applicationContext))
+                    assertEquals("{}", profiles.read(id))
+                    assertTrue(profiles.get(id).typed.lastUpdated.time > 0L)
+                    assertEquals(Status.Stopped, activity.serviceStatus.value)
+                    profiles.select(other)
+                    assertEquals(other, Settings.selectedProfile)
+                    assertEquals(Status.Stopped, activity.serviceStatus.value)
+                } finally {
+                    profiles.delete(other)
+                }
+            }
+        }
+    }
+
+    private fun withRunningProfile(
+        url: String = "",
+        block: suspend (MainActivity, BoxProfiles, Long) -> Unit,
+    ) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        if (Build.VERSION.SDK_INT >= 33) {
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                instrumentation.uiAutomation.executeShellCommand("pm grant ${instrumentation.targetContext.packageName} android.permission.POST_NOTIFICATIONS"),
+            ).use { it.readBytes() }
+        }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            lateinit var activity: MainActivity
+            scenario.onActivity { activity = it }
+            runBlocking(Dispatchers.IO) {
+                Settings.dataStore.initialize()
+                val oldSelection = Settings.selectedProfile
+                val oldMode = Settings.serviceMode
+                val profiles = BoxProfiles { recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) } }
+                val id = profiles.save(mapOf("name" to "Subscription recovery fixture", "content" to "{}", "url" to url, "updatedAt" to 0L))
+                try {
+                    Settings.selectedProfile = id
+                    Settings.dataStore.flush()
+                    withContext(Dispatchers.Main) { activity.applyProfile(recover = true) }
+                    assertEquals(Status.Started, activity.serviceStatus.value)
+                    block(activity, profiles, id)
+                } finally {
+                    withContext(Dispatchers.Main) { activity.stopService() }
+                    withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+                    ProfileManager.get(id)?.let { ProfileManager.delete(it); File(it.typed.path).delete() }
+                    Settings.selectedProfile = oldSelection
+                    Settings.serviceMode = oldMode
+                    Settings.dataStore.flush()
+                    UpdateProfileWork.reconfigureUpdater()
+                }
+            }
+        }
+    }
+
+    private fun occupiedPortConfig(port: Int): String =
+        """{"inbounds":[{"type":"mixed","listen":"127.0.0.1","listen_port":$port}]}"""
+
+    private class SubscriptionServer(@Volatile var content: String) : Closeable {
+        private val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val url = "http://127.0.0.1:${server.localPort}/profile.json"
+        val requests = AtomicInteger()
+        private val worker = thread(isDaemon = true, name = "subscription-fixture") {
+            while (!server.isClosed) {
+                try {
+                    server.accept().use { socket ->
+                        socket.soTimeout = 15_000
+                        val reader = socket.getInputStream().bufferedReader()
+                        while (!reader.readLine().isNullOrEmpty()) { }
+                        val bytes = content.toByteArray(Charsets.UTF_8)
+                        requests.incrementAndGet()
+                        val output = socket.getOutputStream()
+                        output.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                        output.write(bytes)
+                        output.flush()
+                    }
+                } catch (failure: Exception) {
+                    if (!server.isClosed) throw failure
+                }
+            }
+        }
+        override fun close() {
+            server.close()
+            worker.join(5_000)
         }
     }
 

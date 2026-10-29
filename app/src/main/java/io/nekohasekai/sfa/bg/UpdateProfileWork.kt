@@ -8,15 +8,13 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
-import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.HTTPClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.withLock
-import java.io.File
 import java.util.Date
 import java.util.concurrent.TimeUnit
 
@@ -59,15 +57,12 @@ class UpdateProfileWork {
                     .build(),
             )
         }
-    }
 
-    class UpdateTask(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
-        override suspend fun doWork(): Result {
-            var selectedProfileUpdated = false
+        internal suspend fun updateProfiles(context: Context): Boolean {
             val remoteProfiles =
                 ProfileManager.list()
                     .filter { it.typed.type == TypedProfile.Type.Remote && it.typed.autoUpdate }
-            if (remoteProfiles.isEmpty()) return Result.success()
+            if (remoteProfiles.isEmpty()) return true
             var success = true
             for (profile in remoteProfiles) {
                 val lastSeconds =
@@ -82,30 +77,25 @@ class UpdateProfileWork {
                         val age = (System.currentTimeMillis() - current.typed.lastUpdated.time) / 1000L
                         if (age < current.typed.autoUpdateInterval * 60) return@withLock
                         val content = HTTPClient().use { it.getString(current.typed.remoteURL) }
-                        ProfileContent.validate(content)
-                        val file = File(current.typed.path)
-                        if (file.readText() != content) {
-                            ProfileContent.write(file, content)
-                            if (current.id == Settings.selectedProfile) selectedProfileUpdated = true
+                        val service = BackgroundProfileService(context)
+                        try {
+                            ProfileContent.replaceLocked(current, content, updatedAt = Date(), applySelected = service::apply)
+                        } finally {
+                            service.close()
                         }
-                        current.typed.lastUpdated = Date()
-                        ProfileManager.update(current)
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "update profile ${profile.name}", e)
                     success = false
                 }
             }
-            if (selectedProfileUpdated) {
-                runCatching {
-                    Libbox.newStandaloneCommandClient().serviceReload()
-                }
-            }
-            return if (success) {
-                Result.success()
-            } else {
-                Result.retry()
-            }
+            return success
         }
+    }
+
+    class UpdateTask(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
+        override suspend fun doWork(): Result = if (updateProfiles(applicationContext)) Result.success() else Result.retry()
     }
 }
