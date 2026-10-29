@@ -42,6 +42,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -53,8 +55,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     companion object {
         @Volatile internal var dashboardServer: CommandServer? = null
             private set
-        @Volatile internal var dashboardConfig: DashboardConfig? = null
-            private set
+        private val _dashboardConfig = MutableStateFlow<DashboardConfig?>(null)
+        internal val dashboardConfig = _dashboardConfig.asStateFlow()
         private const val TAG = "BoxService"
 
         @OptIn(DelicateCoroutinesApi::class)
@@ -178,7 +180,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
 
             dashboardServer = commandServer
-            dashboardConfig = DashboardConfig(commandServer, selectedProfileId, content)
+            _dashboardConfig.value = DashboardConfig(commandServer, selectedProfileId, content)
             if (commandServer.needWIFIState()) {
                 val wifiPermission =
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -263,7 +265,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
 
         dashboardServer = commandServer
-        dashboardConfig = DashboardConfig(commandServer, selectedProfileId, content)
+        _dashboardConfig.value = DashboardConfig(commandServer, selectedProfileId, content)
         if (commandServer.needWIFIState()) {
             val wifiPermission =
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -332,7 +334,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private fun closeService() {
-        if (dashboardConfig?.server === commandServer) dashboardConfig = null
+        if (dashboardConfig.value?.server === commandServer) _dashboardConfig.value = null
         if (dashboardServer === commandServer) dashboardServer = null
         runCatching {
             commandServer.closeService()
@@ -410,7 +412,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     internal fun onBind(): IBinder = binder
 
     internal fun onDestroy() {
-        if (::commandServer.isInitialized && dashboardConfig?.server === commandServer) dashboardConfig = null
+        if (::commandServer.isInitialized && dashboardConfig.value?.server === commandServer) _dashboardConfig.value = null
         if (::commandServer.isInitialized && dashboardServer === commandServer) dashboardServer = null
         idleModeUpdates.cancel()
         idleModeScope.cancel()

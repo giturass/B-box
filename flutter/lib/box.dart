@@ -29,6 +29,7 @@ class BoxController extends ChangeNotifier {
   List<Json> transfers = [], usbDevices = [];
   List<Json> outbounds = [];
   List<Json> profiles = [], groups = [], connections = [], logs = [];
+  String? defaultLogLevel;
   final uploadHistory = <double>[];
   final downloadHistory = <double>[];
   String version = '', coreVersion = '';
@@ -234,7 +235,10 @@ class BoxController extends ChangeNotifier {
       case 'profiles': profilesRevision++; _profileStats.clear(); profiles = rows(value);
       case 'groups': groups = rows(value);
       case 'connections': connections = rows(value);
-      case 'logs': logs = rows(value);
+      case 'logs':
+        final state = json(value);
+        logs = rows(state['entries']);
+        defaultLogLevel = state['defaultLogLevel'] as String?;
       case 'settings': settings = json(value);
       case 'preferences': preferences = json(value);
       case 'systemAccent': systemAccentColor = (value as num).toInt();

@@ -2,7 +2,10 @@ package io.nekohasekai.sfa.backend.log
 
 data class LogEntryData(val level: LogLevel, val message: String)
 data class ProcessedLogEntry(val id: Long, val entry: LogEntryData, val receivedAt: Long)
-data class LogUiState(val logs: List<ProcessedLogEntry> = emptyList())
+data class LogUiState(
+    val logs: List<ProcessedLogEntry> = emptyList(),
+    val defaultLogLevel: LogLevel? = null,
+)
 
 enum class LogLevel(val label: String, val priority: Int) {
     Default("Default", 7), PANIC("Panic", 0), FATAL("Fatal", 1), ERROR("Error", 2),

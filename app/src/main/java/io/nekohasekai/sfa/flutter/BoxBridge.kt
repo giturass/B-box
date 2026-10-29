@@ -133,7 +133,10 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                                 if (connectionsVisible) emit("connections", withContext(Dispatchers.Default) { state.allConnections.map { it.toWire() } })
                             } }
                             launch { logs.uiState.collect { state ->
-                                emit("logs", withContext(Dispatchers.Default) { state.logs.map { mapOf("id" to it.id, "level" to it.entry.level.label, "message" to it.entry.message, "receivedAt" to it.receivedAt) } })
+                                emit("logs", withContext(Dispatchers.Default) { mapOf(
+                                    "defaultLogLevel" to state.defaultLogLevel?.label,
+                                    "entries" to state.logs.map { mapOf("id" to it.id, "level" to it.entry.level.label, "message" to it.entry.message, "receivedAt" to it.receivedAt) },
+                                ) })
                             } }
                             launch { RemoteControlManager.remoteServer.collect { emit("dashboard", dashboard.uiState.value.toWire()) } }
                             launch { RemoteControlManager.isConnected.collect { emit("dashboard", dashboard.uiState.value.toWire()) } }

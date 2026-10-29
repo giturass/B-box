@@ -141,7 +141,7 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
             } catch (error: Exception) {
                 configurationError = error.message ?: error.toString()
             }
-            val active = BoxService.dashboardConfig
+            val active = BoxService.dashboardConfig.value
             running = activity.serviceStatus.value == Status.Started && active != null &&
                 BoxService.dashboardServer === active.server
             if (running && active != null) {

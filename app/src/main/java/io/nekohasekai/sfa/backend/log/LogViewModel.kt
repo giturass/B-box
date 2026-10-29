@@ -3,6 +3,7 @@ package io.nekohasekai.sfa.backend.log
 import androidx.lifecycle.viewModelScope
 import io.nekohasekai.libbox.LogEntry
 import io.nekohasekai.sfa.backend.base.BaseViewModel
+import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.utils.AppLifecycleObserver
 import io.nekohasekai.sfa.utils.CommandClient
@@ -36,11 +37,15 @@ class LogViewModel :
                 RemoteControlManager.remoteServer,
                 RemoteControlManager.isConnected,
                 serviceStatusFlow,
-            ) { foreground, remoteServer, remoteConnected, status ->
+                BoxService.dashboardConfig,
+            ) { foreground, remoteServer, remoteConnected, status, config ->
                 SessionTarget(
                     connect = foreground &&
-                        if (remoteServer != null) remoteConnected else status == Status.Started,
+                        if (remoteServer != null) remoteConnected else status == Status.Started && config != null,
                     remoteServerId = remoteServer?.id,
+                    // libbox reports the default level when subscribing. Reloading
+                    // a local configuration must renew that subscription as well.
+                    localConfig = if (remoteServer == null) config else null,
                 )
             }.distinctUntilChanged().collect { target ->
                 if (target.connect) {
@@ -52,9 +57,17 @@ class LogViewModel :
         }
     }
 
-    private data class SessionTarget(val connect: Boolean, val remoteServerId: Long?)
+    private data class SessionTarget(
+        val connect: Boolean,
+        val remoteServerId: Long?,
+        val localConfig: BoxService.DashboardConfig?,
+    )
 
     fun updateServiceStatus(status: Status) { serviceStatusFlow.value = status }
+
+    override fun setDefaultLogLevel(level: Int) {
+        updateState { copy(defaultLogLevel = LogLevel.from(level)) }
+    }
 
     override fun clearLogs() {
         viewModelScope.launch(Dispatchers.Main) {

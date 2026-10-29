@@ -93,10 +93,10 @@ void main() {
           'outbound': 'Node A', 'rule': 'domain_suffix=example.org', 'createdAt': 1793030400000,
           'upload': 1024, 'download': 8192, 'uploadTotal': 32768, 'downloadTotal': 65536},
       ]});
-      events.add({'type': 'logs', 'value': [
+      events.add({'type': 'logs', 'value': {'defaultLogLevel': 'Info', 'entries': [
         {'id': 1, 'level': 'Info', 'receivedAt': 1793030400000, 'message': 'inbound/tun[0]: inbound connection from 192.0.2.1:51234'},
         {'id': 2, 'level': 'Warn', 'receivedAt': 1793030401000, 'message': 'outbound/shadowsocks[Node A]: connection timed out'},
-      ]});
+      ]}});
       await tester.pumpAndSettle();
       for (final (label, page) in <(String, Widget)>[
         ('Connections', const ConnectionsPage()), ('Logs', const LogsPage()),

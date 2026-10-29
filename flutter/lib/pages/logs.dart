@@ -8,7 +8,11 @@ class LogsPage extends StatefulWidget {
 }
 
 class _LogsPageState extends State<LogsPage> {
-  String _query = '', _level = 'All';
+  String _query = '', _level = 'Default';
+  static const _priorities = {
+    'panic': 0, 'fatal': 1, 'error': 2, 'warn': 3, 'warning': 3,
+    'info': 4, 'debug': 5, 'trace': 6,
+  };
   List<Json>? _paused;
   late final _scroll = ScrollController(initialScrollOffset: double.maxFinite);
   late final _physics = FollowEndScrollPhysics(isFollowing: () => _paused == null);
@@ -22,11 +26,23 @@ class _LogsPageState extends State<LogsPage> {
     if (_paused != null) setState(() => _paused = null);
   }
 
+  bool _matchesLevel(Json item, String? defaultLevel) {
+    final level = item['level'].toString().toLowerCase();
+    if (_level == 'Default') {
+      final threshold = _priorities[defaultLevel?.toLowerCase()];
+      // Before the core reports its level, keep received records available.
+      if (threshold == null) return true;
+      final priority = _priorities[level];
+      return priority != null && priority <= threshold;
+    }
+    return _level == 'All' || level == _level.toLowerCase();
+  }
+
   @override Widget build(BuildContext context) {
     final box = context.box;
     final words = _query.toLowerCase().trim().split(RegExp(r'\s+'));
     final logs = (_paused ?? box.logs).where((item) =>
-      (_level == 'All' || item['level'].toString().toLowerCase() == _level.toLowerCase()) &&
+      _matchesLevel(item, box.defaultLogLevel) &&
       words.every(([item['level'], item['message']].join(' ').toLowerCase()).contains),
     ).toList();
     return CommonScaffold(
@@ -42,13 +58,15 @@ class _LogsPageState extends State<LogsPage> {
         CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear'), onPressed: () async {
           if (await box.act('logs.clear') && mounted) setState(() => _paused = null);
         }),
-        for (final level in ['All', 'Trace', 'Debug', 'Info', 'Warn', 'Error', 'Fatal', 'Panic'])
-          CommonPopupMenuItem(label: context.tr(level), checked: _level == level,
-            section: level == 'All' ? CommonPopupMenuSection(title: context.tr('Log level')) : null,
+        for (final level in ['Default', 'All', 'Trace', 'Debug', 'Info', 'Warn', 'Error', 'Fatal', 'Panic'])
+          CommonPopupMenuItem(label: level == 'Default'
+              ? '${context.tr('Follow configuration')}${box.defaultLogLevel == null ? '' : ' (${context.tr(box.defaultLogLevel!)})'}'
+              : context.tr(level), checked: _level == level,
+            section: level == 'Default' ? CommonPopupMenuSection(title: context.tr('Log level')) : null,
             onPressed: () => setState(() => _level = level)),
       ],
       body: NullStatusSwitcher(
-        isEmpty: logs.isEmpty, isSearching: _query.trim().isNotEmpty || _level != 'All',
+        isEmpty: logs.isEmpty, isSearching: _query.trim().isNotEmpty || !['Default', 'All'].contains(_level),
         nullStatus: NullStatus(label: context.tr('No logs'), illustration: NullStatusIllustration.logs),
         child: logs.isEmpty ? const SizedBox.shrink() : Align(
           alignment: Alignment.topCenter,

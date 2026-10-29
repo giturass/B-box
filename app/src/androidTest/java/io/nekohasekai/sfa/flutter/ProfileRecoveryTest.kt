@@ -1,11 +1,14 @@
 package io.nekohasekai.sfa.flutter
 
 import android.os.Build
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
+import io.nekohasekai.sfa.backend.log.LogLevel
+import io.nekohasekai.sfa.backend.log.LogViewModel
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.compose.MainActivity
 import io.nekohasekai.sfa.constant.Status
@@ -75,6 +78,20 @@ class ProfileRecoveryTest {
             PackageQueryManager.setQueryMode(before)
             Settings.dataStore.flush()
         }
+    }
+
+    @Test fun logLevelFollowsSuccessfulConfigurationReloads() = withRunningProfile { activity, profiles, id ->
+        val logs = withContext(Dispatchers.Main) { ViewModelProvider(activity)[LogViewModel::class.java] }
+        // The matching core defaults to trace when log.level is omitted.
+        withTimeout(15_000) { logs.uiState.first { it.defaultLogLevel == LogLevel.TRACE } }
+        for ((configured, expected) in listOf("warn" to LogLevel.WARNING, "debug" to LogLevel.DEBUG, "info" to LogLevel.INFO)) {
+            val previous = profiles.read(id)
+            profiles.writeContent(id, """{"log":{"level":"$configured"}}""", BoxProfiles.revision(previous))
+            assertEquals(Status.Started, activity.serviceStatus.value)
+            withTimeout(15_000) { logs.uiState.first { it.defaultLogLevel == expected } }
+        }
+        profiles.writeContent(id, "{}", BoxProfiles.revision(profiles.read(id)))
+        withTimeout(15_000) { logs.uiState.first { it.defaultLogLevel == LogLevel.TRACE } }
     }
 
     @Test fun failedSelectionRestoresThePreviousSelectionAndService() = withRunningProfile { activity, profiles, id ->
