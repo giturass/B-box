@@ -13,7 +13,7 @@ class ProfileCard extends StatelessWidget {
     required this.updating, required this.onPressed, required this.menuItems});
   final Json profile;
   final bool selected, updating;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final List<CommonPopupMenuItem> menuItems;
 
   @override Widget build(BuildContext context) {

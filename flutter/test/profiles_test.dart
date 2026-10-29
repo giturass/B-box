@@ -11,7 +11,8 @@ const _remote = {'id': 1, 'name': 'Remote A', 'remote': true,
 const _local = {'id': 2, 'name': 'Local B', 'remote': false};
 
 Future<BoxController> _mount(WidgetTester tester, {List<Json> profiles = const [_remote, _local],
-  int selected = 1, bool remoteSession = false, Future<dynamic> Function(MethodCall)? handler}) async {
+  int selected = 1, bool remoteSession = false, StreamController<dynamic>? eventController,
+  Future<dynamic> Function(MethodCall)? handler}) async {
   tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];
   addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
   tester.view.physicalSize = const Size(360, 800);
@@ -19,7 +20,7 @@ Future<BoxController> _mount(WidgetTester tester, {List<Json> profiles = const [
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   const channel = MethodChannel('test.profiles');
-  final events = StreamController<dynamic>.broadcast();
+  final events = eventController ?? StreamController<dynamic>.broadcast();
   final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready' ? {
     'version': 'test', 'coreVersion': 'test', 'profiles': profiles,
@@ -151,6 +152,44 @@ void main() {
     expect(picker, findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  for (final picker in [false, true]) {
+    for (final (blockedStatus, resumedStatus) in [('Starting', 'Started'), ('Starting', 'Stopped'), ('Stopping', 'Stopped')]) {
+      testWidgets('profile selection waits for stable service state (picker: $picker, $blockedStatus to $resumedStatus)', (tester) async {
+        final events = StreamController<dynamic>.broadcast();
+        final selections = <dynamic>[];
+        final box = await _mount(tester, eventController: events, handler: (call) async {
+          if (call.method == 'profiles.select') selections.add(json(call.arguments)['id']);
+          return null;
+        });
+        if (picker) {
+          openForm(tester.element(find.byType(HomePage)), const ProfilesPage(picker: true));
+          await tester.pumpAndSettle();
+        } else {
+          await _profiles(tester);
+        }
+        final localCard = find.byWidgetPredicate((w) => w is ProfileCard && w.profile['id'] == 2).hitTestable();
+        final stalePress = tester.widget<ProfileCard>(localCard).onPressed!;
+        events.add({'type': 'dashboard', 'value': {'status': blockedStatus, 'selectedProfileId': 1}});
+        // The starting indicator animates continuously while the picker is open.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.tap(find.text('Local B').hitTestable());
+        stalePress();
+        await tester.pump();
+        expect(selections, isEmpty);
+        expect(box.selectedProfileId, 1);
+        expect(localCard, findsOneWidget);
+        events.add({'type': 'dashboard', 'value': {'status': resumedStatus, 'selectedProfileId': 1}});
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Local B').hitTestable());
+        await tester.pumpAndSettle();
+        expect(selections, [2]);
+        if (picker) expect(find.byWidgetPredicate((w) => w is ProfilesPage && w.picker), findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
 
   testWidgets('sort uses final indices and keeps the draft after a native conflict', (tester) async {
     var fail = true;

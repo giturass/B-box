@@ -50,6 +50,8 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 配置列表按参考版使用两行卡片、固定行高、选中徽标、更新动画及最多三列的自适应网格。普通配置页首次显示时定位已选配置，切换配置的弹层从顶部打开。添加按钮和空状态按钮均打开菜单，新建入口标为“新建配置”；排序使用分组背景、拖动手柄及拖动浮起效果。长按菜单依次提供编辑、更新（远程配置）、复制链接和二维码（远程配置）、分享、导出及删除，删除标为危险操作。编辑页显示配置摘要，提供元数据分组表单及原始/高级配置入口。
 
+服务启动中或停止中，配置列表和已打开的切换弹层禁用配置选择，首页切换配置按钮同步禁用；服务进入运行或停止状态后恢复。原生状态复核见 [app.md](app.md#配置服务应用与备份)。
+
 | 参考版能力 | B-box 的适配边界 |
 | --- | --- |
 | 链接、文件、二维码导入 | 使用 sing-box JSON / 分享链接，保留 `.bpf`、动态 QRS 和剪贴板入口；不转换 Clash YAML |
@@ -87,7 +89,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [newui.yml](.github/workflows/newui.yml) 配置 Flutter 分析、测试及 AAR 构建。现有测试覆盖导航、配置编辑、首页编辑、代理列表、备份、外观、关于、终端设置、模式、内网 IP、IP 查询/缓存和迁移回归；源码约束检查为 [verify_newui.py](tools/verify_newui.py)。
 
-[profiles_test.dart](flutter/test/profiles_test.dart) 覆盖添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、自动更新校验、选中配置定位、切换失败、排序冲突及远程会话隔离。[navigation_test.dart](flutter/test/navigation_test.dart) 另输出配置编辑与排序弹层在窄屏、大字号和宽屏下的截图；这些是布局回归产物，配置页尚未声明与上游逐像素一致。
+[profiles_test.dart](flutter/test/profiles_test.dart) 覆盖添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、自动更新校验、选中配置定位、列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、排序冲突及远程会话隔离。[navigation_test.dart](flutter/test/navigation_test.dart) 另输出配置编辑与排序弹层在窄屏、大字号和宽屏下的截图；这些是布局回归产物，配置页尚未声明与上游逐像素一致。
 
 [service_settings_test.dart](flutter/test/service_settings_test.dart) 覆盖三个服务开关的即时应用、等待原生确认期间禁用开关及移除手动应用按钮；[box_test.dart](flutter/test/box_test.dart) 检查重复编辑、停止/远程会话、启停过渡及失败后的原生设置恢复。实际服务重启与恢复的 Android 验证范围见 [app.md](app.md#验证与历史记录)。
 

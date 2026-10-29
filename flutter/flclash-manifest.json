@@ -108,7 +108,7 @@
     "lib/components/profile_panel.dart": {
       "source": "lib/views/dashboard/widgets/profiles.dart",
       "sourceSHA256": "f04f71f02f4a1c6dc5af00e005248371e370a0150dd68a021914939c0f48864d",
-      "changes": "Mobile profile summary, update and profile-switch controls. Counts describe the actual sing-box configuration, with unavailable remote counts left unknown."
+      "changes": "Mobile profile summary, update and profile-switch controls. Counts describe the actual sing-box configuration, with unavailable remote counts left unknown. Disable the profile-switch control during native service start/stop transitions."
     },
     "lib/pages/profile_details.dart": {
       "source": "lib/views/dashboard/widgets/profile_detail.dart",
@@ -148,7 +148,7 @@
     "lib/pages/profiles.dart": {
       "source": "lib/views/profiles/profiles.dart",
       "sourceSHA256": "4a2cf3c73ca7dcff9f02883c1d684a80afedb76f80bc955ee6b1b3b81421407d",
-      "changes": "Anchored add menu with a New profile entry, grouped metadata form, selected-item reveal, adaptive grid, flat profile actions and decorated reorder sheet. Edit opens the configuration editing page with raw content access; copy link, QR code, share and export are direct menu actions. Imports and edits retain sing-box JSON, binary/QRS metadata and Room operations; preserve local/remote type conversion, clipboard import, a 15-minute Android update minimum and serialized native updates. No Mihomo custom generator, providers, overrides, age key or runtime-preview claim.",
+      "changes": "Anchored add menu with a New profile entry, grouped metadata form, selected-item reveal, adaptive grid, flat profile actions and decorated reorder sheet. Edit opens the configuration editing page with raw content access; copy link, QR code, share and export are direct menu actions. Imports and edits retain sing-box JSON, binary/QRS metadata and Room operations; preserve local/remote type conversion, clipboard import, a 15-minute Android update minimum and serialized native updates. No Mihomo custom generator, providers, overrides, age key or runtime-preview claim. Disable configuration selection in both the page and picker during native service start/stop transitions, and recheck current state when a press callback runs.",
       "supportingSources": [
         {
           "source": "lib/views/profiles/add.dart",
@@ -317,7 +317,7 @@
           "sourceSHA256": "a539e15957a3cdb3f4cb2a1718aaa12bc2d398ebf08f949cca4b4812b1245439"
         }
       ],
-      "changes": "Profile row height, title strut, selected badge, updating transition and compact update-age labels retained. Uses Room metadata; remote profiles without a timestamp show unknown, local profiles omit subscription timestamps. Refresh is scoped to visible/resumed pages. Does not invent subscription quotas or expiry badges absent from the native model."
+      "changes": "Profile row height, title strut, selected badge, updating transition and compact update-age labels retained. Uses Room metadata; remote profiles without a timestamp show unknown, local profiles omit subscription timestamps. Refresh is scoped to visible/resumed pages. Does not invent subscription quotas or expiry badges absent from the native model. Accept a disabled selection callback while retaining the profile metadata and context menu."
     }
   },
   "adaptedNativeFiles": {

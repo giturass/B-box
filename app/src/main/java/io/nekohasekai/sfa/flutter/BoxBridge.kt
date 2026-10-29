@@ -226,7 +226,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 saved
             }
             "profiles.select" -> localProfiles {
-                profiles.select(id())
+                profiles.select(id()) { activity.serviceStatus.value }
                 publishProfiles()
                 null
             }

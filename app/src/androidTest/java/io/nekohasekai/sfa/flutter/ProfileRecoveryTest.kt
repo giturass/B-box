@@ -153,7 +153,7 @@ class ProfileRecoveryTest {
             val content = occupiedPortConfig(occupied.localPort)
             val candidate = profiles.save(mapOf("name" to "Broken selection", "content" to content))
             try {
-                val failure = runCatching { profiles.select(candidate) }.exceptionOrNull()
+                val failure = runCatching { profiles.select(candidate) { activity.serviceStatus.value } }.exceptionOrNull()
                 assertNotNull("Selecting a configuration must report its reload failure", failure)
                 assertEquals(id, Settings.selectedProfile)
                 assertEquals(previousMode, Settings.serviceMode)
@@ -242,7 +242,7 @@ class ProfileRecoveryTest {
                     assertEquals("{}", profiles.read(id))
                     assertTrue(profiles.get(id).typed.lastUpdated.time > 0L)
                     assertEquals(Status.Stopped, activity.serviceStatus.value)
-                    profiles.select(other)
+                    profiles.select(other) { activity.serviceStatus.value }
                     assertEquals(other, Settings.selectedProfile)
                     assertEquals(Status.Stopped, activity.serviceStatus.value)
                 } finally {

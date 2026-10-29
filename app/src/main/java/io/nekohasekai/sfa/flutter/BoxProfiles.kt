@@ -3,6 +3,7 @@ package io.nekohasekai.sfa.flutter
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.bg.UpdateProfileWork
+import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileChange
 import io.nekohasekai.sfa.database.ProfileContent
@@ -72,8 +73,11 @@ internal class BoxProfiles(private val applySelected: suspend (recover: Boolean)
         return configLocked(id)
     }
 
-    suspend fun select(id: Long) = mutex.withLock {
+    suspend fun select(id: Long, serviceStatus: () -> Status) = mutex.withLock {
         get(id)
+        require(serviceStatus() in setOf(Status.Stopped, Status.Started)) {
+            "Wait for the service to finish starting or stopping"
+        }
         val previous = Settings.selectedProfile
         val previousMode = Settings.serviceMode
         ProfileChange.apply(

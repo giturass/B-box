@@ -104,7 +104,8 @@ class _ProfilesPageState extends State<ProfilesPage> {
             selected: profile['id'] == box.selectedProfileId,
             updating: _updating.contains(profile['id']),
             menuItems: _menu(profile),
-            onPressed: () async {
+            onPressed: box.transitioning ? null : () async {
+              if (box.transitioning || box.remote) return;
               if (await box.act('profiles.select', {'id': profile['id']}) && widget.picker && context.mounted) context.safeNestedPop();
             },
           ),
