@@ -12,7 +12,7 @@ const _zh = <String, String>{
   'Outbound mode': '出站模式', 'Rule': '规则', 'Global': '全局', 'Direct': '直连',
   'Intranet IP': '内网 IP', 'No network': '无网络', 'This device': '本机',
   'Local proxy listeners': '本地代理监听', 'No local proxy listener': '未配置本地代理监听',
-  'LAN proxy': '局域网代理', 'Disabled': '已禁用', 'Port': '端口', 'Automatic port': '自动分配端口',
+  'LAN proxy': '局域网代理', 'Enabled': '已启用', 'Disabled': '已禁用', 'Port': '端口', 'Automatic port': '自动分配端口',
   'Add proxy listener': '添加代理监听', 'Invalid proxy port': '端口须为 1–65535',
   'HTTP / SOCKS': 'HTTP / SOCKS', 'HTTP / SOCKS over TLS': 'HTTP / SOCKS（TLS）',
   'Authentication required': '需要认证',

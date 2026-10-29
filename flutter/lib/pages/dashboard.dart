@@ -9,6 +9,7 @@ import '../components/memory_panel.dart';
 import '../components/intranet_panel.dart';
 import '../components/profile_panel.dart';
 import '../components/proxy_groups_panel.dart';
+import '../components/system_proxy_panel.dart';
 
 export '../components/dashboard_editor.dart' show DashboardEditor;
 
@@ -45,11 +46,7 @@ class _DashboardPageState extends State<DashboardPage> {
       'Current profile': const ProfilePanel(),
       'Proxy groups': const ProxyGroupsPanel(),
       'Memory': const MemoryPanel(),
-      if (box.dashboard['systemProxyAvailable'] == true) 'System HTTP proxy': BoxPanel(child: ListItem.toggle(
-        leading: const GlyphIcon(AppGlyphs.proxies),
-        title: Text(context.tr('System HTTP proxy'), style: AppTextStyle.subheadline.of(context, emphasized: true)),
-        value: box.dashboard['systemProxy'] == true,
-        onChanged: (value) => box.act('systemProxy.set', {'enabled': value}))),
+      if (box.dashboard['systemProxyAvailable'] == true) 'System HTTP proxy': const SystemProxyPanel(),
     };
   }
 
