@@ -13,7 +13,7 @@
 | 版本 / versionCode | `1.15.0-alpha.13` / `747` |
 | 安装包名 / applicationId | `io.ericlee.bfa` |
 | 源码 namespace | `io.nekohasekai.sfa` |
-| 更新日期 | 2026-10-25 |
+| 更新日期 | 2026-10-31 |
 
 本文描述当前有效改动，历史验证记录仅对应各自源码版本。路由、VPN、远程控制、配置导入导出、Tailscale/Taildrop、终端及普通 Root/Shizuku 能力继承上游；Xposed/LSPosed 模块与特权增强已按 MOD-011 移除。MOD-013、MOD-014 已回退，核心恢复上游完整功能；MOD-015、MOD-016 继续有效。核心 AAR 不在 Git 中，本地构建与 CI 核心来源应分别核验。
 
@@ -33,7 +33,7 @@
 | MOD-008 | 合并流量统计并与调试卡片配对 | `TrafficCard.kt`、`DashboardCardSettings.kt`、仪表盘渲染与设置 |
 | MOD-009 | 独立安装包名与分支更新源 | `app/build.gradle.kts`、Manifest、服务/安装广播、`GitHubUpdateChecker.kt` |
 | MOD-011 | 移除 Xposed/LSPosed 与特权增强 | Manifest、Gradle、设置与导航、模块源码/资源、安装与应用查询 |
-| MOD-012 | 节点卡片尺寸与选中态优化 | `compose/screen/dashboard/GroupsCard.kt` |
+| MOD-012 | FlClash 标准布局与紧凑节点卡片 | `compose/screen/dashboard/GroupsCard.kt` |
 | MOD-013 | 已回退：ARM64 核心组件裁剪 | 核心恢复上游完整功能，删除裁剪补丁与专用校验器 |
 | MOD-014 | 已回退：移除 App 的 Tailscale 与终端 | 恢复导航、工具与设置页、Manifest、Root 后端、Ghostty 与语言资源 |
 | MOD-015 | 移除 Android 5/6 与 legacy 核心 | `app/build.gradle.kts`、`src/minApi21`、`src/otherLegacy`、`patches/libbox-no-legacy.patch`、工作流 |
@@ -188,13 +188,17 @@
 
 **回归：** 设置与返回导航、日志空状态、安装方式切换、应用列表查询、升级旧设置；各 flavor 的编译及资源合并；确认源码、模块注册和构建依赖中不再保留已移除组件。
 
-## MOD-012：节点卡片选中态与浅色可读性
+## MOD-012：FlClash 标准布局与紧凑节点卡片
 
-- 节点采用双列布局、12dp 圆角与分组底板；每张卡片最小高度 65dp，上下内边距 9dp，两行间距 6dp。名称与类型/延迟两行整体垂直居中，将最小高度产生的额外留白均分到上下两侧。名称使用 16sp 的 `bodyLarge`，类型与延迟使用 12sp 的 `labelMedium`；大字体下卡片可自然增高。
-- 浅色选中背景由 `primaryContainer` 向 `primary` 混合 20%，深色使用 `primaryContainer`，选中卡片增加 1dp 主色描边。根据当前主题的 `surface` 亮度判断浅深色，使用主题色以适配动态配色。
-- 浅色选中的测速文字向 `onPrimaryContainer` 混合 35%，加深文字并保留延迟等级的色相；类型文字使用 80% 不透明度的选中文字色。名称、类型与延迟均为单行省略，延迟最多占详情行可用宽度的 60%，为类型预留空间。
+**参考来源：** [FlClash `7fd417fb9a9a277c6a9339a8ac87f907df7c25f7`](https://github.com/chen08209/FlClash/tree/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7)（GPL-3.0）的 `ProxiesLayout.standard` 与 `ProxyCardType.compact`。布局及尺寸依据 `lib/common/layout.dart`、`lib/views/proxies/common.dart`、`lib/views/proxies/card.dart`，选中态及外观依据 `lib/ui/card.dart`、`selection_mark.dart`、`shape.dart`、`surface.dart`、`typography.dart`。
 
-**回归：** 320/360dp 双列、深浅色、动态色、大字体、长名称/类型/延迟、奇数末项、点击选择及长按测速。具体动态配色的文字对比度与实机效果仍需设备验证。
+- 标准布局按每组节点区域的可用宽度计算 `max(2, ceil(width / 250dp))` 列；可用宽度扣除列表及分组的左右内边距。手机为双列，宽屏自动增加列数；横纵卡片间距均为 8dp，末行空位保留等宽占位。代理组仍在原有单列列表内展开/折叠。
+- 紧凑卡片采用 20dp 圆角、12dp 水平内边距；单行名称位于上方，类型与延迟位于下方，两行相隔 8dp、整体垂直居中。名称为 15sp/20sp 行高、类型为 13sp/18sp 行高，均为常规字重；延迟为 11sp/13sp 行高、半粗体，三者字间距均为 0。最小高度为两行随系统字体缩放后的行高加 28dp，默认字号下为 66dp；8dp 上下最小内边距允许实际文字较高时自然扩展。
+- 选中节点在名称行末显示 22dp 主色圆形标记和 16dp 勾选图标，并提供选中状态的无障碍语义。卡片底色在选中前后一致：浅色使用 `surfaceBright`，深色使用 `surfaceContainer`；名称使用 `onSurface`，类型为其 80% 不透明度。颜色随应用主题与动态配色变化。
+- 名称、类型和延迟均为单行省略；延迟最多占详情行可用宽度的 60%，为类型预留空间。延迟沿用现有 sing-box 数据和分级色，正值显示为 `123 ms`，无有效结果时不新增状态展示。
+- Compose 适配使用 Android 字体与 `RoundedCornerShape`，没有直接移植 Flutter 字体或超椭圆绘制。节点点击选择、自动组选择限制、长按测速菜单、折叠点阵以及本地/远程数据流程沿用原实现；卡片菜单状态按节点标识隔离，适应列数及节点顺序变化。
+
+**回归：** 320/360dp 双列、宽屏列数切换、深浅色、动态色、大字体、长名称/类型/延迟、末行不足整列、点击选择、自动组及长按测速。具体动态配色的文字对比度与实机效果仍需设备验证。
 
 ## MOD-013：ARM64 核心组件裁剪（已回退）
 
@@ -236,6 +240,7 @@ MOD-015 的 Android 5/6 分支移除与 MOD-016 的更新界面/自动调度移�
 
 ## 验证记录
 
+- 2026-10-31 MOD-012 FlClash 标准布局与紧凑样式：基于 `dev` / `8e41592f8018be57239f372f0576f52331b804af` 的工作树修改，参考 FlClash `7fd417fb9a9a277c6a9339a8ac87f907df7c25f7`。`GroupsCard.kt` 通过现有 Kotlin 2.1.20 PSI 语法解析（零语法错误），`git diff --check`、文档本地链接和变更范围复核通过；修改限定为卡片布局/外观及说明文档。语法解析不等于项目 Kotlin 2.4.10 的 Android 编译；本次未执行应用编译、GitHub Actions 或实机验证，未生成 APK。
 - 2026-10-25 MOD-013 / MOD-014 回退：41 个未与后续修改重叠的 App/构建文件与裁剪前 `9000805` 逐字节一致；交叉文件保留 MOD-015 / MOD-016，五种语言与设置仅保留后续更新功能删除。55 个 XML 的解析/资源重名检查、全部本地字符串/复数引用、10 条 Tailscale/终端路由、分享与服务注册、Root shell AIDL 编号检查通过。核心恢复完整协议标签/注册、11 个客户端方法及原生 Shell 导出；legacy 专用补丁实际应用与反向检查通过。8 个工作流 Bash 块、2 个嵌入 Python 块及 `git diff --check` 通过；节点卡片和其余定制保持原样。本次未执行本机编译、GitHub Actions 或实机验证，未生成新 AAR/APK。
 
 以下历史构建记录仅适用于所列提交；裁剪版 APK 不包含本次 MOD-013 / MOD-014 回退。

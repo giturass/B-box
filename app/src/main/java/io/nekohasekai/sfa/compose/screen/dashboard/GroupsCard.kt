@@ -2,9 +2,9 @@ package io.nekohasekai.sfa.compose.screen.dashboard
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -23,8 +23,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.UnfoldLess
@@ -47,6 +49,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -60,16 +63,20 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.nekohasekai.sfa.R
@@ -85,6 +92,7 @@ import io.nekohasekai.sfa.compose.topbar.OverrideTopBar
 import io.nekohasekai.sfa.compose.util.rememberSheetDismissFromContentOnlyIfGestureStartedAtTopModifier
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.utils.CommandClient
+import kotlin.math.ceil
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -225,92 +233,99 @@ private fun GroupsCardContent(
     val overscrollEffect = if (asSheet) null else rememberOverscrollEffectCompat()
     val palette = rememberUrlTestPalette()
 
-    LazyColumnCompat(
+    BoxWithConstraints(
         modifier =
         modifier
             .fillMaxSize()
             .then(scrollModifier)
             .padding(scaffoldPadding),
-        state = lazyListState,
-        contentPadding =
-        PaddingValues(
-            start = 16.dp,
-            end = 16.dp,
-            top = 8.dp,
-            bottom = 16.dp,
-        ),
-        overscrollEffect = overscrollEffect,
     ) {
-        if (listHeaderContent != null) {
-            item(key = "groups_list_header") {
-                listHeaderContent()
-            }
-        }
-
-        when {
-            uiState.isLoading -> {
-                item(key = "groups_loading") {
-                    Box(
-                        modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator()
-                    }
+        // FlClash's standard layout, after the list and group horizontal insets.
+        val columns = maxOf(2, ceil((maxWidth - 64.dp) / 250.dp).toInt())
+        LazyColumnCompat(
+            modifier = Modifier.fillMaxSize(),
+            state = lazyListState,
+            contentPadding =
+            PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 8.dp,
+                bottom = 16.dp,
+            ),
+            overscrollEffect = overscrollEffect,
+        ) {
+            if (listHeaderContent != null) {
+                item(key = "groups_list_header") {
+                    listHeaderContent()
                 }
             }
 
-            else -> {
-                uiState.groups.forEach { group ->
-                    val isExpanded = uiState.expandedGroups.contains(group.tag)
-                    val headerContent: @Composable (Modifier) -> Unit = { headerModifier ->
-                        GroupHeader(
-                            group = group,
-                            isExpanded = isExpanded,
-                            isTesting = uiState.testingGroups.contains(group.tag),
-                            onToggleExpanded = { onToggleExpanded(group.tag) },
-                            onUrlTest = { onUrlTest(group.tag) },
-                            modifier = headerModifier,
-                        )
-                    }
-                    if (isExpanded) {
-                        stickyHeader(key = "header:${group.tag}", contentType = "GroupHeader") {
-                            headerContent(Modifier.animateItem())
-                        }
-                    } else {
-                        item(key = "header:${group.tag}", contentType = "GroupHeader") {
-                            headerContent(Modifier.animateItem())
+            when {
+                uiState.isLoading -> {
+                    item(key = "groups_loading") {
+                        Box(
+                            modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .height(200.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator()
                         }
                     }
-                    if (isExpanded) {
-                        val rowItems = group.items.chunked(2)
-                        rowItems.forEachIndexed { rowIndex, row ->
-                            item(
-                                key = "row:${group.tag}:${row.first().tag}",
-                                contentType = "GroupItemRow",
-                            ) {
-                                GroupItemRow(
-                                    row = row,
-                                    selectedTag = group.selected,
-                                    isSelectable = group.selectable,
-                                    isLast = rowIndex == rowItems.lastIndex,
+                }
+
+                else -> {
+                    uiState.groups.forEach { group ->
+                        val isExpanded = uiState.expandedGroups.contains(group.tag)
+                        val headerContent: @Composable (Modifier) -> Unit = { headerModifier ->
+                            GroupHeader(
+                                group = group,
+                                isExpanded = isExpanded,
+                                isTesting = uiState.testingGroups.contains(group.tag),
+                                onToggleExpanded = { onToggleExpanded(group.tag) },
+                                onUrlTest = { onUrlTest(group.tag) },
+                                modifier = headerModifier,
+                            )
+                        }
+                        if (isExpanded) {
+                            stickyHeader(key = "header:${group.tag}", contentType = "GroupHeader") {
+                                headerContent(Modifier.animateItem())
+                            }
+                        } else {
+                            item(key = "header:${group.tag}", contentType = "GroupHeader") {
+                                headerContent(Modifier.animateItem())
+                            }
+                        }
+                        if (isExpanded) {
+                            val rowItems = group.items.chunked(columns)
+                            rowItems.forEachIndexed { rowIndex, row ->
+                                item(
+                                    key = "row:${group.tag}:${row.first().tag}",
+                                    contentType = "GroupItemRow",
+                                ) {
+                                    GroupItemRow(
+                                        row = row,
+                                        columns = columns,
+                                        selectedTag = group.selected,
+                                        isSelectable = group.selectable,
+                                        isLast = rowIndex == rowItems.lastIndex,
+                                        palette = palette,
+                                        onItemSelected = { itemTag -> onItemSelected(group.tag, itemTag) },
+                                        onItemUrlTest = onItemUrlTest,
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                            }
+                        } else {
+                            item(key = "dots:${group.tag}", contentType = "GroupDots") {
+                                GroupDotsGrid(
+                                    group = group,
                                     palette = palette,
-                                    onItemSelected = { itemTag -> onItemSelected(group.tag, itemTag) },
-                                    onItemUrlTest = onItemUrlTest,
+                                    onClick = { onToggleExpanded(group.tag) },
                                     modifier = Modifier.animateItem(),
                                 )
                             }
-                        }
-                    } else {
-                        item(key = "dots:${group.tag}", contentType = "GroupDots") {
-                            GroupDotsGrid(
-                                group = group,
-                                palette = palette,
-                                onClick = { onToggleExpanded(group.tag) },
-                                modifier = Modifier.animateItem(),
-                            )
                         }
                     }
                 }
@@ -519,6 +534,7 @@ private fun GroupDotsGrid(
 @Composable
 private fun GroupItemRow(
     row: List<GroupItem>,
+    columns: Int,
     selectedTag: String,
     isSelectable: Boolean,
     isLast: Boolean,
@@ -540,29 +556,32 @@ private fun GroupItemRow(
             Modifier.padding(
                 start = 16.dp,
                 end = 16.dp,
-                top = 5.dp,
-                bottom = if (isLast) 16.dp else 5.dp,
+                top = 4.dp,
+                bottom = if (isLast) 16.dp else 4.dp,
             ),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             row.forEach { item ->
-                ProxyChip(
-                    item = item,
-                    isSelected = item.tag == selectedTag,
-                    isSelectable = isSelectable,
-                    palette = palette,
-                    onClick = { onItemSelected(item.tag) },
-                    onUrlTest = { onItemUrlTest(item.tag) },
-                    modifier = Modifier.weight(1f),
-                )
+                key(item.tag) {
+                    ProxyChip(
+                        item = item,
+                        isSelected = item.tag == selectedTag,
+                        isSelectable = isSelectable,
+                        palette = palette,
+                        onClick = { onItemSelected(item.tag) },
+                        onUrlTest = { onItemUrlTest(item.tag) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
-            repeat(2 - row.size) {
+            repeat(columns - row.size) {
                 Spacer(modifier = Modifier.weight(1f))
             }
         }
     }
 }
 
+// Compact ProxyCard layout adapted from FlClash (GPL-3.0), commit 7fd417f. See MOD-012.
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ProxyChip(
@@ -575,43 +594,77 @@ private fun ProxyChip(
     modifier: Modifier = Modifier,
 ) {
     var showContextMenu by remember { mutableStateOf(false) }
-    val chipShape = RoundedCornerShape(12.dp)
+    val chipShape = RoundedCornerShape(20.dp)
     val colors = MaterialTheme.colorScheme
     val isLightTheme = colors.surface.luminance() > 0.5f
-    val contentColor = if (isSelected) colors.onPrimaryContainer else colors.onSurface
+    val nameStyle = MaterialTheme.typography.bodyMedium.copy(
+        fontSize = 15.sp,
+        lineHeight = 20.sp,
+        fontWeight = FontWeight.Normal,
+        letterSpacing = 0.sp,
+    )
+    val typeStyle = MaterialTheme.typography.bodySmall.copy(
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
+        fontWeight = FontWeight.Normal,
+        letterSpacing = 0.sp,
+    )
+    val delayStyle = MaterialTheme.typography.labelSmall.copy(
+        fontSize = 11.sp,
+        lineHeight = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.sp,
+    )
+    val minCardHeight = with(LocalDensity.current) { nameStyle.lineHeight.toDp() + typeStyle.lineHeight.toDp() } + 28.dp
     BoxWithConstraints(modifier = modifier) {
         val maxDelayWidth = maxOf(0.dp, (maxWidth - 24.dp - 6.dp) * 0.6f)
         Surface(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .heightIn(min = 65.dp)
+                .heightIn(min = minCardHeight)
                 .clip(chipShape)
+                .semantics { selected = isSelected }
                 .combinedClickable(
+                    role = Role.Button,
                     onClick = { if (isSelectable) onClick() },
+                    onLongClickLabel = stringResource(R.string.url_test),
                     onLongClick = { showContextMenu = true },
                 ),
             shape = chipShape,
-            color = when {
-                !isSelected -> colors.surface
-                isLightTheme -> lerp(colors.primaryContainer, colors.primary, 0.2f)
-                else -> colors.primaryContainer
-            },
-            contentColor = contentColor,
-            border = if (isSelected) BorderStroke(1.dp, colors.primary) else null,
+            color = if (isLightTheme) colors.surfaceBright else colors.surfaceContainer,
+            contentColor = colors.onSurface,
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
             ) {
-                Text(
-                    text = item.tag,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = contentColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Text(
+                        text = item.tag,
+                        modifier = Modifier.weight(1f),
+                        style = nameStyle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (isSelected) {
+                        Box(
+                            modifier = Modifier.size(22.dp).background(colors.primary, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = colors.onPrimary,
+                            )
+                        }
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -620,27 +673,17 @@ private fun ProxyChip(
                     Text(
                         text = item.displayType,
                         modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelMedium,
-                        color =
-                        if (isSelected) {
-                            contentColor.copy(alpha = 0.8f)
-                        } else {
-                            colors.onSurfaceVariant
-                        },
+                        style = typeStyle,
+                        color = colors.onSurface.copy(alpha = 0.8f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (item.urlTestDelay > 0) {
                         Text(
-                            text = "${item.urlTestDelay}ms",
+                            text = "${item.urlTestDelay} ms",
                             modifier = Modifier.widthIn(max = maxDelayWidth),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isSelected && isLightTheme) {
-                                lerp(palette.forDelay(item.urlTestDelay), contentColor, 0.35f)
-                            } else {
-                                palette.forDelay(item.urlTestDelay)
-                            },
+                            style = delayStyle,
+                            color = palette.forDelay(item.urlTestDelay),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
