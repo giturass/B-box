@@ -138,7 +138,7 @@
     "lib/pages/dashboard.dart": {
       "source": "lib/views/dashboard/widgets/traffic.dart",
       "sourceSHA256": "e218e48571bb9ab33b840d2a52eb037b59fba2ee8831bec7971d8c63f339a619",
-      "changes": "NetworkSpeedCard and SpeedTile layout adapted to sing-box traffic samples; other dashboard cards use B-box capability state. The capability-gated SystemProxyPanel uses the shared editable card order and visibility preferences."
+      "changes": "NetworkSpeedCard and SpeedTile layout adapted to sing-box traffic samples; traffic tiles subscribe independently from other dashboard cards. Other cards use B-box capability state. The capability-gated SystemProxyPanel uses the shared editable card order and visibility preferences."
     },
     "lib/pages/proxies.dart": {
       "source": "lib/views/proxies/card.dart",
@@ -182,12 +182,12 @@
     "lib/components/status_panel.dart": {
       "source": "lib/views/dashboard/widgets/current_outbound.dart",
       "sourceSHA256": "ee6f397a9b1bc78968699e2852c7a6ba36d1d1a05dfa4cbcd6545e09c6b55f28",
-      "changes": "Mobile header, intrinsic runtime column, caption/figure styles, readable IP fitting, country badge states and decoration clipping retained. Reads native sing-box session and routed IP/quality data; unavailable stopped/remote data stays explicit."
+      "changes": "Mobile header, intrinsic runtime column, caption/figure styles, readable IP fitting, country badge states and decoration clipping retained. Reads native sing-box session and routed IP/quality data; route observation excludes traffic and memory notifications. Unavailable stopped/remote data stays explicit."
     },
     "lib/components/memory_panel.dart": {
       "source": "lib/views/dashboard/widgets/memory_info.dart",
       "sourceSHA256": "4cf6921e7d03b57bbccfa27506774623cf2119f57f8b6c4c8cc1831b5443ccb4",
-      "changes": "Mobile memory figure, segmented bar, legend and details. Reads Go runtime statistics from libbox and subtracts them from shared-process RSS."
+      "changes": "Mobile memory figure, segmented bar, legend and details. Reads Go runtime statistics from libbox and subtracts them from shared-process RSS. Card and details share a visibility-controlled native sampling subscription and rebuild on memory updates."
     },
     "lib/components/intranet_panel.dart": {
       "source": "lib/views/dashboard/widgets/intranet_ip.dart",

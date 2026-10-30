@@ -25,7 +25,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     if (await confirm(context, 'Close all active connections?', action: 'Close')) await box.act('connections.closeAll');
   }
   @override Widget build(BuildContext context) {
-    final box = context.box;
+    final box = context.watchBox(BoxAspect.connections);
     final list = box.connections.where((connection) {
       final closed = (connection['closedAt'] as num? ?? 0) > 0;
       if (_filter == 'Active' && closed || _filter == 'Closed' && !closed) return false;
@@ -115,7 +115,7 @@ class ConnectionDetail extends StatefulWidget {
 class _ConnectionDetailState extends State<ConnectionDetail> {
   late Json _cached = widget.initial;
   @override Widget build(BuildContext context) {
-    final box = context.box;
+    final box = context.watchBox(BoxAspect.connections);
     var present = false;
     for (final connection in box.connections) {
       if (connection['id'] == widget.initial['id']) { _cached = connection; present = true; break; }

@@ -48,6 +48,10 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 - 首页编辑保留卡片的全局 key，防止重复出口请求及丢失状态。改动立即保存；保存失败保留草稿，点击完成再次尝试。
 - sing-box 专属 Tailscale、Taildrop、终端、认证、USB/IP、诊断和报告使用统一 Flutter 页面，复用原生后端；能力边界见 [app.md](app.md)。
 
+[box.dart](flutter/lib/box.dart) 按应用状态、启动/外观、流量、内存、连接和日志分开通知；流量采样与仪表盘累计值只更新相关组件，日志和连接变化不触发应用根部、代理或配置列表重建。出口查询监听应用状态变化，不因流量或内存采样重新计算路由标识。显式批量通知仍刷新全部依赖。
+
+[data_subscription.dart](flutter/lib/components/data_subscription.dart) 按页面活动状态、TickerMode 和应用生命周期合并内存/日志订阅；卡片与详情页共享一个原生采样请求，最后一个可见消费者退出时停止。日志增量保留既有记录对象，暂停快照独立于后续追加和淘汰，恢复可见时重新同步原生缓冲。原生采样与消息边界见 [app.md](app.md#配置服务应用与备份)。
+
 ### 配置页与内核差异
 
 配置列表按参考版使用两行卡片、固定行高、选中徽标、更新动画及最多三列的自适应网格。普通配置页首次显示时定位已选配置，切换配置的弹层从顶部打开。添加按钮和空状态按钮均打开菜单，新建入口标为“新建配置”；排序使用分组背景、拖动手柄及拖动浮起效果。长按菜单依次提供编辑、更新（远程配置）、复制链接和二维码（远程配置）、分享、导出及删除，删除标为危险操作。编辑页显示配置摘要，提供元数据分组表单及原始/高级配置入口。
@@ -100,6 +104,8 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 [service_settings_test.dart](flutter/test/service_settings_test.dart) 覆盖三个服务开关的即时应用、等待原生确认期间禁用开关及移除手动应用按钮；[box_test.dart](flutter/test/box_test.dart) 检查重复编辑、停止/远程会话、启停过渡及失败后的原生设置恢复。实际服务重启与恢复的 Android 验证范围见 [app.md](app.md#验证与历史记录)。
 
 [logs_test.dart](flutter/test/logs_test.dart) 覆盖本地/远程日志状态的默认阈值、保留更严重的记录、手动筛选及恢复跟随配置，并检查暂停、搜索、导出和清空；实际内核级别与配置重载由 Android 仪器测试覆盖。
+
+[state_updates_test.dart](flutter/test/state_updates_test.dart) 检查高频数据只重建对应订阅者、服务状态仍通知、应用根部不随遥测变化重建且外观设置继续生效，并覆盖日志增量淘汰、暂停快照与重置。[data_subscription_test.dart](flutter/test/data_subscription_test.dart) 检查卡片/详情共享订阅、隐藏页面、TickerMode、前后台和销毁时的订阅切换。测试验证通知和调用行为，实际 PSS/RSS、CPU 和帧耗时仍需在同设备、同配置下测量。
 
 [access_test.dart](flutter/test/access_test.dart) 与 [migration_regression_test.dart](flutter/test/migration_regression_test.dart) 覆盖进入托管页面不扫描、显示范围与隐藏选择保留、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。它们验证交互和调用行为，不代替实机加载耗时或视觉验收。
 

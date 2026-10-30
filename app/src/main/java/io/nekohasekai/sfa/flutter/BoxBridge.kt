@@ -24,6 +24,7 @@ import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.RemoteServer
 import io.nekohasekai.sfa.database.RemoteServerManager
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.utils.AppLifecycleObserver
 import io.nekohasekai.sfa.utils.CommandClient
 import io.nekohasekai.sfa.utils.CommandTarget
 import io.nekohasekai.sfa.utils.RemoteControlManager
@@ -34,6 +35,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -56,6 +59,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     internal lateinit var toolBridge: BoxTools
     private lateinit var dashboardDetails: BoxDashboard
     private var connectionsVisible = false
+    private val logsVisible = MutableStateFlow(false)
     private val operations = Mutex()
     private val apps = AppListCache {
         val packageManager = activity.packageManager
@@ -146,12 +150,18 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                             launch { connections.uiState.collect { state ->
                                 if (connectionsVisible) emit("connections", withContext(Dispatchers.Default) { state.allConnections.map { it.toWire() } })
                             } }
-                            launch { logs.uiState.collect { state ->
-                                emit("logs", withContext(Dispatchers.Default) { mapOf(
-                                    "defaultLogLevel" to state.defaultLogLevel?.label,
-                                    "entries" to state.logs.map { mapOf("id" to it.id, "level" to it.entry.level.label, "message" to it.entry.message, "receivedAt" to it.receivedAt) },
-                                ) })
-                            } }
+                            launch {
+                                val stream = LogStream()
+                                combine(logs.uiState, logsVisible, AppLifecycleObserver.isForeground) { state, visible, foreground ->
+                                    state.takeIf { visible && foreground }
+                                }.collect { state ->
+                                    if (state == null) stream.reset()
+                                    else {
+                                        val update = withContext(Dispatchers.Default) { stream.update(state) }
+                                        if (update != null) emit("logs", update)
+                                    }
+                                }
+                            }
                             launch { RemoteControlManager.remoteServer.collect { emit("dashboard", dashboard.uiState.value.toWire()) } }
                             launch { RemoteControlManager.isConnected.collect { emit("dashboard", dashboard.uiState.value.toWire()) } }
                         }
@@ -166,6 +176,8 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             override fun onCancel(arguments: Any?) {
                 sink = null
                 streamJob?.cancel()
+                logsVisible.value = false
+                if (::dashboardDetails.isInitialized) dashboardDetails.setMemoryVisible(false)
                 if (::connections.isInitialized && connectionsVisible) {
                     connectionsVisible = false
                     connections.setVisible(false)
@@ -193,6 +205,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 null
             }
             "dashboard.releaseMemory" -> dashboardDetails.releaseMemory()
+            "dashboard.memory.visible" -> { dashboardDetails.setMemoryVisible(args["visible"] == true); null }
             "dashboard.lan.refresh" -> dashboardDetails.refreshNetwork(force = true)
             "dashboard.lan.set" -> localProfiles {
                 val enabled = args["enabled"] as? Boolean ?: error("Missing LAN proxy state")
@@ -346,6 +359,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             }
             "connections.closeAll" -> withContext(Dispatchers.IO) { CommandTarget.standaloneClient().closeConnections(); null }
             "logs.clear" -> { logs.requestClearLogs(); null }
+            "logs.visible" -> { logsVisible.value = args["visible"] == true; null }
             "preferences.set" -> operations.withLock {
                 @Suppress("UNCHECKED_CAST")
                 val value = BoxPreferences.validate(args["value"] as? Map<String, Any?> ?: error("Missing preferences"))

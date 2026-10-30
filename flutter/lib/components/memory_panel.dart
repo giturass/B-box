@@ -1,14 +1,16 @@
 import 'dart:math' as math;
 import '../widgets.dart';
+import 'data_subscription.dart';
 
 /// FlClash's memory summary with same-process accounting from libbox.
 class MemoryPanel extends StatelessWidget {
   const MemoryPanel({super.key});
-  @override Widget build(BuildContext context) => BoxPanel(onTap: () => openForm(context, const MemoryDetails()), child: Column(
+  @override Widget build(BuildContext context) => BoxDataSubscription(data: BoxData.memory,
+    child: BoxPanel(onTap: () => openForm(context, const MemoryDetails()), child: Column(
     crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       const PanelTitle('Memory', AppGlyphs.memory, trailing: GlyphIcon(AppGlyphs.chevronForward, size: 18)),
-      const SizedBox(height: 12), MemorySummary(snapshot: context.box.memory),
-    ]));
+      const SizedBox(height: 12), MemorySummary(snapshot: context.watchBox(BoxAspect.memory).memory),
+    ])));
 }
 
 class MemorySummary extends StatelessWidget {
@@ -65,8 +67,8 @@ class _MemoryDetailsState extends State<MemoryDetails> {
     if (mounted) setState(() => _releasing = false);
   }
   @override Widget build(BuildContext context) {
-    final memory = context.box.memory, total = (context.box.memory['core'] as num?)?.toDouble() ?? 0;
-    return BoxPage(title: 'Memory', loading: _releasing, actions: [
+    final memory = context.watchBox(BoxAspect.memory).memory, total = (memory['core'] as num?)?.toDouble() ?? 0;
+    return BoxDataSubscription(data: BoxData.memory, child: BoxPage(title: 'Memory', loading: _releasing, actions: [
       if (memory['remote'] != true && memory['running'] == true) IconButtonData(glyph: AppGlyphs.broom,
         tooltip: context.tr('Release memory'), onPressed: _releasing ? null : _release),
     ], children: [
@@ -85,6 +87,6 @@ class _MemoryDetailsState extends State<MemoryDetails> {
             trailing: Text('${total == 0 ? '0.0' : ((memory[key] as num) * 100 / total).toStringAsFixed(1)}%')),
         if (memory['goroutines'] != null) ListItem(title: Text(context.tr('Goroutines')), trailing: Text(memory['goroutines'].toString())),
       ]),
-    ]);
+    ]));
   }
 }

@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -57,17 +58,24 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
         }
     }
     private val qualityCache = activity.getSharedPreferences("dashboard_ip_quality", 0)
+    private val memoryVisible = MutableStateFlow(false)
+    private val memoryPolling = activity.lifecycleScope.pollWhileVisible(
+        memoryVisible, AppLifecycleObserver.isForeground, AppLifecycleObserver.isScreenOn,
+    ) {
+        val snapshot = withContext(Dispatchers.IO) { memory() }
+        emit("memory", snapshot)
+    }
     private val polling = activity.lifecycleScope.launch {
         AppLifecycleObserver.isForeground.collectLatest { foreground ->
             if (!foreground) return@collectLatest
             while (isActive) {
-                val memory = withContext(Dispatchers.IO) { memory() }
-                emit("memory", memory)
                 refreshNetwork()
                 delay(2000)
             }
         }
     }
+
+    fun setMemoryVisible(visible: Boolean) { memoryVisible.value = visible }
 
     private fun memory(): Map<String, Any?> {
         if (CommandTarget.isRemote) return mapOf("remote" to true, "total" to remoteMemory, "core" to remoteMemory)
@@ -282,6 +290,7 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
     override fun close() {
         serviceChanges.cancel()
         polling.cancel()
+        memoryPolling.cancel()
         egressSessions.values.forEach { it.close() }
         egressSessions.clear()
     }

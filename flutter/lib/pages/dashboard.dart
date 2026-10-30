@@ -123,7 +123,7 @@ class _SpeedTile extends StatelessWidget {
   const _SpeedTile({required this.upload});
   final bool upload;
   @override Widget build(BuildContext context) {
-    final box = context.box, colors = context.colorScheme;
+    final box = context.watchBox(BoxAspect.traffic), colors = context.colorScheme;
     final color = upload ? colors.onSurfaceVariant : colors.primary;
     final show = bytes(box.rates[upload ? 'upload' : 'download'] as num? ?? 0).split(' ');
     final scale = math.max(1.0, MediaQuery.textScalerOf(context).scale(1));

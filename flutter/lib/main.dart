@@ -73,10 +73,9 @@ class _BoxAppState extends State<BoxApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) => BoxScope(
     controller: widget.controller,
-    child: ListenableBuilder(
-      listenable: widget.controller,
-      builder: (context, _) {
-        final prefs = widget.controller.preferences;
+    child: Builder(
+      builder: (context) {
+        final prefs = BoxScope.of(context, aspect: BoxAspect.appearance).preferences;
         return MaterialApp(
           title: 'B-box',
           debugShowCheckedModeBanner: false,

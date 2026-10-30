@@ -51,9 +51,9 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
     super.didChangeDependencies();
     final box = context.box;
     if (!identical(_box, box)) {
-      _box?.removeListener(_syncRoute);
+      _box?.stateChanges.removeListener(_syncRoute);
       _box = box;
-      box.addListener(_syncRoute);
+      box.stateChanges.addListener(_syncRoute);
     }
     _syncRoute();
   }
@@ -159,7 +159,7 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
   }
   @override void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _box?.removeListener(_syncRoute);
+    _box?.stateChanges.removeListener(_syncRoute);
     _generation++; _probe?.cancel(); _qualityExpiry?.cancel(); _cooldown?.cancel(); _settle?.cancel(); _detailsRevision.dispose();
     super.dispose();
   }

@@ -1,6 +1,7 @@
 import 'package:super_sliver_list/super_sliver_list.dart';
 import '../widgets.dart';
 import '../components/record.dart';
+import '../components/data_subscription.dart';
 
 class LogsPage extends StatefulWidget {
   const LogsPage({super.key});
@@ -39,13 +40,13 @@ class _LogsPageState extends State<LogsPage> {
   }
 
   @override Widget build(BuildContext context) {
-    final box = context.box;
+    final box = context.watchBox(BoxAspect.logs);
     final words = _query.toLowerCase().trim().split(RegExp(r'\s+'));
     final logs = (_paused ?? box.logs).where((item) =>
       _matchesLevel(item, box.defaultLogLevel) &&
       words.every(([item['level'], item['message']].join(' ').toLowerCase()).contains),
     ).toList();
-    return CommonScaffold(
+    return BoxDataSubscription(data: BoxData.logs, child: CommonScaffold(
       title: context.tr('Logs'),
       onKeywordsUpdate: (words) => setState(() => _query = words.join(' ')),
       searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
@@ -101,6 +102,6 @@ class _LogsPageState extends State<LogsPage> {
           ),
         ),
       ),
-    );
+    ));
   }
 }
