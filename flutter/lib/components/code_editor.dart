@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 /// A JSON text field with a gutter for logical lines, including wrapped lines.
 class CodeEditor extends StatefulWidget {

@@ -1,4 +1,5 @@
 // Adapted from FlClash v0.9.2 intranet_ip.dart and card.dart (GPL-3.0).
+import 'package:flutter/rendering.dart' show OverflowBoxFit;
 import 'package:flutter/services.dart';
 import 'package:material_new_shapes/material_new_shapes.dart';
 import '../widgets.dart';
