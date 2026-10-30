@@ -40,7 +40,8 @@ class _AccessPageState extends State<AccessPage> {
 
   void _reload() {
     context.box.appIcons.clear();
-    setState(() => _apps = _load(refresh: true));
+    final apps = _load(refresh: true);
+    setState(() { _apps = apps; });
   }
 
   void _filter(VoidCallback change, {bool sourceChanged = false}) {
