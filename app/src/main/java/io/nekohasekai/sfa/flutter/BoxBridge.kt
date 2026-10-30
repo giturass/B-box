@@ -57,6 +57,20 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private lateinit var dashboardDetails: BoxDashboard
     private var connectionsVisible = false
     private val operations = Mutex()
+    private val apps = AppListCache {
+        val packageManager = activity.packageManager
+        PackageQueryManager.getInstalledPackages(android.content.pm.PackageManager.GET_PERMISSIONS).mapNotNull { info ->
+            if (info.packageName == activity.packageName) return@mapNotNull null
+            val application = info.applicationInfo ?: return@mapNotNull null
+            AppListCache.Entry(
+                packageName = info.packageName,
+                system = application.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM != 0,
+                internet = info.requestedPermissions?.contains(android.Manifest.permission.INTERNET) == true,
+                updatedAt = info.lastUpdateTime,
+                loadLabel = { application.loadLabel(packageManager).toString() },
+            )
+        }
+    }
     private val reports = BoxReports(activity)
     private val profiles = BoxProfiles { recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) } }
     private val qrScanner = BoxQrScanner(profiles::decode)
@@ -349,16 +363,12 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 settings()
             }
             "apps.list" -> withContext(Dispatchers.IO) {
-                PackageQueryManager.getInstalledPackages(android.content.pm.PackageManager.GET_PERMISSIONS).map { info ->
-                    val application = info.applicationInfo
-                    mapOf(
-                        "package" to info.packageName,
-                        "name" to (application?.loadLabel(activity.packageManager)?.toString() ?: info.packageName),
-                        "system" to (application != null && application.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM != 0),
-                        "internet" to (info.requestedPermissions?.contains(android.Manifest.permission.INTERNET) == true),
-                        "updatedAt" to info.lastUpdateTime,
-                    )
-                }.sortedBy { (it["name"] as String).lowercase() }
+                apps.list(
+                    key = "${PackageQueryManager.strategy}:${activity.resources.configuration.locales.toLanguageTags()}",
+                    refresh = args["refresh"] == true,
+                    showSystem = args["system"] == true,
+                    showOffline = args["nonInternet"] == true,
+                )
             }
             "apps.icon" -> withContext(Dispatchers.IO) {
                 val drawable = activity.packageManager.getApplicationIcon(string("package"))

@@ -52,16 +52,16 @@ void main() {
     await events.close();
   });
 
-  testWidgets('managed application page refreshes its managed list before loading applications', (tester) async {
+  testWidgets('managed application page uses saved selections without scanning APKs', (tester) async {
     const channel = MethodChannel('test.managed-scan');
     final events = StreamController<dynamic>.broadcast();
     final calls = <String>[];
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    const settings = {'perAppEnabled': true, 'perAppManaged': true, 'perAppManagedList': <String>[]};
+    const settings = {'perAppEnabled': true, 'perAppManaged': true, 'perAppManagedList': ['cn.example.app']};
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call.method);
       if (call.method == 'ready') return {'version': 'test', 'coreVersion': 'test', 'settings': settings, 'dashboard': {'status': 'Stopped'}};
-      if (call.method == 'apps.rescan') return {...settings, 'perAppManagedList': ['cn.example.app']};
+      if (call.method == 'apps.rescan') throw StateError('Opening the page must not scan APKs');
       if (call.method == 'apps.list') return [{'package': 'cn.example.app', 'name': 'Managed app', 'internet': true}];
       return null;
     });
@@ -71,7 +71,8 @@ void main() {
     await tester.pumpAndSettle();
     openPage(tester.element(find.byType(HomePage)), const AccessPage());
     await tester.pumpAndSettle();
-    expect(calls.indexOf('apps.rescan'), lessThan(calls.indexOf('apps.list')));
+    expect(calls.where((method) => method == 'apps.rescan'), isEmpty);
+    expect(calls.where((method) => method == 'apps.list'), hasLength(1));
     expect(box.settings['perAppManagedList'], ['cn.example.app']);
     expect(find.text('Managed app'), findsOneWidget);
     expect(tester.takeException(), isNull);

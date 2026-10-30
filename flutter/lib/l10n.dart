@@ -112,6 +112,7 @@ const _zh = <String, String>{
   'Bypass selected apps': '绕过选中的应用', 'Proxy selected apps': '仅代理选中的应用',
   'Show system apps': '显示系统应用', 'Selected apps': '已选应用', 'Application query': '应用查询',
   'Grant Shizuku permission': '授予 Shizuku 权限', 'Managed app list': '托管应用列表',
+  'Rescan managed apps': '重新扫描托管应用',
   'Disable managed app list to edit selection': '关闭托管应用列表后可编辑选择',
   'Service': '服务', 'System HTTP proxy': '系统 HTTP 代理', 'Allow VPN bypass': '允许绕过 VPN',
   'Auto redirect': '自动重定向', 'Dynamic notification': '动态通知', 'Battery optimization': '电池优化',
