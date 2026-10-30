@@ -1,3 +1,4 @@
+import 'dart:ui' show BoxHeightStyle;
 import 'package:b_box_ui/components/code_editor.dart';
 import 'package:b_box_ui/pages/profile_editor.dart';
 import 'package:material_ui/material_ui.dart';
@@ -16,8 +17,12 @@ Future<void> _mount(WidgetTester tester, JsonEditorController text, UndoHistoryC
 
 double _textY(WidgetTester tester, int offset) {
   final render = tester.state<EditableTextState>(find.byType(EditableText)).renderEditable;
-  // Selection boxes follow the glyph layout; the caret additionally snaps to physical pixels.
+  // Compare identical strut bounds on every row. The default selection boxes
+  // include different leading on the first line; carets snap to physical pixels.
+  final previous = render.selectionHeightStyle;
+  render.selectionHeightStyle = BoxHeightStyle.strut;
   final box = render.getBoxesForSelection(TextSelection(baseOffset: offset, extentOffset: offset + 1)).first;
+  render.selectionHeightStyle = previous;
   return render.localToGlobal(box.toRect().topLeft).dy;
 }
 
