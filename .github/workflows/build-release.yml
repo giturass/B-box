@@ -93,6 +93,12 @@ jobs:
           go-version: ${{ steps.versions.outputs.go_version }}
           cache-dependency-path: .core/go.sum
 
+      - name: Patch and test Android ingress-discard map compatibility
+        working-directory: .core
+        run: |
+          python3 ../tools/patch_sing_tun.py .
+          go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1
+
       - name: Build arm64 libbox
         working-directory: .core
         run: |

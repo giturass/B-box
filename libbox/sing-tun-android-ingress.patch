@@ -1,0 +1,170 @@
+diff --git a/redirect_ingress_discard_android.go b/redirect_ingress_discard_android.go
+--- a/redirect_ingress_discard_android.go
++++ b/redirect_ingress_discard_android.go
+@@ -1,7 +1,6 @@
+ package tun
+ 
+ import (
+-	"encoding/binary"
+ 	"net/netip"
+ 	"os"
+ 	"runtime"
+@@ -14,7 +13,7 @@
+ )
+ 
+ // ConnectivityService.updateIngressToVpnAddressFiltering keys this map by the
+-// VPN address (IPv4-mapped) with the tun ifindex in both value slots, and the
++// VPN address (IPv4-mapped) with the tun ifindex in one or two value slots, and the
+ // cgroup skb ingress program in netd.c drops packets for app uids to that
+ // address from any other interface, which includes the de-NATed replies of
+ // bypassed flows. ConnectivityService updates entries from LinkProperties diffs.
+@@ -40,10 +39,10 @@
+ 	info           uint64
+ }
+ 
+-func bpfObjectGet(path string) (int, error) {
++func bpfObjectGet(path string) (int, int, error) {
+ 	pathBytes, err := unix.BytePtrFromString(path)
+ 	if err != nil {
+-		return 0, err
++		return 0, 0, err
+ 	}
+ 	var pinner runtime.Pinner
+ 	pinner.Pin(pathBytes)
+@@ -51,7 +50,7 @@
+ 	attribute := bpfObjectAttribute{pathname: uint64(uintptr(unsafe.Pointer(pathBytes)))}
+ 	descriptor, _, errno := unix.Syscall(unix.SYS_BPF, unix.BPF_OBJ_GET, uintptr(unsafe.Pointer(&attribute)), unsafe.Sizeof(attribute))
+ 	if errno != 0 {
+-		return 0, errno
++		return 0, 0, errno
+ 	}
+ 	var info struct {
+ 		mapType   uint32
+@@ -68,13 +67,13 @@
+ 	_, _, errno = unix.Syscall(unix.SYS_BPF, unix.BPF_OBJ_GET_INFO_BY_FD, uintptr(unsafe.Pointer(&infoAttribute)), unsafe.Sizeof(infoAttribute))
+ 	if errno != 0 {
+ 		unix.Close(int(descriptor))
+-		return 0, errno
++		return 0, 0, errno
+ 	}
+-	if info.mapType != unix.BPF_MAP_TYPE_HASH || info.keySize != 16 || info.valueSize != 8 {
++	if err := validateAndroidIngressDiscardMapLayout(info.mapType, info.keySize, info.valueSize); err != nil {
+ 		unix.Close(int(descriptor))
+-		return 0, E.New("unexpected ingress discard map layout: type ", info.mapType, ", key ", info.keySize, ", value ", info.valueSize)
++		return 0, 0, err
+ 	}
+-	return int(descriptor), nil
++	return int(descriptor), int(info.valueSize), nil
+ }
+ 
+ func bpfMapCall(command uintptr, mapDescriptor int, key []byte, value []byte, flags uint64) error {
+@@ -108,7 +107,7 @@
+ 	if err != nil {
+ 		return E.Cause(err, "stat ingress discard map")
+ 	}
+-	mapDescriptor, err := bpfObjectGet(androidIngressDiscardMapPath)
++	mapDescriptor, valueSize, err := bpfObjectGet(androidIngressDiscardMapPath)
+ 	if err != nil {
+ 		if err == unix.ENOENT {
+ 			return nil
+@@ -123,16 +122,15 @@
+ 	for _, prefix := range r.tunOptions.Inet4Address {
+ 		address := prefix.Addr()
+ 		key := address.As16()
+-		var value [8]byte
+-		err = bpfMapCall(unix.BPF_MAP_LOOKUP_ELEM, mapDescriptor, key[:], value[:], 0)
++		value := make([]byte, valueSize)
++		err = bpfMapCall(unix.BPF_MAP_LOOKUP_ELEM, mapDescriptor, key[:], value, 0)
+ 		if err == unix.ENOENT {
+ 			continue
+ 		}
+ 		if err != nil {
+ 			return E.Cause(err, "read ingress discard rule for ", address)
+ 		}
+-		if int(binary.NativeEndian.Uint32(value[:4])) != tunLink.Attrs().Index ||
+-			int(binary.NativeEndian.Uint32(value[4:])) != tunLink.Attrs().Index {
++		if !androidIngressDiscardValueMatchesInterface(value, tunLink.Attrs().Index) {
+ 			continue
+ 		}
+ 		err = bpfMapCall(unix.BPF_MAP_DELETE_ELEM, mapDescriptor, key[:], nil, 0)
+@@ -140,7 +138,7 @@
+ 			return E.Cause(err, "remove ingress discard rule for ", address)
+ 		}
+ 		if r.androidIngressDiscardValues == nil {
+-			r.androidIngressDiscardValues = make(map[netip.Addr][8]byte)
++			r.androidIngressDiscardValues = make(map[netip.Addr][]byte)
+ 		}
+ 		r.androidIngressDiscardValues[address] = value
+ 		r.logger.Debug("removed ingress discard rule for ", address)
+@@ -158,18 +156,18 @@
+ 	if err != nil {
+ 		return
+ 	}
+-	mapDescriptor, err := bpfObjectGet(androidIngressDiscardMapPath)
++	mapDescriptor, valueSize, err := bpfObjectGet(androidIngressDiscardMapPath)
+ 	if err != nil {
+ 		r.logger.Error("restore ingress discard rules: open map: ", err)
+ 		return
+ 	}
+ 	defer unix.Close(mapDescriptor)
+ 	for address, value := range values {
+-		if int(binary.NativeEndian.Uint32(value[:4])) != tunLink.Attrs().Index {
++		if !androidIngressDiscardValueCanRestore(value, valueSize, tunLink.Attrs().Index) {
+ 			continue
+ 		}
+ 		key := address.As16()
+-		err = bpfMapCall(unix.BPF_MAP_UPDATE_ELEM, mapDescriptor, key[:], value[:], unix.BPF_NOEXIST)
++		err = bpfMapCall(unix.BPF_MAP_UPDATE_ELEM, mapDescriptor, key[:], value, unix.BPF_NOEXIST)
+ 		if err != nil && err != unix.EEXIST {
+ 			r.logger.Error("restore ingress discard rule for ", address, ": ", err)
+ 		}
+diff --git a/redirect_linux.go b/redirect_linux.go
+--- a/redirect_linux.go
++++ b/redirect_linux.go
+@@ -59,7 +59,7 @@
+ 	androidVPNServiceRuleAccess  sync.Mutex
+ 	androidVPNServiceRules       []*netlink.Rule
+ 	androidVPNServiceRulesActive bool
+-	androidIngressDiscardValues  map[netip.Addr][8]byte
++	androidIngressDiscardValues  map[netip.Addr][]byte
+ 	dockerFirewallMonitor        *nftables.Monitor
+ 	dockerFirewallDone           chan struct{}
+ }
+diff --git a/redirect_ingress_discard_value_linux.go b/redirect_ingress_discard_value_linux.go
+new file mode 100644
+--- /dev/null
++++ b/redirect_ingress_discard_value_linux.go
+@@ -0,0 +1,33 @@
++package tun
++
++import (
++	"encoding/binary"
++
++	E "github.com/sagernet/sing/common/exceptions"
++
++	"golang.org/x/sys/unix"
++)
++
++// Android vendor builds may use a single ifindex; AOSP uses two ifindices.
++// Use the kernel's map metadata rather than the Android release number.
++func validateAndroidIngressDiscardMapLayout(mapType uint32, keySize uint32, valueSize uint32) error {
++	if mapType != unix.BPF_MAP_TYPE_HASH || keySize != 16 || (valueSize != 4 && valueSize != 8) {
++		return E.New("unexpected ingress discard map layout: type ", mapType, ", key ", keySize, ", value ", valueSize)
++	}
++	return nil
++}
++
++func androidIngressDiscardValueMatchesInterface(value []byte, ifIndex int) bool {
++	if ifIndex <= 0 || (len(value) != 4 && len(value) != 8) {
++		return false
++	}
++	if int(binary.NativeEndian.Uint32(value[:4])) != ifIndex {
++		return false
++	}
++	return len(value) == 4 || int(binary.NativeEndian.Uint32(value[4:])) == ifIndex
++}
++
++func androidIngressDiscardValueCanRestore(value []byte, valueSize int, ifIndex int) bool {
++	// Never pass a saved short buffer to a map that now has a larger value.
++	return len(value) == valueSize && androidIngressDiscardValueMatchesInterface(value, ifIndex)
++}
