@@ -45,14 +45,15 @@ void main() {
     ]) {
       final before = Map.of(builds);
       events.add({'type': type, 'value': value});
-      await tester.pump();
+      // The broadcast arrives asynchronously and then schedules the model's frame.
+      await tester.pumpAndSettle();
       for (final candidate in BoxAspect.values) {
         expect(builds[candidate], before[candidate]! + (candidate == aspect ? 1 : 0), reason: '$type -> $candidate');
       }
       expect(routeUpdates, 0);
     }
     events.add({'type': 'dashboard', 'value': {'status': 'Started', 'mode': 'rule'}});
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(routeUpdates, 1);
     expect(builds[BoxAspect.state], 2);
     final before = Map.of(builds);
