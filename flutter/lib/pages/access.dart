@@ -138,7 +138,7 @@ class _AccessPageState extends State<AccessPage> {
         onChanged: (value) async { await (pendingMode = box.setSetting('queryMode', value, restart: false)); }),
       ListItem(title: Text(context.tr('Grant Shizuku permission')), onTap: () {
         permissionRequested = true;
-        return box.act('apps.permission');
+        box.act('apps.permission');
       }),
     ]));
     await pendingMode;
