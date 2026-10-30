@@ -1,6 +1,6 @@
 import 'package:b_box_ui/components/code_editor.dart';
 import 'package:b_box_ui/pages/profile_editor.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Finder _line(int number) => find.byKey(ValueKey('code-line-$number'));
@@ -14,9 +14,11 @@ Future<void> _mount(WidgetTester tester, JsonEditorController text, UndoHistoryC
   await tester.pump();
 }
 
-double _caretY(WidgetTester tester, int offset) {
+double _textY(WidgetTester tester, int offset) {
   final render = tester.state<EditableTextState>(find.byType(EditableText)).renderEditable;
-  return render.localToGlobal(render.getLocalRectForCaret(TextPosition(offset: offset)).topLeft).dy;
+  // Selection boxes follow the glyph layout; the caret additionally snaps to physical pixels.
+  final box = render.getBoxesForSelection(TextSelection(baseOffset: offset, extentOffset: offset + 1)).first;
+  return render.localToGlobal(box.toRect().topLeft).dy;
 }
 
 void main() {
@@ -30,7 +32,7 @@ void main() {
         expect(_line(4), findsOneWidget); // Trailing empty logical line.
         expect(_line(5), findsNothing); // Wrapped visual rows do not add numbers.
         final gutterDelta = tester.getTopLeft(_line(3)).dy - tester.getTopLeft(_line(1)).dy;
-        final textDelta = _caretY(tester, text.text.indexOf('}')) - _caretY(tester, 0);
+        final textDelta = _textY(tester, text.text.indexOf('}')) - _textY(tester, 0);
         expect(gutterDelta, closeTo(textDelta, 0.1));
         expect(tester.takeException(), isNull);
       }
@@ -43,7 +45,7 @@ void main() {
     final undo = UndoHistoryController();
     addTearDown(() { text.dispose(); undo.dispose(); });
     await _mount(tester, text, undo);
-    final alignment = tester.getTopLeft(_line(1)).dy - _caretY(tester, 0);
+    final alignment = tester.getTopLeft(_line(1)).dy - _textY(tester, 0);
     final scroll = tester.widget<TextField>(find.byType(TextField)).scrollController!;
     scroll.jumpTo(420.5);
     await tester.pump();
@@ -53,7 +55,7 @@ void main() {
     expect(visible.evaluate().length, lessThan(20));
     final number = int.parse(tester.widget<Text>(visible.last).data!);
     final offset = text.text.indexOf('"line ${number - 1}"');
-    expect(tester.getTopLeft(_line(number)).dy - _caretY(tester, offset), closeTo(alignment, 0.1));
+    expect(tester.getTopLeft(_line(number)).dy - _textY(tester, offset), closeTo(alignment, 0.1));
     scroll.jumpTo(scroll.position.maxScrollExtent);
     await tester.pump();
     expect(_line(100), findsOneWidget);
