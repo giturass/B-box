@@ -362,13 +362,18 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 patchSettings(values)
                 settings()
             }
-            "apps.list" -> withContext(Dispatchers.IO) {
-                apps.list(
-                    key = "${PackageQueryManager.strategy}:${activity.resources.configuration.locales.toLanguageTags()}",
-                    refresh = args["refresh"] == true,
-                    showSystem = args["system"] == true,
-                    showOffline = args["nonInternet"] == true,
-                )
+            "apps.list" -> {
+                val result = withContext(Dispatchers.IO) {
+                    apps.list(
+                        key = "${PackageQueryManager.strategy}:${activity.resources.configuration.locales.toLanguageTags()}",
+                        refresh = args["refresh"] == true,
+                        showSystem = args["system"] == true,
+                        showOffline = args["nonInternet"] == true,
+                    )
+                }
+                // Package broadcasts may have updated managed selections while the page was closed.
+                emit("settings", settings())
+                result
             }
             "apps.icon" -> withContext(Dispatchers.IO) {
                 val drawable = activity.packageManager.getApplicationIcon(string("package"))

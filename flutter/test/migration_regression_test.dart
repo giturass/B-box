@@ -57,12 +57,15 @@ void main() {
     final events = StreamController<dynamic>.broadcast();
     final calls = <String>[];
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    const settings = {'perAppEnabled': true, 'perAppManaged': true, 'perAppManagedList': ['cn.example.app']};
+    const settings = {'perAppEnabled': true, 'perAppManaged': true, 'perAppManagedList': <String>[]};
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call.method);
       if (call.method == 'ready') return {'version': 'test', 'coreVersion': 'test', 'settings': settings, 'dashboard': {'status': 'Stopped'}};
       if (call.method == 'apps.rescan') throw StateError('Opening the page must not scan APKs');
-      if (call.method == 'apps.list') return [{'package': 'cn.example.app', 'name': 'Managed app', 'internet': true}];
+      if (call.method == 'apps.list') {
+        events.add({'type': 'settings', 'value': {...settings, 'perAppManagedList': ['cn.example.app']}});
+        return [{'package': 'cn.example.app', 'name': 'Managed app', 'internet': true}];
+      }
       return null;
     });
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
