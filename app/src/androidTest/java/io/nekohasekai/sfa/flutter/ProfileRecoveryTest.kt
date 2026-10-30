@@ -293,6 +293,8 @@ class ProfileRecoveryTest {
     private fun occupiedPortConfig(port: Int): String =
         """{"inbounds":[{"type":"mixed","listen":"127.0.0.1","listen_port":$port}]}"""
 
+    private fun rows(value: Any?): List<Map<*, *>> = (value as List<*>).map { it as Map<*, *> }
+
     private class SubscriptionServer(@Volatile var content: String) : Closeable {
         private val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val url = "http://127.0.0.1:${server.localPort}/profile.json"
