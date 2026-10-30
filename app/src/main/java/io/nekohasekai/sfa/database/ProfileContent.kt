@@ -40,6 +40,7 @@ internal object ProfileContent {
         validate(content)
         val changed = previous != content
         if (!changed && updatedAt == null) return
+        val savedAt = updatedAt ?: if (changed && profile.typed.type == TypedProfile.Type.Local) Date() else null
 
         val apply = changed && profile.id == Settings.selectedProfile
         val previousUpdatedAt = Date(profile.typed.lastUpdated.time)
@@ -49,7 +50,7 @@ internal object ProfileContent {
             if (previous != null) write(file, previous)
             else check(!file.exists() || file.delete()) { "Unable to restore profile file" }
         }
-        if (updatedAt != null) restore.add {
+        if (savedAt != null) restore.add {
             profile.typed.lastUpdated = previousUpdatedAt
             check(ProfileManager.update(profile) == 1) { "Profile no longer exists" }
         }
@@ -60,8 +61,8 @@ internal object ProfileContent {
         ProfileChange.apply(
             save = {
                 if (changed) write(file, content)
-                if (updatedAt != null) {
-                    profile.typed.lastUpdated = updatedAt
+                if (savedAt != null) {
+                    profile.typed.lastUpdated = savedAt
                     check(ProfileManager.update(profile) == 1) { "Profile no longer exists" }
                 }
             },

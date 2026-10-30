@@ -46,11 +46,16 @@ class IntranetPanel extends StatelessWidget {
     final copy = box.lanCopyText;
     final figure = AppTextStyle.title1.of(context, emphasized: true).toTabular.copyWith(letterSpacing: 0);
     return BoxPanel(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      PanelTitle('Intranet IP', AppGlyphs.devices, trailing: IconButton(tooltip: context.tr('Copy'),
+      PanelTitle('Intranet IP', AppGlyphs.devices, trailing: Transform.translate(
+        offset: const Offset(8, 0), child: SizedBox(width: 32, child: OverflowBox(
+        fit: OverflowBoxFit.deferToChild, minHeight: 32, maxHeight: 32,
+        child: IconButton(tooltip: context.tr('Copy'), padding: EdgeInsets.zero, iconSize: 18,
+        style: IconButton.styleFrom(minimumSize: const Size.square(32), fixedSize: const Size.square(32),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap, foregroundColor: context.colorScheme.onSurfaceVariant),
         icon: const GlyphIcon(AppGlyphs.copy, size: 18), onPressed: copy == null ? null : () {
           final text = box.lanCopyText;
           if (text != null) _copy(context, text);
-        })),
+        }))))),
       const SizedBox(height: 12),
       InkWell(onTap: () => openForm(context, const IntranetDetails()), child: SizedBox(
         height: AppTextStyle.title1.leading * MediaQuery.textScalerOf(context).scale(1),

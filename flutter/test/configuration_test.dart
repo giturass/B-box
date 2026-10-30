@@ -139,8 +139,11 @@ void main() {
     await tester.pumpAndSettle();
     openPage(tester.element(find.byType(HomePage)), const ProfileEditor(profile: {'id': 7, 'name': 'Remote', 'remote': true, 'url': 'https://example.org/profile.json'}));
     await tester.pumpAndSettle();
-    const content = '{"outbounds":[{"type":"direct","tag":"direct"}]}';
+    expect(find.byKey(const ValueKey('code-line-1')), findsOneWidget);
+    const content = '{\n  "outbounds":[{"type":"direct","tag":"direct"}]\n}';
     await tester.enterText(find.byType(TextField).last, content);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('code-line-3')), findsOneWidget);
     await tester.tap(find.byTooltip('Save'));
     await tester.pumpAndSettle();
     expect(json(calls.singleWhere((call) => call.method == 'profiles.write').arguments), {

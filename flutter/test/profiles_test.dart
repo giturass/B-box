@@ -101,7 +101,22 @@ void main() {
     remote.menuItems.singleWhere((item) => item.label == 'Copy link').onPressed!();
     await tester.pump();
     expect(copied, _remote['url']);
-    expect(find.descendant(of: localCard, matching: find.byType(ProfileUpdateTime)), findsNothing);
+    expect(find.descendant(of: localCard, matching: find.text('Unknown')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('local update times are visible on the dashboard and refresh with native metadata', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    await _mount(tester, selected: 2, eventController: events);
+    expect(find.text('Last updated Unknown'), findsOneWidget);
+    final updatedAt = DateTime.now().millisecondsSinceEpoch;
+    events.add({'type': 'profiles', 'value': [_remote, {..._local, 'updatedAt': updatedAt}]});
+    await tester.pumpAndSettle();
+    expect(find.text('Last updated Just now'), findsOneWidget);
+    expect(find.byTooltip('Last updated: ${localDate(updatedAt)}'), findsOneWidget);
+    await _profiles(tester);
+    final localCard = find.byWidgetPredicate((w) => w is ProfileCard && w.profile['id'] == 2);
+    expect(find.descendant(of: localCard, matching: find.text('Just now')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

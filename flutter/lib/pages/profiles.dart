@@ -321,7 +321,8 @@ class _ProfileFormState extends State<ProfileForm> {
         if (widget.initial['id'] != null) generateSection(items: [
           ListItem.open(title: Text(context.tr('Open configuration')), leading: const GlyphIcon(AppGlyphs.code),
             widget: ProfileEditor(profile: widget.initial)),
-          if (_remote) ListItem(title: Text(context.tr('Last updated')), subtitle: Text(localDate(widget.initial['updatedAt']))),
+          ListItem(title: Text(context.tr('Last updated')), subtitle: Text(
+            (widget.initial['updatedAt'] as num? ?? 0) <= 0 ? context.tr('Unknown') : localDate(widget.initial['updatedAt']))),
         ]),
       ],
     );

@@ -61,7 +61,49 @@ class ProfileRecoveryTest {
             assertEquals(binary.remotePath, saved.typed.remoteURL)
             assertEquals(binary.lastUpdated, saved.typed.lastUpdated.time)
             assertTrue(saved.typed.autoUpdate)
+            profiles.writeContent(id, """{"log":{"level":"warn"}}""", BoxProfiles.revision("{}"))
+            assertEquals(binary.lastUpdated, profiles.get(id).typed.lastUpdated.time)
         } finally {
+            profiles.delete(id)
+            Settings.selectedProfile = oldSelection
+            Settings.dataStore.flush()
+        }
+    }
+
+    @Test fun localProfileTimesFollowSuccessfulContentChanges() = runBlocking(Dispatchers.IO) {
+        Application.application.setupLibbox()
+        Settings.dataStore.initialize()
+        val oldSelection = Settings.selectedProfile
+        var failApply = false
+        val profiles = BoxProfiles { recover -> if (failApply && !recover) error("Apply failed") }
+        val createdAfter = System.currentTimeMillis()
+        val id = profiles.save(mapOf("name" to "Local timestamp fixture", "content" to "{}"))
+        try {
+            Settings.selectedProfile = id
+            assertTrue(profiles.get(id).typed.lastUpdated.time >= createdAfter)
+            val profile = profiles.get(id)
+            profile.typed.lastUpdated = Date(0) // A local profile created before timestamps were recorded.
+            ProfileManager.update(profile)
+            assertEquals(0L, profiles.list().single { it["id"] == id }["updatedAt"])
+            val content = """{"log":{"level":"warn"}}"""
+            profiles.writeContent(id, content, BoxProfiles.revision("{}"))
+            val savedAt = profiles.get(id).typed.lastUpdated.time
+            assertTrue(savedAt >= createdAfter)
+            assertEquals(savedAt, profiles.list().single { it["id"] == id }["updatedAt"])
+            profiles.writeContent(id, content, BoxProfiles.revision(content))
+            profiles.save(mapOf("id" to id, "name" to "Renamed local profile"))
+            assertEquals(savedAt, profiles.get(id).typed.lastUpdated.time)
+            val beforeFailure = profiles.get(id)
+            beforeFailure.typed.lastUpdated = Date(1_700_000_000_000L)
+            ProfileManager.update(beforeFailure)
+            failApply = true
+            assertNotNull(runCatching {
+                profiles.writeContent(id, "{}", BoxProfiles.revision(content))
+            }.exceptionOrNull())
+            assertEquals(content, profiles.read(id))
+            assertEquals(beforeFailure.typed.lastUpdated.time, profiles.get(id).typed.lastUpdated.time)
+        } finally {
+            failApply = false
             profiles.delete(id)
             Settings.selectedProfile = oldSelection
             Settings.dataStore.flush()

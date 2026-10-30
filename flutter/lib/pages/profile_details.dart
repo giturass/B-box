@@ -27,7 +27,8 @@ class ProfileDetailsPage extends StatelessWidget {
       generateSection(items: [
         if (p['remote'] == true) ListItem(title: Text(context.tr('URL')), subtitle: SelectableText(p['url'].toString()),
           trailing: IconButton(icon: const GlyphIcon(AppGlyphs.copy), tooltip: context.tr('Copy'), onPressed: () => Clipboard.setData(ClipboardData(text: p['url'].toString())))),
-        ListItem(title: Text(context.tr('Last updated')), subtitle: Text(localDate(p['updatedAt']))),
+        ListItem(title: Text(context.tr('Last updated')), subtitle: Text(
+          (p['updatedAt'] as num? ?? 0) <= 0 ? context.tr('Unknown') : localDate(p['updatedAt']))),
         if (p['remote'] == true) ...[
           ListItem(title: Text(context.tr('Auto update')), trailing: Text(context.tr(p['autoUpdate'] == true ? 'Turn on' : 'Turn off'))),
           ListItem(title: Text(context.tr('Update interval (minutes)')), trailing: Text(p['interval'].toString())),

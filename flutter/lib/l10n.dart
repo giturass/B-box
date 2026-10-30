@@ -52,7 +52,7 @@ const _zh = <String, String>{
   'Name': '名称', 'Save': '保存', 'Cancel': '取消', 'Back': '返回', 'Close': '关闭',
   'Delete': '删除', 'Edit': '编辑', 'Update': '更新', 'Update all': '全部更新',
   'Share': '分享', 'Copy': '复制', 'Copied': '已复制', 'Copy link': '复制链接', 'Export': '导出',
-  'Local': '本地', 'Remote': '远程', 'Last updated': '上次更新',
+  'Local': '本地', 'Remote': '远程', 'Last updated': '上次更新', 'Unknown': '未知',
   'Auto update': '自动更新', 'Update interval (minutes)': '更新间隔（分钟）',
   'Update interval': '更新间隔', 'minutes': '分钟',
   'Configuration': '配置内容', 'Format': '格式化', 'Validate': '校验',

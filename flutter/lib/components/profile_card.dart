@@ -33,7 +33,7 @@ class ProfileCard extends StatelessWidget {
               style: AppTextStyle.footnote.of(context).toLighter, maxLines: 1, overflow: TextOverflow.ellipsis),
           ]),
           trailing: Row(mainAxisSize: MainAxisSize.min, spacing: 8, children: [
-            if (profile['remote'] == true) AnimatedSwitcher(
+            AnimatedSwitcher(
               duration: context.motionDuration(commonDuration),
               layoutBuilder: (currentChild, previousChildren) => Stack(
                 alignment: AlignmentDirectional.centerEnd, children: [...previousChildren, ?currentChild]),
@@ -62,8 +62,10 @@ String profileUpdateLabel(int? milliseconds, DateTime now, {required bool chines
 }
 
 class ProfileUpdateTime extends StatefulWidget {
-  const ProfileUpdateTime({super.key, required this.milliseconds});
+  const ProfileUpdateTime({super.key, required this.milliseconds, this.style, this.showLabel = false});
   final int? milliseconds;
+  final TextStyle? style;
+  final bool showLabel;
   @override State<ProfileUpdateTime> createState() => _ProfileUpdateTimeState();
 }
 
@@ -92,10 +94,15 @@ class _ProfileUpdateTimeState extends State<ProfileUpdateTime> with WidgetsBindi
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
-  @override Widget build(BuildContext context) => Tooltip(
-    message: '${context.tr('Last updated')}: ${localDate(widget.milliseconds)}',
-    child: Text(profileUpdateLabel(widget.milliseconds, DateTime.now(),
-      chinese: Localizations.localeOf(context).languageCode == 'zh'),
-      style: AppTextStyle.footnote.of(context).toLighter),
-  );
+  @override Widget build(BuildContext context) {
+    final age = profileUpdateLabel(widget.milliseconds, DateTime.now(),
+      chinese: Localizations.localeOf(context).languageCode == 'zh');
+    final date = (widget.milliseconds ?? 0) <= 0 ? context.tr('Unknown') : localDate(widget.milliseconds);
+    return Tooltip(
+      message: '${context.tr('Last updated')}: $date',
+      child: Text(widget.showLabel ? '${context.tr('Last updated')} $age' : age,
+        maxLines: 1, overflow: TextOverflow.ellipsis,
+        style: widget.style ?? AppTextStyle.footnote.of(context).toLighter),
+    );
+  }
 }

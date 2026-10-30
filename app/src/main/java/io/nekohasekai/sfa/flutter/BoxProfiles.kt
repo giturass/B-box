@@ -124,9 +124,9 @@ internal class BoxProfiles(private val applySelected: suspend (recover: Boolean)
         profile.typed.remoteURL = url
         profile.typed.autoUpdate = url.isNotEmpty() && args["autoUpdate"] == true
         profile.typed.autoUpdateInterval = interval
-        if (id == 0L && url.isNotEmpty()) {
+        if (id == 0L) {
             val importedAt = (args["updatedAt"] as? Number)?.toLong()?.takeIf { it >= 0L }
-            profile.typed.lastUpdated = if (args["content"] is String && importedAt != null) Date(importedAt) else Date()
+            profile.typed.lastUpdated = if (url.isNotEmpty() && args["content"] is String && importedAt != null) Date(importedAt) else Date()
         }
         try {
             if (id == 0L) {

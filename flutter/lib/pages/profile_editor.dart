@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import '../widgets.dart';
+import '../components/code_editor.dart';
 
 class ProfileEditor extends StatefulWidget {
   const ProfileEditor({super.key, required this.profile});
@@ -105,15 +106,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
           )),
           Expanded(child: _original == null
               ? _error == null ? const SizedBox.shrink() : ErrorState(_error!, retry: _load)
-              : TextField(
-                  controller: _text, undoController: _undo, expands: true, maxLines: null, minLines: null,
-                  readOnly: _saving || _checking || _loading, autocorrect: false, enableSuggestions: false,
-                  smartDashesType: SmartDashesType.disabled, smartQuotesType: SmartQuotesType.disabled,
-                  keyboardType: TextInputType.multiline,
-                  textAlignVertical: TextAlignVertical.top,
-                  style: const TextStyle(fontFamily: 'JetBrainsMono', fontSize: 13, height: 1.6),
-                  decoration: const InputDecoration(border: InputBorder.none, contentPadding: EdgeInsets.all(16)),
-                )),
+              : CodeEditor(controller: _text, undoController: _undo, readOnly: _saving || _checking || _loading)),
         ]),
       ),
     ),

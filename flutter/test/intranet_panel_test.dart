@@ -194,6 +194,10 @@ void main() {
     testWidgets('LAN row fits a narrow display with larger text: $locale', (tester) async {
       final lan = _LAN()..state = _snapshot(enabled: true);
       await lan.mount(tester, locale: locale, scale: 1.4, width: 320);
+      final copy = find.descendant(of: lan.panel, matching: find.byTooltip(locale == 'zh' ? '复制' : 'Copy'));
+      expect(tester.getSize(copy), const Size.square(32));
+      final header = find.descendant(of: lan.panel, matching: find.byType(PanelTitle));
+      expect(tester.getRect(copy).right, closeTo(tester.getRect(header).right + 8, 0.01));
       expect(find.text(locale == 'zh' ? '局域网代理' : 'LAN proxy'), findsOneWidget);
       expect(lan.switchValue(tester).value, true);
       expect(tester.takeException(), isNull);

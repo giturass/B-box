@@ -1,6 +1,7 @@
 import '../widgets.dart';
 import '../pages/profiles.dart';
 import '../pages/profile_details.dart';
+import 'profile_card.dart';
 
 class ProfilePanel extends StatefulWidget {
   const ProfilePanel({super.key});
@@ -13,7 +14,6 @@ class _ProfilePanelState extends State<ProfilePanel> {
     final profile = box.remote ? null : box.selectedProfile;
     final name = box.remote ? context.tr('Remote configuration') : profile?['name'];
     final label = AppTextStyle.caption1.of(context).copyWith(color: context.colorScheme.onSurfaceVariant);
-    final updated = (profile?['updatedAt'] as num?)?.toInt() ?? 0;
     return BoxPanel(onTap: () => box.remote ? openForm(context, const ProfileDetailsPage()) : profile == null
       ? openForm(context, const AddProfilePage()) : openForm(context, ProfileDetailsPage(profile: profile)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -35,7 +35,8 @@ class _ProfilePanelState extends State<ProfilePanel> {
         ]),
         if (profile != null || box.remote) ...[
           Row(spacing: 12, children: [
-            Expanded(child: Text(updated > 0 ? '${context.tr('Last updated')} ${localDate(updated)}' : '', maxLines: 1, overflow: TextOverflow.ellipsis, style: label)),
+            Expanded(child: profile == null ? const SizedBox.shrink() : ProfileUpdateTime(
+              milliseconds: (profile['updatedAt'] as num?)?.toInt(), style: label, showLabel: true)),
             Text(context.tr(box.remote || profile?['remote'] == true ? 'Remote' : 'Local'), style: label),
           ]),
           const SizedBox(height: 14),

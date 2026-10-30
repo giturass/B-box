@@ -108,12 +108,12 @@
     "lib/components/profile_panel.dart": {
       "source": "lib/views/dashboard/widgets/profiles.dart",
       "sourceSHA256": "f04f71f02f4a1c6dc5af00e005248371e370a0150dd68a021914939c0f48864d",
-      "changes": "Mobile profile summary, update and profile-switch controls. Counts describe the actual sing-box configuration, with unavailable remote counts left unknown. Disable the profile-switch control during native service start/stop transitions."
+      "changes": "Mobile profile summary, update and profile-switch controls. Shows compact Room update times with full-date tooltips for local and remote profiles, retaining an unknown placeholder when absent. Remote sessions omit local profile metadata. Counts describe the actual sing-box configuration, with unavailable remote counts left unknown. Disable the profile-switch control during native service start/stop transitions."
     },
     "lib/pages/profile_details.dart": {
       "source": "lib/views/dashboard/widgets/profile_detail.dart",
       "sourceSHA256": "37b7ae1ba8c16f6861c7b50b60267c6e0ae3bc207995035b51d3ae51c10f27e6",
-      "changes": "Profile summary and configuration editing page labeled Edit, with count presentation adapted to live Room metadata. Metadata editing and advanced/raw sing-box configuration entries are retained. Clash subscription counters are not invented."
+      "changes": "Profile summary and configuration editing page labeled Edit, with count presentation adapted to live Room metadata and unknown update times explicitly labeled. Metadata editing and advanced/raw sing-box configuration entries are retained. Clash subscription counters are not invented."
     },
     "lib/components/proxy_groups_panel.dart": {
       "source": "lib/views/dashboard/widgets/proxy_groups.dart",
@@ -192,7 +192,13 @@
     "lib/components/intranet_panel.dart": {
       "source": "lib/views/dashboard/widgets/intranet_ip.dart",
       "sourceSHA256": "c1f99b03a80f79a2044566b4fb1b9c8cea5a03ff4936a277130485e611bd284f",
-      "changes": "Mobile LAN IP, sharing switch, cookie/circle Wi-Fi badge, adaptive row and compact switch track from intranet_ip.dart/card.dart. Sharing changes native sing-box proxy inbound listen fields with independent ports and existing authentication/TLS. Copy expands actual running binds to device endpoints; stopped and remote sessions retain device IP copying."
+      "supportingSources": [
+        {
+          "source": "lib/views/dashboard/widgets/card.dart",
+          "sourceSHA256": "7e1a759eae758576c4005fe250c7441bb606b4256a09e327f502e30d0851c8ab"
+        }
+      ],
+      "changes": "Mobile LAN IP, sharing switch, cookie/circle Wi-Fi badge, adaptive row and compact switch track from intranet_ip.dart/card.dart. Copy retains DashboardIconButton's fixed 32px square, 18px glyph, zero padding, surface-variant foreground and 8px right translation. Sharing changes native sing-box proxy inbound listen fields with independent ports and existing authentication/TLS. Copy expands actual running binds to device endpoints; stopped and remote sessions retain device IP copying."
     },
     "lib/components/system_proxy_panel.dart": {
       "source": "lib/views/dashboard/widgets/network_takeover.dart",
@@ -328,7 +334,7 @@
           "sourceSHA256": "a539e15957a3cdb3f4cb2a1718aaa12bc2d398ebf08f949cca4b4812b1245439"
         }
       ],
-      "changes": "Profile row height, title strut, selected badge, updating transition and compact update-age labels retained. Uses Room metadata; remote profiles without a timestamp show unknown, local profiles omit subscription timestamps. Refresh is scoped to visible/resumed pages. Does not invent subscription quotas or expiry badges absent from the native model. Accept a disabled selection callback while retaining the profile metadata and context menu."
+      "changes": "Profile row height, title strut, selected badge, updating transition and compact update-age labels retained. Uses Room timestamps for local content saves and remote subscription updates; missing timestamps show unknown. Refresh is scoped to visible/resumed pages. Does not invent subscription quotas or expiry badges absent from the native model. Accept a disabled selection callback while retaining the profile metadata and context menu."
     }
   },
   "adaptedNativeFiles": {
