@@ -50,7 +50,7 @@ class _CodeEditorState extends State<CodeEditor> {
   @override Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final style = TextStyle(inherit: false, fontFamily: 'JetBrainsMono', fontSize: 13,
-      fontWeight: FontWeight.normal, height: 1.6, color: scheme.onSurface);
+      fontWeight: FontWeight.normal, textBaseline: TextBaseline.alphabetic, height: 1.6, color: scheme.onSurface);
     final strut = StrutStyle.fromTextStyle(style, forceStrutHeight: true);
     final scaler = MediaQuery.textScalerOf(context);
     final locale = Localizations.maybeLocaleOf(context);

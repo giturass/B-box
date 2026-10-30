@@ -90,7 +90,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
         IconButtonData(glyph: AppGlyphs.undo, tooltip: context.tr('Undo'), onPressed: _saving || _checking || _loading ? null : _undo.undo),
         IconButtonData(glyph: AppGlyphs.redo, tooltip: context.tr('Redo'), onPressed: _saving || _checking || _loading ? null : _undo.redo),
       ],
-      body: Padding(
+      body: Material(type: MaterialType.transparency, child: Padding(
         padding: EdgeInsets.only(top: context.appBarInset, bottom: MediaQuery.paddingOf(context).bottom),
         child: Column(children: [
           if (_search) Padding(padding: const EdgeInsets.all(12), child: TextField(
@@ -108,7 +108,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
               ? _error == null ? const SizedBox.shrink() : ErrorState(_error!, retry: _load)
               : CodeEditor(controller: _text, undoController: _undo, readOnly: _saving || _checking || _loading)),
         ]),
-      ),
+      )),
     ),
   );
 }
