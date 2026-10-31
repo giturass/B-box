@@ -113,7 +113,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [access_test.dart](flutter/test/access_test.dart) 与 [migration_regression_test.dart](flutter/test/migration_regression_test.dart) 覆盖进入托管页面不扫描、显示范围与隐藏选择保留、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。它们验证交互和调用行为，不代替实机加载耗时或视觉验收。
 
-[requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口顺序、远程隔离、空 HTTPS 白名单保存、启动确认、后台停止轮询、迟到搜索结果、CA 待重启状态及窄屏/大字号/宽屏布局。正文不完整或截断时不提供 cURL 导出。该测试使用桥接替身，不等于真实 TLS 或 Root 验收；相应核心和 Android 验证见 [libbox.md](libbox.md#构建同步和验证) 与 [app.md](app.md#验证与历史记录)。
+[requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口顺序、远程隔离、空 HTTPS 白名单保存、启动确认、后台停止轮询、迟到搜索结果、CA 待重启状态及窄屏/大字号深色/宽屏布局，并输出请求列表和详情截图到 `build/screenshots/requests/`。正文不完整或截断时不提供 cURL 导出。该测试使用桥接替身，不等于真实 TLS 或 Root 验收；相应核心和 Android 验证见 [libbox.md](libbox.md#构建同步和验证) 与 [app.md](app.md#验证与历史记录)。
 
 [status_panel_parity_test.dart](flutter/test/status_panel_parity_test.dart) 与冻结的 [flclash_status_reference.dart](flutter/test/support/flclash_status_reference.dart) 比较像素，覆盖中英文、深浅主题、0.8/1.0/1.4 字号比例、IPv6、查询等待/失败、组织/ASN 回退及质量等级；停止按钮另行比较。停服状态包含无配置首次启动和设备网络查询的成功/等待/失败情况。
 

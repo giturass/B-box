@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/pages/requests.dart';
 import 'package:b_box_ui/pages/request_settings.dart';
 import 'package:b_box_ui/pages/capture_certificate.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -12,9 +16,30 @@ void main() {
   late StreamController<dynamic> events;
   late List<MethodCall> calls;
   late Json snapshot;
+  late GlobalKey boundaryKey;
   Future<dynamic> Function(MethodCall)? extra;
 
-  Future<void> mount(WidgetTester tester, {bool remote = false, double scale = 1, Size size = const Size(360, 900)}) async {
+  setUpAll(() async {
+    final root = Platform.environment['FLUTTER_ROOT'];
+    if (root != null) {
+      final font = File('$root/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf');
+      if (font.existsSync()) await (FontLoader('Roboto')..addFont(Future.value(ByteData.sublistView(await font.readAsBytes())))).load();
+    }
+  });
+
+  Future<void> capture(WidgetTester tester, String label) async {
+    await tester.runAsync(() async {
+      final boundary = boundaryKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+      final bitmap = await boundary.toImage();
+      final data = await bitmap.toByteData(format: ui.ImageByteFormat.png);
+      final file = File('build/screenshots/requests/$label.png');
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(data!.buffer.asUint8List());
+      bitmap.dispose();
+    });
+  }
+
+  Future<void> mount(WidgetTester tester, {bool remote = false, bool dark = false, double scale = 1, Size size = const Size(360, 900)}) async {
     tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];
     addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
     tester.view.physicalSize = size;
@@ -28,7 +53,7 @@ void main() {
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
       if (call.method == 'ready') return {
-        'version': 'test', 'coreVersion': 'test', 'preferences': {'fontScale': scale},
+        'version': 'test', 'coreVersion': 'test', 'preferences': {'fontScale': scale, 'theme': dark ? 'dark' : 'light'},
         'dashboard': {'status': 'Started', if (remote) ...{'remote': 'Server', 'remoteConnected': true}},
       };
       if (extra != null) return extra!(call);
@@ -40,7 +65,8 @@ void main() {
     });
     events = StreamController<dynamic>.broadcast();
     box = BoxController(channel: channel, events: events.stream);
-    await tester.pumpWidget(BoxApp(controller: box));
+    boundaryKey = GlobalKey();
+    await tester.pumpWidget(RepaintBoundary(key: boundaryKey, child: BoxApp(controller: box)));
     await tester.pumpAndSettle();
     addTearDown(() async {
       extra = null;
@@ -159,13 +185,16 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  for (final (size, scale) in [(const Size(360, 800), 1.4), (const Size(800, 1000), 1.0)]) {
-    testWidgets('request list and detail fit $size at $scale', (tester) async {
-      await mount(tester, size: size, scale: scale);
+  for (final (size, scale, dark) in [(const Size(360, 800), 1.0, false), (const Size(360, 800), 1.4, true), (const Size(800, 1000), 1.0, false)]) {
+    testWidgets('request list and detail fit $size at $scale dark=$dark', (tester) async {
+      await mount(tester, size: size, scale: scale, dark: dark);
       snapshot['page'] = {'items': [{'id': 'long', 'url': 'https://example.test/${'long-path/' * 30}',
         'method': 'POST', 'status': 200, 'protocol': 'HTTP/2.0', 'packages': ['com.example.long.app.name'], 'bytes': 65536, 'durationMs': 120}], 'total': 1};
       await open(tester, const RequestsPage());
       expect(tester.takeException(), isNull);
+      expect(find.textContaining('https://example.test/'), findsOneWidget);
+      final label = '${size.width.toInt()}-$scale-${dark ? 'dark' : 'light'}';
+      await capture(tester, '$label-list');
       extra = (call) async => call.method == 'capture.detail' ? {
         'id': 'long', 'startedAt': 1700000000000, 'durationMs': 120,
         'request': {'url': 'https://example.test/', 'method': 'POST', 'protocol': 'HTTP/2.0', 'bodyComplete': true, 'bodyTruncated': true},
@@ -173,11 +202,12 @@ void main() {
         'responsePreview': {'text': 'data: live\n', 'encoding': 'text', 'truncated': true},
         'metadata': {'outbound': 'selected-node', 'rule': 'selected-rule', 'packages': ['com.example']},
       } : snapshot;
-      await tester.tap(find.byKey(const ValueKey('long')));
+      await tester.tap(find.textContaining('https://example.test/'));
       await tester.pumpAndSettle();
       final scaffold = tester.widget<CommonScaffold>(find.descendant(of: find.byType(RequestDetailPage), matching: find.byType(CommonScaffold)).first);
       expect(scaffold.iconActions.last.onPressed, isNull, reason: 'A truncated request must not be offered as replayable cURL.');
       expect(tester.takeException(), isNull);
+      await capture(tester, '$label-details');
     });
   }
 }
