@@ -18,6 +18,8 @@ def main():
     if len(apks) != 1 or apks[0].name != expected_name:
         raise SystemExit(f'Expected exactly one {expected_name}, found: {apks}')
     with ZipFile(apks[0]) as apk:
+        if 'lib/arm64-v8a/libbbox_capture.so' not in apk.namelist():
+            raise SystemExit('Packaged Root/eBPF collector is missing')
         abis = {name.split('/')[1] for name in apk.namelist()
                 if name.startswith('lib/') and name.endswith('.so')}
     if abis != {'arm64-v8a'}:

@@ -216,3 +216,15 @@ func TestPlaintextCollectorExitStopsSessionAndClosesSource(t *testing.T) {
 		t.Fatalf("collector failure not reported: %+v", state)
 	}
 }
+
+func TestPlaintextCloseDelimitedBodyIsNotClaimedCompleteOnSSLFree(t *testing.T) {
+	engine, store := testEngine(t, Config{HTTPS: true})
+	openPlaintext(t, engine, "no-length")
+	feedPlaintext(t, engine, "no-length", "write", []byte("GET / HTTP/1.1\r\nHost: api.test\r\n\r\n"), 4096)
+	feedPlaintext(t, engine, "no-length", "read", []byte("HTTP/1.0 200 OK\r\n\r\nprefix"), 4096)
+	closePlaintext(t, engine, "no-length")
+	detail, _ := store.Detail(waitComplete(t, store, 1)[0].ID)
+	if detail.Response.BodyComplete || !strings.Contains(detail.Error, "verifiable HTTP body length") {
+		t.Fatalf("SSL_free cannot prove a close-delimited body finished: %+v", detail)
+	}
+}

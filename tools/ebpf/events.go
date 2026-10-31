@@ -8,9 +8,9 @@ import (
 )
 
 type rawEvent struct {
-	ssl, generation, sequence             uint64
-	pid, uid, kind, length, offset, flags uint32
-	data                                  []byte
+	ssl, generation, sequence, otherSequence uint64
+	pid, uid, kind, length, offset, flags    uint32
+	data                                     []byte
 }
 
 func decodeEvent(data []byte) (rawEvent, error) {
@@ -18,7 +18,7 @@ func decodeEvent(data []byte) (rawEvent, error) {
 		return rawEvent{}, errors.New("short eBPF event")
 	}
 	b := binary.LittleEndian
-	event := rawEvent{ssl: b.Uint64(data[8:]), generation: b.Uint64(data[16:]), sequence: b.Uint64(data[24:]),
+	event := rawEvent{otherSequence: b.Uint64(data[0:]), ssl: b.Uint64(data[8:]), generation: b.Uint64(data[16:]), sequence: b.Uint64(data[24:]),
 		pid: b.Uint32(data[32:]), uid: b.Uint32(data[40:]), kind: b.Uint32(data[44:]), length: b.Uint32(data[52:]),
 		offset: b.Uint32(data[56:]), flags: b.Uint32(data[64:])}
 	length := b.Uint32(data[60:])
@@ -50,9 +50,16 @@ type eventGroup struct {
 	size  int
 	at    time.Time
 }
+type eventKey struct {
+	direction uint32
+	sequence  uint64
+}
 type eventFlow struct {
-	next    uint64
-	pending map[uint64]*eventGroup
+	open    bool
+	next    [2]uint64
+	pending map[eventKey]*eventGroup
+	closing *rawEvent
+	closeAt time.Time
 }
 type eventAssembler struct {
 	config collectorConfig
@@ -71,66 +78,76 @@ func (a *eventAssembler) accept(event rawEvent) error {
 		if len(a.flows) >= 8192 {
 			return errors.New("eBPF connection limit reached")
 		}
-		flow = &eventFlow{pending: make(map[uint64]*eventGroup)}
+		flow = &eventFlow{next: [2]uint64{1, 1}, pending: make(map[eventKey]*eventGroup)}
 		a.flows[id] = flow
 	}
-	if event.sequence < flow.next {
-		return errors.New("duplicate eBPF sequence")
-	}
-	if len(flow.pending) >= 64 && flow.pending[event.sequence] == nil {
-		return errors.New("eBPF reorder queue overflow")
-	}
-	group := flow.pending[event.sequence]
-	if group == nil {
-		group = &eventGroup{first: event, parts: make(map[uint32][]byte), at: time.Now()}
-		flow.pending[event.sequence] = group
-	}
-	if event.kind != group.first.kind || event.uid != group.first.uid || event.length != group.first.length {
-		return errors.New("conflicting eBPF fragments")
-	}
-	if event.flags != 0 {
-		group.first.flags = event.flags
-	}
-	if len(event.data) > 0 {
-		if _, exists := group.parts[event.offset]; exists {
-			return errors.New("duplicate eBPF fragment")
+	switch event.kind {
+	case 1:
+		if flow.open || event.sequence != 0 {
+			return errors.New("duplicate eBPF connection open")
 		}
-		if event.offset%4096 != 0 || len(event.data) != min(4096, int(event.length-event.offset)) {
-			return errors.New("invalid eBPF fragment alignment")
+		flow.open = true
+		if err := a.emit(pipeEvent{Type: "open", ID: id, PID: event.pid, UID: event.uid,
+			Packages: a.config.Packages[fmt.Sprint(event.uid)]}); err != nil {
+			return err
 		}
-		group.parts[event.offset] = event.data
-		group.size += len(event.data)
-		a.bytes += len(event.data)
-		if a.bytes > 4*1024*1024 {
-			return errors.New("eBPF reorder memory limit reached")
+	case 4:
+		if flow.closing != nil {
+			return errors.New("duplicate eBPF connection close")
 		}
-	}
-	for {
-		group = flow.pending[flow.next]
-		if group == nil || group.first.flags == 0 && group.size != int(group.first.length) {
-			break
+		copy := event
+		flow.closing = &copy
+		flow.closeAt = time.Now()
+	case 2, 3:
+		direction := int(event.kind - 2)
+		if event.sequence < flow.next[direction] {
+			return errors.New("duplicate eBPF sequence")
 		}
-		event = group.first
-		message := pipeEvent{ID: id, PID: event.pid, UID: event.uid}
-		switch event.kind {
-		case 1:
-			if flow.next != 0 {
-				return errors.New("eBPF connection opened twice")
+		key := eventKey{event.kind, event.sequence}
+		group := flow.pending[key]
+		if group == nil {
+			if len(flow.pending) >= 64 {
+				return errors.New("eBPF reorder queue overflow")
 			}
-			message.Type = "open"
-			message.Packages = a.config.Packages[fmt.Sprint(event.uid)]
-			if err := a.emit(message); err != nil {
-				return err
+			group = &eventGroup{first: event, parts: make(map[uint32][]byte), at: time.Now()}
+			flow.pending[key] = group
+		}
+		if event.uid != group.first.uid || event.length != group.first.length {
+			return errors.New("conflicting eBPF fragments")
+		}
+		if event.flags != 0 {
+			group.first.flags = event.flags
+		}
+		if len(event.data) > 0 {
+			if _, exists := group.parts[event.offset]; exists {
+				return errors.New("duplicate eBPF fragment")
 			}
-		case 4:
-			message.Type = "close"
-			if err := a.emit(message); err != nil {
-				return err
+			if event.offset%4096 != 0 || len(event.data) != min(4096, int(event.length-event.offset)) {
+				return errors.New("invalid eBPF fragment alignment")
 			}
-		case 2, 3:
-			message.Type = "data"
-			message.Direction = "write"
-			if event.kind == 3 {
+			group.parts[event.offset] = event.data
+			group.size += len(event.data)
+			a.bytes += len(event.data)
+			if a.bytes > 4*1024*1024 {
+				return errors.New("eBPF reorder memory limit reached")
+			}
+		}
+	default:
+		return errors.New("invalid eBPF event kind")
+	}
+	if !flow.open {
+		return nil
+	}
+	for direction := 0; direction < 2; direction++ {
+		for {
+			key := eventKey{uint32(direction + 2), flow.next[direction]}
+			group := flow.pending[key]
+			if group == nil || group.first.flags == 0 && group.size != int(group.first.length) {
+				break
+			}
+			event = group.first
+			message := pipeEvent{Type: "data", ID: id, PID: event.pid, UID: event.uid, Direction: "write"}
+			if direction == 1 {
 				message.Direction = "read"
 			}
 			if event.flags != 0 {
@@ -149,16 +166,23 @@ func (a *eventAssembler) accept(event rawEvent) error {
 					}
 				}
 			}
+			a.bytes -= group.size
+			delete(flow.pending, key)
+			flow.next[direction]++
 		}
-		a.bytes -= group.size
-		delete(flow.pending, flow.next)
-		flow.next++
-		if event.kind == 4 {
+	}
+	if closing := flow.closing; closing != nil {
+		if flow.next[0] > closing.sequence+1 || flow.next[1] > closing.otherSequence+1 {
+			return errors.New("eBPF data after SSL_free")
+		}
+		if flow.next[0] == closing.sequence+1 && flow.next[1] == closing.otherSequence+1 {
 			if len(flow.pending) != 0 {
-				return errors.New("eBPF data after SSL_free")
+				return errors.New("eBPF fragments after SSL_free")
+			}
+			if err := a.emit(pipeEvent{Type: "close", ID: id, PID: closing.pid, UID: closing.uid}); err != nil {
+				return err
 			}
 			delete(a.flows, id)
-			break
 		}
 	}
 	return nil
@@ -169,6 +193,9 @@ func (a *eventAssembler) checkLoss(now time.Time) error {
 			if now.Sub(group.at) > 3*time.Second {
 				return errors.New("eBPF sequence gap; captured transactions are incomplete")
 			}
+		}
+		if flow.closing != nil && now.Sub(flow.closeAt) > 3*time.Second {
+			return errors.New("eBPF close arrived with missing data")
 		}
 	}
 	return nil

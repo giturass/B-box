@@ -25,7 +25,7 @@ func TestAssemblerOrdersCPUsAndChunks(t *testing.T) {
 	head.data = bytes.Repeat([]byte{'a'}, 4096)
 	close := base
 	close.kind = 4
-	close.sequence = 2
+	close.sequence = 1
 	for _, e := range []rawEvent{tail, close, head, open} {
 		if err := a.accept(e); err != nil {
 			t.Fatal(err)
@@ -95,5 +95,34 @@ func TestSelectionAndPrivateConfigValidation(t *testing.T) {
 	}
 	if _, err := readSymbols(strings.NewReader("not ELF")); err == nil {
 		t.Fatal("non ELF library accepted")
+	}
+}
+
+func TestDirectionsHaveIndependentSequencesAndCloseWaitsForBoth(t *testing.T) {
+	var received []pipeEvent
+	a := newAssembler(collectorConfig{}, func(event pipeEvent) error {
+		received = append(received, event)
+		return nil
+	})
+	open := rawEvent{pid: 1, ssl: 2, generation: 3, kind: 1}
+	write := open
+	write.kind, write.sequence, write.length, write.data = 2, 1, 1, []byte("w")
+	read := write
+	read.kind, read.data = 3, []byte("r")
+	close := open
+	close.kind, close.sequence, close.otherSequence = 4, 1, 1
+	for _, event := range []rawEvent{open, close, read} {
+		if err := a.accept(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(received) != 2 || received[1].Direction != "read" {
+		t.Fatal("response direction blocked")
+	}
+	if err := a.accept(write); err != nil {
+		t.Fatal(err)
+	}
+	if len(received) != 4 || received[2].Direction != "write" || received[3].Type != "close" {
+		t.Fatalf("close lost pending data: %+v", received)
 	}
 }

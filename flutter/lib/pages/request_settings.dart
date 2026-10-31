@@ -81,7 +81,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
         ListItem(key: const ValueKey('add-https-hosts'), title: Text(context.tr('Add captured HTTPS domains')), onTap: () => _addDomains(_decrypt)),
         _field(_decryptBypass, 'HTTPS excluded domains', hint: 'pinned.example.com', footer: 'Skip plaintext capture for these HTTPS domains. Visible hostnames can still be extracted.'),
         ListItem(key: const ValueKey('add-bypass-hosts'), title: Text(context.tr('Add captured HTTPS exclusions')), onTap: () => _addDomains(_decryptBypass)),
-        ListFooter(text: context.tr('Requires Root, Linux 5.15 or newer, permitted eBPF uprobes and a compatible 64-bit OpenSSL or BoringSSL library. Reconnect the target app after starting. QUIC and unsupported TLS stacks are not captured.')),
+        ListFooter(text: context.tr('Requires Root, Linux 5.10 or newer, permitted eBPF uprobes and a compatible 64-bit OpenSSL or BoringSSL library. Reconnect the target app after starting. QUIC and unsupported TLS stacks are not captured.')),
         _field(_libraries, 'Additional TLS libraries', hint: '/data/app/.../lib/arm64/libssl.so',
           footer: 'Optional absolute library paths, one per line. System TLS libraries and running apps are discovered automatically.'),
       ],

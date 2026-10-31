@@ -94,8 +94,8 @@ func run(encode func(any) error) error {
 	}
 	major, _ := strconv.Atoi(version[0])
 	minor, _ := strconv.Atoi(version[1])
-	if major < 5 || major == 5 && minor < 15 {
-		return errors.New("eBPF capture requires Linux 5.15 or newer with uprobes, perf events and BPF enabled")
+	if major < 5 || major == 5 && minor < 10 {
+		return errors.New("eBPF capture requires Linux 5.10 or newer with uprobes, perf events and BPF enabled")
 	}
 	reader := bufio.NewReaderSize(os.Stdin, 1024*1024)
 	config, err := readConfig(reader)
@@ -179,6 +179,9 @@ func run(encode func(any) error) error {
 			return nil
 		case result := <-results:
 			if result.err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
 				return fmt.Errorf("read eBPF events: %w", result.err)
 			}
 			if result.record.LostSamples > 0 {
@@ -198,7 +201,7 @@ func run(encode func(any) error) error {
 			}
 			for _, lost := range losses {
 				if lost > 0 {
-					return errors.New("eBPF map or event output overflow; capture is incomplete")
+					return errors.New("eBPF event order or data was lost; capture is incomplete")
 				}
 			}
 			if err = assembler.checkLoss(now); err != nil {
@@ -344,14 +347,19 @@ type connectionKey struct {
 	SSL      uint64
 	PID, Pad uint32
 }
-type connectionValue struct{ Generation, Sequence uint64 }
+type connectionValue struct{ Generation, WriteSequence, ReadSequence uint64 }
+type ownerKey struct {
+	Connection     connectionKey
+	Direction, Pad uint32
+}
+
 type callKey struct {
 	Thread         uint64
 	Direction, Pad uint32
 }
 type callValue struct {
-	SSL, Buffer, Requested, CountPointer uint64
-	Depth, Extended                      uint32
+	SSL, Buffer, Requested, CountPointer, Stack uint64
+	Depth, Extended                             uint32
 }
 
 func cleanupExited(collection *ebpf.Collection, assembler *eventAssembler) error {
@@ -372,7 +380,7 @@ func cleanupExited(collection *ebpf.Collection, assembler *eventAssembler) error
 			continue
 		}
 		id := rawEvent{ssl: key.SSL, pid: key.PID, generation: value.Generation}.id()
-		if flow := assembler.flows[id]; flow != nil && len(flow.pending) == 0 && flow.next == value.Sequence {
+		if flow := assembler.flows[id]; flow != nil && len(flow.pending) == 0 && flow.open && flow.next[0] == value.WriteSequence+1 && flow.next[1] == value.ReadSequence+1 {
 			if err := assembler.emit(pipeEvent{Type: "close", ID: id}); err != nil {
 				return err
 			}
@@ -387,8 +395,11 @@ func cleanupExited(collection *ebpf.Collection, assembler *eventAssembler) error
 	var state callValue
 	iterator = collection.Maps["calls"].Iterate()
 	for iterator.Next(&call, &state) {
-		if !exists(uint32(call.Thread >> 32)) {
+		pid, tid := uint32(call.Thread>>32), uint32(call.Thread)
+		_, threadErr := os.Stat(fmt.Sprintf("/proc/%d/task/%d", pid, tid))
+		if !exists(pid) || errors.Is(threadErr, os.ErrNotExist) {
 			_ = collection.Maps["calls"].Delete(call)
+			_ = collection.Maps["owners"].Delete(ownerKey{Connection: connectionKey{SSL: state.SSL, PID: uint32(call.Thread >> 32)}, Direction: call.Direction})
 		}
 	}
 	return iterator.Err()

@@ -8,7 +8,7 @@ case "$capture_platform" in
   linux/amd64) capture_arch=amd64; capture_bpf_arch=x86 ;;
   *) echo "Unsupported capture platform: $capture_platform" >&2; exit 1 ;;
 esac
-clang -target bpfel -mcpu=v3 -D"__TARGET_ARCH_$capture_bpf_arch" -O2 -g -Wall -Werror \
+clang -target bpfel -mcpu=v2 -D"__TARGET_ARCH_$capture_bpf_arch" -O2 -g -Wall -Werror \
   -c bpf/capture.c -o bpf/capture.o
 if [[ "$capture_platform" == linux/* ]]; then
   go build -mod=readonly -trimpath -o capture .

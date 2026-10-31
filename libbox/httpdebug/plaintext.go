@@ -494,6 +494,9 @@ func (f *plaintextFlow) http1Responses(queue <-chan plaintextRequest) error {
 			if err = f.copyBody(item.id, true, response.Body); err != nil {
 				return err
 			}
+			if response.ContentLength < 0 && len(response.TransferEncoding) == 0 {
+				return errors.New("EOF-delimited HTTPS response ended without a verifiable HTTP body length")
+			}
 			f.complete(item.id, true)
 			break
 		}

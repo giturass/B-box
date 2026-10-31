@@ -13,6 +13,7 @@ typedef unsigned long long u64;
 #define PERF 4
 #define PERCPU_ARRAY 6
 #define ANY 0
+#define NOEXIST 1
 #define CURRENT_CPU 0xffffffffULL
 #define CHUNK 4096
 #define MAX_CHUNKS 32
@@ -45,9 +46,10 @@ static long (*output)(void *, void *, u64, void *, u64) = (void *)25;
 static long (*read_user)(void *, u32, const void *) = (void *)112;
 
 struct connection_key { u64 ssl; u32 pid, pad; };
-struct connection { u64 generation, sequence; };
+struct connection { u64 generation, write_sequence, read_sequence; };
+struct owner_key { struct connection_key connection; u32 direction, pad; };
 struct call_key { u64 thread; u32 direction, pad; };
-struct call { u64 ssl, buffer, requested, count_pointer; u32 depth, extended; };
+struct call { u64 ssl, buffer, requested, count_pointer, stack; u32 depth, extended; };
 struct event {
     u64 timestamp, ssl, generation, sequence;
     u32 pid, tid, uid, kind;
@@ -59,6 +61,8 @@ _Static_assert(__builtin_offsetof(struct event, data) == 72, "event ABI");
 
 struct { __uint(type, HASH); __uint(max_entries, 8192);
     __type(key, struct connection_key); __type(value, struct connection); } connections SEC(".maps");
+struct { __uint(type, HASH); __uint(max_entries, 8192);
+    __type(key, struct owner_key); __type(value, u64); } owners SEC(".maps");
 struct { __uint(type, HASH); __uint(max_entries, 8192);
     __type(key, struct call_key); __type(value, struct call); } calls SEC(".maps");
 struct { __uint(type, HASH); __uint(max_entries, 256);
@@ -96,7 +100,15 @@ INLINE struct event *prepare(u64 ssl, struct connection *connection, u32 kind) {
     event->timestamp = ktime();
     event->ssl = ssl;
     event->generation = connection->generation;
-    event->sequence = __sync_fetch_and_add(&connection->sequence, 1);
+    // A BPF_NOEXIST owner slot serializes each direction. No fetched atomic
+    // instruction is required, including on Android's Linux 5.10 kernels.
+    event->sequence = 0;
+    if (kind == 2) event->sequence = ++connection->write_sequence;
+    if (kind == 3) event->sequence = ++connection->read_sequence;
+    if (kind == 4) {
+        event->sequence = connection->write_sequence;
+        event->timestamp = connection->read_sequence; // Close carries both final counts.
+    }
     u64 task = pid_tid();
     event->pid = task >> 32; event->tid = (u32)task;
     event->uid = (u32)uid_gid(); event->kind = kind;
@@ -138,39 +150,41 @@ INLINE int enter(struct regs *ctx, u32 direction, u32 extended) {
     if (!selected()) return 0;
     struct call_key key = { .thread = pid_tid(), .direction = direction };
     struct call *active = lookup(&calls, &key);
-    if (active) { active->depth++; return 0; } // _ex wrappers must not duplicate bytes.
+    if (active) {
+        if (active->ssl != ARG1(ctx) || ctx->sp >= active->stack) loss();
+        active->depth++; return 0; // Nested _ex/normal wrappers capture exactly once.
+    }
     struct connection_key conn_key = key_for(ARG1(ctx));
-    if (!lookup(&connections, &conn_key)) return 0; // Connections predating capture are skipped.
+    if (!lookup(&connections, &conn_key)) return 0;
+    struct owner_key owner = { .connection = conn_key, .direction = direction };
+    u64 thread = pid_tid();
+    // Concurrent callers in the SAME direction cannot be reliably ordered.
+    // Report loss instead of combining their data into a misleading stream.
+    if (update(&owners, &owner, &thread, NOEXIST)) { loss(); return 0; }
     struct call value = { .ssl = ARG1(ctx), .buffer = ARG2(ctx), .requested = ARG3(ctx),
-        .count_pointer = ARG4(ctx), .depth = 1, .extended = extended };
-    if (update(&calls, &key, &value, ANY)) loss();
+        .count_pointer = ARG4(ctx), .stack = ctx->sp, .depth = 1, .extended = extended };
+    if (update(&calls, &key, &value, ANY)) { remove_key(&owners, &owner); loss(); }
     return 0;
 }
-INLINE int leave(struct regs *ctx, u32 direction) {
-    struct call_key key = { .thread = pid_tid(), .direction = direction };
-    struct call *active = lookup(&calls, &key);
-    if (!active) return 0;
-    if (active->depth > 1) { active->depth--; return 0; }
-    struct call value = *active;
-    remove_key(&calls, &key);
+INLINE void capture_return(struct regs *ctx, u32 direction, struct call value) {
     u64 length = 0;
     int failed = 0;
     if (value.extended) {
-        if ((s32)RESULT(ctx) != 1) return 0;
+        if ((s32)RESULT(ctx) != 1) return;
         if (read_user(&length, sizeof(length), (void *)value.count_pointer)) failed = 1;
     } else {
         s32 result = (s32)RESULT(ctx);
-        if (result <= 0) return 0;
+        if (result <= 0) return;
         length = (u32)result;
     }
-    if (!length && !failed) return 0;
+    if (!length && !failed) return;
     struct connection_key conn_key = key_for(value.ssl);
     struct connection *connection = lookup(&connections, &conn_key);
-    if (!connection) { loss(); return 0; }
+    if (!connection) { loss(); return; }
     struct event *event = prepare(value.ssl, connection, direction);
-    if (!event) return 0;
+    if (!event) return;
     if (failed || length > value.requested || length > CHUNK * MAX_CHUNKS) {
-        event->flags = 1; emit(ctx, event, 0); return 0;
+        event->flags = 1; emit(ctx, event, 0); return;
     }
     event->original_len = (u32)length;
 #pragma unroll
@@ -187,6 +201,18 @@ INLINE int leave(struct regs *ctx, u32 direction) {
         }
         emit(ctx, event, count);
     }
+    return;
+}
+INLINE int leave(struct regs *ctx, u32 direction) {
+    struct call_key key = { .thread = pid_tid(), .direction = direction };
+    struct call *active = lookup(&calls, &key);
+    if (!active) return 0;
+    if (active->depth > 1) { active->depth--; return 0; }
+    struct call value = *active;
+    remove_key(&calls, &key);
+    capture_return(ctx, direction, value);
+    struct owner_key owner = { .connection = key_for(value.ssl), .direction = direction };
+    remove_key(&owners, &owner);
     return 0;
 }
 SEC("uprobe/ssl_write_enter") int ssl_write_enter(struct regs *ctx) { return enter(ctx, 2, 0); }
@@ -195,5 +221,5 @@ SEC("uprobe/ssl_read_enter") int ssl_read_enter(struct regs *ctx) { return enter
 SEC("uretprobe/ssl_read_leave") int ssl_read_leave(struct regs *ctx) { return leave(ctx, 3); }
 SEC("uprobe/ssl_write_ex_enter") int ssl_write_ex_enter(struct regs *ctx) { return enter(ctx, 2, 1); }
 SEC("uprobe/ssl_read_ex_enter") int ssl_read_ex_enter(struct regs *ctx) { return enter(ctx, 3, 1); }
-char license[] SEC("license") = "GPL";
+char bbox_license[] SEC("license") = "GPL";
 

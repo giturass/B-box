@@ -10,7 +10,7 @@ const _zh = <String, String>{
   "Saved on this device. Capture stops when the local service restarts.": "设置保存在本机，重启本地服务时停止抓包。",
   "Leave empty to capture all supported HTTPS domains. Exact names and *.example.com are accepted; exclusions take priority.": "留空表示抓取所有受支持的 HTTPS 域名。支持精确名称和 *.example.com，排除规则优先。",
   "Skip plaintext capture for these HTTPS domains. Visible hostnames can still be extracted.": "不抓取这些 HTTPS 域名的明文，仍可提取可见域名。",
-  "Requires Root, Linux 5.15 or newer, permitted eBPF uprobes and a compatible 64-bit OpenSSL or BoringSSL library. Reconnect the target app after starting. QUIC and unsupported TLS stacks are not captured.": "需要 Root、Linux 5.15 或更新内核、eBPF uprobe 权限，以及兼容的 64 位 OpenSSL/BoringSSL 库。开启后请让目标应用重新连接。无法抓取 QUIC 或不兼容的 TLS 实现。",
+  "Requires Root, Linux 5.10 or newer, permitted eBPF uprobes and a compatible 64-bit OpenSSL or BoringSSL library. Reconnect the target app after starting. QUIC and unsupported TLS stacks are not captured.": "需要 Root、Linux 5.10 或更新内核、eBPF uprobe 权限，以及兼容的 64 位 OpenSSL/BoringSSL 库。开启后请让目标应用重新连接。无法抓取 QUIC 或不兼容的 TLS 实现。",
   "Additional TLS libraries": "其他 TLS 库",
   "Optional absolute library paths, one per line. System TLS libraries and running apps are discovered automatically.": "可选填库文件的绝对路径，每行一条。自动查找系统 TLS 库和正在运行的应用。",
   "Collect visible TLS/QUIC hostnames through the local service. These records contain names only.": "从经过本地服务的 TLS/QUIC 流量中提取可见域名，仅记录域名信息。",

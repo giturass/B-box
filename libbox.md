@@ -60,18 +60,18 @@
 
 HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF uprobes 观察目标进程在 `SSL_read`/`SSL_write` 及 `_ex` 公共接口中读写的明文。它不从网络密文推导会话密钥，也不接管 TLS 握手；应用照常验证服务端证书。CA 生成、证书安装/模块、MITM、HTTP 改写和 JavaScript 已移除。
 
-采集器使用 [cilium/ebpf v0.22.0](https://github.com/cilium/ebpf/tree/v0.22.0)，依据 [Linux uprobes](https://www.kernel.org/doc/html/latest/trace/uprobetracer.html) 和公开 SSL 函数 ABI 工作，不读取 BoringSSL 私有结构偏移。支持 ARM64/x86_64 的 64 位库，需要 Root、Linux 5.15 或更新内核、BPF/uprobe/perf 支持及 SELinux 许可。自动检查系统 Conscrypt/libssl 和当前 Android 用户的进程映射，可补充最多 16 个绝对库路径；查找 ELF 动态/本地符号、有界 XZ mini-debugdata 及 APK 内未压缩的对应 ABI `.so`。没有兼容库或挂载失败时启动报错；挂载库数不表示所有目标应用均受支持。32 位进程、Go TLS、没有相应符号的自有/裁剪 TLS 库和 QUIC/HTTP/3 不在当前支持范围。
+采集器使用 [cilium/ebpf v0.22.0](https://github.com/cilium/ebpf/tree/v0.22.0)，依据 [Linux uprobes](https://www.kernel.org/doc/html/latest/trace/uprobetracer.html) 和公开 SSL 函数 ABI 工作，不读取 BoringSSL 私有结构偏移。支持 ARM64/x86_64 的 64 位库，需要 Root、Linux 5.10 或更新内核、BPF/uprobe/perf 支持及 SELinux 许可。自动检查系统 Conscrypt/libssl 和当前 Android 用户的进程映射，可补充最多 16 个绝对库路径；查找 ELF 动态/本地符号、有界 XZ mini-debugdata 及 APK 内未压缩的对应 ABI `.so`。没有兼容库或挂载失败时启动报错；挂载库数不表示所有目标应用均受支持。32 位进程、Go TLS、没有相应符号的自有/裁剪 TLS 库和 QUIC/HTTP/3 不在当前支持范围。
 
 仅接受探针观察到 `SSL_new` 后的新连接；`SSL_clear`/`SSL_free` 区分连接代次。开启后需让目标应用重新连接。UID 在 BPF 中筛选，排除 B-box 自身及其他 Android 用户；共享 UID 使用同一选择，包名集合保留在记录中。HTTPS 可以观察选中应用的本机连接，不依赖其是否通过 sing-box；本地服务的启停仍决定抓包会话的生命周期。
 
 域名和端口按每条 HTTP 请求判断，支持 HTTP/2 合并连接上的不同域名。HTTPS 域名列表为空表示不限制受支持的域名；精确名称匹配本域，`*.example.com` 匹配子域，排除优先。通用包含/排除筛选同时约束 HTTP 和 HTTPS，HTTPS 排除仅影响明文录制。默认端口 80、443、8080、8443，最多 32 个。eBPF 尚未关联套接字，HTTPS 端口使用 HTTP authority（默认 443），源/目的套接字地址、出站和路由规则保持未知；记录明确标明来源、PID/UID 和此限制。
 
-[明文解析器](libbox/httpdebug/plaintext.go) 处理 HTTP/1.1 分片、顺序请求、信息响应、定长/chunked/流式正文；[HTTP/2 解析器](libbox/httpdebug/plaintext_h2.go) 要求完整客户端前言，以独立 HPACK 状态和 stream ID 还原并发报文。升级仅记录 HTTP 握手，HTTP trailers 不加入头部预览。HTTP/2 server push、RST_STREAM、过大帧/头或不能确定边界的协议终止该连接的录制并报告原因，网络连接本身继续运行。
+[明文解析器](libbox/httpdebug/plaintext.go) 处理 HTTP/1.1 分片、顺序请求、信息响应、定长/chunked/流式正文；[HTTP/2 解析器](libbox/httpdebug/plaintext_h2.go) 要求完整客户端前言，以独立 HPACK 状态和 stream ID 还原并发报文。无法确认正常结束的 close-delimited 响应保留不完整标志。升级仅记录 HTTP 握手，HTTP trailers 不加入头部预览。HTTP/2 server push、RST_STREAM、过大帧/头或不能确定边界的协议终止该连接的录制并报告原因，网络连接本身继续运行。
 
 资源与完整性边界：
 
 - 最多记录 300 条、磁盘 32 MiB；每方向正文默认保留 64 KiB，最高 1 MiB，头部上限 64 KiB。普通 HTTP 最多接管 32 条连接、每条 HTTP/2 最多 16 个流；eBPF 最多同时解析 32 条连接，每条 HTTP/2 最多 32 个流。
-- 每方向明文队列最多 256 KiB；单次 SSL 调用最多 128 KiB，以 4096 字节分片输出，超过限额报告缺口。事件按连接代次、序号与偏移重组，总重组缓存最多 4 MiB；重复、缺失、perf 丢失和 BPF 输出失败都有错误状态，不把后续片段拼成完整请求。
+- 每方向明文队列最多 256 KiB；单次 SSL 调用最多 128 KiB，以 4096 字节分片输出，超过限额报告缺口。事件按连接代次、每方向序号与偏移重组，总重组缓存最多 4 MiB；同方向重叠调用、重复、缺失、perf 丢失和 BPF 输出失败都有错误状态，不把后续片段拼成完整请求。
 - 局部溢出、解析错误和两分钟无数据的连接终止录制；全局丢事件或采集器退出停止抓包。未结束记录保留不完整标志及错误，服务重载/停止关闭管道、采集器和处理器。抓包不会自动恢复。
 
 预览/HAR 的 gzip/deflate 解码上限 64 KiB；不支持的编码或二进制保留 Base64，HAR 另保留原始压缩前缀和截断/完整性标记。耗时仅为总时长，不冒充 DNS/TCP/TLS 分阶段计时。cURL 要求请求头与正文完整且未截断，正文缺失则拒绝导出。停止服务后仍可查询保存记录。
@@ -103,7 +103,7 @@ HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF upr
 ## 构建、同步和验证
 
 - [Release 工作流](.github/workflows/build-release.yml) 复用 UI 验证工作流运行下述核心测试，再通过共享构建 Action 使用 JDK 17、版本文件指定的 Go 和 NDK 28.0.13004108，执行上游 `make lib_install` 与 `build_libbox -target android -platform android/arm64`。
-- [Android smoke 工作流](.github/workflows/newui-android.yml) 使用同一构建 Action，目标为 `android/amd64`，用于 x86_64 模拟器。两种构建均要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
+- [Android smoke 工作流](.github/workflows/newui-android.yml) 使用同一构建 Action，核心目标为 `android/amd64`，用于 x86_64 模拟器，同时编译采集器的 x86_64 与 ARM64 版本。两种构建均要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
 - [UI 验证工作流](.github/workflows/newui.yml) 使用共享准备 Action，运行 `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1` 及 `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`。所有生产扩展均参与编译，所有 `TestUI` 测试自动纳入，不再维护具体扩展名的筛选清单；它不构建核心 AAR。另执行 `go test -race ./experimental/httpdebug -count=1` 和 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1`，覆盖 HTTP/eBPF 抓取引擎、数据竞争及原出站和嗅探字节保留。
 - 对应回归文件为 [ui_http_test.go](libbox/ui_http_test.go)、[ui_egress_test.go](libbox/ui_egress_test.go)、[ui_lan_test.go](libbox/ui_lan_test.go)，覆盖请求限制/重定向、源回退/公网 IP 校验/解析失败后继续竞速/取消/服务替换、监听转换和端点生成。
 

@@ -3,6 +3,8 @@ package io.nekohasekai.sfa.bg
 import android.os.Binder
 import android.os.ParcelFileDescriptor
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -11,6 +13,19 @@ import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(AndroidJUnit4::class)
 class CaptureSessionTest {
+    @Test fun packagedCollectorExecutesOnAndroid() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val executable = File(context.applicationInfo.nativeLibraryDir, "libbbox_capture.so")
+        assertTrue("Collector must be packaged and executable", executable.canExecute())
+        val process = ProcessBuilder(executable.absolutePath).redirectErrorStream(true).start()
+        try {
+            val event = JSONObject(readCaptureLine(process.inputStream).toString(Charsets.UTF_8))
+            assertEquals("error", event.getString("type"))
+            assertTrue(event.getString("error").contains("requires Root"))
+            assertNotEquals(0, process.waitFor())
+        } finally { process.destroy() }
+    }
+
     @Test fun collectorReadyPipeAndOwnerDeath() {
         val closed = AtomicInteger()
         lateinit var child: Process

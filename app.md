@@ -138,7 +138,7 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 `ProfileRecoveryTest.localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。
 
-`ProfileRecoveryTest.captureSettingsAreLocalAndCheckRevisions` 使用实际 libbox 和 AtomicFile，覆盖本机设置迁移/保存/重新打开、修订冲突、退役选项拒绝及旧配置清理。[CaptureProtocolTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/CaptureProtocolTest.kt) 检查启动消息边界；[CaptureSessionTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/bg/CaptureSessionTest.kt) 用确定性的子进程检查 ready/错误、FD 单次领取、owner 死亡及重复关闭。模拟器没有代表真实 Root eBPF 设备的权限环境，采集效果仍需实机验证。
+`ProfileRecoveryTest.captureSettingsAreLocalAndCheckRevisions` 使用实际 libbox 和 AtomicFile，覆盖本机设置迁移/保存/重新打开、修订冲突、退役选项拒绝及旧配置清理。[CaptureProtocolTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/CaptureProtocolTest.kt) 检查启动消息边界；[CaptureSessionTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/bg/CaptureSessionTest.kt) 用确定性的子进程检查 ready/错误、FD 单次领取、owner 死亡及重复关闭，并运行实际打包的 Android 采集器检查加载及无 Root 错误。模拟器没有代表真实 Root eBPF 设备的权限环境，采集效果仍需实机验证。
 
 [DashboardConfigCacheTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/DashboardConfigCacheTest.kt) 通过调用计数覆盖重复轮询不再读取/哈希/解析、地址变化、配置切换、写入/回滚、运行快照更新及错误/取消重试；`ProfileRecoveryTest.lanCacheTracksEqualSizeWritesSuccessfulReloadsAndRecovery` 使用实际文件和 libbox，覆盖同大小同时间戳写入、保存与运行配置分离、成功重载、失败恢复和停服后的 LAN 状态。它们由 Android smoke 的 JVM/仪器测试步骤运行，Release 运行其中的 JVM 测试。
 
