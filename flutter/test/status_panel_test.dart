@@ -111,8 +111,6 @@ Future<void> _advance(WidgetTester tester) async {
 
 void main() {
   testWidgets('start is disabled until a usable profile is selected', (tester) async {
-    final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
     final dashboard = _Dashboard()..status = 'Stopped'..autoQuality = true;
     await dashboard.mount(tester);
     await tester.pumpAndSettle();
