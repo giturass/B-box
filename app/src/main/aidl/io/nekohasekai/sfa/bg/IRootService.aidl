@@ -1,6 +1,7 @@
 package io.nekohasekai.sfa.bg;
 
 import android.os.ParcelFileDescriptor;
+import io.nekohasekai.sfa.bg.ICaptureSession;
 import io.nekohasekai.sfa.bg.IAutoRedirectHandler;
 import io.nekohasekai.sfa.bg.IAutoRedirectSession;
 import io.nekohasekai.sfa.bg.IBridgeSession;
@@ -13,7 +14,7 @@ interface IRootService {
 
     ParceledListSlice getInstalledPackages(int flags, int userId) = 1;
 
-    // Transaction 2 was the retired APK installer; do not reuse it.
+    // Transactions 2 and 3 are retired; do not reuse them.
 
     void registerNeighborTableCallback(in INeighborTableCallback callback) = 4;
 
@@ -26,4 +27,6 @@ interface IRootService {
     IBridgeSession openBridge(String bridgeName, int mtu, String inet4Port, String inet6Port, int ruleIndex, int routeTable) = 8;
 
     IAutoRedirectSession startAutoRedirect(in byte[] options, IAutoRedirectHandler handler) = 9;
+
+    ICaptureSession startCapture(String settings, IBinder owner) = 10;
 }

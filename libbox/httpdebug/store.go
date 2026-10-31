@@ -229,41 +229,17 @@ func (s *Store) addNote(id, note string) {
 	}
 }
 
-func (s *Store) updateRequest(id string, request *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if record := s.records[id]; record != nil {
-		if record.Request.URL != request.URL.String() {
-			record.OriginalURL = record.Request.URL
-		}
-		record.Request.Method, record.Request.URL = request.Method, request.URL.String()
-		record.Request.Headers, record.Request.HeadersTruncated = captureHeaders(request.Header, request.Host)
-		record.Request.BodyComplete = request.Body == nil || request.Body == http.NoBody
-	}
-}
-
-func (s *Store) rerouted(id, destination string) {
-	s.addNote(id, "Rewritten destination routed again by sing-box; its outbound and rule are not reported here")
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if record := s.records[id]; record != nil {
-		record.Metadata.OriginalDestination = record.Metadata.Destination
-		record.Metadata.Destination = destination
-		record.Metadata.Outbound, record.Metadata.Rule = "", ""
-	}
-}
-
 func (s *Store) domainOnly(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if record := s.records[id]; record != nil {
 		record.DomainOnly = true
-		record.Note = "Domain only: observed TLS/QUIC hostname; encrypted traffic is not decrypted or rewritten"
+		record.Note = "Domain only: observed TLS/QUIC hostname; HTTPS plaintext was not observed"
 	}
 }
 
 // Domain extraction uses all retained matching records, not only the currently
-// visible page. Both original and rewritten URL hosts are included and deduped.
+// visible page. Historical URL hosts remain readable and are deduped.
 func (s *Store) Domains(query string) []string {
 	page := s.Page(MaxEntries, query)
 	s.mu.Lock()

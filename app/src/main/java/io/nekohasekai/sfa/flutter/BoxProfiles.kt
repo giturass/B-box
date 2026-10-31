@@ -57,27 +57,6 @@ internal class BoxProfiles(private val applySelected: suspend (recover: Boolean)
         writeContentLocked(id, content, expectedRevision)
     }
 
-    suspend fun captureSettings(fallback: String): Map<String, Any?> = mutex.withLock {
-        require(!CommandTarget.isRemote) { "Disconnect remote session to edit local profiles" }
-        val id = Settings.selectedProfile
-        require(id != -1L) { "Select a profile before editing capture settings" }
-        val profile = get(id)
-        val content = File(profile.typed.path).readText()
-        val embedded = Libbox.readUICaptureConfig(content)
-        val settings = Libbox.validateUICaptureConfig(embedded.ifEmpty { fallback })
-        mapOf("profileId" to id, "profileName" to profile.name, "revision" to revision(content),
-            "config" to jsonObject(JSONObject(settings)))
-    }
-
-    suspend fun setCaptureSettings(id: Long, expectedRevision: String, settings: String): Map<String, Any?> = mutex.withLock {
-        require(!CommandTarget.isRemote) { "Disconnect remote session to edit local profiles" }
-        require(id == Settings.selectedProfile) { "Selected profile changed; reload it before saving" }
-        val previous = File(get(id).typed.path).readText()
-        require(revision(previous) == expectedRevision) { "Configuration changed; reload it before saving" }
-        val content = Libbox.setUICaptureConfig(previous, settings).value
-        writeContentLocked(id, content, expectedRevision)
-    }
-
     suspend fun setLanProxy(id: Long, expectedRevision: String, enabled: Boolean, initialPort: Int): Map<String, Any?> = mutex.withLock {
         require(!CommandTarget.isRemote) { "Disconnect remote session to edit local profiles" }
         require(id == Settings.selectedProfile) { "Selected profile changed; reload it before saving" }
@@ -124,13 +103,14 @@ internal class BoxProfiles(private val applySelected: suspend (recover: Boolean)
         if (url.isNotEmpty()) validateUrl(url)
         val interval = (args["interval"] as? Number)?.toInt() ?: 60
         require(interval >= 15) { "Update interval must be at least 15 minutes" }
-        val content = args["content"] as? String ?: if (id == 0L && url.isNotEmpty()) {
+        val incomingContent = args["content"] as? String ?: if (id == 0L && url.isNotEmpty()) {
             HTTPClient().use { it.getString(url) }
         } else if (id != 0L) {
             File(profile.typed.path).readText()
         } else {
             "{}"
         }
+        val content = Libbox.removeUIRetiredCaptureOptions(incomingContent)
         validate(content)
         val file = if (id == 0L) {
             File(Application.application.filesDir, "configs/${UUID.randomUUID()}.json").also { it.parentFile!!.mkdirs() }

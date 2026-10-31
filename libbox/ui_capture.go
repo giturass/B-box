@@ -1,81 +1,54 @@
 package libbox
 
 import (
-	"bytes"
 	"encoding/json"
+	"golang.org/x/sys/unix"
 	"os"
 	"sync"
 
 	"github.com/sagernet/sing-box/experimental/httpdebug"
-	"github.com/sagernet/sing-box/option"
-	corejson "github.com/sagernet/sing/common/json"
 )
 
 // Serialize capture start with core reload/stop. All read methods are bounded
 // and available with the local service stopped; capture itself never auto-starts.
 var uiCaptureLifecycle sync.Mutex
 
-type UICaptureCA struct {
-	Certificate string
-	PrivateKey  string
-}
-
-func GenerateUICaptureCA() (*UICaptureCA, error) {
-	certificate, key, err := httpdebug.GenerateCA()
-	if err != nil {
-		return nil, err
-	}
-	return &UICaptureCA{Certificate: certificate, PrivateKey: key}, nil
-}
+// The source is owned by the active core session, including reload and shutdown.
+type UICaptureSource interface{ Close() }
 
 func ValidateUICaptureConfig(configJSON string) (string, error) {
 	return httpdebug.Validate(configJSON)
 }
 
-// An empty result distinguishes a profile without HTTP settings from an
-// explicitly configured empty object, for migration of the old local settings.
-func ReadUICaptureConfig(configContent string) (string, error) {
-	options, err := parseConfig(baseContext(nil), configContent)
-	if err != nil {
-		return "", err
-	}
-	if options.Experimental == nil || options.Experimental.HTTPDebug == nil {
-		return "", nil
-	}
-	return captureJSON(options.Experimental.HTTPDebug)
-}
-
-func SetUICaptureConfig(configContent, configJSON string) (*StringBox, error) {
-	options, err := parseConfig(baseContext(nil), configContent)
-	if err != nil {
-		return nil, err
-	}
-	var config httpdebug.Config
-	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
-		return nil, err
-	}
-	if options.Experimental == nil {
-		options.Experimental = &option.ExperimentalOptions{}
-	}
-	options.Experimental.HTTPDebug = (*option.HTTPDebugOptions)(&config)
-	var buffer bytes.Buffer
-	encoder := corejson.NewEncoder(&buffer)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(options); err != nil {
-		return nil, err
-	}
-	return wrapString(buffer.String()), nil
-}
-
 func OpenUICapture(directory string) error { return httpdebug.Open(directory) }
 
-func (s *CommandServer) StartUICapture(directory, configJSON, certificate, privateKey string) error {
+func (s *CommandServer) StartUICapture(directory, configJSON string, fd int32, source UICaptureSource) error {
 	uiCaptureLifecycle.Lock()
 	defer uiCaptureLifecycle.Unlock()
 	if s.Instance() == nil {
 		return os.ErrClosed
 	}
-	return httpdebug.Start(directory, configJSON, certificate, privateKey)
+	var reader *os.File
+	var closeSource func()
+	if fd >= 0 {
+		duplicate, err := unix.Dup(int(fd))
+		if err != nil {
+			return err
+		}
+		unix.CloseOnExec(duplicate)
+		reader = os.NewFile(uintptr(duplicate), "ebpf-capture")
+	}
+	if source != nil {
+		closeSource = source.Close
+	}
+	if reader == nil {
+		return httpdebug.Start(directory, configJSON, nil, closeSource)
+	}
+	if err := httpdebug.Start(directory, configJSON, reader, closeSource); err != nil {
+		reader.Close()
+		return err
+	}
+	return nil
 }
 
 func StopUICapture() { httpdebug.Stop() }

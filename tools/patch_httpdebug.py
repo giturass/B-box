@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_MODULE = "github.com/dop251/goja@v0.0.0-20250630131328-58d95d85e994"
 
 
 def main():
@@ -15,7 +14,7 @@ def main():
     core = parser.parse_args().core.resolve()
     patch = ROOT / "libbox/httpdebug.patch"
     targets = [core / "experimental/httpdebug", core / "route/b_box_httpdebug.go",
-               core / "experimental/libbox/ui_capture.go", core / "option/b_box_httpdebug.go"]
+               core / "experimental/libbox/ui_capture.go"]
     if any(path.exists() for path in targets):
         raise SystemExit("Capture overlay already exists; use a clean matching core checkout")
     subprocess.run(["git", "apply", "--check", str(patch)], cwd=core, check=True)
@@ -23,11 +22,8 @@ def main():
     shutil.copytree(ROOT / "libbox/httpdebug", targets[0])
     for source in (ROOT / "libbox/route").glob("*.go"):
         shutil.copyfile(source, core / "route" / ("b_box_" + source.name))
-    shutil.copyfile(ROOT / "libbox/ui_capture.go", targets[2])
-    shutil.copyfile(ROOT / "libbox/option/httpdebug.go", targets[3])
-    # This pinned pure-Go runtime supports Android without a second native
-    # engine. go get resolves its sums without upgrading unrelated core modules.
-    subprocess.run(["go", "get", SCRIPT_MODULE], cwd=core, check=True)
+    for source in (ROOT / "libbox").glob("ui_capture*.go"):
+        shutil.copyfile(source, core / "experimental/libbox" / source.name)
     print("Installed the HTTP debugging route hooks, engine and libbox bindings")
 
 

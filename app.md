@@ -74,27 +74,17 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 托管应用模式仍在激活前完成扫描，安装/卸载广播沿用自动更新；列表查询完成后同步最新的已保存设置，包含后台更新的托管结果，打开页面不触发 APK/DEX 扫描。手动重新扫描通过既有桥接更新设置。查询策略继续持久化；Android 12 精确定位同时申请 fine/coarse 权限；远程配置卡不使用本地配置名。
 
-## 请求抓取与调试证书
+## 请求抓取与 Root/eBPF
 
-[BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 通过 `capture.*` 接口连接本地运行中的 libbox，提供抓取启停、筛选、列表/详情、HAR/cURL 导出及 CA 管理。启动须确认本地服务为 Started，并等待内核接受；多个 Activity 共用操作互斥锁，配置和证书变更受抓取状态约束。切换或恢复远程控制时停止本地抓取，并在并发启动返回后重新核对目标；远程会话拒绝读取本地抓取数据。域名选择、协议支持和存储限额由核心维护，见 [libbox.md](libbox.md#httphttps-请求调试)。
+[BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 提供本地抓包启停、筛选、列表/详情、域名及 HAR/cURL 导出。启动先确认本地服务 Started，HTTPS 等待 Root 采集器挂载成功，再核对服务实例和选中配置未变化；失败释放源和管道。切到远程会话时停止本地抓包，远程会话拒绝读取本机记录。普通 Root/Shizuku、VPN 权限及服务确认流程保留。
 
-抓包与改写设置保存到所选 Room 配置的原 JSON 中，字段及核心支持见 [HTTP 改写配置](libbox.md#http-改写配置)。`capture.settings` 读取所选配置 ID/修订及规则；`capture.configure` 复用 `BoxProfiles` / `ProfileContent` 的互斥锁、完整 `Libbox.checkConfig`、原子写入、服务应用及失败恢复，拒绝配置切换或修订过期后的保存。旧 `noBackupFilesDir/http-debug/settings.json` 仅在配置没有显式抓包对象时作为初始值；读取不迁移文件，保存时写入所选配置。轮询只读取状态与记录，不反复解析规则/脚本。
+[CaptureSettings.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureSettings.kt) 将筛选、HTTPS 开关和正文限额保存到私有 `noBackupFilesDir/http-debug/settings.json`，最大 64 KiB。多个 Activity 共用操作互斥锁，保存检查内容修订并使用 AtomicFile；抓包期间禁止改设置，保存不会开启抓包或重载配置。这些设置和记录不随配置导出/备份。旧本机设置中的改写/脚本字段删除，同时清理本应用旧 CA 文件及专用 Keystore alias；旧配置扩展的解析/保存兼容由 [核心清理](libbox.md#旧抓包配置清理) 维护。
 
-抓包启动在配置互斥区内读取本地服务已成功应用的配置快照，检查其配置 ID 和服务实例，避免用未应用的编辑内容或其他配置启动。保存规则不会自动开启抓包；服务重载仍停止抓包。规则及嵌入的 Map Local/脚本内容作为配置的一部分参与导出和备份；CA 私钥、公开证书和抓包记录继续保存在 `noBackupFilesDir/http-debug/`，不随配置备份导出。
+[RootCaptureSession.kt](app/src/main/java/io/nekohasekai/sfa/bg/RootCaptureSession.kt) 只启动 APK 原生库目录中的固定采集器，通过 stdin 传递 UID/库设置，读取有界 ready 消息并在超时/失败时清理。输出由私有 pipe 交给 libbox，没有网络监听或外部可执行文件下载。[IRootService](app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl) 新增事务 10，旧事务 2/3 保持空缺；独立 `ICaptureSession` 提供 FD 和关闭方法。会话在启动前登记，Binder owner 死亡、Root 服务销毁、核心重载/停止均关闭 stdin 和探针，避免遗留采集进程。
 
-`capture.import` 使用 Android 文档选择器读取本地脚本（UTF-8、128 KiB 上限）或 Map Local 文件（1 MiB 上限，转为内嵌 Base64）；取消时保持草稿。域名提取由核心对保留记录去重，支持当前搜索条件下的文本导出。HAR/cURL、域名及公开 CA 导出沿用文档选择器，取消时不报告成功，临时导出文件用后删除。远程会话不读取这些本机数据。
+采集器 ABI、内核/TLS 支持范围、HTTP 解析及资源限额统一见 [libbox.md](libbox.md#httphttps-请求调试)。应用 UI 展示采集来源、挂载库数、错误及不完整记录，不把库挂载成功视为所有应用均可抓取。CA 管理、证书模块生成、信任检查、HTTP 改写、脚本导入及相应页面/桥接均已移除。此前自行刷入的系统证书模块仍需在对应 Root 管理器中卸载。
 
-[CaptureCertificate.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureCertificate.kt) 生成并复用每个安装独立的调试 CA，保留既有 `noBackupFilesDir/http-debug/ca.json` 和 Keystore alias。私钥经 Android Keystore AES-GCM 密钥加密后原子保存，以公开证书作为附加认证数据，混换证书与私钥会导致解密失败。重启、升级和重复导出复用同一 CA；加密密钥丢失时明确报错，只有用户重新生成 CA 才替换证书。公开证书可导出，私钥只在本机抓取时解密使用；不生成、替换或导出应用发布签名密钥。
-
-系统安装采用 [Magisk-ProxyPinCA `d4ff2b93e515a074ee2deab48c56fd6473213fb6`](https://github.com/wanghongenpin/Magisk-ProxyPinCA/tree/d4ff2b93e515a074ee2deab48c56fd6473213fb6) 的模块挂载方案，适配源码与差异见 [capture-module/NOTICE](app/src/main/assets/capture-module/NOTICE)。保留上游实际 [GPL-2.0 LICENSE](app/src/main/assets/capture-module/LICENSE)，并在应用许可证页列出。参考应用 [ProxyPin `74d7a44c9237a4646e82acaf0ade0f181461e7fc`](https://github.com/wanghongenpin/proxypin/blob/74d7a44c9237a4646e82acaf0ade0f181461e7fc/lib/network/util/crts.dart) 将 CA 私钥以 PEM 文件保存，缺失时从 APK 的默认资源复制；B-box 不携带该默认证书或私钥，也不采用明文私钥存储。
-
-[CaptureCertificateModule.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureCertificateModule.kt) 在用户点击下载时，使用当前公开 CA 和内置脚本生成 `B-box-CA-<指纹前12位>.zip`，不访问网络或调用设备 OpenSSL。ZIP 使用独立模块 ID `bbox_http_debug_ca`，只包含一张公开 CA、安装/启动脚本、元数据及许可，不包含通用证书、私钥、WebUI 或上游更新入口。系统证书文件名按原始 Subject DER 计算 OpenSSL `subject_hash_old`，完整 SHA-256 用于确认内容身份；也可单独导出相同的 `<hash>.0`。
-
-用户在 Magisk 或 KernelSU 中刷入后完整重启设备。[ca-store.sh](app/src/main/assets/capture-module/ca-store.sh) 在私有 tmpfs 中完整复制原证书库，再添加本机 CA，同名不同证书顺延 `.N`，复制失败不覆盖原库。脚本挂载系统与存在的 Conscrypt APEX 证书库，并在启动后补充 init、Zygote、B-box 和设置进程的命名空间挂载。不同命名空间分别读取其中可见的原证书库、准备 tmpfs 并执行本地 bind，保留各自已有证书；同一命名空间不重复派发，子任务不再向其他进程派发。模块用 `skip_mount` 禁用自动覆盖，按 [KernelSU 模块文档](https://kernelsu.org/guide/module.html) 使用脚本挂载，不依赖系统覆盖用的 metamodule。
-
-导出在文档选择器返回后重新核对本地会话及 CA 指纹，避免等待期间重新生成证书却写出过期模块。只有完整写入并关闭目标文件后才记录最近模块导出时间；取消或失败不报告保存成功。导出记录不代表安装或信任。手动检查按完整证书 DER 查验当前进程 `AndroidCAStore` 的 `system:` 项并保存检查时间，无需 Root 或外部 CLI；界面行为见 [flclash.md](flclash.md#导航与交互约定)。该结果不保证其他应用接受证书，协议与证书固定等限制见 [libbox.md](libbox.md#httphttps-请求调试)。
-
-重新生成 CA 后需下载并刷入新模块，再完整重启；移除系统信任时，在 Root 管理器卸载 **B-box HTTP Debug CA** 并重启。升级仍复用原 CA；清除应用数据或重新安装后生成的新 CA 需要重新刷入。通过旧 CertBridge 或其他模块安装的副本需在对应工具中单独移除，B-box 不自动删除其他模块的证书。重启应用或 VPN 服务不能代替设备重启。
+HAR/cURL 和域名导出使用 Android 文档选择器；取消或写入失败不报告成功，临时文件用后删除。域名列表依据当前搜索条件提取所有保留记录；页面与视觉验证见 [flclash.md](flclash.md#导航与交互约定)。
 
 ## 已移除能力与兼容入口
 
@@ -125,7 +115,7 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 工作流将已有密钥解码至 `app/release.keystore`，结束时清理，不上传密钥。Gradle 属性优先读取直接环境变量，再回退 `LOCAL_PROPERTIES` 和 `local.properties`。本地签名文件不入库，不重新生成发布密钥。
 
-Release 调用 [newui.yml](.github/workflows/newui.yml) 完成核心、CA 模块及 Flutter 验证，直接下载**同一次运行**的 `flutter-aar-arm64` Artifact，不再次分析、测试或构建 Flutter。随后运行 `testOtherDebugUnitTest` 及保留 R8 的签名 Release 构建；单元测试成功或失败后均上传 HTML/XML 报告至 `release-unit-tests` Artifact（报告已生成时），保留 30 天。签名密钥在单元测试通过后才准备。[verify_release.py](tools/verify_release.py) 在 APK 上传前校验唯一 APK、最低 API 24、ARM64、应用包名/版本/标签、启动 Activity 和签名。APK Artifact 名为 `B-box-<版本>-arm64-v8a-release`，保留 30 天。
+Release 调用 [newui.yml](.github/workflows/newui.yml) 完成核心、eBPF 采集器及 Flutter 验证，直接下载**同一次运行**的 `flutter-aar-arm64` Artifact，不再次分析、测试或构建 Flutter。随后运行 `testOtherDebugUnitTest` 及保留 R8 的签名 Release 构建；单元测试成功或失败后均上传 HTML/XML 报告至 `release-unit-tests` Artifact（报告已生成时），保留 30 天。签名密钥在单元测试通过后才准备。[verify_release.py](tools/verify_release.py) 在 APK 上传前校验唯一 APK、最低 API 24、ARM64、应用包名/版本/标签、启动 Activity 和签名。APK Artifact 名为 `B-box-<版本>-arm64-v8a-release`，保留 30 天。
 
 `publish_release` 默认开启；设为 `false` 时仍构建、校验并上传 Actions Artifact，仅跳过发布。[publish_release.py](tools/publish_release.py) 要求 Release tag 严格等于 `VERSION_NAME`（不加 `v`）且指向本次源码 SHA；已有 tag 指向其他提交时失败，不移动版本标签。同一提交重跑可重传资产。发布 APK 及 `B-box-version-metadata.json`，alpha/beta/rc 标为预发布。
 
@@ -133,8 +123,8 @@ Release 调用 [newui.yml](.github/workflows/newui.yml) 完成核心、CA 模块
 
 | 入口 | 配置的验证范围 |
 | --- | --- |
-| [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入、Android 入口、旧 UI/更新依赖残留及模块无内置 CA/私钥的静态检查 |
-| [newui.yml](.github/workflows/newui.yml) | `dev` / `newui` push、目标为这两个分支的 PR、手动触发或 Release 复用；仅 Markdown 的 push/PR 跳过。检查 CA 模块脚本、Go 扩展、HTTP 抓取/路由及自动重定向布局，运行 Flutter 分析/交互/布局测试并构建 ARM64 Flutter AAR |
+| [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入、Android 入口、旧 UI/更新依赖及退役抓包实现残留的静态检查 |
+| [newui.yml](.github/workflows/newui.yml) | `dev` / `newui` push、目标为这两个分支的 PR、手动触发或 Release 复用；仅 Markdown 的 push/PR 跳过。检查 Go 扩展、HTTP/eBPF 抓取及自动重定向布局，执行 Linux Root TLS smoke，运行 Flutter 分析/交互/布局测试并构建 ARM64 Flutter AAR |
 | [newui-android.yml](.github/workflows/newui-android.yml) | 手动触发；JVM 回归、`play` Kotlin 编译、`other` APK/仪器测试构建及 API 24/31/35 模拟器 smoke |
 | [build-release.yml](.github/workflows/build-release.yml) | 手动触发；复用完整核心/Flutter 验证，运行 JVM 测试、签名 ARM64 Release、安装身份/产物校验及可选发布 |
 
@@ -148,7 +138,7 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 `ProfileRecoveryTest.localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。
 
-`ProfileRecoveryTest.captureRulesFollowProfileRevisionAndRecoverFailedSaves` 使用实际 libbox 与 Room，覆盖旧抓包设置只读回退、原配置字段保留、不同配置规则隔离、过期修订/配置切换拒绝、脚本校验失败以及应用失败时的文件/时间戳恢复。由 Android smoke 的仪器测试运行；引擎协议与脚本检查见 [libbox.md](libbox.md#构建同步和验证)。
+`ProfileRecoveryTest.captureSettingsAreLocalAndCheckRevisions` 使用实际 libbox 和 AtomicFile，覆盖本机设置迁移/保存/重新打开、修订冲突、退役选项拒绝及旧配置清理。[CaptureProtocolTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/CaptureProtocolTest.kt) 检查启动消息边界；[CaptureSessionTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/bg/CaptureSessionTest.kt) 用确定性的子进程检查 ready/错误、FD 单次领取、owner 死亡及重复关闭。模拟器没有代表真实 Root eBPF 设备的权限环境，采集效果仍需实机验证。
 
 [DashboardConfigCacheTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/DashboardConfigCacheTest.kt) 通过调用计数覆盖重复轮询不再读取/哈希/解析、地址变化、配置切换、写入/回滚、运行快照更新及错误/取消重试；`ProfileRecoveryTest.lanCacheTracksEqualSizeWritesSuccessfulReloadsAndRecovery` 使用实际文件和 libbox，覆盖同大小同时间戳写入、保存与运行配置分离、成功重载、失败恢复和停服后的 LAN 状态。它们由 Android smoke 的 JVM/仪器测试步骤运行，Release 运行其中的 JVM 测试。
 
@@ -157,9 +147,5 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 [LogStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/LogStreamTest.kt) 覆盖日志快照、增量、淘汰边界、等级更新、清空、重新订阅和缓冲重置，并检查 3000 条缓冲新增一条时只编码一条。[VisiblePollingTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/VisiblePollingTest.kt) 用虚拟时间检查不可见/后台/熄屏时零采样、恢复立即采样及取消在途任务；两者由 Android smoke 和 Release 的 JVM 测试运行，Flutter 通知与订阅测试见 [flclash.md](flclash.md#验证与升级参考版本)。这些调用计数不代表实测内存或帧率收益。
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
-
-[CaptureCertificateModuleTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/CaptureCertificateModuleTest.kt) 使用公开系统 CA 对照 OpenSSL 文件名/指纹，检查 ZIP 内容、重复导出、私钥/多证书/路径/身份拒绝及写入失败。[CaptureCertificateTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/CaptureCertificateTest.kt) 使用隔离目录和测试专用 Keystore alias，验证实际 CA 生成、安装间隔离、加密持久化/复用、附加认证数据校验、签名与导出 CA 公钥匹配、ZIP 仅含当前公开 CA、轮换后旧导出失效、加密密钥丢失不静默替换及真实系统证书库检查。
-
-[test_capture_module.sh](tools/test_capture_module.sh) 在 UI 验证工作流的独立 Linux 挂载/PID 命名空间中使用 BusyBox 和临时目录，检查真实 tmpfs/bind 挂载、原证书保留、同哈希冲突、重复挂载、各命名空间独有证书保留及复制失败/空库不覆盖。它不触碰 Android 设备，不能代替 Magisk/KernelSU 安装、SELinux、设备重启及目标应用 HTTPS 验收。
 
 原 `MODIFICATIONS.md` 与 `NEWUI.md` 已按领域归入这四份文档。历史 MOD-001～004、007～008、012 的 Compose 界面由 Flutter 替代；MOD-005/006/009 的品牌、安装身份及发布约定在本文继续维护；MOD-011/015/016 的删除项以本次迁移后的现状为准；MOD-013/014 的核心与工具裁剪已回退；MOD-017 的 UI 适配见 [flclash.md](flclash.md)。旧实现、逐次构建日志与产物哈希可通过 `git log --all -- MODIFICATIONS.md NEWUI.md` 和对应提交的文件内容查询，不再混入当前项目约束。

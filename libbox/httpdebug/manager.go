@@ -3,14 +3,16 @@ package httpdebug
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"sync"
 	"sync/atomic"
 )
 
 var (
-	managerMu sync.Mutex
-	store     *Store
-	active    atomic.Pointer[Engine]
+	managerMu        sync.Mutex
+	store            *Store
+	active           atomic.Pointer[Engine]
+	lastCaptureError string
 )
 
 // Open initializes the private store even when capture is disabled, so saved
@@ -33,18 +35,13 @@ func openLocked(directory string) error {
 	return err
 }
 
-func Start(directory, configJSON, certificate, privateKey string) error {
+func Start(directory, configJSON string, reader io.ReadCloser, closeSource func()) error {
 	var config Config
 	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
 		return err
 	}
-	var ca *authority
-	if config.HTTPS {
-		var err error
-		ca, err = loadAuthority(certificate, privateKey)
-		if err != nil {
-			return err
-		}
+	if config.HTTPS && reader == nil {
+		return errors.New("HTTPS capture requires a running Root/eBPF collector")
 	}
 	managerMu.Lock()
 	defer managerMu.Unlock()
@@ -54,11 +51,17 @@ func Start(directory, configJSON, certificate, privateKey string) error {
 	if err := openLocked(directory); err != nil {
 		return err
 	}
-	active.Store(newEngine(config, ca, store))
+	engine := newEngine(config, store)
+	engine.reader, engine.closeSource = reader, closeSource
+	lastCaptureError = ""
+	active.Store(engine)
+	if reader != nil {
+		go engine.readPlaintext(reader)
+	}
 	return nil
 }
 
-// Validate returns normalized settings without enabling capture or generating a CA.
+// Validate normalizes local capture settings without modifying a profile.
 func Validate(configJSON string) (string, error) {
 	var config Config
 	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
@@ -88,19 +91,43 @@ func Saved() (*Store, error) {
 }
 
 type State struct {
-	Active      bool  `json:"active"`
-	Connections int   `json:"connections"`
-	Skipped     int64 `json:"skipped"`
-	BlockedQUIC int64 `json:"blockedQUIC"`
+	Backend     string `json:"backend"`
+	Error       string `json:"error,omitempty"`
+	Libraries   int64  `json:"libraries"`
+	Active      bool   `json:"active"`
+	Connections int    `json:"connections"`
+	Skipped     int64  `json:"skipped"`
 }
 
 func Status() State {
+	managerMu.Lock()
+	defer managerMu.Unlock()
 	engine := Current()
 	if engine == nil {
-		return State{}
+		return State{Error: lastCaptureError}
 	}
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	return State{Active: !engine.closed, Connections: len(engine.connections),
-		Skipped: engine.skipped.Load(), BlockedQUIC: engine.blockedQUIC.Load()}
+	backend := "HTTP"
+	if engine.config.HTTPS {
+		backend = "eBPF"
+	}
+	warning := lastCaptureError
+	if warning == "" {
+		if value := engine.warning.Load(); value != nil {
+			warning = *value
+		}
+	}
+	return State{Active: !engine.closed, Backend: backend, Error: warning,
+		Connections: len(engine.connections) + engine.passive.count(),
+		Skipped:     engine.skipped.Load(), Libraries: engine.libraries.Load()}
+}
+
+func failCapture(engine *Engine, err error) {
+	managerMu.Lock()
+	defer managerMu.Unlock()
+	if active.CompareAndSwap(engine, nil) {
+		lastCaptureError = err.Error()
+		engine.Close()
+	}
 }

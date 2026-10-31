@@ -41,15 +41,11 @@ for path in (native / "flutter").glob("*.kt"):
         errors.append(f"{path.name}: legacy UI fallback is not allowed")
     if "NavController" in source or "navController.navigate" in source:
         errors.append(f"{path.name}: legacy navigation is not allowed")
-module = ROOT / "app/src/main/assets/capture-module"
-for path in module.rglob("*"):
-    if not path.is_file():
-        continue
-    if (path.suffix in (".zip", ".p12", ".pfx", ".key") or re.fullmatch(r"[0-9a-f]{8}\.\d+", path.name)
-            or re.search(rb"(?m)^-----BEGIN (?:CERTIFICATE|[A-Z ]*PRIVATE KEY)-----", path.read_bytes())):
-        errors.append(f"{path.relative_to(ROOT)}: module must use the installation's CA, without bundled keys/certificates")
-if (module / "LICENSE").read_bytes() != (ROOT / "flutter/assets/licenses/ProxyPinCA-LICENSE").read_bytes():
-    errors.append("ProxyPin module and in-app licenses differ")
+for retired in ("app/src/main/assets/capture-module", "flutter/lib/pages/capture_certificate.dart",
+                "flutter/lib/pages/capture_rules.dart", "libbox/option/httpdebug.go", "libbox/httpdebug/ca.go"):
+    path = ROOT / retired
+    if path.is_file() or path.is_dir() and any(item.is_file() for item in path.rglob("*")):
+        errors.append(f"{retired}: retired capture implementation remains")
 if errors:
     raise SystemExit("\n".join(errors))
-print("Flutter imports, glyphs, Android entry points and public-only CA module guards passed")
+print("Flutter imports, glyphs, Android entry points and capture removal guards passed")

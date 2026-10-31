@@ -1,71 +1,61 @@
 package libbox
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 )
 
-func TestUICaptureProfileRoundTripAndValidation(t *testing.T) {
-	original := `{"log":{"level":"warn"},"outbounds":[{"type":"direct","tag":"saved-direct"}],"route":{"final":"saved-direct"},"experimental":{"cache_file":{"enabled":true}}}`
-	if value, err := ReadUICaptureConfig(original); err != nil || value != "" {
-		t.Fatalf("missing settings: %q %v", value, err)
-	}
-	rules := `{"https":true,"decryptHosts":["example.test"],"decryptBypassHosts":["pinned.test"],"rewriteEnabled":true,"scripts":[{"pattern":"^https://example\\.test/","source":"$done({headers: $request.headers});"}],"mapLocal":[{"pattern":"/mock$","data":"{}"}]}`
-	updated, err := SetUICaptureConfig(original, rules)
-	if err != nil {
+func TestUICaptureSettingsAreLocalAndRejectRetiredFeatures(t *testing.T) {
+	if _, err := ValidateUICaptureConfig(`{"https":true,"tlsLibraries":["/system/lib64/libssl.so"]}`); err != nil {
 		t.Fatal(err)
-	}
-	if err := CheckConfig(updated.Value); err != nil {
-		t.Fatal(err)
-	}
-	formatted, err := FormatConfig(updated.Value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	value, err := ReadUICaptureConfig(formatted.Value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var config map[string]any
-	if err := json.Unmarshal([]byte(value), &config); err != nil {
-		t.Fatal(err)
-	}
-	if config["https"] != true || config["rewriteEnabled"] != true || len(config["scripts"].([]any)) != 1 {
-		t.Fatalf("lost capture settings: %s", value)
-	}
-	for _, retained := range []string{"saved-direct", `"level": "warn"`, `"cache_file"`} {
-		if !strings.Contains(formatted.Value, retained) {
-			t.Fatalf("lost original profile field %s", retained)
-		}
 	}
 	for _, invalid := range []string{
-		`{"experimental":{"http_debug":{"headerRewrite":[{"pattern":".","header":"Transfer-Encoding","action":"header-add","value":"chunked"}]}}}`,
-		`{"experimental":{"http_debug":{"scripts":[{"pattern":".","source":"const = ;"}]}}}`,
-		`{"experimental":{"http_debug":{"mapLocal":[{"pattern":"[","data":"hello"}]}}}`,
-		`{"experimental":{"http_debug":{"unsupported":true}}}`,
+		`{"rewriteEnabled":true}`, `{"scripts":[]}`, `{"mapLocal":[]}`, `{"blockQUIC":true}`,
+		`{"tlsLibraries":["relative.so"]}`,
 	} {
-		if err := CheckConfig(invalid); err == nil {
-			t.Fatalf("checkConfig accepted invalid HTTP rules: %s", invalid)
+		if _, err := ValidateUICaptureConfig(invalid); err == nil {
+			t.Fatalf("accepted retired or invalid settings: %s", invalid)
 		}
 	}
-	empty, err := SetUICaptureConfig(original, `{}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if value, err := ReadUICaptureConfig(empty.Value); err != nil || value == "" {
-		t.Fatalf("explicit empty settings confused with legacy fallback: %q %v", value, err)
-	}
-}
-
-func TestUICaptureOptionsAppearInGeneratedSchema(t *testing.T) {
 	schema, err := GenerateConfigSchema()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"http_debug", "headerRewrite", "urlRewrite", "bodyRewrite", "mapLocal", "scripts", "decryptBypassHosts"} {
-		if !strings.Contains(schema.Value, `"`+field+`"`) {
-			t.Fatalf("schema is missing %s", field)
+	if strings.Contains(schema.Value, `"http_debug"`) {
+		t.Fatal("retired extension remains in the core schema")
+	}
+}
+
+func TestUICaptureRetiredOptionsMigration(t *testing.T) {
+	original := `{"log":{"level":"warn"},"outbounds":[{"type":"direct","tag":"kept"}],"experimental":{"cache_file":{"enabled":true},"http_debug":{"scripts":[{"invalid":true}]}}}`
+	cleaned, err := RemoveUIRetiredCaptureOptions(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kept := range []string{"kept", "warn", "cache_file"} {
+		if !strings.Contains(cleaned, kept) {
+			t.Fatal("migration removed unrelated content")
 		}
+	}
+	if strings.Contains(cleaned, "http_debug") {
+		t.Fatal("extension not removed")
+	}
+	if err = CheckConfig(original); err != nil {
+		t.Fatalf("old profile cannot start: %v", err)
+	}
+	formatted, err := FormatConfig(original)
+	if err != nil || strings.Contains(formatted.Value, "http_debug") {
+		t.Fatalf("format did not drop retired settings: %v", err)
+	}
+	if again, err := RemoveUIRetiredCaptureOptions(cleaned); err != nil || again != cleaned {
+		t.Fatal("migration is not idempotent")
+	}
+	without := `{"log": { "level": "warn" }}`
+	if got, err := RemoveUIRetiredCaptureOptions(without); err != nil || got != without {
+		t.Fatal("unrelated configuration was reformatted")
+	}
+	// Unrelated unknown settings still fail full core validation.
+	if err = CheckConfig(`{"experimental":{"http_debug":{},"unsupported":true}}`); err == nil {
+		t.Fatal("unknown core option was silently removed")
 	}
 }

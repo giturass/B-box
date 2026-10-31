@@ -37,8 +37,9 @@ internal object ProfileContent {
         if (expectedRevision != null) {
             require(previous != null && revision(previous) == expectedRevision) { "Configuration changed; reload it before saving" }
         }
-        validate(content)
-        val changed = previous != content
+        val cleaned = Libbox.removeUIRetiredCaptureOptions(content)
+        validate(cleaned)
+        val changed = previous != cleaned
         if (!changed && updatedAt == null) return
         val savedAt = updatedAt ?: if (changed && profile.typed.type == TypedProfile.Type.Local) Date() else null
 
@@ -60,7 +61,7 @@ internal object ProfileContent {
         }
         ProfileChange.apply(
             save = {
-                if (changed) write(file, content)
+                if (changed) write(file, cleaned)
                 if (savedAt != null) {
                     profile.typed.lastUpdated = savedAt
                     check(ProfileManager.update(profile) == 1) { "Profile no longer exists" }

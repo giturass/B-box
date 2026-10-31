@@ -18,20 +18,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  certificate-module:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v5
-      - name: Prepare BusyBox
-        run: sudo apt-get update && sudo apt-get install -y busybox-static
-      - name: Check module script syntax
-        run: |
-          for script in app/src/main/assets/capture-module/*.sh app/src/main/assets/capture-module/META-INF/com/google/android/update-binary tools/test_capture_module.sh; do
-            busybox ash -n "$script"
-          done
-      - name: Test CA mounts in isolated Linux namespaces
-        run: sudo env CAPTURE_MODULE_CI=1 unshare --mount --pid --fork --mount-proc busybox ash tools/test_capture_module.sh
   core:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -44,11 +30,29 @@ jobs:
       - name: HTTP, routed IP and LAN tests against the matching core
         working-directory: .core
         run: go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1
-      - name: HTTP capture, rewrite, script, storage and route tests
+      - name: HTTP and eBPF capture, storage and route tests
         working-directory: .core
         run: |
           go test -race ./experimental/httpdebug -count=1
           go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1
+  ebpf:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - id: go
+        run: echo "version=$(sed -n 's/^GO_VERSION=go//p' version.properties)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.go.outputs.version }}
+          cache-dependency-path: tools/ebpf/go.sum
+      - run: sudo apt-get update -qq && sudo apt-get install -y clang llvm libssl-dev
+      - run: bash tools/ebpf/build.sh linux/amd64
+      - name: Collector framing, ordering and symbol tests
+        working-directory: tools/ebpf
+        run: go test -race -count=1 ./...
+      - name: Root uprobe TLS smoke and owner shutdown
+        run: sudo python3 tools/ebpf/smoke.py
   flutter:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

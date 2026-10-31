@@ -12,11 +12,8 @@ import (
 	"github.com/sagernet/sing-box/experimental/httpdebug"
 	"github.com/sagernet/sing/common/buf"
 	"github.com/sagernet/sing/common/bufio"
-	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 )
-
-type debugRewriteContextKey struct{}
 
 func debugMetadata(m adapter.InboundContext) httpdebug.Metadata {
 	host := m.Domain
@@ -42,9 +39,6 @@ func debugMetadata(m adapter.InboundContext) httpdebug.Metadata {
 // The route is already selected. Sniff a COPY solely for capture selection;
 // never feed a recovered name or an HTTP Host back into routing or DNS.
 func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, outbound adapter.Outbound, onClose N.CloseHandlerFunc) (net.Conn, bool) {
-	if ctx.Value(debugRewriteContextKey{}) != nil {
-		return conn, false
-	}
 	engine := httpdebug.Current()
 	if engine == nil || !engine.Candidate(debugMetadata(metadata)) {
 		return conn, false
@@ -63,7 +57,7 @@ func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata ada
 		}
 	}
 	info := debugMetadata(captureMetadata)
-	if !engine.Matches(info) {
+	if info.Protocol == "tls" || !engine.Matches(info) {
 		if info.Protocol == "tls" {
 			engine.Observe(info, "TLS")
 		}
@@ -91,33 +85,7 @@ func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata ada
 		}()
 		return local, nil
 	}
-	rewriteDial := func(dialCtx context.Context, address string) (net.Conn, error) {
-		if err := dialCtx.Err(); err != nil {
-			return nil, err
-		}
-		rewritten := debugRewriteMetadata(metadata, address)
-		if !rewritten.Destination.IsValid() {
-			return nil, errors.New("invalid rewritten destination")
-		}
-		local, routed := net.Pipe()
-		dialCtx = context.WithValue(dialCtx, debugRewriteContextKey{}, true)
-		dialCtx = adapter.WithContext(dialCtx, &rewritten)
-		go r.RouteConnectionEx(dialCtx, routed, rewritten, func(error) { routed.Close() })
-		return local, nil
-	}
-	return conn, engine.Handle(ctx, conn, info, dial, adapter.RootPoolFromContext(r.ctx), onClose, rewriteDial)
-}
-
-// A changed URL destination gets a fresh rule evaluation while retaining the
-// original client identity. Do not carry DNS answers or prior rule actions over.
-func debugRewriteMetadata(original adapter.InboundContext, address string) adapter.InboundContext {
-	destination := M.ParseSocksaddr(address)
-	return adapter.InboundContext{
-		Inbound: original.Inbound, InboundType: original.InboundType, Network: N.NetworkTCP,
-		Source: original.Source, User: original.User, Outbound: original.Outbound,
-		Destination: destination, Domain: destination.Fqdn, ProcessInfo: original.ProcessInfo,
-		SourceMACAddress: original.SourceMACAddress, SourceHostname: original.SourceHostname,
-	}
+	return conn, engine.Handle(ctx, conn, info, dial, onClose)
 }
 
 func debugNeedsStream(m adapter.InboundContext) bool {
@@ -131,18 +99,18 @@ func debugNeedsStream(m adapter.InboundContext) bool {
 	return m.Network == N.NetworkUDP && engine.WantsQUIC(debugMetadata(m))
 }
 
-// Only an observed QUIC ClientHello is eligible for rejection. Unknown SNI,
-// and incomplete hellos are replayed unmodified to the original outbound.
-func debugRejectQUIC(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, buffers []*N.PacketBuffer) ([]*N.PacketBuffer, bool) {
+// Domain observation always returns every original datagram to the selected outbound.
+func debugObserveQUIC(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, buffers []*N.PacketBuffer) []*N.PacketBuffer {
 	engine := httpdebug.Current()
 	if engine == nil || !engine.WantsQUIC(debugMetadata(metadata)) {
-		return buffers, false
+		return buffers
 	}
 	if metadata.Protocol != "" && metadata.Protocol != C.ProtocolQUIC {
-		return buffers, false
+		return buffers
 	}
 	if metadata.Protocol == C.ProtocolQUIC && metadata.Domain != "" {
-		return buffers, engine.RejectQUIC(debugMetadata(metadata))
+		engine.Observe(debugMetadata(metadata), "QUIC")
+		return buffers
 	}
 	metadata.Domain = ""
 	for i := 0; i < 3; i++ {
@@ -164,11 +132,12 @@ func debugRejectQUIC(ctx context.Context, conn N.PacketConn, metadata adapter.In
 		}
 		err := sniff.QUICClientHello(ctx, &metadata, buffers[i].Buffer.Bytes())
 		if err == nil && metadata.Domain != "" {
-			return buffers, engine.RejectQUIC(debugMetadata(metadata))
+			engine.Observe(debugMetadata(metadata), "QUIC")
+			return buffers
 		}
 		if !errors.Is(err, sniff.ErrNeedMoreData) {
 			break
 		}
 	}
-	return buffers, false
+	return buffers
 }

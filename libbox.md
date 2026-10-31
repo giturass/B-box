@@ -6,7 +6,7 @@
 
 上游为 [SagerNet/sing-box](https://github.com/SagerNet/sing-box)，绑定位于 `experimental/libbox`。当前基线是 [`v1.15.0-alpha.13`](https://github.com/SagerNet/sing-box/tree/v1.15.0-alpha.13/experimental/libbox)，Go 为 `go1.26.10`；实际版本由 [version.properties](version.properties) 的 `VERSION_NAME` 和 `GO_VERSION` 决定，工作流检出 `v${VERSION_NAME}`。
 
-本仓库不存储完整核心或 AAR，构建补丁与扩展源码统一保存在 [libbox/](libbox/)。CI 通过 [setup-core](.github/actions/setup-core/action.yml) 检出上游至 `.core/`，先准备版本文件指定的 Go，再应用构建补丁、sing-tun 兼容补丁和 HTTP 调试补丁。抓取引擎、路由适配及所有 `ui_*.go`（五个生产扩展和相应测试）使用同一安装入口；Android 构建由 [build-libbox](.github/actions/build-libbox/action.yml) 生成标准 `libbox.aar`。仅有上游原版 AAR 不足以编译当前 B-box，因为它没有下面的 UI 扩展绑定，也不包含本仓库的路由和自动重定向兼容补丁。
+本仓库不存储完整核心或 AAR，构建补丁与扩展源码统一保存在 [libbox/](libbox/)。CI 通过 [setup-core](.github/actions/setup-core/action.yml) 检出上游至 `.core/`，先准备版本文件指定的 Go，再应用构建补丁、sing-tun 兼容补丁和 HTTP 调试补丁。抓取引擎、路由适配及所有 `ui_*.go`及相应测试使用同一安装入口；Android 构建由 [build-libbox](.github/actions/build-libbox/action.yml) 生成标准 `libbox.aar`。仅有上游原版 AAR 不足以编译当前 B-box，因为它没有下面的 UI 扩展绑定，也不包含本仓库的路由和自动重定向兼容补丁。
 
 | 差异 | 文件 | 作用 |
 | --- | --- | --- |
@@ -16,7 +16,7 @@
 | HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码和有大小上限的响应，供备份及 Release 元数据使用 |
 | 出口探测绑定 | [ui_egress.go](libbox/ui_egress.go) | 可取消的设备网络/运行中路由探测、出口 IP 多源查询与质量请求传输 |
 | 局域网代理配置绑定 | [ui_lan.go](libbox/ui_lan.go) | 读取 mixed/http/socks 监听端点、修改 listen 或显式新增 mixed 入站 |
-| HTTP/HTTPS 调试与改写 | [httpdebug.patch](libbox/httpdebug.patch)、[httpdebug/](libbox/httpdebug/)、[route/](libbox/route/)、[ui_capture.go](libbox/ui_capture.go) | 抓取、MITM/绕过、域名提取、Header/URL/Body Rewrite、Map Local 与 JavaScript；提供 JSON 配置、记录及导出绑定 |
+| HTTP/HTTPS 请求抓取 | [httpdebug.patch](libbox/httpdebug.patch)、[httpdebug/](libbox/httpdebug/)、[route/](libbox/route/)、[ui_capture.go](libbox/ui_capture.go) | HTTP 录制、Root/eBPF HTTPS 明文采集、域名提取、记录及导出绑定 |
 
 ## 新增接口与行为
 
@@ -56,45 +56,33 @@
 
 ### HTTP/HTTPS 请求调试
 
-[patch_httpdebug.py](tools/patch_httpdebug.py) 对匹配核心应用配置、路由和服务生命周期补丁，将 `libbox/httpdebug/` 安装到 `experimental/httpdebug/`、路由适配安装到 `route/b_box_*.go`，并复制 `ui_capture.go`。已有覆盖文件时拒绝重复安装。补丁在路由选择、出站组解析和连接跟踪之后接管符合条件的新连接；没有改写目标地址时，上游连接继续使用原来的 `ConnectionHandler` 或连接管理器，保留目的地址、路由选项、出站链和应用归属，不新增监听器或独立直连回退。补充嗅探只修改元数据副本，不匹配的已读字节回放到原出站。抓取关闭时路由保持原行为；启用后候选流走连接路径，显式 bypass 规则仍保留。改写目标地址后的选路见下节。
+[patch_httpdebug.py](tools/patch_httpdebug.py) 在匹配核心中安装 [路由与生命周期补丁](libbox/httpdebug.patch)、[抓取引擎](libbox/httpdebug/)、[路由适配](libbox/route/) 和 `ui_capture*.go`。明文 HTTP 在选路及连接跟踪之后记录，继续使用原出站的 `ConnectionHandler`，保留路由、目的地址和应用归属；补充嗅探只修改元数据副本，不匹配的字节回放到原连接。没有新增代理监听器或直连回退。
 
-HTTPS 默认关闭。开启后，**HTTPS 域名白名单为空表示不限制解密域名**；填写后只解密匹配的域名。精确域名和 `*.example.com` 分别匹配本域和子域，通配符不包含主域；排除域名优先，通用抓取域名筛选同时约束 HTTP 与 HTTPS。`decryptBypassHosts` 只绕过 MITM，`excludeHosts` 排除全部抓取及域名提取。应用选择为空表示所有归属，非空时未知归属不匹配，共享 UID 按包名集合判断。默认端口为 80、443、8080、8443，可选择最多 32 个端口。
+HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF uprobes 观察目标进程在 `SSL_read`/`SSL_write` 及 `_ex` 公共接口中读写的明文。它不从网络密文推导会话密钥，也不接管 TLS 握手；应用照常验证服务端证书。CA 生成、证书安装/模块、MITM、HTTP 改写和 JavaScript 已移除。
 
-TLS 解密使用每个安装独立的 CA，签发带 SAN 的 ECDSA P-256 叶证书，叶证书缓存最多 128 项；上游继续使用当前 libbox 根证书池验证真实服务端，失败不会跳过验证。支持 HTTP/1.1、TLS ALPN 的 HTTP/2 及流式请求/响应；SSE 及时转发，WebSocket 只记录 HTTP 升级握手，后续帧双向透传。合并到同一 TLS 连接但域名不同的请求返回 421，要求客户端另建连接，避免越过域名选择。CA 的 Android 保存及系统导入见 [app.md](app.md#请求抓取与调试证书)。
+采集器使用 [cilium/ebpf v0.22.0](https://github.com/cilium/ebpf/tree/v0.22.0)，依据 [Linux uprobes](https://www.kernel.org/doc/html/latest/trace/uprobetracer.html) 和公开 SSL 函数 ABI 工作，不读取 BoringSSL 私有结构偏移。支持 ARM64/x86_64 的 64 位库，需要 Root、Linux 5.15 或更新内核、BPF/uprobe/perf 支持及 SELinux 许可。自动检查系统 Conscrypt/libssl 和当前 Android 用户的进程映射，可补充最多 16 个绝对库路径；查找 ELF 动态/本地符号、有界 XZ mini-debugdata 及 APK 内未压缩的对应 ABI `.so`。没有兼容库或挂载失败时启动报错；挂载库数不表示所有目标应用均受支持。32 位进程、Go TLS、没有相应符号的自有/裁剪 TLS 库和 QUIC/HTTP/3 不在当前支持范围。
 
-记录保留最近 300 条，磁盘总量上限 32 MiB；每条请求和响应各保存正文前缀，默认 64 KiB、最大 1 MiB，记录头上限 64 KiB。完整正文持续转发，不为录制缓存整个下载；最多同时接管 32 条连接，每条 HTTP/2 连接最多 16 个流，超过连接容量的新连接继续走原出站。停止抓取关闭已接管连接并等待处理器退出；服务重载、关闭及进程重启后不自动恢复抓取。记录可在停服时查看，进程重启将未结束记录标记为中断，并核对正文文件实际长度。
+仅接受探针观察到 `SSL_new` 后的新连接；`SSL_clear`/`SSL_free` 区分连接代次。开启后需让目标应用重新连接。UID 在 BPF 中筛选，排除 B-box 自身及其他 Android 用户；共享 UID 使用同一选择，包名集合保留在记录中。HTTPS 可以观察选中应用的本机连接，不依赖其是否通过 sing-box；本地服务的启停仍决定抓包会话的生命周期。
 
-正文预览和 HAR 中的压缩正文解码支持 gzip/deflate，展开上限 64 KiB；其他编码或二进制可查看 Base64。HAR 保留原始压缩前缀于扩展字段，标准 `content.text` 只放解码结果，无法解码时省略；截断、完整性和未知大小均有标记。耗时仅记录总时长，HAR 的 `wait` 使用总时长并明确标注 send/receive 未测量，不表示 DNS/TCP/TLS 分阶段计时。cURL 仅导出完整且未截断的 HTTP 请求头/正文，使用 shell 引用和 Base64 管道保留正文；TLS 失败和正文文件缺失时拒绝生成。没有录制 HTTP trailers 或 WebSocket 帧，也不提供录制后重放；转发时的改写见下节。
+域名和端口按每条 HTTP 请求判断，支持 HTTP/2 合并连接上的不同域名。HTTPS 域名列表为空表示不限制受支持的域名；精确名称匹配本域，`*.example.com` 匹配子域，排除优先。通用包含/排除筛选同时约束 HTTP 和 HTTPS，HTTPS 排除仅影响明文录制。默认端口 80、443、8080、8443，最多 32 个。eBPF 尚未关联套接字，HTTPS 端口使用 HTTP authority（默认 443），源/目的套接字地址、出站和路由规则保持未知；记录明确标明来源、PID/UID 和此限制。
 
-`extractHosts` 启用后，MITM 关闭或绕过的 TLS、可见 QUIC ClientHello 也可记录“仅域名”条目；不伪造 HTTP 头部、正文或响应状态。域名提取合并当前搜索条件下全部保留记录的原始/改写 URL 与观察域名，去重排序，可复制或导出文本。仅域名条目受同一存储限额约束，清空记录同时移除它们；HAR 排除这类非 HTTP 条目。无法恢复 ECH 等隐藏的信息，也不表示已完成 TLS 解密。
+[明文解析器](libbox/httpdebug/plaintext.go) 处理 HTTP/1.1 分片、顺序请求、信息响应、定长/chunked/流式正文；[HTTP/2 解析器](libbox/httpdebug/plaintext_h2.go) 要求完整客户端前言，以独立 HPACK 状态和 stream ID 还原并发报文。升级仅记录 HTTP 握手，HTTP trailers 不加入头部预览。HTTP/2 server push、RST_STREAM、过大帧/头或不能确定边界的协议终止该连接的录制并报告原因，网络连接本身继续运行。
 
-可选 QUIC 阻断只作用于已观察到 ClientHello 域名、且匹配 HTTPS 解密及应用/端口筛选的连接，尝试促使客户端回退到 HTTP/2 或 HTTP/1.1；未知域名和不完整的嗅探数据仍回放。HTTP/3 不解密，不能保证客户端一定回退。证书固定、自有证书库、mTLS、ECH 和不兼容的 TLS 协议可能需要排除目标域名。
+资源与完整性边界：
 
-`CommandServer.StartUICapture` 必须绑定运行中的本地实例，并与服务重载/关闭串行；其余 `Open/Validate/Stop/Read/List/Clear/ExportUICapture*`、`ExtractUICaptureHosts` 绑定提供配置校验、状态、列表、详情、清空和导出。Android 只读取有界预览，原始正文通过文件导出，不在轮询桥接中传送。
+- 最多记录 300 条、磁盘 32 MiB；每方向正文默认保留 64 KiB，最高 1 MiB，头部上限 64 KiB。普通 HTTP 最多接管 32 条连接、每条 HTTP/2 最多 16 个流；eBPF 最多同时解析 32 条连接，每条 HTTP/2 最多 32 个流。
+- 每方向明文队列最多 256 KiB；单次 SSL 调用最多 128 KiB，以 4096 字节分片输出，超过限额报告缺口。事件按连接代次、序号与偏移重组，总重组缓存最多 4 MiB；重复、缺失、perf 丢失和 BPF 输出失败都有错误状态，不把后续片段拼成完整请求。
+- 局部溢出、解析错误和两分钟无数据的连接终止录制；全局丢事件或采集器退出停止抓包。未结束记录保留不完整标志及错误，服务重载/停止关闭管道、采集器和处理器。抓包不会自动恢复。
 
-### HTTP 改写配置
+预览/HAR 的 gzip/deflate 解码上限 64 KiB；不支持的编码或二进制保留 Base64，HAR 另保留原始压缩前缀和截断/完整性标记。耗时仅为总时长，不冒充 DNS/TCP/TLS 分阶段计时。cURL 要求请求头与正文完整且未截断，正文缺失则拒绝导出。停止服务后仍可查询保存记录。
 
-在原 sing-box JSON 的 `experimental.http_debug` 下保存抓包与改写设置，完整示例见 [http-debug.json](examples/http-debug.json)。合入原有配置时只合并该对象，保留自己的入站、出站、DNS 和路由；示例不是 VPN 入站模板。`httpdebug.patch` 向当前核心的 `option.ExperimentalOptions` 添加真实类型，[配置适配](libbox/option/httpdebug.go) 安装到 `option/b_box_httpdebug.go`，复用引擎的严格 JSON 校验并实现上游 `schema.Describer`；`Libbox.checkConfig`、格式化与 schema 生成均识别该对象。`ReadUICaptureConfig`/`SetUICaptureConfig` 提供读取/变换，Android 仍负责完整校验、修订检查和原子保存。没有该对象的旧配置可读取原本机抓包设置作为初始值，显式保存后使用配置中的值。
+`extractHosts` 额外记录经过本地服务的可见 TLS/QUIC 名称，条目标为“仅域名”，不伪造明文或响应，也不阻断 QUIC。域名导出对当前搜索条件下的全部保留记录去重，HAR 跳过仅域名条目；ECH 隐藏的名称无法由该观察恢复。
 
-MITM 使用 `https`、`decryptHosts` 和 `decryptBypassHosts`；公开 CA 与私钥不放进 JSON。规则总开关为 `rewriteEnabled`，默认关闭；规则仅在用户启动本地抓包后生效，配置加载不自动抓包。规则均支持 `name`、完整 URL 正则 `pattern` 及 `disabled`。最多 128 条规则，其中脚本最多 16 条；设置对象最大 4 MiB。
+`CommandServer.StartUICapture(directory, config, fd, source)` 与核心重载/停止串行，复制 Root 管道 FD，并通过 `UICaptureSource.Close` 管理采集器；HTTP 模式不需要 Root 管道。其余 `Open/Validate/Stop/Read/List/Clear/ExportUICapture*` 和 `ExtractUICaptureHosts` 提供本地设置校验、状态及记录访问。原始正文通过文件导出，轮询仅返回有界预览。设置持久化与 Binder 生命周期见 [app.md](app.md#请求抓取与-rootebpf)。
 
-| 数组 | 规则字段与行为 |
-| --- | --- |
-| `headerRewrite` | `type` 为 `http-request`（默认）或 `http-response`；`action` 支持 `header-add`、`header-del`、`header-replace`、`header-replace-regex`，后两种只作用于已有头部。`header` 指定名称，`value` 为值或匹配正则，正则替换另用 `replacement`。保留重复头部；不能修改 Content-Length、Transfer-Encoding 或 Trailer 的消息边界 |
-| `urlRewrite` | `type` 默认 `header`，透明改写并更新 Host；也支持 `301`/`302`/`307`/`308` 重定向及 `reject`（本地 403）。`replacement` 为绝对 HTTP(S)/WS(S) URL；首条匹配规则生效，替换支持捕获组 |
-| `bodyRewrite` | `type` 指请求或响应（默认请求），`regex`/`replacement` 对 UTF-8 正文依次替换；`^`/`$` 按行匹配，支持空正文生成内容。无效 UTF-8 跳过并记入说明 |
-| `mapLocal` | 首条匹配规则直接返回本地响应；`dataType` 为 `text`（默认）、`base64` 或 `tiny-gif`，`data` 保存内容，`status` 默认 200、范围 200–999，`headers` 是 `name`/`value` 数组。文件由 Android 选择并嵌入 Base64，不读取任意路径、不自动下载 URL；单条内容最多 1 MiB |
-| `scripts` | `type` 指请求或响应，`source` 为本地 JavaScript 源码，`argument` 对应 `$argument`；`requiresBody` 默认 false，`binaryBodyMode` 使用 Uint8Array，`fullHeaderMode` 使用 `{field,value}` 数组保留重复头部。`maxSize` 为 1–1048576 字节，`timeoutMs` 为 10–3000 毫秒，默认分别 1 MiB / 1000 毫秒 |
+### 旧抓包配置清理
 
-处理顺序参考 Surge 的 [HTTP Processing](https://manual.nssurge.com/http/overview.html)、[Header Rewrite](https://manual.nssurge.com/http/header-rewrite.html)、[URL Rewrite](https://manual.nssurge.com/http/url-rewrite.html)、[Body Rewrite](https://manual.nssurge.com/http/body-rewrite.html) 与 [Map Local](https://manual.nssurge.com/http/map-local.html)：请求按 Header → URL → Body → Script 执行，再检查 Map Local；重定向、拒绝和脚本本地响应提前结束上游请求。响应执行 Header → Body → Script，每个方向只运行首个匹配脚本。脚本通过 `$request`、`$response`、`$script`、`$argument`、`console.log` 和 `$done()` 工作，参见 Surge 的 [http-request](https://manual.nssurge.com/scripting/http-request.html) / [http-response](https://manual.nssurge.com/scripting/http-response.html) 契约。`$done({})` 保留报文，返回 headers 替换全部头部，body 替换正文，response 可直接返回本地响应，abort 终止请求。请求脚本返回 url 时保留 Host，需同时返回 headers 才修改它；另支持显式返回 method。响应可修改 status。调用 `$done()` 后立即结束，未调用、脚本异常和超时记入抓包错误。
-
-脚本使用固定 [Goja `58d95d85e994`](https://github.com/dop251/goja/tree/58d95d85e994)（MIT 许可），由安装脚本在三条 CI 工作流中解析依赖；该版本不要求升级核心现有的 x/text。每次调用独立运行时，源码上限 128 KiB、调用栈上限 256；正文处理与脚本全进程最多同时运行两项，排队最多三秒。仅提供同步报文 API，没有网络、文件、持久化存储、定时器、cron 或配置覆写能力；不自动下载/执行远程脚本。超时中断 JavaScript，输入/输出有大小限制，但这不是具有独立进程及硬堆内存配额的通用代码沙箱。
-
-正文改写与 `requiresBody` 才缓冲完整正文，压缩解码支持 gzip、deflate 和 Brotli；原始与解码后内容均限制 1 MiB。超大请求失败；超大响应回放已读原始前缀并继续完整透传，跳过需要正文的处理。SSE、gRPC、升级、HEAD、204/304 与部分响应不改写正文；请求 chunked/Expect 情况保留正文，脚本仍可改写头部。正文改变后重算长度并清理压缩、分块、trailer 和旧摘要/ETag；录制限额仍独立，详情与导出记录有效报文、原始 URL 及有界规则说明。本地响应未读取/转发的请求正文保持未完成标记。
-
-目标主机或端口改变后，使用 `RouteConnectionEx` 重新执行 sing-box 路由，保留入站、源地址及应用归属，清除旧目标的 DNS/规则状态，并阻止再次进入抓包引擎；不回退为直连。新 HTTPS 目标继续验证证书。详情保留原始 URL/目标，但清空未观察到的新出站及命中规则，避免把原连接的选择当作改写后的路由。
-
-这里实现的是 B-box JSON 扩展，不读取 Surge INI 配置。域名筛选沿用前述精确/子域通配规则；配置正则使用 Go RE2，不支持模式内反向引用和环视，单次正文替换最多 16384 个匹配，并限制捕获组索引及展开长度。未实现 jq、Surge 的完整 Host List 语法、远程资源更新或通用脚本 API；不声称兼容任意 Surge 配置或脚本。
+抓包筛选是应用私有设置，不属于 sing-box schema。`experimental.http_debug` 类型、编辑绑定及示例已移除。[兼容清理](libbox/ui_capture_migration.go) 在 libbox 解析前仅删除该退役字段，不解释或执行其中内容；其他未知字段继续由核心拒绝。格式化以及应用配置保存会移除它，未包含该字段的内容保持原样。原字段中嵌入的规则/脚本不会迁移为可执行内容，也不会自动开启抓包。
 
 ## Android 自动重定向兼容
 
@@ -116,12 +104,12 @@ MITM 使用 `https`、`decryptHosts` 和 `decryptBypassHosts`；公开 CA 与私
 
 - [Release 工作流](.github/workflows/build-release.yml) 复用 UI 验证工作流运行下述核心测试，再通过共享构建 Action 使用 JDK 17、版本文件指定的 Go 和 NDK 28.0.13004108，执行上游 `make lib_install` 与 `build_libbox -target android -platform android/arm64`。
 - [Android smoke 工作流](.github/workflows/newui-android.yml) 使用同一构建 Action，目标为 `android/amd64`，用于 x86_64 模拟器。两种构建均要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
-- [UI 验证工作流](.github/workflows/newui.yml) 使用共享准备 Action，运行 `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1` 及 `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`。五个生产扩展均参与编译，所有 `TestUI` 测试自动纳入，不再维护具体扩展名的筛选清单；它不构建核心 AAR。另执行 `go test -race ./experimental/httpdebug -count=1` 和 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1`，覆盖抓取/改写引擎、数据竞争及原出站和嗅探字节保留。
+- [UI 验证工作流](.github/workflows/newui.yml) 使用共享准备 Action，运行 `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1` 及 `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`。所有生产扩展均参与编译，所有 `TestUI` 测试自动纳入，不再维护具体扩展名的筛选清单；它不构建核心 AAR。另执行 `go test -race ./experimental/httpdebug -count=1` 和 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1`，覆盖 HTTP/eBPF 抓取引擎、数据竞争及原出站和嗅探字节保留。
 - 对应回归文件为 [ui_http_test.go](libbox/ui_http_test.go)、[ui_egress_test.go](libbox/ui_egress_test.go)、[ui_lan_test.go](libbox/ui_lan_test.go)，覆盖请求限制/重定向、源回退/公网 IP 校验/解析失败后继续竞速/取消/服务替换、监听转换和端点生成。
 
-[httpdebug_test.go](libbox/httpdebug/httpdebug_test.go) 覆盖域名/应用过滤、HTTP/HTTPS/HTTP2、上游证书验证、SSE/WebSocket、正文和记录上限、恢复及导出；[httpdebug_test.go](libbox/route/httpdebug_test.go) 在匹配核心中验证路由不被嗅探覆盖及不匹配流量字节回放。获准本机验证时可运行 [verify_httpdebug.py](tools/verify_httpdebug.py)，限制 Go 并发和内存；该脚本只测试独立引擎，不编译路由或生成 Android 绑定。
+[httpdebug_test.go](libbox/httpdebug/httpdebug_test.go) 保留 HTTP 路由、SSE/WebSocket、存储上限和导出回归；[plaintext_test.go](libbox/httpdebug/plaintext_test.go) 覆盖分片、HTTP/2 并发/跨域筛选、缺口、半截正文、采集器退出与源关闭。[ui_capture_test.go](libbox/ui_capture_test.go) 检查本地设置、退役字段清理和 schema；[路由测试](libbox/route/httpdebug_test.go) 检查原出站和字节回放。获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py)，它不构建 Android 绑定。
 
-[rewrite_test.go](libbox/httpdebug/rewrite_test.go) 覆盖规则顺序、有效报文录制、首个脚本、Map Local/重定向不访问上游、压缩与超限透传、SSE、chunked/Expect、脚本超时/二进制/消息边界、改写目标的选路与 TLS、MITM 绕过及域名导出。[ui_capture_test.go](libbox/ui_capture_test.go) 检查完整配置校验、格式化往返与 schema；路由测试另检查重选路清除旧规则状态并阻止递归抓包。对应结果须由当前 SHA 的 Actions 提供。
+UI 验证还编译 Linux BPF/采集器、运行 [事件测试](tools/ebpf/events_test.go) 和 [真实 OpenSSL smoke](tools/ebpf/smoke.py)，核对两方向明文、分片/重复处理及 owner EOF 退出。共享 Android 构建 Action 使用 NDK 编译 PIE 采集器，链接 16 KiB page alignment，打包为 `libbbox_capture.so`；生成的 BPF 对象和可执行文件不入库。Linux smoke 不代替 Android 实机内核、SELinux、Conscrypt 和目标应用验收。
 
 升级核心时先检查补丁是否仍准确排除 legacy 分支，核对 sing-tun 依赖版本及自动重定向补丁，检查 HTTP 调试路由/服务生命周期补丁及覆盖文件，再逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对共享准备 Action 的安装范围及三条工作流的调用。
 

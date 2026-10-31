@@ -5,8 +5,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -68,7 +66,7 @@ func TestDomainSelection(t *testing.T) {
 	}
 }
 
-func testEngine(t *testing.T, c Config, ca *authority) (*Engine, *Store) {
+func testEngine(t *testing.T, c Config) (*Engine, *Store) {
 	t.Helper()
 	if err := c.validate(); err != nil {
 		t.Fatal(err)
@@ -77,46 +75,25 @@ func testEngine(t *testing.T, c Config, ca *authority) (*Engine, *Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := newEngine(c, ca, s)
+	e := newEngine(c, s)
 	t.Cleanup(e.Close)
 	return e, s
 }
 
-func testCA(t *testing.T) (*authority, *x509.CertPool) {
+func debugClient(t *testing.T, e *Engine, origin string) *http.Client {
 	t.Helper()
-	cert, key, err := GenerateCA()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ca, err := loadAuthority(cert, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM([]byte(cert)) {
-		t.Fatal("invalid CA")
-	}
-	return ca, pool
-}
-
-func debugClient(t *testing.T, e *Engine, origin string, secure bool, upstreamRoots, clientRoots *x509.CertPool, rewriteDial ...RewriteDialFunc) *http.Client {
-	t.Helper()
-	m := Metadata{Host: "example.test", Port: 80, Protocol: "http", Outbound: "selected-proxy", Rule: "test rule", UID: 1234, Packages: []string{"com.test"}}
-	if secure {
-		m.Port, m.Protocol = 443, "tls"
-	}
-	transport := &http.Transport{ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{RootCAs: clientRoots},
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			client, server := net.Pipe()
-			if !e.Handle(context.Background(), server, m, func(ctx context.Context) (net.Conn, error) {
-				return (&net.Dialer{}).DialContext(ctx, "tcp", origin)
-			}, upstreamRoots, nil, rewriteDial...) {
-				t.Error("connection not captured")
-				client.Close()
-				server.Close()
-			}
-			return client, nil
-		}}
+	metadata := Metadata{Host: "example.test", Port: 80, Protocol: "http", Outbound: "selected-proxy", Rule: "test rule", UID: 1234, Packages: []string{"com.test"}}
+	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		client, server := net.Pipe()
+		if !e.Handle(context.Background(), server, metadata, func(ctx context.Context) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "tcp", origin)
+		}, nil) {
+			t.Error("connection not captured")
+			client.Close()
+			server.Close()
+		}
+		return client, nil
+	}}
 	t.Cleanup(transport.CloseIdleConnections)
 	return &http.Client{Transport: transport, Timeout: 5 * time.Second}
 }
@@ -161,8 +138,8 @@ func TestHTTPStreamingBodiesHeadersAndOriginalRoute(t *testing.T) {
 		_, _ = w.Write(body)
 	}))
 	defer origin.Close()
-	e, store := testEngine(t, Config{BodyLimit: 32}, nil)
-	client := debugClient(t, e, origin.Listener.Addr().String(), false, nil, nil)
+	e, store := testEngine(t, Config{BodyLimit: 32})
+	client := debugClient(t, e, origin.Listener.Addr().String())
 	body := strings.Repeat("payload", 1000)
 	for i := 0; i < 2; i++ {
 		req, _ := http.NewRequest("POST", "http://example.test/path?q=1;raw=2&escaped=%2F", strings.NewReader(body))
@@ -214,55 +191,6 @@ func TestHTTPStreamingBodiesHeadersAndOriginalRoute(t *testing.T) {
 	}
 }
 
-func TestHTTPSHTTP2AndUpstreamVerification(t *testing.T) {
-	originCA, originRoots := testCA(t)
-	leaf, err := originCA.certificate("example.test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var observed atomic.Value
-	origin := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		observed.Store(r.Proto)
-		w.Header().Set("Content-Type", "text/plain")
-		_, _ = io.WriteString(w, "HTTP2 body")
-	}))
-	origin.EnableHTTP2 = true
-	origin.TLS = &tls.Config{Certificates: []tls.Certificate{*leaf}}
-	origin.StartTLS()
-	defer origin.Close()
-	ca, roots := testCA(t)
-	e, store := testEngine(t, Config{HTTPS: true, DecryptHosts: []string{"example.test"}}, ca)
-	client := debugClient(t, e, origin.Listener.Addr().String(), true, originRoots, roots)
-	response, err := client.Get("https://example.test/test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, err := io.ReadAll(response.Body)
-	response.Body.Close()
-	if err != nil || string(body) != "HTTP2 body" || response.ProtoMajor != 2 || observed.Load() != "HTTP/2.0" {
-		t.Fatalf("HTTP2 exchange failed: %v, %s, %v", err, response.Proto, observed.Load())
-	}
-	d, _ := store.Detail(waitComplete(t, store, 1)[0].ID)
-	if d.Request.Protocol != "HTTP/2.0" || d.Response.Protocol != "HTTP/2.0" {
-		t.Fatal("HTTP2 metadata missing")
-	}
-
-	badEngine, badStore := testEngine(t, Config{HTTPS: true}, ca)
-	badClient := debugClient(t, badEngine, origin.Listener.Addr().String(), true, x509.NewCertPool(), roots)
-	response, err = badClient.Get("https://example.test/test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _ = io.Copy(io.Discard, response.Body)
-	response.Body.Close()
-	if response.StatusCode != 502 {
-		t.Fatal("untrusted upstream was accepted")
-	}
-	if item := waitComplete(t, badStore, 1)[0]; !strings.Contains(item.Error, "certificate") {
-		t.Fatalf("missing certificate error: %s", item.Error)
-	}
-}
-
 func TestSSEVisibleBeforeCompletionAndStop(t *testing.T) {
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -271,8 +199,8 @@ func TestSSEVisibleBeforeCompletionAndStop(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	defer origin.Close()
-	e, store := testEngine(t, Config{}, nil)
-	client := debugClient(t, e, origin.Listener.Addr().String(), false, nil, nil)
+	e, store := testEngine(t, Config{})
+	client := debugClient(t, e, origin.Listener.Addr().String())
 	response, err := client.Get("http://example.test/events")
 	if err != nil {
 		t.Fatal(err)
@@ -300,7 +228,7 @@ func TestSSEVisibleBeforeCompletionAndStop(t *testing.T) {
 }
 
 func TestStoreBoundsPersistenceClearAndCurl(t *testing.T) {
-	_, store := testEngine(t, Config{}, nil)
+	_, store := testEngine(t, Config{})
 	req, _ := http.NewRequest("GET", "http://example.test/a'b", nil)
 	req.Proto = "HTTP/1.1"
 	for i := 0; i < MaxEntries+3; i++ {
@@ -335,19 +263,16 @@ func TestStoreBoundsPersistenceClearAndCurl(t *testing.T) {
 	}
 }
 
-func TestQUICAndStoppedEngine(t *testing.T) {
-	e, _ := testEngine(t, Config{HTTPS: true, BlockQUIC: true, DecryptHosts: []string{"example.test"}}, nil)
-	if e.RejectQUIC(Metadata{Port: 443}) || e.RejectQUIC(Metadata{Port: 443, Host: "other.test"}) {
-		t.Fatal("QUIC blocked outside selection")
-	}
-	if !e.RejectQUIC(Metadata{Port: 443, Host: "example.test"}) {
-		t.Fatal("selected QUIC not blocked")
-	}
-	e.Close()
+func TestTLSIsNeverInterceptedAndStoppedEngineRejectsHTTP(t *testing.T) {
+	e, _ := testEngine(t, Config{HTTPS: true})
 	a, b := net.Pipe()
 	defer a.Close()
 	defer b.Close()
-	if e.Handle(context.Background(), a, Metadata{Port: 80, Protocol: "http"}, nil, nil, nil) {
+	if e.Handle(context.Background(), a, Metadata{Port: 443, Protocol: "tls"}, nil, nil) {
+		t.Fatal("TLS was intercepted")
+	}
+	e.Close()
+	if e.Handle(context.Background(), a, Metadata{Port: 80, Protocol: "http"}, nil, nil) {
 		t.Fatal("closed engine accepted a connection")
 	}
 }
@@ -408,14 +333,14 @@ func TestWebSocketUpgradeForwardsFramesAndStops(t *testing.T) {
 		_, _ = io.Copy(conn, stream)
 	}))
 	defer origin.Close()
-	e, store := testEngine(t, Config{}, nil)
+	e, store := testEngine(t, Config{})
 	client, inbound := net.Pipe()
 	defer client.Close()
 	client.SetDeadline(time.Now().Add(5 * time.Second))
 	if !e.Handle(context.Background(), inbound, Metadata{Host: "example.test", Port: 80, Protocol: "http"},
 		func(ctx context.Context) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "tcp", origin.Listener.Addr().String())
-		}, nil, nil) {
+		}, nil) {
 		t.Fatal("upgrade was not captured")
 	}
 	_, err := io.WriteString(client, "GET /socket HTTP/1.1\r\nHost: example.test\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
@@ -444,7 +369,7 @@ func TestWebSocketUpgradeForwardsFramesAndStops(t *testing.T) {
 }
 
 func TestMissingBodyNeverExportsAsACompleteRequest(t *testing.T) {
-	_, store := testEngine(t, Config{}, nil)
+	_, store := testEngine(t, Config{})
 	request, _ := http.NewRequest("POST", "http://example.test/", strings.NewReader("required body"))
 	id := store.begin(Metadata{}, request, 64)
 	store.appendBody(id, false, []byte("required body"))

@@ -1,9 +1,11 @@
 package io.nekohasekai.sfa.flutter
 
-import android.util.AtomicFile
-import android.util.Base64
+import android.os.Binder
 import io.nekohasekai.libbox.Libbox
+import io.nekohasekai.libbox.UICaptureSource
 import io.nekohasekai.sfa.bg.BoxService
+import io.nekohasekai.sfa.bg.ICaptureSession
+import io.nekohasekai.sfa.bg.RootClient
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.Settings
@@ -15,79 +17,50 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.json.JSONArray
 import java.io.File
-import java.nio.ByteBuffer
 
-/** Rules belong to the profile; records and private CA material stay local. */
-internal class BoxCapture(private val activity: BoxActivity, private val profiles: BoxProfiles) {
+/** Local passive HTTPS capture and routed HTTP recording. */
+internal class BoxCapture(private val activity: BoxActivity) {
     private val directory = File(activity.noBackupFilesDir, "http-debug")
     private val captures = File(directory, "captures")
-    private val settings = AtomicFile(File(directory, "settings.json"))
-    private val certificates = CaptureCertificate(activity)
+    private val settings = CaptureSettings(directory)
 
     private companion object {
-        // MainActivity and ShareActivity can coexist, but capture and its CA are process-wide.
         val mutex = Mutex()
+    }
+
+    private class CaptureSource : UICaptureSource {
+        val owner = Binder()
+        var session: ICaptureSession? = null
+        override fun close() { runCatching { session?.close() } }
     }
 
     private fun requireLocal() {
         require(!CommandTarget.isRemote) { "HTTP debugging is only available for the local service" }
     }
-
     private fun status() = JSONObject(Libbox.readUICaptureStatus())
-    private fun config(): JSONObject = if (settings.baseFile.exists()) JSONObject(String(settings.readFully(), Charsets.UTF_8)) else JSONObject()
 
     suspend fun invoke(method: String, args: Map<String, Any?>): Any? {
         requireLocal()
-        if (method == "capture.ca.export" || method == "capture.ca.module") return exportCertificate(method == "capture.ca.module")
         if (method == "capture.export") return export(args)
-        if (method == "capture.import") return importResource(args)
         return mutex.withLock { withContext(Dispatchers.IO) {
             requireLocal()
             Libbox.openUICapture(captures.absolutePath)
             when (method) {
-                "capture.ca.snapshot" -> mapOf("state" to jsonObject(status()), "ca" to certificates.snapshot())
                 "capture.snapshot" -> mapOf(
-                    "state" to jsonObject(status()), "ca" to certificates.snapshot(),
+                    "state" to jsonObject(status()),
                     "page" to jsonObject(JSONObject(Libbox.listUICapture(
                         (args["limit"] as? Number)?.toInt()?.coerceIn(1, 300) ?: 50,
                         (args["query"] as? String).orEmpty().take(1024),
                     ))),
                 )
-                "capture.settings" -> profiles.captureSettings(config().toString())
-                "capture.validate" -> {
-                    @Suppress("UNCHECKED_CAST")
-                    val value = args["config"] as? Map<String, Any?> ?: error("Missing capture settings")
-                    jsonObject(JSONObject(Libbox.validateUICaptureConfig(JSONObject(value).toString())))
-                }
+                "capture.settings" -> settings.snapshot()
                 "capture.configure" -> {
                     require(!status().optBoolean("active")) { "Stop capture before changing its settings" }
                     @Suppress("UNCHECKED_CAST")
                     val value = args["config"] as? Map<String, Any?> ?: error("Missing capture settings")
-                    val validated = Libbox.validateUICaptureConfig(JSONObject(value).toString())
-                    profiles.setCaptureSettings(
-                        (args["profileId"] as? Number)?.toLong() ?: error("Missing capture profile"),
-                        args["revision"] as? String ?: error("Missing configuration revision"),
-                        validated,
-                    )
-                    jsonObject(JSONObject(validated))
+                    settings.save(args["revision"] as? String ?: error("Missing capture settings revision"), JSONObject(value).toString())
                 }
-                "capture.start" -> ProfileContent.mutex.withLock {
-                    require(activity.serviceStatus.value == Status.Started) { "Start the local service before capturing requests" }
-                    val running = BoxService.dashboardConfig.value ?: error("Local service is not running")
-                    require(running.profileId == Settings.selectedProfile && running.server === BoxService.dashboardServer) {
-                        "Selected profile changed; reload it before capturing"
-                    }
-                    val embedded = Libbox.readUICaptureConfig(running.content)
-                    val value = Libbox.validateUICaptureConfig(embedded.ifEmpty { config().toString() })
-                    val ca = if (JSONObject(value).optBoolean("https")) certificates.material() else "" to ""
-                    requireLocal()
-                    running.server.startUICapture(captures.absolutePath, value, ca.first, ca.second)
-                    if (CommandTarget.isRemote) {
-                        Libbox.stopUICapture()
-                        requireLocal()
-                    }
-                    jsonObject(status())
-                }
+                "capture.start" -> start()
                 "capture.stop" -> { Libbox.stopUICapture(); jsonObject(status()) }
                 "capture.clear" -> { Libbox.clearUICapture(); null }
                 "capture.domains" -> {
@@ -95,53 +68,42 @@ internal class BoxCapture(private val activity: BoxActivity, private val profile
                     List(domains.length()) { domains.getString(it) }
                 }
                 "capture.detail" -> jsonObject(JSONObject(Libbox.readUICapture(args["id"] as? String ?: error("Missing request ID"))))
-                "capture.ca.generate" -> {
-                    require(!status().optBoolean("active")) { "Stop capture before changing its certificate" }
-                    certificates.material()
-                    certificates.snapshot()
-                }
-                "capture.ca.status" -> certificates.check()
-                "capture.ca.rotate" -> {
-                    require(!status().optBoolean("active")) { "Stop capture before changing its certificate" }
-                    certificates.rotate()
-                }
                 else -> error("Unknown capture operation")
             }
         } }
     }
 
-    private suspend fun importResource(args: Map<String, Any?>): Map<String, Any?>? {
-        val script = args["kind"] == "script"
-        require(script || args["kind"] == "mapLocal") { "Unknown capture resource type" }
-        val document = activity.pickDocument() ?: return null
-        return withContext(Dispatchers.IO) {
-            requireLocal()
-            val (name, bytes) = activity.readDocument(document, if (script) 128 * 1024 else 1024 * 1024)
-            if (script) mapOf("name" to name, "source" to Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString())
-            else mapOf("name" to name, "dataType" to "base64", "data" to Base64.encodeToString(bytes, Base64.NO_WRAP),
-                "headers" to listOf(mapOf("name" to "Content-Type", "value" to (activity.contentResolver.getType(document) ?: "application/octet-stream"))))
+    private suspend fun start(): Map<String, Any?> {
+        require(!status().optBoolean("active")) { "Capture is already running" }
+        require(activity.serviceStatus.value == Status.Started) { "Start the local service before capturing requests" }
+        val running = BoxService.dashboardConfig.value ?: error("Local service is not running")
+        val value = settings.config()
+        val source = if (JSONObject(value).optBoolean("https")) CaptureSource() else null
+        try {
+            if (source != null) source.session = RootClient.startCapture(value, source.owner)
+            return ProfileContent.mutex.withLock {
+                requireLocal()
+                require(activity.serviceStatus.value == Status.Started &&
+                    running.profileId == Settings.selectedProfile &&
+                    running === BoxService.dashboardConfig.value && running.server === BoxService.dashboardServer) {
+                    "Local service changed; start capture again"
+                }
+                if (source != null) {
+                    source.session!!.fileDescriptor.use { descriptor ->
+                        running.server.startUICapture(captures.absolutePath, value, descriptor.fd, source)
+                    }
+                } else {
+                    running.server.startUICapture(captures.absolutePath, value, -1, null)
+                }
+                if (CommandTarget.isRemote) { Libbox.stopUICapture(); requireLocal() }
+                val state = status()
+                check(state.optBoolean("active")) { state.optString("error", "Capture startup failed") }
+                jsonObject(state)
+            }
+        } catch (error: Exception) {
+            source?.close()
+            throw error
         }
-    }
-
-    private suspend fun exportCertificate(module: Boolean): Boolean {
-        val certificate = mutex.withLock { withContext(Dispatchers.IO) {
-            requireLocal()
-            certificates.exportCertificate()
-        } }
-        val name = if (module) certificate.moduleFilename else certificate.filename
-        val destination = activity.pickDocument(name) ?: return false
-        return mutex.withLock { withContext(Dispatchers.IO) {
-            requireLocal()
-            // Another Activity may rotate the CA while the document picker is open.
-            certificates.requireCurrentExport(certificate)
-            activity.contentResolver.openOutputStream(destination, "wt")?.use { output ->
-                if (module) CaptureCertificateModule.write(output, certificate) { asset ->
-                    activity.assets.open("${CaptureCertificateModule.assetDirectory}/$asset")
-                } else output.write(certificate.pem.toByteArray(Charsets.US_ASCII))
-            } ?: error("Unable to export the CA certificate or module")
-            if (module) certificates.moduleExported(certificate)
-            true
-        } }
     }
 
     private suspend fun export(args: Map<String, Any?>): Boolean {
@@ -173,18 +135,5 @@ internal class BoxCapture(private val activity: BoxActivity, private val profile
                 true
             } finally { file.delete() }
         } }
-    }
-}
-
-internal fun writeCaptureFile(file: AtomicFile, content: String) {
-    val parent = file.baseFile.parentFile ?: error("Missing capture directory")
-    check(parent.isDirectory || parent.mkdirs()) { "Unable to create capture directory" }
-    val stream = file.startWrite()
-    try {
-        stream.write(content.toByteArray(Charsets.UTF_8))
-        file.finishWrite(stream)
-    } catch (error: Exception) {
-        file.failWrite(stream)
-        throw error
     }
 }

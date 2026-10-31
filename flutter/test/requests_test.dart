@@ -6,10 +6,7 @@ import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/pages/requests.dart';
 import 'package:b_box_ui/pages/request_settings.dart';
-import 'package:b_box_ui/pages/capture_certificate.dart';
-import 'package:b_box_ui/pages/capture_rules.dart';
 import 'package:b_box_ui/pages/capture_domains.dart';
-import 'package:b_box_ui/components/code_editor.dart';
 import 'package:b_box_ui/components/captured_body.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
@@ -55,7 +52,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     calls = [];
     copied = [];
-    snapshot = {'state': {'active': false}, 'config': {}, 'ca': {'exists': false}, 'page': {'items': [], 'total': 0, 'storedBytes': 0}};
+    snapshot = {'state': {'active': false}, 'config': {}, 'page': {'items': [], 'total': 0, 'storedBytes': 0}};
     const channel = MethodChannel('test.requests');
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
@@ -69,9 +66,8 @@ void main() {
         'dashboard': {'status': 'Started', if (remote) ...{'remote': 'Server', 'remoteConnected': true}},
       };
       if (extra != null) return extra!(call);
-      if (call.method == 'capture.snapshot' || call.method == 'capture.ca.snapshot') return snapshot;
-      if (call.method == 'capture.settings') return {'profileId': 7, 'profileName': 'Selected profile', 'revision': 'saved-revision', 'config': snapshot['config']};
-      if (call.method == 'capture.validate') return json(call.arguments)['config'];
+      if (call.method == 'capture.snapshot') return snapshot;
+      if (call.method == 'capture.settings') return {'revision': 'saved-revision', 'config': snapshot['config']};
       if (call.method == 'capture.domains') return ['api.test', 'pinned.test'];
       if (call.method == 'capture.start') { snapshot['state'] = {'active': true}; return snapshot['state']; }
       if (call.method == 'capture.stop') { snapshot['state'] = {'active': false}; return snapshot['state']; }
@@ -94,13 +90,6 @@ void main() {
 
   Future<void> open(WidgetTester tester, Widget page) async {
     openPage(tester.element(find.byType(HomePage)), page);
-    await tester.pumpAndSettle();
-  }
-
-  Finder caScrollable() => find.descendant(of: find.byType(CaptureCertificatePage), matching: find.byType(Scrollable)).first;
-
-  Future<void> showCAItem(WidgetTester tester, String label) async {
-    await tester.scrollUntilVisible(find.text(label), 200, scrollable: caScrollable());
     await tester.pumpAndSettle();
   }
 
@@ -139,7 +128,7 @@ void main() {
     await open(tester, const RequestSettingsPage(initial: {
       'https': true, 'decryptHosts': [], 'excludeHosts': ['private.example'], 'includeHosts': ['*.example'], 'packages': ['com.example'],
     }));
-    expect(find.text('Leave empty to decrypt all domains. Use exact names or *.example.com; bypass rules take priority.'), findsOneWidget);
+    expect(find.text('Leave empty to capture all supported HTTPS domains. Exact names and *.example.com are accepted; exclusions take priority.'), findsOneWidget);
     await tester.tap(find.byTooltip('Save').last);
     await tester.pumpAndSettle();
     final config = json(json(calls.singleWhere((call) => call.method == 'capture.configure').arguments)['config']);
@@ -152,28 +141,24 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('capture settings retain every rewrite section and the profile revision', (tester) async {
+  testWidgets('capture settings use a local revision and save only capture fields', (tester) async {
     await mount(tester);
-    final config = <String, dynamic>{
-      'https': true, 'decryptBypassHosts': ['pinned.test'], 'extractHosts': true, 'rewriteEnabled': true,
-      'headerRewrite': [{'pattern': '^https://api.test/', 'header': 'X-Test', 'action': 'header-add', 'value': 'one'}],
-      'urlRewrite': [{'pattern': '/old', 'replacement': '/new', 'disabled': true}],
-      'bodyRewrite': [{'type': 'http-response', 'pattern': '/api', 'regex': 'old', 'replacement': 'new'}],
-      'mapLocal': [{'pattern': '/mock', 'dataType': 'base64', 'data': 'AAE=', 'headers': []}],
-      'scripts': [{'pattern': '/api', 'source': r'$done({body: $request.body});', 'requiresBody': true}],
-    };
-    await open(tester, RequestSettingsPage(initial: config, source: const {'profileId': 7, 'revision': 'saved-revision'}));
+    await open(tester, const RequestSettingsPage(initial: {
+      'https': true, 'tlsLibraries': ['/data/app/test/libssl.so'], 'extractHosts': true,
+    }, source: {'revision': 'local-revision'}));
     await tester.tap(find.byTooltip('Save').last);
     await tester.pumpAndSettle();
     final args = json(calls.singleWhere((call) => call.method == 'capture.configure').arguments);
-    expect(args['profileId'], 7); expect(args['revision'], 'saved-revision');
+    expect(args['revision'], 'local-revision');
+    expect(args.containsKey('profileId'), isFalse);
     final saved = json(args['config']);
-    for (final kind in captureRuleKinds.keys) { expect(saved[kind], config[kind]); }
-    expect(saved['decryptBypassHosts'], ['pinned.test']);
-    expect(saved['extractHosts'], isTrue); expect(saved['rewriteEnabled'], isTrue);
+    expect(saved['tlsLibraries'], ['/data/app/test/libssl.so']);
+    expect(saved['extractHosts'], isTrue);
+    expect(saved.keys.toSet(), {'https', 'decryptHosts', 'includeHosts', 'excludeHosts', 'packages',
+      'ports', 'bodyLimit', 'decryptBypassHosts', 'extractHosts', 'tlsLibraries'});
   });
 
-  testWidgets('MITM bypass domains can be selected from captured hostnames', (tester) async {
+  testWidgets('HTTPS exclusions can be selected from captured hostnames', (tester) async {
     await mount(tester);
     await open(tester, const RequestSettingsPage(initial: {'https': true, 'decryptBypassHosts': ['existing.test']}));
     final add = find.byKey(const ValueKey('add-bypass-hosts')).first;
@@ -187,53 +172,6 @@ void main() {
     expect(config['decryptBypassHosts'], ['existing.test', 'pinned.test']);
   });
 
-  testWidgets('rule ordering and disabled state survive list editing', (tester) async {
-    await mount(tester);
-    List<Json>? saved;
-    openPage<List<Json>>(tester.element(find.byType(HomePage)), const CaptureRuleListPage(kind: 'urlRewrite', initial: [
-      {'name': 'first', 'pattern': '/first', 'type': 'reject', 'disabled': true},
-      {'name': 'second', 'pattern': '/second', 'type': 'reject'},
-    ])).then((value) => saved = value);
-    await tester.pumpAndSettle();
-    final list = tester.widget<ReorderableListView>(find.byType(ReorderableListView));
-    list.onReorderItem!(0, 1); await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    expect(saved!.map((rule) => rule['name']), ['second', 'first']);
-    expect(saved!.last['disabled'], isTrue);
-  });
-
-  testWidgets('Map Local imports bounded file contents and validates before returning', (tester) async {
-    await mount(tester);
-    extra = (call) async {
-      if (call.method == 'capture.import') return {'name': 'mock.bin', 'dataType': 'base64', 'data': 'AAEC',
-        'headers': [{'name': 'Content-Type', 'value': 'application/octet-stream'}]};
-      return null;
-    };
-    await open(tester, const CaptureRuleEditorPage(kind: 'mapLocal'));
-    await tester.enterText(find.byKey(const ValueKey('rule-pattern')), '^https://api.test/mock');
-    await tester.tap(find.byTooltip('Import file').last); await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    final rule = rows(json(json(calls.singleWhere((call) => call.method == 'capture.validate').arguments)['config'])['mapLocal']).single;
-    expect(rule['dataType'], 'base64'); expect(rule['data'], 'AAEC');
-    expect(rows(rule['headers']).single['value'], 'application/octet-stream');
-    expect(find.byType(CaptureRuleEditorPage), findsNothing);
-  });
-
-  testWidgets('script validation errors retain the source draft', (tester) async {
-    await mount(tester);
-    extra = (call) async {
-      if (call.method == 'capture.validate') throw PlatformException(code: 'capture', message: 'Invalid script syntax');
-      return null;
-    };
-    await open(tester, const CaptureRuleEditorPage(kind: 'scripts', initial: {'pattern': '^https://api.test/', 'source': 'const = ;'}));
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    expect(find.text('Invalid script syntax'), findsOneWidget);
-    expect(find.byType(CaptureRuleEditorPage), findsOneWidget);
-    final args = json(json(calls.singleWhere((call) => call.method == 'capture.validate').arguments)['config']);
-    expect(rows(args['scripts']).single['source'], 'const = ;');
-    expect(rows(args['scripts']).single['timeoutMs'], 1000);
-  });
-
   testWidgets('domain extraction uses the search filter and copies complete hostnames', (tester) async {
     await mount(tester);
     await open(tester, const CaptureDomainsPage(query: 'pinned'));
@@ -241,20 +179,6 @@ void main() {
     await tester.tap(find.byTooltip('Copy domains').last); await tester.pumpAndSettle();
     expect(copied.last, 'api.test\npinned.test');
   });
-
-  for (final (size, scale, dark) in [(const Size(360, 800), 1.0, false), (const Size(360, 800), 1.4, true), (const Size(800, 1000), 1.0, false)]) {
-    testWidgets('rewrite editor and script source fit $size at $scale dark=$dark', (tester) async {
-      await mount(tester, size: size, scale: scale, dark: dark);
-      await open(tester, const CaptureRuleEditorPage(kind: 'scripts', initial: {'name': 'Request rewrite', 'pattern': '^https://api.test/',
-        'source': r'$done({headers: {...$request.headers, "X-Debug": "B-box"}});'}));
-      await capture(tester, '${size.width.toInt()}-$scale-$dark-script-settings');
-      await tester.scrollUntilVisible(find.byType(CodeEditor), 250,
-        scrollable: find.descendant(of: find.byType(CaptureRuleEditorPage), matching: find.byType(Scrollable)).first);
-      await tester.pumpAndSettle();
-      await capture(tester, '${size.width.toInt()}-$scale-$dark-script-source');
-      expect(tester.takeException(), isNull);
-    });
-  }
 
   testWidgets('start waits for native confirmation and service status gates it', (tester) async {
     await mount(tester);
@@ -420,132 +344,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  for (final (action, label, notice) in [
-    ('module', 'Download module ZIP', 'Module ZIP saved. Install it in Magisk or KernelSU, then reboot.'),
-    ('export', 'Export system CA (.0)', 'System CA saved.'),
-  ]) {
-    for (final outcome in ['success', 'cancel', 'failure']) {
-      testWidgets('CA $action handles document $outcome without claiming system trust', (tester) async {
-        await mount(tester);
-        final ca = {'exists': true, 'fingerprint': 'ab' * 32, 'expiresAt': 2000000000000,
-          'systemFilename': '1234abcd.0', 'checkedAt': 0, 'moduleExportedAt': 0};
-        snapshot['ca'] = ca;
-        await open(tester, CaptureCertificatePage(initial: ca, active: false));
-        expect(find.text('Not checked'), findsOneWidget);
-        extra = (call) async {
-          if (call.method == 'capture.ca.$action') {
-            if (outcome == 'failure') throw PlatformException(code: 'capture', message: 'Document provider failed');
-            if (outcome == 'success' && action == 'module') snapshot['ca'] = {...ca, 'moduleExportedAt': 1700000000000};
-            return outcome == 'success';
-          }
-          if (call.method == 'capture.ca.snapshot') return snapshot;
-          return null;
-        };
-        await showCAItem(tester, label);
-        await tester.tap(find.text(label));
-        await tester.pumpAndSettle();
-        tester.state<ScrollableState>(caScrollable()).position.jumpTo(0);
-        await tester.pumpAndSettle();
-        expect(find.text(notice), outcome == 'success' ? findsOneWidget : findsNothing);
-        expect(find.text('Document provider failed'), outcome == 'failure' ? findsOneWidget : findsNothing);
-        expect(find.text('Last module export'), outcome == 'success' && action == 'module' ? findsOneWidget : findsNothing);
-        expect(find.text('Not checked'), findsOneWidget);
-        expect(find.text('Trusted'), findsNothing);
-        expect(calls.where((call) => call.method == 'capture.ca.$action'), hasLength(1));
-        expect(calls.where((call) => call.method == 'capture.ca.snapshot'), hasLength(1));
-        expect(tester.takeException(), isNull);
-      });
-    }
-  }
-
-  testWidgets('CA module download disables repeat actions until the picker returns', (tester) async {
-    await mount(tester);
-    final ca = {'exists': true, 'systemFilename': '1234abcd.0', 'checkedAt': 0};
-    snapshot['ca'] = ca;
-    await open(tester, CaptureCertificatePage(initial: ca, active: false));
-    final saved = Completer<bool>();
-    extra = (call) async {
-      if (call.method == 'capture.ca.module') return saved.future;
-      if (call.method == 'capture.ca.snapshot') return snapshot;
-      return null;
-    };
-    await showCAItem(tester, 'Download module ZIP');
-    await tester.tap(find.text('Download module ZIP'));
-    await tester.pump(); await tester.pump(const Duration(milliseconds: 50));
-    for (final label in ['Download module ZIP', 'Export system CA (.0)', 'Check system trust', 'Rotate CA']) {
-      final item = find.ancestor(of: find.text(label), matching: find.byType(ListItem));
-      expect(tester.widget<ListItem>(item).onTap, isNull);
-    }
-    expect(calls.where((call) => call.method == 'capture.ca.module'), hasLength(1));
-    saved.complete(false);
-    await tester.pumpAndSettle();
-    expect(tester.widget<ListItem>(find.ancestor(of: find.text('Download module ZIP'), matching: find.byType(ListItem))).onTap, isNotNull);
-    expect(tester.takeException(), isNull);
-  });
-
-  for (final exists in [false, true]) {
-    testWidgets('CA identity cannot change while capture is active, exists=$exists', (tester) async {
-      await mount(tester);
-      final ca = {'exists': exists, 'systemFilename': '1234abcd.0'};
-      await open(tester, CaptureCertificatePage(initial: ca, active: true));
-      final label = exists ? 'Rotate CA' : 'Generate CA';
-      await showCAItem(tester, label);
-      expect(tester.widget<ListItem>(find.ancestor(of: find.text(label), matching: find.byType(ListItem))).onTap, isNull);
-      expect(calls.where((call) => call.method.startsWith('capture.ca.')), isEmpty);
-      expect(tester.takeException(), isNull);
-    });
-  }
-
-  testWidgets('CA page hides local certificates and operations in a remote session', (tester) async {
-    await mount(tester, remote: true);
-    await open(tester, const CaptureCertificatePage(initial: {'exists': true, 'fingerprint': 'local-secret'}, active: false));
-    expect(find.text('HTTP debugging is only available for the local service'), findsOneWidget);
-    expect(find.text('local-secret'), findsNothing);
-    expect(find.text('Download module ZIP'), findsNothing);
-    expect(calls.where((call) => call.method.startsWith('capture.')), isEmpty);
-  });
-
-  for (final fails in [false, true]) {
-    testWidgets('CA trust check refreshes saved state and preserves errors, fails=$fails', (tester) async {
-      await mount(tester);
-      final ca = {'exists': true, 'systemFilename': '1234abcd.0', 'checkedAt': 0};
-      snapshot['ca'] = ca;
-      await open(tester, CaptureCertificatePage(initial: ca, active: false));
-      extra = (call) async {
-        if (call.method == 'capture.ca.status') {
-          snapshot['ca'] = {...ca, 'trusted': !fails, 'checkedAt': 1700000000000};
-          if (fails) throw PlatformException(code: 'capture', message: 'CA state refresh failed');
-          return snapshot['ca'];
-        }
-        if (call.method == 'capture.ca.snapshot') return snapshot;
-        return null;
-      };
-      await showCAItem(tester, 'Check system trust');
-      await tester.tap(find.text('Check system trust'));
-      await tester.pumpAndSettle();
-      tester.state<ScrollableState>(caScrollable()).position.jumpTo(0);
-      await tester.pumpAndSettle();
-      expect(find.text('CA state refresh failed'), fails ? findsOneWidget : findsNothing);
-      expect(find.text(fails ? 'Not trusted' : 'Trusted'), findsOneWidget);
-      expect(find.text('Last checked'), findsOneWidget);
-      expect(calls.where((call) => call.method == 'capture.ca.snapshot'), hasLength(1));
-      expect(tester.takeException(), isNull);
-    });
-  }
-
   for (final (size, scale, dark) in [(const Size(360, 800), 1.0, false), (const Size(360, 800), 1.4, true), (const Size(800, 1000), 1.0, false)]) {
-    testWidgets('CA module page fits $size at $scale dark=$dark', (tester) async {
-      await mount(tester, size: size, scale: scale, dark: dark);
-      final ca = {'exists': true, 'fingerprint': 'ab' * 32, 'expiresAt': 2000000000000, 'systemFilename': '1234abcd.0',
-        'moduleExportedAt': 1700000000000, 'checkedAt': 1700000000000, 'trusted': false};
-      await open(tester, CaptureCertificatePage(initial: ca, active: false));
-      final label = '${size.width.toInt()}-$scale-${dark ? 'dark' : 'light'}';
-      await capture(tester, '$label-certificate');
-      await showCAItem(tester, 'Rotate CA');
-      await capture(tester, '$label-certificate-actions');
-      expect(tester.takeException(), isNull);
-    });
-
     testWidgets('request settings, list and message views fit $size at $scale dark=$dark', (tester) async {
       await mount(tester, size: size, scale: scale, dark: dark);
       final label = '${size.width.toInt()}-$scale-${dark ? 'dark' : 'light'}';

@@ -1,14 +1,3 @@
-diff --git a/option/experimental.go b/option/experimental.go
---- a/option/experimental.go
-+++ b/option/experimental.go
-@@ -10,6 +10,7 @@
- 	ClashAPI  *ClashAPIOptions  `json:"clash_api,omitempty"`
- 	V2RayAPI  *V2RayAPIOptions  `json:"v2ray_api,omitempty"`
- 	Debug     *DebugOptions     `json:"debug,omitempty"`
-+	HTTPDebug *HTTPDebugOptions `json:"http_debug,omitempty"`
- }
- 
- type CacheFileOptions struct {
 diff --git a/route/route.go b/route/route.go
 --- a/route/route.go
 +++ b/route/route.go
@@ -24,20 +13,15 @@ diff --git a/route/route.go b/route/route.go
  	if outboundHandler, isHandler := outbound.(adapter.ConnectionHandler); isHandler {
  		outboundHandler.NewConnection(ctx, conn, metadata, onClose)
  	} else {
-@@ -316,6 +321,12 @@
+@@ -316,6 +321,7 @@
  	if err != nil {
  		N.ReleaseMultiPacketBuffer(packetBuffers)
  		return err
-+	}
-+	var rejectedQUIC bool
-+	packetBuffers, rejectedQUIC = debugRejectQUIC(ctx, conn, metadata, packetBuffers)
-+	if rejectedQUIC {
-+		N.ReleaseMultiPacketBuffer(packetBuffers)
-+		return errors.New("QUIC blocked for a selected HTTP debugging domain")
  	}
++	packetBuffers = debugObserveQUIC(ctx, conn, metadata, packetBuffers)
  	for _, buffer := range slices.Backward(packetBuffers) {
  		conn = bufio.NewCachedPacketConn(conn, buffer.Buffer, buffer.Destination)
-@@ -480,6 +491,9 @@
+@@ -480,6 +486,9 @@
  
  func (r *Router) preMatchFlow(ctx context.Context, metadata *adapter.InboundContext, packetDestination M.Socksaddr, matchedRule adapter.Rule, outboundTag string) adapter.PreMatchResult {
  	continueResult := adapter.PreMatchResult{Action: adapter.PreMatchContinue}
@@ -80,3 +64,18 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
  	return s.StartedService.CloseService()
  }
  
+diff --git a/experimental/libbox/config.go b/experimental/libbox/config.go
+--- a/experimental/libbox/config.go
++++ b/experimental/libbox/config.go
+@@ -41,6 +41,11 @@
+ }
+ 
+ func parseConfig(ctx context.Context, configContent string) (option.Options, error) {
++	var err error
++	configContent, err = RemoveUIRetiredCaptureOptions(configContent)
++	if err != nil {
++		return option.Options{}, E.Cause(err, "remove retired capture options")
++	}
+ 	options, err := json.UnmarshalExtendedContext[option.Options](ctx, []byte(configContent))
+ 	if err != nil {
+ 		return option.Options{}, E.Cause(err, "decode config")

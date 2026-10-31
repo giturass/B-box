@@ -77,7 +77,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     }
     private val reports = BoxReports(activity)
     private val profiles = BoxProfiles { recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) } }
-    private val capture = BoxCapture(activity, profiles)
+    private val capture = BoxCapture(activity)
     private val qrScanner = BoxQrScanner(profiles::decode)
     private val preferences = activity.getSharedPreferences("flclash_ui", 0)
     private val webdav = BoxWebDAV(activity)

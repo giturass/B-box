@@ -1,6 +1,5 @@
-// Package httpdebug implements B-box's opt-in HTTP debugging, after sing-box routing.
-// It has no listeners or direct network dialer: every upstream connection is supplied
-// by the router, with the original destination, outbound and routing options.
+// Package httpdebug records local HTTP streams and TLS plaintext from eBPF.
+// Settings are private application data, never sing-box configuration options.
 package httpdebug
 
 import (
@@ -9,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -20,32 +20,25 @@ const (
 	MaxStorageBytes  = 32 * 1024 * 1024
 	MaxHeaderBytes   = 64 * 1024
 	MaxConnections   = 32
+	MaxConfigBytes   = 64 * 1024
 )
 
 type Config struct {
-	HTTPS              bool         `json:"https"`
-	Packages           []string     `json:"packages"`
-	IncludeHosts       []string     `json:"includeHosts"`
-	ExcludeHosts       []string     `json:"excludeHosts"`
-	DecryptHosts       []string     `json:"decryptHosts"`
-	Ports              []uint16     `json:"ports"`
-	BodyLimit          int64        `json:"bodyLimit"`
-	BlockQUIC          bool         `json:"blockQUIC"`
-	DecryptBypassHosts []string     `json:"decryptBypassHosts,omitempty"`
-	ExtractHosts       bool         `json:"extractHosts,omitempty"`
-	RewriteEnabled     bool         `json:"rewriteEnabled,omitempty"`
-	HeaderRewrite      []HeaderRule `json:"headerRewrite,omitempty"`
-	URLRewrite         []URLRule    `json:"urlRewrite,omitempty"`
-	BodyRewrite        []BodyRule   `json:"bodyRewrite,omitempty"`
-	MapLocal           []LocalRule  `json:"mapLocal,omitempty"`
-	Scripts            []ScriptRule `json:"scripts,omitempty"`
+	HTTPS              bool     `json:"https"`
+	Packages           []string `json:"packages"`
+	IncludeHosts       []string `json:"includeHosts"`
+	ExcludeHosts       []string `json:"excludeHosts"`
+	DecryptHosts       []string `json:"decryptHosts"`
+	Ports              []uint16 `json:"ports"`
+	BodyLimit          int64    `json:"bodyLimit"`
+	DecryptBypassHosts []string `json:"decryptBypassHosts,omitempty"`
+	ExtractHosts       bool     `json:"extractHosts,omitempty"`
+	TLSLibraries       []string `json:"tlsLibraries,omitempty"`
 }
 
-// Also used by option.ExperimentalOptions: checkConfig and formatConfig must
-// reject invalid rules instead of silently retaining settings the core ignores.
 func (c *Config) UnmarshalJSON(data []byte) error {
 	if len(data) > MaxConfigBytes || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
-		return errors.New("HTTP debugging settings must be an object of at most 4 MiB")
+		return errors.New("capture settings must be an object of at most 64 KiB")
 	}
 	type plain Config
 	var value plain
@@ -97,7 +90,15 @@ func (c *Config) validate() error {
 			return errors.New("invalid application package name")
 		}
 	}
-	return c.validateRules()
+	if len(c.TLSLibraries) > 16 {
+		return errors.New("select at most 16 extra TLS libraries")
+	}
+	for _, path := range c.TLSLibraries {
+		if len(path) > 4096 || !filepath.IsAbs(path) || strings.ContainsAny(path, "\x00\r\n") {
+			return errors.New("TLS libraries must be absolute local paths")
+		}
+	}
+	return nil
 }
 
 func validHost(host string) bool {
@@ -132,6 +133,8 @@ type Metadata struct {
 	Rule                string   `json:"rule"`
 	UID                 int32    `json:"uid"`
 	Packages            []string `json:"packages"`
+	CaptureSource       string   `json:"captureSource,omitempty"`
+	PID                 uint32   `json:"pid,omitempty"`
 }
 
 func (c Config) candidate(m Metadata) bool {

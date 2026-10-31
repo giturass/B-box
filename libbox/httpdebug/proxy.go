@@ -3,10 +3,7 @@ package httpdebug
 import (
 	"bufio"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -23,47 +20,41 @@ import (
 )
 
 type DialFunc func(context.Context) (net.Conn, error)
-type RewriteDialFunc func(context.Context, string) (net.Conn, error)
 
 type Engine struct {
 	config      Config
-	ca          *authority
 	store       *Store
 	mu          sync.Mutex
 	wg          sync.WaitGroup
 	closed      bool
 	connections map[net.Conn]context.CancelFunc
 	skipped     atomic.Int64
-	blockedQUIC atomic.Int64
+	passive     *plaintextCapture
+	reader      io.ReadCloser
+	closeSource func()
+	libraries   atomic.Int64
+	warning     atomic.Pointer[string]
 }
 
-func newEngine(config Config, ca *authority, store *Store) *Engine {
-	return &Engine{config: config, ca: ca, store: store, connections: make(map[net.Conn]context.CancelFunc)}
+func newEngine(config Config, store *Store) *Engine {
+	e := &Engine{config: config, store: store, connections: make(map[net.Conn]context.CancelFunc)}
+	e.passive = newPlaintextCapture(e)
+	return e
 }
 
-func (e *Engine) Candidate(metadata Metadata) bool { return e.config.candidate(metadata) }
+func (e *Engine) Candidate(metadata Metadata) bool {
+	return (metadata.Protocol != "tls" || e.config.ExtractHosts) && e.config.candidate(metadata)
+}
 
 func (e *Engine) Matches(metadata Metadata) bool { return e.config.matches(metadata) }
 
 func (e *Engine) WantsQUIC(metadata Metadata) bool {
 	metadata.Protocol = "tls"
-	return (e.config.ExtractHosts || e.config.BlockQUIC && e.config.HTTPS) && e.config.candidate(metadata)
+	return e.config.ExtractHosts && e.config.candidate(metadata)
 }
 
-// QUIC is rejected only when explicitly requested and its recovered hostname
-// matches the HTTPS allowlist. An unknown SNI never causes blanket UDP blocking.
-func (e *Engine) RejectQUIC(metadata Metadata) bool {
-	metadata.Protocol = "tls"
-	e.Observe(metadata, "QUIC")
-	if metadata.Host == "" || !e.config.BlockQUIC || !e.WantsQUIC(metadata) || !e.config.matches(metadata) {
-		return false
-	}
-	e.blockedQUIC.Add(1)
-	return true
-}
-
-func (e *Engine) Handle(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, roots *x509.CertPool, onClose func(error), rewriteDial ...RewriteDialFunc) bool {
-	if !e.Matches(metadata) {
+func (e *Engine) Handle(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, onClose func(error)) bool {
+	if metadata.Protocol == "tls" || !e.Matches(metadata) {
 		return false
 	}
 	e.mu.Lock()
@@ -79,7 +70,7 @@ func (e *Engine) Handle(ctx context.Context, conn net.Conn, metadata Metadata, d
 	go func() {
 		defer e.wg.Done()
 		stopClose := context.AfterFunc(ctx, func() { conn.Close() })
-		err := e.serve(ctx, conn, metadata, dial, roots, rewriteDial...)
+		err := e.serve(ctx, conn, metadata, dial)
 		stopClose()
 		cancel()
 		conn.Close()
@@ -95,58 +86,32 @@ func (e *Engine) Handle(ctx context.Context, conn net.Conn, metadata Metadata, d
 
 func (e *Engine) Close() {
 	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		return
+	}
 	e.closed = true
 	for conn, cancel := range e.connections {
 		cancel()
 		conn.Close()
 	}
+	reader, closeSource := e.reader, e.closeSource
 	e.mu.Unlock()
+	if reader != nil {
+		reader.Close()
+	}
+	if closeSource != nil {
+		closeSource()
+	}
+	e.passive.close("Capture stopped before the transaction finished")
 	e.wg.Wait()
 }
 
-func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, roots *x509.CertPool, rewriteDial ...RewriteDialFunc) error {
-	secure := metadata.Protocol == "tls"
-	scheme := "http"
-	if secure {
-		scheme = "https"
-		server := tls.Server(conn, &tls.Config{
-			MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1"},
-			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-				// The router sniffs the same ClientHello before applying the domain
-				// allowlist. Never sign for an unrelated name after that decision.
-				if hello.ServerName != "" && normalizeHost(hello.ServerName) != normalizeHost(metadata.Host) {
-					return nil, errors.New("TLS server name changed after capture selection")
-				}
-				return e.ca.certificate(metadata.Host)
-			},
-		})
-		handshakeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		err := server.HandshakeContext(handshakeCtx)
-		cancel()
-		if err != nil {
-			e.connectionError(metadata, fmt.Errorf("TLS handshake failed (trust, pinning or protocol): %w", err))
-			return err
-		}
-		conn = server
-	}
-	transport := newTransport(dial, metadata.Host, roots, true)
-	http1Transport := newTransport(dial, metadata.Host, roots, false)
+func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc) error {
+	transport := newTransport(dial)
 	defer transport.CloseIdleConnections()
-	defer http1Transport.CloseIdleConnections()
-	target := &url.URL{Scheme: scheme, Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))}
-	for _, tr := range []*http.Transport{transport, http1Transport} {
-		tr.TLSClientConfig.ServerName = "" // net/http validates the actual rewritten URL's hostname.
-		tr.DialContext = func(ctx context.Context, _, address string) (net.Conn, error) {
-			if strings.EqualFold(address, target.Host) {
-				return dial(ctx)
-			}
-			if len(rewriteDial) == 0 {
-				return nil, errors.New("rewritten destination requires the sing-box router")
-			}
-			return rewriteDial[0](ctx, address)
-		}
-	}
-	handler := e.handler(metadata, target, transport, http1Transport)
+	target := &url.URL{Scheme: "http", Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))}
+	handler := e.handler(metadata, target, transport)
 	base := &http.Server{
 		Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
 		MaxHeaderBytes: MaxHeaderBytes, ErrorLog: log.New(io.Discard, "", 0),
@@ -158,20 +123,14 @@ func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, di
 		IdleTimeout:                  60 * time.Second,
 		MaxUploadBufferPerConnection: 256 * 1024, MaxUploadBufferPerStream: 64 * 1024,
 	}
-	if server, ok := conn.(*tls.Conn); ok && server.ConnectionState().NegotiatedProtocol == "h2" {
+	reader := bufio.NewReader(conn)
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	prefix, _ := reader.Peek(3)
+	conn.SetReadDeadline(time.Time{})
+	conn = &bufferedConn{Conn: conn, reader: reader}
+	if string(prefix) == "PRI" {
 		h2.ServeConn(conn, &http2.ServeConnOpts{Context: ctx, BaseConfig: base, Handler: handler})
 		return nil
-	}
-	if !secure {
-		reader := bufio.NewReader(conn)
-		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-		prefix, _ := reader.Peek(3)
-		conn.SetReadDeadline(time.Time{})
-		conn = &bufferedConn{Conn: conn, reader: reader}
-		if string(prefix) == "PRI" {
-			h2.ServeConn(conn, &http2.ServeConnOpts{Context: ctx, BaseConfig: base, Handler: handler})
-			return nil
-		}
 	}
 	listener := newSingleListener(conn)
 	defer listener.Close()
@@ -184,22 +143,17 @@ func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, di
 	return err
 }
 
-func newTransport(dial DialFunc, serverName string, roots *x509.CertPool, h2 bool) *http.Transport {
-	transport := &http.Transport{
+func newTransport(dial DialFunc) *http.Transport {
+	return &http.Transport{
 		Proxy: nil, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return dial(ctx) },
-		TLSClientConfig:   &tls.Config{ServerName: serverName, RootCAs: roots, MinVersion: tls.VersionTLS12},
-		ForceAttemptHTTP2: h2, DisableCompression: true, MaxIdleConns: 4, MaxIdleConnsPerHost: 4,
-		MaxConnsPerHost: 4, IdleConnTimeout: 60 * time.Second, TLSHandshakeTimeout: 10 * time.Second,
+		DisableCompression: true, MaxIdleConns: 4, MaxIdleConnsPerHost: 4,
+		MaxConnsPerHost: 4, IdleConnTimeout: 60 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second, ExpectContinueTimeout: time.Second,
 		MaxResponseHeaderBytes: MaxHeaderBytes,
 	}
-	if !h2 {
-		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
-	}
-	return transport
 }
 
-func (e *Engine) handler(metadata Metadata, target *url.URL, transport, http1Transport http.RoundTripper) http.Handler {
+func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.RoundTripper) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		e.mu.Lock()
 		if e.closed {
@@ -215,11 +169,6 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport, http1Tra
 			requestHost = host
 		}
 		requestHost = normalizeHost(requestHost)
-		if metadata.Protocol == "tls" && requestHost != normalizeHost(metadata.Host) {
-			// A coalesced HTTP/2 request must not escape the TLS domain selection.
-			http.Error(w, "Use a separate connection for this origin", http.StatusMisdirectedRequest)
-			return
-		}
 		display := request.Clone(request.Context())
 		display.URL.Scheme = target.Scheme
 		display.URL.Host = request.Host
@@ -247,53 +196,14 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport, http1Tra
 			return
 		}
 		request.URL = display.URL
-		originalURL := request.URL.String()
-		var local *http.Response
-		if selected && e.config.RewriteEnabled {
-			// A matched request body must not occupy the buffering slots forever.
-			controller := http.NewResponseController(w)
-			_ = controller.SetReadDeadline(time.Now().Add(10 * time.Second))
-			var err error
-			local, err = e.rewriteRequest(id, request)
-			_ = controller.SetReadDeadline(time.Time{})
-			if err != nil {
-				e.store.setError(id, err)
-				if errors.Is(err, errScriptAbort) {
-					panic(http.ErrAbortHandler)
-				}
-				http.Error(w, "B-box: request rewrite failed; see HTTP debugging details", http.StatusBadGateway)
-				return
-			}
-		}
-		urlChanged := request.URL.String() != originalURL
-		e.store.updateRequest(id, request)
-		if urlChanged && !strings.EqualFold(urlAddress(request.URL), target.Host) {
-			e.store.rerouted(id, urlAddress(request.URL))
-		}
-		if local != nil && request.Body != nil && request.Body != http.NoBody {
-			e.store.addNote(id, "Local response: request body was not forwarded")
-		}
 		if request.Body != nil && request.Body != http.NoBody {
 			request.Body = &tapBody{ReadCloser: request.Body, store: e.store, id: id, expected: request.ContentLength}
 			defer request.Body.Close()
-		}
-		upstream := transport
-		if request.Header.Get("Upgrade") != "" {
-			upstream = http1Transport // RFC 6455 upgrades require HTTP/1.1.
 		}
 		proxy := &httputil.ReverseProxy{
 			Rewrite: func(r *httputil.ProxyRequest) {
 				r.Out.URL.Scheme = target.Scheme
 				r.Out.URL.Host = target.Host
-				if urlChanged {
-					r.Out.URL.Scheme, r.Out.URL.Host = r.In.URL.Scheme, r.In.URL.Host
-					if r.Out.URL.Scheme == "ws" {
-						r.Out.URL.Scheme = "http"
-					}
-					if r.Out.URL.Scheme == "wss" {
-						r.Out.URL.Scheme = "https"
-					}
-				}
 				r.Out.URL.User = nil
 				// ReverseProxy otherwise cleans query parameters before Rewrite.
 				// Debugging must preserve the client's original request target.
@@ -307,21 +217,9 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport, http1Tra
 				}
 			},
 			Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-				response := local
-				var err error
-				if response == nil {
-					response, err = upstream.RoundTrip(r)
-				}
+				response, err := transport.RoundTrip(r)
 				if err != nil {
 					return nil, err
-				}
-				if selected && e.config.RewriteEnabled {
-					if err = e.rewriteResponse(id, request, response); err != nil {
-						if response.Body != nil {
-							response.Body.Close()
-						}
-						return nil, err
-					}
 				}
 				e.store.response(id, response)
 				if response.StatusCode != http.StatusSwitchingProtocols && response.Body != nil && response.Body != http.NoBody {
@@ -333,9 +231,6 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport, http1Tra
 			ErrorLog:      log.New(io.Discard, "", 0),
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 				e.store.setError(id, err)
-				if errors.Is(err, errScriptAbort) {
-					panic(http.ErrAbortHandler)
-				}
 				http.Error(w, "B-box: upstream connection failed; see HTTP debugging details", http.StatusBadGateway)
 			},
 		}
@@ -343,20 +238,10 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport, http1Tra
 	})
 }
 
-func urlAddress(value *url.URL) string {
-	port := value.Port()
-	if port == "" {
-		port = "80"
-		if value.Scheme == "https" || value.Scheme == "wss" {
-			port = "443"
-		}
-	}
-	return net.JoinHostPort(value.Hostname(), port)
-}
-
 // Observe records only the visible name, never a fabricated decrypted request.
-// Excluded captures remain excluded; MITM-only bypasses may still reveal SNI.
+// Domain observations do not imply that TLS plaintext was captured.
 func (e *Engine) Observe(metadata Metadata, protocol string) {
+	metadata.Protocol = "tls"
 	if !e.config.ExtractHosts || !e.config.candidate(metadata) || !validHost(normalizeHost(metadata.Host)) ||
 		hostMatches(metadata.Host, e.config.ExcludeHosts) || len(e.config.IncludeHosts) > 0 && !hostMatches(metadata.Host, e.config.IncludeHosts) {
 		return
@@ -370,14 +255,6 @@ func (e *Engine) Observe(metadata Metadata, protocol string) {
 		URL: &url.URL{Scheme: "https", Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))}}
 	id := e.store.begin(metadata, request, e.config.BodyLimit)
 	e.store.domainOnly(id)
-	e.store.finish(id)
-}
-
-func (e *Engine) connectionError(metadata Metadata, err error) {
-	request := &http.Request{Method: "TLS", Proto: "TLS", Header: make(http.Header),
-		URL: &url.URL{Scheme: "https", Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))}}
-	id := e.store.begin(metadata, request, e.config.BodyLimit)
-	e.store.setError(id, err)
 	e.store.finish(id)
 }
 
@@ -457,4 +334,13 @@ func (c *closeNotifyConn) Close() error {
 	err := c.Conn.Close()
 	c.notify()
 	return err
+}
+
+func (e *Engine) skippedFlow(err error) {
+	e.skipped.Add(1)
+	message := err.Error()
+	if len(message) > 4096 {
+		message = message[:4096]
+	}
+	e.warning.Store(&message)
 }

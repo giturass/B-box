@@ -194,6 +194,10 @@ object RootClient {
         }
     }
 
+    suspend fun startCapture(settings: String, owner: IBinder): ICaptureSession = withContext(Dispatchers.IO) {
+        bindService().startCapture(settings, owner)
+    }
+
     suspend fun unregisterNeighborTableCallback(callback: INeighborTableCallback) {
         try {
             service?.unregisterNeighborTableCallback(callback)

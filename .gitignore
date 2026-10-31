@@ -20,3 +20,6 @@ local.properties
 *.jks
 *.p12
 *.keystore
+
+# Generated Root/eBPF collector packaged by CI
+/app/src/main/jniLibs/**/libbbox_capture.so

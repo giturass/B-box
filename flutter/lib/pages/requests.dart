@@ -5,7 +5,6 @@ import '../components/capture_poll.dart';
 import '../components/captured_body.dart';
 import '../components/record.dart';
 import 'request_settings.dart';
-import 'capture_certificate.dart';
 import 'capture_domains.dart';
 
 class RequestsPage extends StatefulWidget {
@@ -46,10 +45,6 @@ class _RequestsPageState extends State<RequestsPage> {
               } catch (error) { if (context.mounted) context.box.messages.add(BoxController.describe(error)); }
               finally { if (mounted) setState(() { _busy = false; _revision++; }); }
             }),
-            CommonPopupMenuItem(glyph: AppGlyphs.lock, label: context.tr('CA certificate'), onPressed: _busy ? null : () async {
-              await openPage(context, CaptureCertificatePage(initial: json(snapshot?['ca']), active: active));
-              if (mounted) setState(() => _revision++);
-            }),
             CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'), onPressed: _busy || entries.isEmpty ? null : () => _act('capture.export', {'format': 'har', 'query': _query})),
             CommonPopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Extract domains'), onPressed: _busy ? null : () => openPage(context, CaptureDomainsPage(query: _query))),
             CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear requests'), onPressed: _busy ? null : () async {
@@ -71,13 +66,14 @@ class _RequestsPageState extends State<RequestsPage> {
                   '${page['total'] ?? 0} ${context.tr('Requests')} · ${bytes(page['storedBytes'] as num? ?? 0)} / 32 MiB',
                   style: context.listSubtitleStyle,
                 )),
-                if ((state['skipped'] as num? ?? 0) > 0) Text('${context.tr('Connections skipped at capacity')}: ${state['skipped']}'),
-                if ((state['blockedQUIC'] as num? ?? 0) > 0) Text('${context.tr('QUIC connections blocked')}: ${state['blockedQUIC']}'),
+                if ((state['skipped'] as num? ?? 0) > 0) Text('${context.tr('Connections skipped or interrupted')}: ${state['skipped']}'),
+                if (active && state['backend'] == 'eBPF') Text('eBPF · ${state['libraries'] ?? 0} ${context.tr('TLS libraries attached')}'),
+                if ((state['error'] as String? ?? '').isNotEmpty) Text(state['error'].toString(), style: TextStyle(color: context.colorScheme.error)),
                 if ((page['error'] as String? ?? '').isNotEmpty) Text(page['error'].toString(), style: TextStyle(color: context.colorScheme.error)),
                 if (error != null) ErrorState(error, retry: refresh),
                 if (snapshot == null && error == null) const Center(child: CircularProgressIndicator()),
                 if (snapshot != null && entries.isEmpty) EmptyState(_query.isEmpty ? 'No captured requests' : 'No results',
-                  message: _query.isEmpty ? 'Only new connections through the local service are captured. Reconnect the target app after changing capture settings.' : null),
+                  message: _query.isEmpty ? 'HTTP capture follows the local service. HTTPS uses Root/eBPF on this device. Start capture, then reconnect the target app.' : null),
               ]));
               if (index > entries.length) return (page['total'] as num? ?? 0) > entries.length
                 ? TextButton(onPressed: () => setState(() => _limit = (_limit + 50).clamp(1, 300).toInt()), child: Text(context.tr('Show more')))
@@ -160,6 +156,8 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
         'Duration': '${detail?['durationMs'] ?? 0} ms', 'Status': json(detail?['response'])['status'],
         'Protocol': request['protocol'], 'Outbound': metadata['outbound'], 'Rule matched': metadata['rule'],
         'App': (metadata['packages'] as List? ?? []).join(', '), 'UID': metadata['uid'],
+        if (metadata['captureSource'] != null) 'Capture source': metadata['captureSource'],
+        if (metadata['pid'] != null) 'PID': metadata['pid'],
         'Source': metadata['source'], 'Destination': metadata['destination'],
         if (metadata['originalDestination'] != null) 'Original destination': metadata['originalDestination'],
         if ((detail?['error'] as String? ?? '').isNotEmpty) 'Error': detail?['error'],
