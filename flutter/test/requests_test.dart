@@ -22,6 +22,8 @@ void main() {
   Future<dynamic> Function(MethodCall)? extra;
 
   setUpAll(() async {
+    final mono = await File('assets/fonts/JetBrainsMono-Regular.ttf').readAsBytes();
+    await (FontLoader('JetBrainsMono')..addFont(Future.value(ByteData.sublistView(mono)))).load();
     final root = Platform.environment['FLUTTER_ROOT'];
     if (root != null) {
       final font = File('$root/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf');
@@ -217,12 +219,14 @@ void main() {
         'headers': [{'name': 'Content-Type', 'value': 'application/json'}]}, preview: value))]));
     String body() => tester.widget<SelectableText>(find.byKey(const ValueKey('captured-body-text'))).data!;
     expect(body(), contains('\n  "id": 123456789012345678901234567890,'));
+    await capture(tester, 'json-formatted');
     await tester.tap(find.byTooltip('Copy body preview'));
     await tester.pumpAndSettle();
     expect(copied.last, raw);
     await tester.tap(find.byTooltip('Show original'));
     await tester.pumpAndSettle();
     expect(body(), raw);
+    await capture(tester, 'json-original');
     data.value = {'text': '{"updated":true}', 'encoding': 'text'};
     await tester.pumpAndSettle();
     expect(body(), '{"updated":true}');
