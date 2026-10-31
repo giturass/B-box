@@ -325,7 +325,7 @@ func replaceBounded(pattern *regexp.Regexp, value, replacement string, limit int
 			return "", errors.New("rewrite exceeds output size limit")
 		}
 		output.WriteString(value[last:match[0]])
-		output.Write(expanded)
+		output.WriteString(expanded)
 		last = match[1]
 	}
 	if output.Len()+len(value)-last > limit {

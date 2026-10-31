@@ -43,7 +43,7 @@ class _RequestsPageState extends State<RequestsPage> {
               try {
                 final source = json(await context.box.call('capture.settings'));
                 if (context.mounted) await openPage(context, RequestSettingsPage(initial: json(source['config']), source: source));
-              } catch (error) { if (mounted) context.box.messages.add(BoxController.describe(error)); }
+              } catch (error) { if (context.mounted) context.box.messages.add(BoxController.describe(error)); }
               finally { if (mounted) setState(() { _busy = false; _revision++; }); }
             }),
             CommonPopupMenuItem(glyph: AppGlyphs.lock, label: context.tr('CA certificate'), onPressed: _busy ? null : () async {

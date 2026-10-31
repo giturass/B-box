@@ -153,7 +153,7 @@ class _CaptureRuleEditorPageState extends State<CaptureRuleEditorPage> {
       actions: [
         if (kind == 'scripts' || kind == 'mapLocal') IconButtonData(glyph: AppGlyphs.importFile, tooltip: context.tr('Import file'), onPressed: _busy ? null : _import),
         if (widget.initial != null) IconButtonData(glyph: AppGlyphs.delete, tooltip: context.tr('Delete rule'), onPressed: _busy ? null : () async {
-          if (await confirm(context, 'Delete rule?') && mounted) { setState(() => _dirty = false); Navigator.pop(context, <String, dynamic>{'_delete': true}); }
+          if (await confirm(context, 'Delete rule?') && context.mounted) { setState(() => _dirty = false); Navigator.pop(context, <String, dynamic>{'_delete': true}); }
         }),
       ], children: [
         generateSection(items: [_toggle('disabled', 'Disable rule')]),
@@ -190,7 +190,7 @@ class _CaptureRuleEditorPageState extends State<CaptureRuleEditorPage> {
           SizedBox(height: 320, child: CodeEditor(controller: _controller('source'), undoController: _undo)),
           ListFooter(text: context.tr(r'Use $request, $response, $argument and $done(). Scripts run locally with a timeout; network, filesystem and timer APIs are unavailable.')),
         ],
-        ListFooter(text: context.tr('Patterns use Go regular expressions. Use $1 or ${name} in replacements. HTTPS requires MITM for the original domain.')),
+        ListFooter(text: context.tr(r'Patterns use Go regular expressions. Use $1 or ${name} in replacements. HTTPS requires MITM for the original domain.')),
       ],
     ));
   }
