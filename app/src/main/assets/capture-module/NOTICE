@@ -1,0 +1,17 @@
+Based on ProxyPin Certificate Installer by firdausmntp / wanghongenpin.
+https://github.com/wanghongenpin/Magisk-ProxyPinCA
+Reference commit: d4ff2b93e515a074ee2deab48c56fd6473213fb6
+The upstream LICENSE is GNU GPL version 2; it is included without changes.
+
+B-box adaptations:
+- Generate the ZIP in the app using only that installation's public CA.
+- Use the separate bbox_http_debug_ca module ID; do not bundle a default CA.
+- Omit the default certificate, WebUI, action scripts and update feed.
+- Share boot helpers between post-fs-data and service; mount both system and
+  Conscrypt stores without relying on the root manager's automatic overlay.
+- Use module-private staging paths, preserve hash collisions and require a
+  complete copy of the original trust store before binding the replacement.
+- Retry namespace mounts for B-box and Settings after boot.
+- Resolve cross-namespace bind sources through the preparing process's root.
+
+Source: https://github.com/giturass/B-box/tree/newui/app/src/main/assets/capture-module

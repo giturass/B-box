@@ -97,6 +97,13 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Finder caScrollable() => find.descendant(of: find.byType(CaptureCertificatePage), matching: find.byType(Scrollable)).first;
+
+  Future<void> showCAItem(WidgetTester tester, String label) async {
+    await tester.scrollUntilVisible(find.text(label), 200, scrollable: caScrollable());
+    await tester.pumpAndSettle();
+  }
+
   Future<void> showDetailItem(WidgetTester tester, Finder finder) async {
     final scrollable = find.descendant(of: find.byType(RequestDetailPage), matching: find.byType(Scrollable)).first;
     if (finder.evaluate().isEmpty) {
@@ -413,52 +420,132 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('CA import remains pending until checked, with public-only export', (tester) async {
+  for (final (action, label, notice) in [
+    ('module', 'Download module ZIP', 'Module ZIP saved. Install it in Magisk or KernelSU, then reboot.'),
+    ('export', 'Export system CA (.0)', 'System CA saved.'),
+  ]) {
+    for (final outcome in ['success', 'cancel', 'failure']) {
+      testWidgets('CA $action handles document $outcome without claiming system trust', (tester) async {
+        await mount(tester);
+        final ca = {'exists': true, 'fingerprint': 'ab' * 32, 'expiresAt': 2000000000000,
+          'systemFilename': '1234abcd.0', 'checkedAt': 0, 'moduleExportedAt': 0};
+        snapshot['ca'] = ca;
+        await open(tester, CaptureCertificatePage(initial: ca, active: false));
+        expect(find.text('Not checked'), findsOneWidget);
+        extra = (call) async {
+          if (call.method == 'capture.ca.$action') {
+            if (outcome == 'failure') throw PlatformException(code: 'capture', message: 'Document provider failed');
+            if (outcome == 'success' && action == 'module') snapshot['ca'] = {...ca, 'moduleExportedAt': 1700000000000};
+            return outcome == 'success';
+          }
+          if (call.method == 'capture.ca.snapshot') return snapshot;
+          return null;
+        };
+        await showCAItem(tester, label);
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+        tester.state<ScrollableState>(caScrollable()).position.jumpTo(0);
+        await tester.pumpAndSettle();
+        expect(find.text(notice), outcome == 'success' ? findsOneWidget : findsNothing);
+        expect(find.text('Document provider failed'), outcome == 'failure' ? findsOneWidget : findsNothing);
+        expect(find.text('Last module export'), outcome == 'success' && action == 'module' ? findsOneWidget : findsNothing);
+        expect(find.text('Not checked'), findsOneWidget);
+        expect(find.text('Trusted'), findsNothing);
+        expect(calls.where((call) => call.method == 'capture.ca.$action'), hasLength(1));
+        expect(calls.where((call) => call.method == 'capture.ca.snapshot'), hasLength(1));
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  testWidgets('CA module download disables repeat actions until the picker returns', (tester) async {
     await mount(tester);
-    final ca = {'exists': true, 'fingerprint': 'ab' * 32, 'expiresAt': 2000000000000, 'filename': '1234abcd.0', 'pendingReboot': true, 'checkedAt': 0};
+    final ca = {'exists': true, 'systemFilename': '1234abcd.0', 'checkedAt': 0};
     snapshot['ca'] = ca;
     await open(tester, CaptureCertificatePage(initial: ca, active: false));
-    expect(find.text('Not checked'), findsOneWidget);
-    expect(find.text('Certificate change pending; reboot and verify again.'), findsOneWidget);
-    await tester.tap(find.text('Export public CA'));
+    final saved = Completer<bool>();
+    extra = (call) async {
+      if (call.method == 'capture.ca.module') return saved.future;
+      if (call.method == 'capture.ca.snapshot') return snapshot;
+      return null;
+    };
+    await showCAItem(tester, 'Download module ZIP');
+    await tester.tap(find.text('Download module ZIP'));
+    await tester.pump(); await tester.pump(const Duration(milliseconds: 50));
+    for (final label in ['Download module ZIP', 'Export system CA (.0)', 'Check system trust', 'Rotate CA']) {
+      final item = find.ancestor(of: find.text(label), matching: find.byType(ListItem));
+      expect(tester.widget<ListItem>(item).onTap, isNull);
+    }
+    expect(calls.where((call) => call.method == 'capture.ca.module'), hasLength(1));
+    saved.complete(false);
     await tester.pumpAndSettle();
-    expect(calls.where((call) => call.method == 'capture.ca.export'), hasLength(1));
+    expect(tester.widget<ListItem>(find.ancestor(of: find.text('Download module ZIP'), matching: find.byType(ListItem))).onTap, isNotNull);
     expect(tester.takeException(), isNull);
   });
 
-  for (final action in ['install', 'status']) {
-    testWidgets('CA $action refreshes saved state after a CertBridge error', (tester) async {
+  for (final exists in [false, true]) {
+    testWidgets('CA identity cannot change while capture is active, exists=$exists', (tester) async {
       await mount(tester);
-      final ca = {'exists': true, 'fingerprint': 'ab' * 32, 'expiresAt': 2000000000000,
-        'filename': action == 'install' ? '' : '1234abcd.0', 'pendingReboot': false, 'checkedAt': 0};
+      final ca = {'exists': exists, 'systemFilename': '1234abcd.0'};
+      await open(tester, CaptureCertificatePage(initial: ca, active: true));
+      final label = exists ? 'Rotate CA' : 'Generate CA';
+      await showCAItem(tester, label);
+      expect(tester.widget<ListItem>(find.ancestor(of: find.text(label), matching: find.byType(ListItem))).onTap, isNull);
+      expect(calls.where((call) => call.method.startsWith('capture.ca.')), isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('CA page hides local certificates and operations in a remote session', (tester) async {
+    await mount(tester, remote: true);
+    await open(tester, const CaptureCertificatePage(initial: {'exists': true, 'fingerprint': 'local-secret'}, active: false));
+    expect(find.text('HTTP debugging is only available for the local service'), findsOneWidget);
+    expect(find.text('local-secret'), findsNothing);
+    expect(find.text('Download module ZIP'), findsNothing);
+    expect(calls.where((call) => call.method.startsWith('capture.')), isEmpty);
+  });
+
+  for (final fails in [false, true]) {
+    testWidgets('CA trust check refreshes saved state and preserves errors, fails=$fails', (tester) async {
+      await mount(tester);
+      final ca = {'exists': true, 'systemFilename': '1234abcd.0', 'checkedAt': 0};
       snapshot['ca'] = ca;
       await open(tester, CaptureCertificatePage(initial: ca, active: false));
       extra = (call) async {
-        if (call.method == 'capture.ca.$action') {
-          snapshot['ca'] = {...ca, 'filename': '1234abcd.0', 'pendingReboot': true,
-            if (action == 'status') ...{'trusted': false, 'checkedAt': 1700000000000}};
-          throw PlatformException(code: 'capture', message: 'Invalid certificate fingerprint');
+        if (call.method == 'capture.ca.status') {
+          snapshot['ca'] = {...ca, 'trusted': !fails, 'checkedAt': 1700000000000};
+          if (fails) throw PlatformException(code: 'capture', message: 'CA state refresh failed');
+          return snapshot['ca'];
         }
         if (call.method == 'capture.ca.snapshot') return snapshot;
         return null;
       };
-      final button = find.text(action == 'install' ? 'Import with CertBridge' : 'Check system trust');
-      await tester.ensureVisible(button);
-      await tester.tap(button);
+      await showCAItem(tester, 'Check system trust');
+      await tester.tap(find.text('Check system trust'));
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('Invalid certificate fingerprint'), -200,
-        scrollable: find.descendant(of: find.byType(CaptureCertificatePage), matching: find.byType(Scrollable)).first);
+      tester.state<ScrollableState>(caScrollable()).position.jumpTo(0);
       await tester.pumpAndSettle();
-      expect(find.text('Invalid certificate fingerprint'), findsOneWidget);
-      expect(find.text('Imported'), findsOneWidget);
-      expect(find.text('Certificate change pending; reboot and verify again.'), findsOneWidget);
-      expect(find.text(action == 'status' ? 'Not trusted' : 'Not checked'), findsOneWidget);
+      expect(find.text('CA state refresh failed'), fails ? findsOneWidget : findsNothing);
+      expect(find.text(fails ? 'Not trusted' : 'Trusted'), findsOneWidget);
+      expect(find.text('Last checked'), findsOneWidget);
       expect(calls.where((call) => call.method == 'capture.ca.snapshot'), hasLength(1));
       expect(tester.takeException(), isNull);
     });
   }
 
   for (final (size, scale, dark) in [(const Size(360, 800), 1.0, false), (const Size(360, 800), 1.4, true), (const Size(800, 1000), 1.0, false)]) {
+    testWidgets('CA module page fits $size at $scale dark=$dark', (tester) async {
+      await mount(tester, size: size, scale: scale, dark: dark);
+      final ca = {'exists': true, 'fingerprint': 'ab' * 32, 'expiresAt': 2000000000000, 'systemFilename': '1234abcd.0',
+        'moduleExportedAt': 1700000000000, 'checkedAt': 1700000000000, 'trusted': false};
+      await open(tester, CaptureCertificatePage(initial: ca, active: false));
+      final label = '${size.width.toInt()}-$scale-${dark ? 'dark' : 'light'}';
+      await capture(tester, '$label-certificate');
+      await showCAItem(tester, 'Rotate CA');
+      await capture(tester, '$label-certificate-actions');
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('request settings, list and message views fit $size at $scale dark=$dark', (tester) async {
       await mount(tester, size: size, scale: scale, dark: dark);
       final label = '${size.width.toInt()}-$scale-${dark ? 'dark' : 'light'}';

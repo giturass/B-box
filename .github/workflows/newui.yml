@@ -13,6 +13,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  certificate-module:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Prepare BusyBox
+        run: sudo apt-get update && sudo apt-get install -y busybox-static
+      - name: Check module script syntax
+        run: |
+          for script in app/src/main/assets/capture-module/*.sh app/src/main/assets/capture-module/META-INF/com/google/android/update-binary tools/test_capture_module.sh; do
+            busybox ash -n "$script"
+          done
+      - name: Test CA mounts in isolated Linux namespaces
+        run: sudo env CAPTURE_MODULE_CI=1 unshare --mount --pid --fork --mount-proc busybox ash tools/test_capture_module.sh
   webdav:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

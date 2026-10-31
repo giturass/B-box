@@ -41,6 +41,15 @@ for path in (native / "flutter").glob("*.kt"):
         errors.append(f"{path.name}: legacy UI fallback is not allowed")
     if "NavController" in source or "navController.navigate" in source:
         errors.append(f"{path.name}: legacy navigation is not allowed")
+module = ROOT / "app/src/main/assets/capture-module"
+for path in module.rglob("*"):
+    if not path.is_file():
+        continue
+    if (path.suffix in (".zip", ".p12", ".pfx", ".key") or re.fullmatch(r"[0-9a-f]{8}\.\d+", path.name)
+            or re.search(rb"(?m)^-----BEGIN (?:CERTIFICATE|[A-Z ]*PRIVATE KEY)-----", path.read_bytes())):
+        errors.append(f"{path.relative_to(ROOT)}: module must use the installation's CA, without bundled keys/certificates")
+if (module / "LICENSE").read_bytes() != (ROOT / "flutter/assets/licenses/ProxyPinCA-LICENSE").read_bytes():
+    errors.append("ProxyPin module and in-app licenses differ")
 if errors:
     raise SystemExit("\n".join(errors))
-print("Flutter imports, glyphs and Android entry-point guards passed")
+print("Flutter imports, glyphs, Android entry points and public-only CA module guards passed")

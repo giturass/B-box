@@ -13,11 +13,16 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.security.KeyFactory
 import java.security.KeyStore
+import java.security.Signature
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import java.security.spec.PKCS8EncodedKeySpec
 import java.util.UUID
+import java.util.zip.ZipInputStream
 
 @RunWith(AndroidJUnit4::class)
 class CaptureCertificateTest {
@@ -38,25 +43,38 @@ class CaptureCertificateTest {
         }
     }
 
-    @Test fun reusesTheEncryptedKeyAndExportsOnlyThePublicCertificate() = runBlocking(Dispatchers.IO) {
+    private fun certificate(pem: String) = CertificateFactory.getInstance("X.509")
+        .generateCertificate(pem.byteInputStream()) as X509Certificate
+
+    @Test fun reusesTheEncryptedKeyAndExportsItsMatchingPublicCertificate() = runBlocking(Dispatchers.IO) {
         fixture { context, alias, file ->
             val ca = CaptureCertificate(context, alias)
             assertEquals(false, ca.snapshot()["exists"])
+            assertTrue(runCatching { ca.exportCertificate() }.isFailure)
+            assertFalse(file.exists())
             val material = ca.material()
             val saved = file.readText()
             assertFalse(saved.contains("PRIVATE KEY"))
             assertFalse(saved.contains(material.second))
             assertTrue(JSONObject(saved).getString("encryptedKey").isNotEmpty())
             assertEquals(material, CaptureCertificate(context, alias).material())
-            assertEquals(material.first, ca.publicCertificate())
-            assertFalse(ca.publicCertificate().contains("PRIVATE KEY"))
-            val certificate = CertificateFactory.getInstance("X.509")
-                .generateCertificate(material.first.byteInputStream()) as X509Certificate
-            certificate.checkValidity()
-            assertTrue(certificate.basicConstraints >= 0)
-            assertTrue(certificate.keyUsage[5])
-            certificate.verify(certificate.publicKey)
-            assertEquals(64, (ca.snapshot()["fingerprint"] as String).length)
+            val exported = ca.exportCertificate()
+            val publicCA = certificate(exported.pem)
+            assertArrayEquals(certificate(material.first).encoded, publicCA.encoded)
+            publicCA.checkValidity()
+            assertTrue(publicCA.basicConstraints >= 0)
+            assertTrue(publicCA.keyUsage[5])
+            publicCA.verify(publicCA.publicKey)
+            assertEquals(64, exported.fingerprint.length)
+            assertEquals(ca.snapshot()["systemFilename"], exported.filename)
+            // Prove the decrypted signing key matches the CA that goes into the ZIP.
+            val keyBytes = Base64.decode(material.second.lineSequence().filterNot { it.startsWith("-----") }.joinToString(""), Base64.DEFAULT)
+            val key = KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(keyBytes))
+            val message = "B-box export identity".toByteArray()
+            val signature = Signature.getInstance("SHA256withECDSA").run { initSign(key); update(message); sign() }
+            assertTrue(Signature.getInstance("SHA256withECDSA").run { initVerify(publicCA); update(message); verify(signature) })
+            assertEquals(exported, CaptureCertificate(context, alias).exportCertificate())
+            assertEquals(saved, file.readText()) // Merely exporting never changes the CA or its trust state.
         }
     }
 
@@ -64,162 +82,124 @@ class CaptureCertificateTest {
         fixture { context, alias, file ->
             val ca = CaptureCertificate(context, alias)
             ca.material()
-            val saved = JSONObject(file.readText())
-            saved.put("certificate", Libbox.generateUICaptureCA().certificate)
-            file.writeText(saved.toString())
-            // The new certificate is valid; AES-GCM AAD must still reject the mix.
+            val mixed = JSONObject(file.readText()).put("certificate", Libbox.generateUICaptureCA().certificate).toString()
+            file.writeText(mixed)
+            // The replacement certificate is valid; AES-GCM AAD must still reject the mix.
             assertTrue(runCatching { CaptureCertificate(context, alias).material() }.isFailure)
+            assertEquals(mixed, file.readText())
         }
     }
 
-    @Test fun importVerifiesIdentityAndRotationKeepsTheRemovalPending() = runBlocking(Dispatchers.IO) {
+    @Test fun installationsHaveDifferentCertificatesAndSigningKeys() = runBlocking(Dispatchers.IO) {
+        fixture { firstContext, firstAlias, _ ->
+            fixture { secondContext, secondAlias, _ ->
+                val first = CaptureCertificate(firstContext, firstAlias)
+                val second = CaptureCertificate(secondContext, secondAlias)
+                val firstMaterial = first.material()
+                val secondMaterial = second.material()
+                assertNotEquals(firstMaterial.first, secondMaterial.first)
+                assertNotEquals(firstMaterial.second, secondMaterial.second)
+                assertNotEquals(first.exportCertificate().moduleFilename, second.exportCertificate().moduleFilename)
+            }
+        }
+    }
+
+    @Test fun moduleContainsOnlyTheCurrentPublicCAAndDoesNotClaimSystemTrust() = runBlocking(Dispatchers.IO) {
         fixture { context, alias, _ ->
-            val commands = mutableListOf<List<String>>()
-            var fingerprint = ""
-            var publicCertificate = ""
-            var present = false
-            val ca = CaptureCertificate(context, alias) { arguments ->
-                commands += arguments
-                when (arguments.first()) {
-                    "install_custom" -> {
-                        assertEquals(publicCertificate, String(Base64.decode(arguments[1], Base64.NO_WRAP), Charsets.UTF_8))
-                        assertFalse(arguments.any { it.contains("PRIVATE KEY") })
-                        present = true
-                        "ok=1\nfilename=1234abcd.0"
-                    }
-                    "list_custom" -> if (present) "custom|1234abcd.0|B-box HTTP Debug CA" else ""
-                    "cert_info" -> "ok=1\nfingerprint_sha256=$fingerprint"
-                    "remove_custom" -> {
-                        assertEquals(listOf("remove_custom", "1234abcd.0"), arguments)
-                        present = false
-                        "ok=1\nreboot_required=1"
-                    }
-                    else -> error("Unexpected command: ${arguments.first()}")
+            val ca = CaptureCertificate(context, alias)
+            val material = ca.material()
+            val exported = ca.exportCertificate()
+            val output = ByteArrayOutputStream()
+            CaptureCertificateModule.write(output, exported) { context.assets.open("${CaptureCertificateModule.assetDirectory}/$it") }
+            val entries = mutableMapOf<String, ByteArray>()
+            ZipInputStream(output.toByteArray().inputStream()).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    assertNull(entries.put(entry.name, zip.readBytes()))
                 }
             }
-            val old = ca.material()
-            publicCertificate = old.first
-            fingerprint = ca.snapshot()["fingerprint"] as String
-            val imported = ca.install()
-            assertEquals(true, imported["pendingReboot"])
-            assertEquals(false, imported["trusted"])
-            assertEquals(0L, imported["checkedAt"])
+            assertEquals(listOf("system/etc/security/cacerts/${exported.filename}"), entries.keys.filter { it.startsWith("system/") })
+            assertEquals(exported.pem, entries.getValue("system/etc/security/cacerts/${exported.filename}").toString(Charsets.US_ASCII))
+            assertTrue(entries.getValue("module.prop").toString(Charsets.UTF_8).contains(exported.fingerprint))
+            for (bytes in entries.values) {
+                assertFalse(bytes.toString(Charsets.UTF_8).contains("-----BEGIN PRIVATE KEY-----"))
+                assertFalse(bytes.toString(Charsets.UTF_8).contains(material.second))
+            }
+            assertEquals(0L, ca.snapshot()["moduleExportedAt"])
+            ca.moduleExported(exported)
+            assertTrue((ca.snapshot()["moduleExportedAt"] as Long) > 0)
+            assertEquals(0L, ca.snapshot()["checkedAt"])
+            assertEquals(false, ca.snapshot()["trusted"])
+            val checked = ca.check() // This isolated CA was never installed in AndroidCAStore.
+            assertEquals(false, checked["trusted"])
+            assertTrue((checked["checkedAt"] as Long) > 0)
+            assertEquals(material, ca.material())
+        }
+    }
+
+    @Test fun rotationInvalidatesOldExportsAndResetsExportAndTrustMetadata() = runBlocking(Dispatchers.IO) {
+        fixture { context, alias, file ->
+            val ca = CaptureCertificate(context, alias)
+            val oldMaterial = ca.material()
+            val oldExport = ca.exportCertificate()
+            ca.moduleExported(oldExport)
+            ca.check()
             val rotated = ca.rotate()
-            assertNotEquals(old, ca.material())
-            assertEquals("", rotated["filename"])
-            assertEquals(true, rotated["pendingReboot"])
-            assertEquals(1, commands.count { it.first() == "remove_custom" })
-            assertTrue(commands.indexOfLast { it.first() == "cert_info" } < commands.indexOfLast { it.first() == "remove_custom" })
+            assertNotEquals(oldMaterial, ca.material())
+            assertNotEquals(oldExport.fingerprint, rotated["fingerprint"])
+            assertEquals(0L, rotated["moduleExportedAt"])
+            assertEquals(0L, rotated["checkedAt"])
+            assertEquals(false, rotated["trusted"])
+            val saved = file.readText()
+            assertTrue(runCatching { ca.requireCurrentExport(oldExport) }.isFailure)
+            assertTrue(runCatching { ca.moduleExported(oldExport) }.isFailure)
+            assertEquals(saved, file.readText())
+            ca.requireCurrentExport(ca.exportCertificate())
         }
     }
 
-    @Test fun missingImportIsRecoverableButADifferentCertificateIsNeverRemoved() = runBlocking(Dispatchers.IO) {
-        fixture { context, alias, _ ->
-            var fingerprint = ""
-            var present = true
-            var wrongIdentity = false
-            val commands = mutableListOf<String>()
-            val ca = CaptureCertificate(context, alias) { arguments ->
-                commands += arguments.first()
-                when (arguments.first()) {
-                    "install_custom" -> "ok=1\nfilename=1234abcd.0"
-                    "cert_info" -> "ok=1\nfingerprint_sha256=${if (wrongIdentity) "00".repeat(32) else fingerprint}"
-                    "list_custom" -> if (present) "custom|1234abcd.0|Same display name" else ""
-                    else -> error("Must not mutate another certificate: ${arguments.first()}")
-                }
-            }
-            val old = ca.material()
-            fingerprint = ca.snapshot()["fingerprint"] as String
-            ca.install()
-            wrongIdentity = true
-            assertTrue(runCatching { ca.rotate() }.isFailure)
-            assertEquals(old, ca.material())
-            assertFalse(commands.contains("remove_custom"))
-            present = false // The recorded file was manually removed outside B-box.
-            assertEquals("", ca.remove()["filename"])
-            val rotated = ca.rotate()
-            assertNotEquals(old, ca.material())
-            assertEquals(true, rotated["pendingReboot"])
-            assertFalse(commands.contains("remove_custom"))
-        }
-    }
-
-    @Test fun checksTheSystemStoreAfterImportWithAnOpenSSLFingerprintLabel() = runBlocking(Dispatchers.IO) {
-        fixture { context, alias, _ ->
-            var fingerprint = ""
-            val ca = CaptureCertificate(context, alias) { arguments ->
-                when (arguments.first()) {
-                    "install_custom" -> "ok=1\nfilename=1234abcd.0"
-                    "cert_info" -> "ok=1\nfingerprint_sha256=SHA256 Fingerprint=$fingerprint"
-                    "list_custom" -> "custom|1234abcd.0|B-box HTTP Debug CA"
-                    "status" -> {
-                        assertEquals(listOf("status", "--live"), arguments)
-                        "reboot_required=0"
-                    }
-                    else -> error("Unexpected command: ${arguments.first()}")
-                }
-            }
+    @Test fun missingKeystoreKeyFailsWithoutSilentlyReplacingTheCA() = runBlocking(Dispatchers.IO) {
+        fixture { context, alias, file ->
+            val ca = CaptureCertificate(context, alias)
             ca.material()
-            fingerprint = (ca.snapshot()["fingerprint"] as String).chunked(2).joinToString(":").uppercase()
-            ca.install()
-            val checked = ca.check()
-            // The CLI claims no reboot is pending, but this isolated CA has
-            // never been installed in the emulator's real AndroidCAStore.
-            assertEquals(false, checked["trusted"])
-            assertTrue((checked["checkedAt"] as Long) > 0)
-            assertEquals(true, checked["pendingReboot"])
-            assertEquals("1234abcd.0", checked["filename"])
-            assertEquals("reboot_required=0", checked["backendOutput"])
+            val original = ca.exportCertificate()
+            val saved = file.readText()
+            KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(alias)
+            val reopened = CaptureCertificate(context, alias)
+            assertTrue(runCatching { reopened.material() }.isFailure)
+            assertEquals(saved, file.readText())
+            assertEquals(original, reopened.exportCertificate())
+            reopened.rotate() // Only explicit rotation repairs a lost encryption key.
+            assertNotEquals(original.fingerprint, reopened.exportCertificate().fingerprint)
+            reopened.material()
         }
     }
 
-    @Test fun certBridgeFailuresStillSaveTheActualSystemTrustResult() = runBlocking(Dispatchers.IO) {
-        for (failedCommand in listOf("status", "cert_info")) fixture { context, alias, _ ->
-            var fingerprint = ""
-            var fail = false
-            val ca = CaptureCertificate(context, alias) { arguments ->
-                when (arguments.first()) {
-                    "install_custom" -> "ok=1\nfilename=1234abcd.0"
-                    "cert_info" -> if (fail && failedCommand == "cert_info") "ok=1\nfingerprint_sha256=SHA256 Fingerprint=a1:b2"
-                        else "ok=1\nfingerprint_sha256=$fingerprint"
-                    "list_custom" -> "custom|1234abcd.0|B-box HTTP Debug CA"
-                    "status" -> {
-                        if (fail && failedCommand == "status") error("CertBridge unavailable")
-                        "reboot_required=0"
-                    }
-                    else -> error("Must not mutate certificates during a check: ${arguments.first()}")
-                }
-            }
-            val original = ca.material()
-            fingerprint = ca.snapshot()["fingerprint"] as String
-            ca.install()
-            fail = true
-            val failure = runCatching { ca.check() }.exceptionOrNull()
-            assertEquals(if (failedCommand == "status") "CertBridge unavailable" else "Invalid certificate fingerprint", failure?.message)
-            val checked = ca.snapshot()
-            assertEquals(false, checked["trusted"])
-            assertTrue((checked["checkedAt"] as Long) > 0)
-            assertEquals(true, checked["pendingReboot"])
-            assertEquals("1234abcd.0", checked["filename"])
-            assertEquals(if (failedCommand == "status") "" else "reboot_required=0", checked["backendOutput"])
-            assertEquals(original, ca.material())
+    @Test fun reusesExistingCAStorageWithoutTreatingOldImportMetadataAsSystemTrust() = runBlocking(Dispatchers.IO) {
+        fixture { context, alias, file ->
+            val original = CaptureCertificate(context, alias).material()
+            file.writeText(JSONObject(file.readText()).put("filename", "1234abcd.0")
+                .put("pendingReboot", true).put("backendOutput", "old importer output").toString())
+            val reopened = CaptureCertificate(context, alias)
+            assertEquals(original, reopened.material())
+            assertEquals(false, reopened.check()["trusted"])
+            assertFalse(reopened.snapshot().containsKey("filename"))
+            assertFalse(reopened.snapshot().containsKey("pendingReboot"))
         }
     }
 
-    @Test fun recognizesAnExistingSystemCertificateWhenCertBridgeIsUnavailable() = runBlocking(Dispatchers.IO) {
+    @Test fun recognizesAnExistingSystemCertificateWithoutRoot() = runBlocking(Dispatchers.IO) {
         fixture { context, alias, file ->
             val systemStore = KeyStore.getInstance("AndroidCAStore").apply { load(null) }
             val systemAlias = systemStore.aliases().toList().first { it.startsWith("system:") }
             val encoded = Base64.encodeToString(systemStore.getCertificate(systemAlias).encoded, Base64.NO_WRAP)
-            // Copy only a public system certificate into isolated test storage;
-            // no root store or real capture key is modified.
+            // Only public bytes enter isolated test storage; the real trust store is untouched.
             val pem = "-----BEGIN CERTIFICATE-----\n${encoded.chunked(64).joinToString("\n")}\n-----END CERTIFICATE-----\n"
             check(file.parentFile!!.mkdirs())
             file.writeText(JSONObject().put("certificate", pem).put("trusted", false).toString())
-            val ca = CaptureCertificate(context, alias) { error("CertBridge unavailable") }
-            assertEquals("CertBridge unavailable", runCatching { ca.check() }.exceptionOrNull()?.message)
-            assertEquals(true, ca.snapshot()["trusted"])
-            assertTrue((ca.snapshot()["checkedAt"] as Long) > 0)
+            val checked = CaptureCertificate(context, alias).check()
+            assertEquals(true, checked["trusted"])
+            assertTrue((checked["checkedAt"] as Long) > 0)
         }
     }
 }

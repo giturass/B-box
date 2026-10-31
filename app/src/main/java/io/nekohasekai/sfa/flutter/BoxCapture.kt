@@ -38,7 +38,8 @@ internal class BoxCapture(private val activity: BoxActivity, private val profile
 
     suspend fun invoke(method: String, args: Map<String, Any?>): Any? {
         requireLocal()
-        if (method == "capture.export" || method == "capture.ca.export") return export(method, args)
+        if (method == "capture.ca.export" || method == "capture.ca.module") return exportCertificate(method == "capture.ca.module")
+        if (method == "capture.export") return export(args)
         if (method == "capture.import") return importResource(args)
         return mutex.withLock { withContext(Dispatchers.IO) {
             requireLocal()
@@ -99,12 +100,7 @@ internal class BoxCapture(private val activity: BoxActivity, private val profile
                     certificates.material()
                     certificates.snapshot()
                 }
-                "capture.ca.install" -> certificates.install()
                 "capture.ca.status" -> certificates.check()
-                "capture.ca.remove" -> {
-                    require(!status().optBoolean("active")) { "Stop capture before changing its certificate" }
-                    certificates.remove()
-                }
                 "capture.ca.rotate" -> {
                     require(!status().optBoolean("active")) { "Stop capture before changing its certificate" }
                     certificates.rotate()
@@ -127,8 +123,29 @@ internal class BoxCapture(private val activity: BoxActivity, private val profile
         }
     }
 
-    private suspend fun export(method: String, args: Map<String, Any?>): Boolean {
-        val name = if (method == "capture.ca.export") "B-box-HTTP-Debug-CA.crt" else when (args["format"]) {
+    private suspend fun exportCertificate(module: Boolean): Boolean {
+        val certificate = mutex.withLock { withContext(Dispatchers.IO) {
+            requireLocal()
+            certificates.exportCertificate()
+        } }
+        val name = if (module) certificate.moduleFilename else certificate.filename
+        val destination = activity.pickDocument(name) ?: return false
+        return mutex.withLock { withContext(Dispatchers.IO) {
+            requireLocal()
+            // Another Activity may rotate the CA while the document picker is open.
+            certificates.requireCurrentExport(certificate)
+            activity.contentResolver.openOutputStream(destination, "wt")?.use { output ->
+                if (module) CaptureCertificateModule.write(output, certificate) { asset ->
+                    activity.assets.open("${CaptureCertificateModule.assetDirectory}/$asset")
+                } else output.write(certificate.pem.toByteArray(Charsets.US_ASCII))
+            } ?: error("Unable to export the CA certificate or module")
+            if (module) certificates.moduleExported(certificate)
+            true
+        } }
+    }
+
+    private suspend fun export(args: Map<String, Any?>): Boolean {
+        val name = when (args["format"]) {
             "curl" -> "B-box-request.sh"
             "har" -> "B-box-requests.har"
             "domains" -> "B-box-domains.txt"
@@ -143,7 +160,6 @@ internal class BoxCapture(private val activity: BoxActivity, private val profile
             val file = File.createTempFile("export-", ".tmp", directory)
             try {
                 when {
-                    method == "capture.ca.export" -> file.writeText(certificates.publicCertificate())
                     args["format"] == "curl" -> file.writeText(Libbox.exportUICaptureCurl(args["id"] as? String ?: error("Missing request ID")))
                     args["format"] == "domains" -> {
                         val domains = JSONArray(Libbox.extractUICaptureHosts((args["query"] as? String).orEmpty().take(1024)))
