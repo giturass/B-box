@@ -228,3 +228,24 @@ func TestPlaintextCloseDelimitedBodyIsNotClaimedCompleteOnSSLFree(t *testing.T) 
 		t.Fatalf("SSL_free cannot prove a close-delimited body finished: %+v", detail)
 	}
 }
+
+func TestPlaintextHEADWithoutLengthKeepsCapturingTheConnection(t *testing.T) {
+	engine, store := testEngine(t, Config{HTTPS: true})
+	openPlaintext(t, engine, "head")
+	feedPlaintext(t, engine, "head", "write", []byte("HEAD /metadata HTTP/1.1\r\nHost: api.test\r\n\r\nGET /body HTTP/1.1\r\nHost: api.test\r\n\r\n"), 17)
+	feedPlaintext(t, engine, "head", "read", []byte("HTTP/1.1 200 OK\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"), 11)
+	closePlaintext(t, engine, "head")
+	for _, item := range waitComplete(t, store, 2) {
+		detail, err := store.Detail(item.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if detail.Error != "" || !detail.Response.BodyComplete {
+			t.Fatalf("bodyless HEAD ended connection capture: %+v", detail)
+		}
+		if detail.Request.Method == "HEAD" && len(detail.ResponseBody) != 0 ||
+			detail.Request.Method == "GET" && string(detail.ResponseBody) != "ok" {
+			t.Fatalf("response boundary after HEAD was lost: %+v", detail)
+		}
+	}
+}

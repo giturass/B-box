@@ -21,4 +21,3 @@ else
     -ldflags="-s -w -linkmode=external -extldflags=-Wl,-z,max-page-size=16384" \
     -o "$capture_output/libbbox_capture.so" .
 fi
-

@@ -222,4 +222,3 @@ SEC("uretprobe/ssl_read_leave") int ssl_read_leave(struct regs *ctx) { return le
 SEC("uprobe/ssl_write_ex_enter") int ssl_write_ex_enter(struct regs *ctx) { return enter(ctx, 2, 1); }
 SEC("uprobe/ssl_read_ex_enter") int ssl_read_ex_enter(struct regs *ctx) { return enter(ctx, 3, 1); }
 char bbox_license[] SEC("license") = "GPL";
-

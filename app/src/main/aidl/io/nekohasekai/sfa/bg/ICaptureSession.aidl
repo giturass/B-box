@@ -6,4 +6,3 @@ interface ICaptureSession {
     ParcelFileDescriptor getFileDescriptor();
     void close();
 }
-

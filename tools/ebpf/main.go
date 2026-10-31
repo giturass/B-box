@@ -264,6 +264,9 @@ func (d *libraryDiscovery) scan(config collectorConfig) error {
 			continue
 		}
 		for _, library := range libraries {
+			if len(d.attached) >= 64 {
+				break
+			}
 			if _, exists := d.attached[library.identity]; exists {
 				continue
 			}

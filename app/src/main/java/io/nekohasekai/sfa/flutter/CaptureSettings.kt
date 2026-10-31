@@ -64,4 +64,3 @@ internal fun writeCaptureFile(file: AtomicFile, content: String) {
         throw error
     }
 }
-

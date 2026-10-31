@@ -62,4 +62,3 @@ class CaptureSessionTest {
         assertEquals(1, closed.get())
     }
 }
-

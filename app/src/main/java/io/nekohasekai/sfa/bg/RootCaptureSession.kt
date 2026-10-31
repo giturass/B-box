@@ -122,4 +122,3 @@ internal fun readCaptureLine(input: java.io.InputStream): ByteArray {
     }
     throw IOException("eBPF startup response exceeds 64 KiB")
 }
-

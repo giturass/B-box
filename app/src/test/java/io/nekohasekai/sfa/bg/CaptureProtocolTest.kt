@@ -15,4 +15,3 @@ class CaptureProtocolTest {
         assertThrows(IOException::class.java) { readCaptureLine(ByteArrayInputStream("partial".toByteArray())) }
     }
 }
-
