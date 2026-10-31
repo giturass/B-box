@@ -38,9 +38,6 @@ func Start(directory, configJSON, certificate, privateKey string) error {
 	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
 		return err
 	}
-	if err := config.validate(); err != nil {
-		return err
-	}
 	var ca *authority
 	if config.HTTPS {
 		var err error
@@ -65,9 +62,6 @@ func Start(directory, configJSON, certificate, privateKey string) error {
 func Validate(configJSON string) (string, error) {
 	var config Config
 	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
-		return "", err
-	}
-	if err := config.validate(); err != nil {
 		return "", err
 	}
 	data, err := json.Marshal(config)

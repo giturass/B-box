@@ -78,7 +78,11 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 [BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 通过 `capture.*` 接口连接本地运行中的 libbox，提供抓取启停、筛选、列表/详情、HAR/cURL 导出及 CA 管理。启动须确认本地服务为 Started，并等待内核接受；多个 Activity 共用操作互斥锁，配置和证书变更受抓取状态约束。切换或恢复远程控制时停止本地抓取，并在并发启动返回后重新核对目标；远程会话拒绝读取本地抓取数据。域名选择、协议支持和存储限额由核心维护，见 [libbox.md](libbox.md#httphttps-请求调试)。
 
-抓取设置、记录和 CA 保存在 `noBackupFilesDir/http-debug/`，与 Room 配置和应用备份隔离。设置先经 `ValidateUICaptureConfig` 校验再原子保存，不向 sing-box JSON 添加私有字段。导出沿用 Android 文档选择器，取消时不报告成功；临时导出文件用后删除。此数据不会随普通配置/设置备份导出。
+抓包与改写设置保存到所选 Room 配置的原 JSON 中，字段及核心支持见 [HTTP 改写配置](libbox.md#http-改写配置)。`capture.settings` 读取所选配置 ID/修订及规则；`capture.configure` 复用 `BoxProfiles` / `ProfileContent` 的互斥锁、完整 `Libbox.checkConfig`、原子写入、服务应用及失败恢复，拒绝配置切换或修订过期后的保存。旧 `noBackupFilesDir/http-debug/settings.json` 仅在配置没有显式抓包对象时作为初始值；读取不迁移文件，保存时写入所选配置。轮询只读取状态与记录，不反复解析规则/脚本。
+
+抓包启动在配置互斥区内读取本地服务已成功应用的配置快照，检查其配置 ID 和服务实例，避免用未应用的编辑内容或其他配置启动。保存规则不会自动开启抓包；服务重载仍停止抓包。规则及嵌入的 Map Local/脚本内容作为配置的一部分参与导出和备份；CA 私钥、公开证书和抓包记录继续保存在 `noBackupFilesDir/http-debug/`，不随配置备份导出。
+
+`capture.import` 使用 Android 文档选择器读取本地脚本（UTF-8、128 KiB 上限）或 Map Local 文件（1 MiB 上限，转为内嵌 Base64）；取消时保持草稿。域名提取由核心对保留记录去重，支持当前搜索条件下的文本导出。HAR/cURL、域名及公开 CA 导出沿用文档选择器，取消时不报告成功，临时导出文件用后删除。远程会话不读取这些本机数据。
 
 [CaptureCertificate.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureCertificate.kt) 生成并复用每个安装独立的调试 CA。私钥经 Android Keystore AES-GCM 密钥加密后原子保存，以公开证书作为附加认证数据，混换证书与私钥会导致解密失败。只有公开证书可导出或交给 CertBridge；不生成、替换或导出应用发布签名密钥。
 
@@ -133,6 +137,8 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 `ProfileRecoveryTest.logLevelFollowsSuccessfulConfigurationReloads` 另覆盖真实内核日志订阅的默认级别、运行中修改 `log.level` 后刷新，以及移除该字段后恢复当前核心的默认值。
 
 `ProfileRecoveryTest.localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。
+
+`ProfileRecoveryTest.captureRulesFollowProfileRevisionAndRecoverFailedSaves` 使用实际 libbox 与 Room，覆盖旧抓包设置只读回退、原配置字段保留、不同配置规则隔离、过期修订/配置切换拒绝、脚本校验失败以及应用失败时的文件/时间戳恢复。由 Android smoke 的仪器测试运行；引擎协议与脚本检查见 [libbox.md](libbox.md#构建同步和验证)。
 
 [DashboardConfigCacheTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/DashboardConfigCacheTest.kt) 通过调用计数覆盖重复轮询不再读取/哈希/解析、地址变化、配置切换、写入/回滚、运行快照更新及错误/取消重试；`ProfileRecoveryTest.lanCacheTracksEqualSizeWritesSuccessfulReloadsAndRecovery` 使用实际文件和 libbox，覆盖同大小同时间戳写入、保存与运行配置分离、成功重载、失败恢复和停服后的 LAN 状态。它们由 Android smoke 的 JVM/仪器测试步骤运行，Release 运行其中的 JVM 测试。
 

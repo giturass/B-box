@@ -1,11 +1,14 @@
 package libbox
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"sync"
 
 	"github.com/sagernet/sing-box/experimental/httpdebug"
+	"github.com/sagernet/sing-box/option"
+	corejson "github.com/sagernet/sing/common/json"
 )
 
 // Serialize capture start with core reload/stop. All read methods are bounded
@@ -29,6 +32,41 @@ func ValidateUICaptureConfig(configJSON string) (string, error) {
 	return httpdebug.Validate(configJSON)
 }
 
+// An empty result distinguishes a profile without HTTP settings from an
+// explicitly configured empty object, for migration of the old local settings.
+func ReadUICaptureConfig(configContent string) (string, error) {
+	options, err := parseConfig(baseContext(nil), configContent)
+	if err != nil {
+		return "", err
+	}
+	if options.Experimental == nil || options.Experimental.HTTPDebug == nil {
+		return "", nil
+	}
+	return captureJSON(options.Experimental.HTTPDebug)
+}
+
+func SetUICaptureConfig(configContent, configJSON string) (*StringBox, error) {
+	options, err := parseConfig(baseContext(nil), configContent)
+	if err != nil {
+		return nil, err
+	}
+	var config httpdebug.Config
+	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
+		return nil, err
+	}
+	if options.Experimental == nil {
+		options.Experimental = &option.ExperimentalOptions{}
+	}
+	options.Experimental.HTTPDebug = &config
+	var buffer bytes.Buffer
+	encoder := corejson.NewEncoder(&buffer)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(options); err != nil {
+		return nil, err
+	}
+	return wrapString(buffer.String()), nil
+}
+
 func OpenUICapture(directory string) error { return httpdebug.Open(directory) }
 
 func (s *CommandServer) StartUICapture(directory, configJSON, certificate, privateKey string) error {
@@ -50,6 +88,14 @@ func ListUICapture(limit int32, query string) (string, error) {
 		return "", err
 	}
 	return captureJSON(store.Page(int(limit), query))
+}
+
+func ExtractUICaptureHosts(query string) (string, error) {
+	store, err := httpdebug.Saved()
+	if err != nil {
+		return "", err
+	}
+	return captureJSON(store.Domains(query))
 }
 
 func ReadUICapture(id string) (string, error) {

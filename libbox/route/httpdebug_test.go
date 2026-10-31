@@ -91,3 +91,29 @@ func TestBboxHTTPDebugKeepsSelectedRouteAndReplaysUnmatchedBytes(t *testing.T) {
 		t.Fatal("stopped capture changed fast routing")
 	}
 }
+
+func TestBboxHTTPDebugRewriteDestinationReevaluatesRules(t *testing.T) {
+	original := adapter.InboundContext{Inbound: "tun", InboundType: "tun", Network: "tcp", Domain: "old.test",
+		Source: M.ParseSocksaddr("192.0.2.1:2000"), Destination: M.ParseSocksaddr("198.51.100.1:80"),
+		RouteOutbound: "old-node", RouteRule: "old-rule", TLSFragment: true, FakeIP: true,
+		ProcessInfo: &adapter.ConnectionOwner{UserId: 42, PackageNames: []string{"com.test"}}}
+	rewritten := debugRewriteMetadata(original, "new.test:443")
+	if rewritten.Destination.String() != "new.test:443" || rewritten.Domain != "new.test" ||
+		rewritten.Inbound != original.Inbound || rewritten.Source != original.Source || rewritten.ProcessInfo != original.ProcessInfo {
+		t.Fatalf("lost destination or client identity: %+v", rewritten)
+	}
+	if rewritten.RouteOutbound != "" || rewritten.RouteRule != "" || rewritten.TLSFragment || rewritten.FakeIP || rewritten.Protocol != "" {
+		t.Fatalf("stale routing state carried into rewritten request: %+v", rewritten)
+	}
+	// Even if capture is enabled, an internally routed rewritten request must
+	// not be captured a second time. No router services/dialer are needed here.
+	router := &Router{}
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	ctx := context.WithValue(context.Background(), debugRewriteContextKey{}, true)
+	returned, handled := router.routeHTTPDebug(ctx, server, rewritten, nil, nil)
+	if returned != server || handled {
+		t.Fatal("rewritten connection entered the capture engine again")
+	}
+}

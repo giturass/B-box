@@ -76,8 +76,8 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         }
     }
     private val reports = BoxReports(activity)
-    private val capture = BoxCapture(activity)
     private val profiles = BoxProfiles { recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) } }
+    private val capture = BoxCapture(activity, profiles)
     private val qrScanner = BoxQrScanner(profiles::decode)
     private val preferences = activity.getSharedPreferences("flclash_ui", 0)
     private val webdav = BoxWebDAV(activity)
@@ -253,6 +253,12 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 publishProfiles()
                 saved
             }
+            "capture.configure" -> localProfiles {
+                val saved = capture.invoke(call.method, args)
+                publishProfiles()
+                saved
+            }
+            "capture.start", "capture.stop" -> operations.withLock { capture.invoke(call.method, args) }
             "profiles.select" -> localProfiles {
                 profiles.select(id()) { activity.serviceStatus.value }
                 publishProfiles()

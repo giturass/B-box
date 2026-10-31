@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_MODULE = "github.com/dop251/goja@v0.0.0-20250630131328-58d95d85e994"
 
 
 def main():
@@ -23,6 +24,9 @@ def main():
     for source in (ROOT / "libbox/route").glob("*.go"):
         shutil.copyfile(source, core / "route" / ("b_box_" + source.name))
     shutil.copyfile(ROOT / "libbox/ui_capture.go", targets[2])
+    # This pinned pure-Go runtime supports Android without a second native
+    # engine. go get resolves its sums without upgrading unrelated core modules.
+    subprocess.run(["go", "get", SCRIPT_MODULE], cwd=core, check=True)
     print("Installed the HTTP debugging route hooks, engine and libbox bindings")
 
 

@@ -14,6 +14,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,7 @@ import (
 )
 
 type DialFunc func(context.Context) (net.Conn, error)
+type RewriteDialFunc func(context.Context, string) (net.Conn, error)
 
 type Engine struct {
 	config      Config
@@ -45,21 +47,22 @@ func (e *Engine) Matches(metadata Metadata) bool { return e.config.matches(metad
 
 func (e *Engine) WantsQUIC(metadata Metadata) bool {
 	metadata.Protocol = "tls"
-	return e.config.BlockQUIC && e.config.HTTPS && e.config.candidate(metadata)
+	return (e.config.ExtractHosts || e.config.BlockQUIC && e.config.HTTPS) && e.config.candidate(metadata)
 }
 
 // QUIC is rejected only when explicitly requested and its recovered hostname
 // matches the HTTPS allowlist. An unknown SNI never causes blanket UDP blocking.
 func (e *Engine) RejectQUIC(metadata Metadata) bool {
 	metadata.Protocol = "tls"
-	if metadata.Host == "" || !e.WantsQUIC(metadata) || !e.config.matches(metadata) {
+	e.Observe(metadata, "QUIC")
+	if metadata.Host == "" || !e.config.BlockQUIC || !e.WantsQUIC(metadata) || !e.config.matches(metadata) {
 		return false
 	}
 	e.blockedQUIC.Add(1)
 	return true
 }
 
-func (e *Engine) Handle(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, roots *x509.CertPool, onClose func(error)) bool {
+func (e *Engine) Handle(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, roots *x509.CertPool, onClose func(error), rewriteDial ...RewriteDialFunc) bool {
 	if !e.Matches(metadata) {
 		return false
 	}
@@ -76,7 +79,7 @@ func (e *Engine) Handle(ctx context.Context, conn net.Conn, metadata Metadata, d
 	go func() {
 		defer e.wg.Done()
 		stopClose := context.AfterFunc(ctx, func() { conn.Close() })
-		err := e.serve(ctx, conn, metadata, dial, roots)
+		err := e.serve(ctx, conn, metadata, dial, roots, rewriteDial...)
 		stopClose()
 		cancel()
 		conn.Close()
@@ -101,7 +104,7 @@ func (e *Engine) Close() {
 	e.wg.Wait()
 }
 
-func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, roots *x509.CertPool) error {
+func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, roots *x509.CertPool, rewriteDial ...RewriteDialFunc) error {
 	secure := metadata.Protocol == "tls"
 	scheme := "http"
 	if secure {
@@ -131,6 +134,18 @@ func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, di
 	defer transport.CloseIdleConnections()
 	defer http1Transport.CloseIdleConnections()
 	target := &url.URL{Scheme: scheme, Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))}
+	for _, tr := range []*http.Transport{transport, http1Transport} {
+		tr.TLSClientConfig.ServerName = "" // net/http validates the actual rewritten URL's hostname.
+		tr.DialContext = func(ctx context.Context, _, address string) (net.Conn, error) {
+			if strings.EqualFold(address, target.Host) {
+				return dial(ctx)
+			}
+			if len(rewriteDial) == 0 {
+				return nil, errors.New("rewritten destination requires the sing-box router")
+			}
+			return rewriteDial[0](ctx, address)
+		}
+	}
 	handler := e.handler(metadata, target, transport, http1Transport)
 	base := &http.Server{
 		Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
@@ -214,7 +229,8 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport, http1Tra
 		requestMetadata := metadata
 		requestMetadata.Host = requestHost
 		id := ""
-		if e.config.matches(requestMetadata) {
+		selected := e.config.matches(requestMetadata)
+		if selected {
 			id = e.store.begin(requestMetadata, display, e.config.BodyLimit)
 		}
 		defer func() {
@@ -230,6 +246,33 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport, http1Tra
 			http.Error(w, "Nested CONNECT is not supported", http.StatusNotImplemented)
 			return
 		}
+		request.URL = display.URL
+		originalURL := request.URL.String()
+		var local *http.Response
+		if selected && e.config.RewriteEnabled {
+			// A matched request body must not occupy the buffering slots forever.
+			controller := http.NewResponseController(w)
+			_ = controller.SetReadDeadline(time.Now().Add(10 * time.Second))
+			var err error
+			local, err = e.rewriteRequest(id, request)
+			_ = controller.SetReadDeadline(time.Time{})
+			if err != nil {
+				e.store.setError(id, err)
+				if errors.Is(err, errScriptAbort) {
+					panic(http.ErrAbortHandler)
+				}
+				http.Error(w, "B-box: request rewrite failed; see HTTP debugging details", http.StatusBadGateway)
+				return
+			}
+		}
+		urlChanged := request.URL.String() != originalURL
+		e.store.updateRequest(id, request)
+		if urlChanged && !strings.EqualFold(urlAddress(request.URL), target.Host) {
+			e.store.rerouted(id, urlAddress(request.URL))
+		}
+		if local != nil && request.Body != nil && request.Body != http.NoBody {
+			e.store.addNote(id, "Local response: request body was not forwarded")
+		}
 		if request.Body != nil && request.Body != http.NoBody {
 			request.Body = &tapBody{ReadCloser: request.Body, store: e.store, id: id, expected: request.ContentLength}
 			defer request.Body.Close()
@@ -242,6 +285,15 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport, http1Tra
 			Rewrite: func(r *httputil.ProxyRequest) {
 				r.Out.URL.Scheme = target.Scheme
 				r.Out.URL.Host = target.Host
+				if urlChanged {
+					r.Out.URL.Scheme, r.Out.URL.Host = r.In.URL.Scheme, r.In.URL.Host
+					if r.Out.URL.Scheme == "ws" {
+						r.Out.URL.Scheme = "http"
+					}
+					if r.Out.URL.Scheme == "wss" {
+						r.Out.URL.Scheme = "https"
+					}
+				}
 				r.Out.URL.User = nil
 				// ReverseProxy otherwise cleans query parameters before Rewrite.
 				// Debugging must preserve the client's original request target.
@@ -255,9 +307,21 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport, http1Tra
 				}
 			},
 			Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-				response, err := upstream.RoundTrip(r)
+				response := local
+				var err error
+				if response == nil {
+					response, err = upstream.RoundTrip(r)
+				}
 				if err != nil {
 					return nil, err
+				}
+				if selected && e.config.RewriteEnabled {
+					if err = e.rewriteResponse(id, request, response); err != nil {
+						if response.Body != nil {
+							response.Body.Close()
+						}
+						return nil, err
+					}
 				}
 				e.store.response(id, response)
 				if response.StatusCode != http.StatusSwitchingProtocols && response.Body != nil && response.Body != http.NoBody {
@@ -269,11 +333,44 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport, http1Tra
 			ErrorLog:      log.New(io.Discard, "", 0),
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 				e.store.setError(id, err)
+				if errors.Is(err, errScriptAbort) {
+					panic(http.ErrAbortHandler)
+				}
 				http.Error(w, "B-box: upstream connection failed; see HTTP debugging details", http.StatusBadGateway)
 			},
 		}
 		proxy.ServeHTTP(w, request)
 	})
+}
+
+func urlAddress(value *url.URL) string {
+	port := value.Port()
+	if port == "" {
+		port = "80"
+		if value.Scheme == "https" || value.Scheme == "wss" {
+			port = "443"
+		}
+	}
+	return net.JoinHostPort(value.Hostname(), port)
+}
+
+// Observe records only the visible name, never a fabricated decrypted request.
+// Excluded captures remain excluded; MITM-only bypasses may still reveal SNI.
+func (e *Engine) Observe(metadata Metadata, protocol string) {
+	if !e.config.ExtractHosts || !e.config.candidate(metadata) || !validHost(normalizeHost(metadata.Host)) ||
+		hostMatches(metadata.Host, e.config.ExcludeHosts) || len(e.config.IncludeHosts) > 0 && !hostMatches(metadata.Host, e.config.IncludeHosts) {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return
+	}
+	request := &http.Request{Method: "TLS", Proto: protocol, Header: make(http.Header),
+		URL: &url.URL{Scheme: "https", Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))}}
+	id := e.store.begin(metadata, request, e.config.BodyLimit)
+	e.store.domainOnly(id)
+	e.store.finish(id)
 }
 
 func (e *Engine) connectionError(metadata Metadata, err error) {

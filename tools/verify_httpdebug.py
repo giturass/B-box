@@ -29,7 +29,9 @@ def main():
             shutil.copyfile(file, project / file.name)
         (project / "go.mod").write_text(
             "module github.com/sagernet/sing-box/experimental/httpdebug\n\ngo 1.25.5\n\n"
-            "require (\n golang.org/x/net v0.57.0\n golang.org/x/text v0.40.0\n)\n"
+            "require (\n golang.org/x/net v0.57.0\n golang.org/x/text v0.40.0\n"
+            " github.com/andybalholm/brotli v1.1.0\n"
+            " github.com/dop251/goja v0.0.0-20250630131328-58d95d85e994\n)\n"
         )
         subprocess.run(["go", "version"], env=env, check=True)
         subprocess.run(["go", "test", "-mod=mod", "-p=1", "-parallel=1", "-count=1", "-timeout=90s", "-v", "./..."],

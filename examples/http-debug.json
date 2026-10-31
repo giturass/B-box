@@ -1,0 +1,65 @@
+{
+  "log": {"level": "warn"},
+  "outbounds": [{"type": "direct", "tag": "direct"}],
+  "route": {"final": "direct"},
+  "experimental": {
+    "http_debug": {
+      "https": true,
+      "decryptHosts": ["api.example.com"],
+      "decryptBypassHosts": ["pinned.example.com"],
+      "extractHosts": true,
+      "rewriteEnabled": true,
+      "ports": [80, 443, 8080, 8443],
+      "bodyLimit": 65536,
+      "blockQUIC": true,
+      "headerRewrite": [
+        {
+          "name": "Add a debugging header",
+          "type": "http-request",
+          "pattern": "^https://api\\.example\\.com/",
+          "action": "header-add",
+          "header": "X-Debug",
+          "value": "B-box"
+        }
+      ],
+      "urlRewrite": [
+        {
+          "name": "Move v1 requests to v2",
+          "pattern": "^https://api\\.example\\.com/v1/(.*)",
+          "type": "header",
+          "replacement": "https://api.example.com/v2/${1}"
+        }
+      ],
+      "bodyRewrite": [
+        {
+          "name": "Replace response text",
+          "type": "http-response",
+          "pattern": "^https://api\\.example\\.com/text$",
+          "regex": "old value",
+          "replacement": "new value"
+        }
+      ],
+      "mapLocal": [
+        {
+          "name": "Local mock response",
+          "pattern": "^https://api\\.example\\.com/mock$",
+          "dataType": "text",
+          "data": "{\"message\":\"local response\"}",
+          "status": 200,
+          "headers": [{"name": "Content-Type", "value": "application/json"}]
+        }
+      ],
+      "scripts": [
+        {
+          "name": "Rewrite JSON request",
+          "type": "http-request",
+          "pattern": "^https://api\\.example\\.com/json$",
+          "requiresBody": true,
+          "timeoutMs": 1000,
+          "maxSize": 1048576,
+          "source": "const body = JSON.parse($request.body || '{}'); body.debug = true; $done({body: JSON.stringify(body)});"
+        }
+      ]
+    }
+  }
+}

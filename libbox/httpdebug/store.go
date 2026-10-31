@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -36,6 +37,8 @@ type Exchange struct {
 	Complete    bool     `json:"complete"`
 	Error       string   `json:"error,omitempty"`
 	Note        string   `json:"note,omitempty"`
+	OriginalURL string   `json:"originalUrl,omitempty"`
+	DomainOnly  bool     `json:"domainOnly,omitempty"`
 	Metadata    Metadata `json:"metadata"`
 	Request     Message  `json:"request"`
 	Response    Message  `json:"response"`
@@ -64,6 +67,7 @@ type Summary struct {
 	Packages   []string `json:"packages"`
 	Bytes      int64    `json:"bytes"`
 	Error      string   `json:"error,omitempty"`
+	DomainOnly bool     `json:"domainOnly,omitempty"`
 }
 
 type Page struct {
@@ -203,12 +207,92 @@ func (s *Store) response(id string, response *http.Response) {
 			BodyComplete: response.Body == nil || response.Body == http.NoBody || response.ContentLength == 0,
 		}
 		if response.StatusCode == http.StatusSwitchingProtocols {
-			record.Note = "Protocol upgraded; only the HTTP handshake is recorded"
+			record.Note += "\nProtocol upgraded; only the HTTP handshake is recorded"
 			record.Response.BodyComplete = true
 		}
 		s.persistLocked(record)
 		s.trimLocked()
 	}
+}
+
+func (s *Store) addNote(id, note string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record := s.records[id]; record != nil && len(record.Note) < 4096 {
+		if len(note) > 4096-len(record.Note) {
+			note = note[:4096-len(record.Note)]
+		}
+		if record.Note != "" {
+			record.Note += "\n"
+		}
+		record.Note += note
+	}
+}
+
+func (s *Store) updateRequest(id string, request *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record := s.records[id]; record != nil {
+		if record.Request.URL != request.URL.String() {
+			record.OriginalURL = record.Request.URL
+		}
+		record.Request.Method, record.Request.URL = request.Method, request.URL.String()
+		record.Request.Headers, record.Request.HeadersTruncated = captureHeaders(request.Header, request.Host)
+		record.Request.BodyComplete = request.Body == nil || request.Body == http.NoBody
+	}
+}
+
+func (s *Store) rerouted(id, destination string) {
+	s.addNote(id, "Rewritten destination routed again by sing-box; its outbound and rule are not reported here")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record := s.records[id]; record != nil {
+		record.Metadata.OriginalDestination = record.Metadata.Destination
+		record.Metadata.Destination = destination
+		record.Metadata.Outbound, record.Metadata.Rule = "", ""
+	}
+}
+
+func (s *Store) domainOnly(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record := s.records[id]; record != nil {
+		record.DomainOnly = true
+		record.Note = "Domain only: observed TLS/QUIC hostname; encrypted traffic is not decrypted or rewritten"
+	}
+}
+
+// Domain extraction uses all retained matching records, not only the currently
+// visible page. Both original and rewritten URL hosts are included and deduped.
+func (s *Store) Domains(query string) []string {
+	page := s.Page(MaxEntries, query)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	hosts := make(map[string]bool)
+	for _, item := range page.Items {
+		r := s.records[item.ID]
+		if r == nil {
+			continue
+		}
+		values := []string{r.Metadata.Host}
+		for _, raw := range []string{r.Request.URL, r.OriginalURL} {
+			if value, err := url.Parse(raw); err == nil {
+				values = append(values, value.Hostname())
+			}
+		}
+		for _, value := range values {
+			value = normalizeHost(value)
+			if validHost(value) {
+				hosts[value] = true
+			}
+		}
+	}
+	result := make([]string, 0, len(hosts))
+	for host := range hosts {
+		result = append(result, host)
+	}
+	slices.Sort(result)
+	return result
 }
 
 func (s *Store) appendBody(id string, response bool, p []byte) {
@@ -263,7 +347,7 @@ func (s *Store) setError(id string, err error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if record := s.records[id]; record != nil {
+	if record := s.records[id]; record != nil && record.Error == "" {
 		record.Error = err.Error()
 	}
 }
@@ -352,7 +436,7 @@ func (s *Store) Page(limit int, query string) Page {
 		}
 		page.Items = append(page.Items, Summary{ID: id, StartedAt: r.StartedAt, DurationMS: duration, Complete: r.Complete,
 			Method: r.Request.Method, URL: r.Request.URL, Protocol: r.Request.Protocol, Status: r.Response.Status,
-			Packages: r.Metadata.Packages, Bytes: r.Request.BodyBytes + r.Response.BodyBytes, Error: r.Error})
+			Packages: r.Metadata.Packages, Bytes: r.Request.BodyBytes + r.Response.BodyBytes, Error: r.Error, DomainOnly: r.DomainOnly})
 	}
 	return page
 }

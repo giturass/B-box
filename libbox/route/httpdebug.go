@@ -12,8 +12,11 @@ import (
 	"github.com/sagernet/sing-box/experimental/httpdebug"
 	"github.com/sagernet/sing/common/buf"
 	"github.com/sagernet/sing/common/bufio"
+	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 )
+
+type debugRewriteContextKey struct{}
 
 func debugMetadata(m adapter.InboundContext) httpdebug.Metadata {
 	host := m.Domain
@@ -39,6 +42,9 @@ func debugMetadata(m adapter.InboundContext) httpdebug.Metadata {
 // The route is already selected. Sniff a COPY solely for capture selection;
 // never feed a recovered name or an HTTP Host back into routing or DNS.
 func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, outbound adapter.Outbound, onClose N.CloseHandlerFunc) (net.Conn, bool) {
+	if ctx.Value(debugRewriteContextKey{}) != nil {
+		return conn, false
+	}
 	engine := httpdebug.Current()
 	if engine == nil || !engine.Candidate(debugMetadata(metadata)) {
 		return conn, false
@@ -58,6 +64,9 @@ func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata ada
 	}
 	info := debugMetadata(captureMetadata)
 	if !engine.Matches(info) {
+		if info.Protocol == "tls" {
+			engine.Observe(info, "TLS")
+		}
 		return conn, false
 	}
 	// Unblock delayed SOCKS/HTTP inbound handshakes before acting as the server.
@@ -82,7 +91,33 @@ func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata ada
 		}()
 		return local, nil
 	}
-	return conn, engine.Handle(ctx, conn, info, dial, adapter.RootPoolFromContext(r.ctx), onClose)
+	rewriteDial := func(dialCtx context.Context, address string) (net.Conn, error) {
+		if err := dialCtx.Err(); err != nil {
+			return nil, err
+		}
+		rewritten := debugRewriteMetadata(metadata, address)
+		if !rewritten.Destination.IsValid() {
+			return nil, errors.New("invalid rewritten destination")
+		}
+		local, routed := net.Pipe()
+		dialCtx = context.WithValue(dialCtx, debugRewriteContextKey{}, true)
+		dialCtx = adapter.WithContext(dialCtx, &rewritten)
+		go r.RouteConnectionEx(dialCtx, routed, rewritten, func(error) { routed.Close() })
+		return local, nil
+	}
+	return conn, engine.Handle(ctx, conn, info, dial, adapter.RootPoolFromContext(r.ctx), onClose, rewriteDial)
+}
+
+// A changed URL destination gets a fresh rule evaluation while retaining the
+// original client identity. Do not carry DNS answers or prior rule actions over.
+func debugRewriteMetadata(original adapter.InboundContext, address string) adapter.InboundContext {
+	destination := M.ParseSocksaddr(address)
+	return adapter.InboundContext{
+		Inbound: original.Inbound, InboundType: original.InboundType, Network: N.NetworkTCP,
+		Source: original.Source, User: original.User, Outbound: original.Outbound,
+		Destination: destination, Domain: destination.Fqdn, ProcessInfo: original.ProcessInfo,
+		SourceMACAddress: original.SourceMACAddress, SourceHostname: original.SourceHostname,
+	}
 }
 
 func debugNeedsStream(m adapter.InboundContext) bool {

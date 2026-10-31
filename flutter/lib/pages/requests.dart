@@ -6,6 +6,7 @@ import '../components/captured_body.dart';
 import '../components/record.dart';
 import 'request_settings.dart';
 import 'capture_certificate.dart';
+import 'capture_domains.dart';
 
 class RequestsPage extends StatefulWidget {
   const RequestsPage({super.key});
@@ -38,14 +39,19 @@ class _RequestsPageState extends State<RequestsPage> {
           iconActions: [IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Refresh'), onPressed: refresh)],
           menuItems: [
             CommonPopupMenuItem(glyph: AppGlyphs.sliders, label: context.tr('Capture settings'), onPressed: _busy || active ? null : () async {
-              await openPage(context, RequestSettingsPage(initial: json(snapshot?['config'])));
-              if (mounted) setState(() => _revision++);
+              setState(() => _busy = true);
+              try {
+                final source = json(await context.box.call('capture.settings'));
+                if (context.mounted) await openPage(context, RequestSettingsPage(initial: json(source['config']), source: source));
+              } catch (error) { if (mounted) context.box.messages.add(BoxController.describe(error)); }
+              finally { if (mounted) setState(() { _busy = false; _revision++; }); }
             }),
             CommonPopupMenuItem(glyph: AppGlyphs.lock, label: context.tr('CA certificate'), onPressed: _busy ? null : () async {
               await openPage(context, CaptureCertificatePage(initial: json(snapshot?['ca']), active: active));
               if (mounted) setState(() => _revision++);
             }),
             CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'), onPressed: _busy || entries.isEmpty ? null : () => _act('capture.export', {'format': 'har', 'query': _query})),
+            CommonPopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Extract domains'), onPressed: _busy ? null : () => openPage(context, CaptureDomainsPage(query: _query))),
             CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear requests'), onPressed: _busy ? null : () async {
               if (await confirm(context, 'Clear captured requests?') && mounted) await _act('capture.clear');
             }),
@@ -83,7 +89,7 @@ class _RequestsPageState extends State<RequestsPage> {
                 header: RecordHeader(children: [
                   RecordTimestamp(recordTime(item['startedAt'])),
                   RecordLabel(label: item['method']?.toString() ?? ''),
-                  RecordLabel(label: (item['status'] as num? ?? 0) > 0 ? item['status'].toString() : context.tr(item['complete'] == true ? 'Error' : 'Active')),
+                  RecordLabel(label: item['domainOnly'] == true ? context.tr('Domain only') : (item['status'] as num? ?? 0) > 0 ? item['status'].toString() : context.tr(item['complete'] == true ? 'Error' : 'Active')),
                 ]),
                 body: Column(crossAxisAlignment: CrossAxisAlignment.start, spacing: 4, children: [
                   Text(item['url']?.toString() ?? '', maxLines: 2, overflow: TextOverflow.ellipsis, style: styles.title),
@@ -150,6 +156,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
       final preview = json(detail?[response ? 'responsePreview' : 'requestPreview']);
       final values = <String, dynamic>{
         'URL': request['url'], 'Method': request['method'], 'Created': localDate(detail?['startedAt']),
+        if (detail?['originalUrl'] != null) 'Original URL': detail?['originalUrl'],
         'Duration': '${detail?['durationMs'] ?? 0} ms', 'Status': json(detail?['response'])['status'],
         'Protocol': request['protocol'], 'Outbound': metadata['outbound'], 'Rule matched': metadata['rule'],
         'App': (metadata['packages'] as List? ?? []).join(', '), 'UID': metadata['uid'],
@@ -174,7 +181,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
         if (detail == null && error == null) const Center(child: CircularProgressIndicator()),
         if (detail != null) ...[
           generateGroup([for (final value in values.entries) DetailRow.text(title: context.tr(value.key),
-            value: value.value?.toString() ?? '—', stacked: const ['URL', 'App', 'Error', 'Note'].contains(value.key))]),
+            value: value.value?.toString() ?? '—', stacked: const ['URL', 'Original URL', 'App', 'Error', 'Note'].contains(value.key))]),
           if (_part == 'Cookies') ...[
             _cookies(request, false),
             _cookies(json(detail['response']), true),

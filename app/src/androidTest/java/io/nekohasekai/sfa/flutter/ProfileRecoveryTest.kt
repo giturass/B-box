@@ -35,6 +35,53 @@ import kotlin.concurrent.thread
 
 @RunWith(AndroidJUnit4::class)
 class ProfileRecoveryTest {
+    @Test fun captureRulesFollowProfileRevisionAndRecoverFailedSaves() = runBlocking(Dispatchers.IO) {
+        Application.application.setupLibbox()
+        Settings.dataStore.initialize()
+        val oldSelection = Settings.selectedProfile
+        var failApply = false
+        val profiles = BoxProfiles { recover -> if (failApply && !recover) error("Capture profile apply failed") }
+        val original = """{"log":{"level":"warn"},"outbounds":[{"type":"direct","tag":"original-direct"}],"route":{"final":"original-direct"}}"""
+        val first = profiles.save(mapOf("name" to "HTTP rewrite fixture", "content" to original))
+        val second = profiles.save(mapOf("name" to "Other capture fixture", "content" to "{}"))
+        try {
+            Settings.selectedProfile = first
+            val legacy = profiles.captureSettings("""{"https":true,"decryptHosts":["legacy.test"]}""")
+            assertEquals(first, legacy["profileId"])
+            assertTrue((legacy["config"] as Map<*, *>)["https"] == true)
+            assertEquals(original, profiles.read(first)) // Reading legacy settings never rewrites the profile.
+            val rules = """{"https":true,"decryptBypassHosts":["pinned.test"],"extractHosts":true,"rewriteEnabled":true,"scripts":[{"pattern":"^https://example.test/","source":"${'$'}done({headers: ${'$'}request.headers});"}]}"""
+            profiles.setCaptureSettings(first, legacy["revision"] as String, rules)
+            val saved = profiles.read(first)
+            Libbox.checkConfig(saved)
+            assertTrue(saved.contains("original-direct"))
+            assertTrue(saved.contains("http_debug"))
+            assertTrue(Libbox.readUICaptureConfig(saved).contains("pinned.test"))
+            assertEquals("{}", profiles.read(second))
+            assertTrue(runCatching { profiles.setCaptureSettings(first, legacy["revision"] as String, "{}") }.isFailure)
+            assertEquals(saved, profiles.read(first))
+            Settings.selectedProfile = second
+            assertTrue(runCatching { profiles.setCaptureSettings(first, BoxProfiles.revision(saved), "{}") }.isFailure)
+            val other = profiles.captureSettings("{}")
+            assertFalse((other["config"] as Map<*, *>)["rewriteEnabled"] == true)
+            Settings.selectedProfile = first
+            val timestamp = profiles.get(first).typed.lastUpdated.time
+            failApply = true
+            assertTrue(runCatching { profiles.setCaptureSettings(first, BoxProfiles.revision(saved), "{}") }.isFailure)
+            assertEquals(saved, profiles.read(first))
+            assertEquals(timestamp, profiles.get(first).typed.lastUpdated.time)
+            failApply = false
+            assertTrue(runCatching { profiles.setCaptureSettings(first, BoxProfiles.revision(saved), """{"scripts":[{"pattern":".","source":"const = ;"}]}""") }.isFailure)
+            assertEquals(saved, profiles.read(first))
+        } finally {
+            failApply = false
+            Settings.selectedProfile = oldSelection
+            profiles.delete(first)
+            profiles.delete(second)
+            Settings.dataStore.flush()
+        }
+    }
+
     @Test fun binarySubscriptionsKeepTheirMetadata() = runBlocking(Dispatchers.IO) {
         Application.application.setupLibbox()
         val binary = io.nekohasekai.libbox.ProfileContent().apply {

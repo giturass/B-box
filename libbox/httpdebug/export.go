@@ -98,6 +98,9 @@ func (s *Store) WriteHAR(output io.Writer, query string) error {
 	}
 	first := true
 	for _, summary := range page.Items {
+		if summary.DomainOnly {
+			continue
+		} // SNI observations are not HTTP exchanges.
 		detail, err := s.Detail(summary.ID)
 		if err != nil {
 			continue
@@ -143,7 +146,7 @@ func harEntry(d *Detail) map[string]any {
 		"request": request, "response": response, "cache": map[string]any{},
 		"timings": map[string]int64{"send": 0, "wait": d.DurationMS, "receive": 0},
 		"comment": "B-box measures total elapsed time only. HAR wait contains that total; send/receive are placeholders, not measured phases.",
-		"_bBox": map[string]any{"metadata": d.Metadata, "complete": d.Complete, "error": d.Error, "note": d.Note,
+		"_bBox": map[string]any{"metadata": d.Metadata, "complete": d.Complete, "error": d.Error, "note": d.Note, "originalUrl": d.OriginalURL,
 			"timingAccuracy": "total-only", "requestBodyComplete": d.Request.BodyComplete, "requestBodyTruncated": d.Request.BodyTruncated,
 			"requestHeadersTruncated": d.Request.HeadersTruncated, "responseHeadersTruncated": d.Response.HeadersTruncated}}
 }

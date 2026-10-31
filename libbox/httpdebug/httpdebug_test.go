@@ -99,7 +99,7 @@ func testCA(t *testing.T) (*authority, *x509.CertPool) {
 	return ca, pool
 }
 
-func debugClient(t *testing.T, e *Engine, origin string, secure bool, upstreamRoots, clientRoots *x509.CertPool) *http.Client {
+func debugClient(t *testing.T, e *Engine, origin string, secure bool, upstreamRoots, clientRoots *x509.CertPool, rewriteDial ...RewriteDialFunc) *http.Client {
 	t.Helper()
 	m := Metadata{Host: "example.test", Port: 80, Protocol: "http", Outbound: "selected-proxy", Rule: "test rule", UID: 1234, Packages: []string{"com.test"}}
 	if secure {
@@ -110,7 +110,7 @@ func debugClient(t *testing.T, e *Engine, origin string, secure bool, upstreamRo
 			client, server := net.Pipe()
 			if !e.Handle(context.Background(), server, m, func(ctx context.Context) (net.Conn, error) {
 				return (&net.Dialer{}).DialContext(ctx, "tcp", origin)
-			}, upstreamRoots, nil) {
+			}, upstreamRoots, nil, rewriteDial...) {
 				t.Error("connection not captured")
 				client.Close()
 				server.Close()

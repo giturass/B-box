@@ -44,9 +44,9 @@ jobs:
       - name: HTTP, routed IP and LAN tests against the matching core
         working-directory: .core
         run: |
-          cp ../libbox/ui_http.go ../libbox/ui_http_test.go ../libbox/ui_egress.go ../libbox/ui_egress_test.go ../libbox/ui_lan.go ../libbox/ui_lan_test.go experimental/libbox/
-          go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(WebDAV|HTTPGet|Egress|LAN)' -count=1
-      - name: HTTP capture protocol, storage and route tests
+          cp ../libbox/ui_http.go ../libbox/ui_http_test.go ../libbox/ui_egress.go ../libbox/ui_egress_test.go ../libbox/ui_lan.go ../libbox/ui_lan_test.go ../libbox/ui_capture_test.go experimental/libbox/
+          go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(WebDAV|HTTPGet|Egress|LAN|Capture)' -count=1
+      - name: HTTP capture, rewrite, script, storage and route tests
         working-directory: .core
         run: |
           go test -race ./experimental/httpdebug -count=1
