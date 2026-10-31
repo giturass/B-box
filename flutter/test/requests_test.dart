@@ -117,9 +117,13 @@ void main() {
     await mount(tester);
     await open(tester, const RequestsPage());
     final firstCount = calls.where((call) => call.method == 'capture.snapshot').length;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump(const Duration(seconds: 8));
     expect(calls.where((call) => call.method == 'capture.snapshot'), hasLength(firstCount));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
     expect(calls.where((call) => call.method == 'capture.snapshot').length, greaterThan(firstCount));
@@ -169,7 +173,8 @@ void main() {
         'responsePreview': {'text': 'data: live\n', 'encoding': 'text', 'truncated': true},
         'metadata': {'outbound': 'selected-node', 'rule': 'selected-rule', 'packages': ['com.example']},
       } : snapshot;
-      await open(tester, const RequestDetailPage(id: 'long'));
+      await tester.tap(find.byKey(const ValueKey('long')));
+      await tester.pumpAndSettle();
       final scaffold = tester.widget<CommonScaffold>(find.descendant(of: find.byType(RequestDetailPage), matching: find.byType(CommonScaffold)).first);
       expect(scaffold.iconActions.last.onPressed, isNull, reason: 'A truncated request must not be offered as replayable cURL.');
       expect(tester.takeException(), isNull);
