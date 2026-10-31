@@ -9,6 +9,7 @@ import com.topjohnwu.superuser.Shell
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.bg.RootClient
 import io.nekohasekai.sfa.utils.CommandTarget
+import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
 import java.io.File
 import java.security.KeyStore
@@ -113,18 +114,32 @@ internal class CaptureCertificate(
 
     suspend fun check(): Map<String, Any?> {
         val value = read() ?: error("Generate a debugging CA first")
-        val imported = hasRecordedImport(value)
-        val output = command("status", "--live")
+        var imported: Boolean? = null
+        var output = ""
+        var backendError: Exception? = null
+        try {
+            output = command("status", "--live")
+            imported = hasRecordedImport(value)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            backendError = error
+        }
         // Check the current app process's system store, not a CLI's cached claim.
+        // A Root/CertBridge failure must not prevent this independent check.
         val systemStore = KeyStore.getInstance("AndroidCAStore").apply { load(null) }
         val expected = certificate(value).encoded
         val trusted = systemStore.aliases().toList().any { alias ->
             alias.startsWith("system:") && systemStore.getCertificate(alias)?.encoded?.contentEquals(expected) == true
         }
+        val pendingReboot = certBridgeFields(output)["reboot_required"] == "1" ||
+            if (backendError == null) imported != trusted else value.optBoolean("pendingReboot")
         value.put("trusted", trusted).put("checkedAt", System.currentTimeMillis())
-            .put("pendingReboot", certBridgeFields(output)["reboot_required"] == "1" || imported != trusted)
+            .put("pendingReboot", pendingReboot)
             .put("backendOutput", output)
         write(value)
+        // Keep reporting the CLI failure after saving the actual trust result.
+        backendError?.let { throw it }
         return snapshot()
     }
 

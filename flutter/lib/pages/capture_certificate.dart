@@ -18,11 +18,17 @@ class _CaptureCertificatePageState extends State<CaptureCertificatePage> {
     setState(() { _busy = true; _error = null; });
     try {
       await context.box.call('capture.ca.$action');
-      if (!mounted) return;
+    } catch (error) {
+      if (mounted) setState(() => _error = BoxController.describe(error));
+    }
+    if (!mounted) return;
+    // An import or system trust check may have saved state before reporting a
+    // CertBridge verification error. Refresh it while keeping the action error.
+    try {
       final snapshot = json(await context.box.call('capture.ca.snapshot'));
       if (mounted) setState(() { _ca = json(snapshot['ca']); _active = json(snapshot['state'])['active'] == true; });
     } catch (error) {
-      if (mounted) setState(() => _error = BoxController.describe(error));
+      if (mounted) setState(() => _error ??= BoxController.describe(error));
     } finally { if (mounted) setState(() => _busy = false); }
   }
 

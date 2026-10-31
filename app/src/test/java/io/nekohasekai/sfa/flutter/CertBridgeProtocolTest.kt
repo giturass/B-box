@@ -14,6 +14,26 @@ class CertBridgeProtocolTest {
         assertThrows(IllegalArgumentException::class.java) { checkCertBridgeIdentity("ok=1\nerror=not_found\nfingerprint_sha256=$fingerprint", fingerprint) }
     }
 
+    @Test fun acceptsTheOpenSSLLabelLeftInCertBridgeDetails() {
+        val formatted = fingerprint.chunked(2).joinToString(":").uppercase()
+        for (value in listOf(fingerprint, formatted, "SHA256 Fingerprint=$formatted", "sha256 Fingerprint=$formatted", "SHA-256 Fingerprint = $formatted")) {
+            checkCertBridgeIdentity("ok=1\nfingerprint_sha256= $value \r\nfilename=1234abcd.0", fingerprint)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            checkCertBridgeIdentity("ok=1\nfingerprint_sha256=SHA256 Fingerprint=${"b2".repeat(32)}", fingerprint)
+        }
+    }
+
+    @Test fun rejectsMissingTruncatedAndOtherAlgorithmFingerprints() {
+        assertThrows(IllegalArgumentException::class.java) { checkCertBridgeIdentity("ok=1\nfingerprint_sha1=$fingerprint", fingerprint) }
+        for (value in listOf("", "a1:b2", "SHA256 Fingerprint=a1:b2", "SHA256 Fingerprint=${fingerprint}00",
+            "SHA1 Fingerprint=$fingerprint", "MD5 Fingerprint=$fingerprint", "unrecognized=$fingerprint", "$fingerprint trailing text")) {
+            assertThrows(IllegalArgumentException::class.java) {
+                checkCertBridgeIdentity("ok=1\nfingerprint_sha256=$value", fingerprint)
+            }
+        }
+    }
+
     @Test fun acceptsOnlyCertificateBasenamesAndCompleteFingerprints() {
         assertEquals("1234abcd.12", certBridgeFilename("1234abcd.12"))
         for (value in listOf("../1234abcd.0", "1234abcd.0;id", "1234abcd.0\n", "whatever")) {

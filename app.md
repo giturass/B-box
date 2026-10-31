@@ -82,9 +82,9 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 [CaptureCertificate.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureCertificate.kt) 生成并复用每个安装独立的调试 CA。私钥经 Android Keystore AES-GCM 密钥加密后原子保存，以公开证书作为附加认证数据，混换证书与私钥会导致解密失败。只有公开证书可导出或交给 CertBridge；不生成、替换或导出应用发布签名密钥。
 
-CertBridge 调用依据固定提交 [`bda7cb26e6b831768e8faf2cac6bcde7c89d7fc7`](https://github.com/Eikeitsu/CertBridge/tree/bda7cb26e6b831768e8faf2cac6bcde7c89d7fc7) 的 CLI，复用普通 Root 能力，使用固定入口 `/data/adb/certbridge/cb` 或模块入口 `/data/adb/modules/CertBridge/bin/cb`。`install_custom` 只接收公开 PEM 的 Base64；导入后及删除前，通过 `cert_info custom:<filename>` 核对完整 SHA-256。记录的文件已被外部删除时通过 `list_custom` 恢复状态；同名但指纹不同的证书拒绝删除。轮换先移除已记录的旧导入，再生成新 CA，并保留待重启状态。
+CertBridge 调用依据固定提交 [`bda7cb26e6b831768e8faf2cac6bcde7c89d7fc7`](https://github.com/Eikeitsu/CertBridge/tree/bda7cb26e6b831768e8faf2cac6bcde7c89d7fc7) 的 CLI，复用普通 Root 能力，使用固定入口 `/data/adb/certbridge/cb` 或模块入口 `/data/adb/modules/CertBridge/bin/cb`。`install_custom` 只接收公开 PEM 的 Base64；导入后及删除前，通过 `cert_info custom:<filename>` 核对完整 SHA-256。指纹兼容纯十六进制、冒号分隔及 OpenSSL 的 `SHA256 Fingerprint=` / `SHA-256 Fingerprint=` 标签，忽略标签大小写；缺失、截断、其他算法或不匹配的指纹仍拒绝。该提交的 [cert_info.sh](https://github.com/Eikeitsu/CertBridge/blob/bda7cb26e6b831768e8faf2cac6bcde7c89d7fc7/module/bin/lib/cert_info.sh) 在完整 OpenSSL 分支只移除小写 `sha256 Fingerprint=`，大写标签可能保留在 `fingerprint_sha256` 字段中。记录的文件已被外部删除时通过 `list_custom` 恢复状态；同名但指纹不同的证书拒绝删除。轮换先移除已记录的旧导入，再生成新 CA，并保留待重启状态。
 
-导入/移除成功仅表示 CertBridge 配置已改变，界面提示重启。手动检查执行 `status --live`，并按证书内容查验当前进程 `AndroidCAStore` 的 `system:` 项；显示最近检查时间，不将 CLI 缓存或文件存在当作系统信任。该结果不保证其他应用接受证书，协议与证书固定等兼容范围见 [libbox.md](libbox.md#httphttps-请求调试)。
+导入/移除成功仅表示 CertBridge 配置已改变，需完整重启设备；重启应用或服务不等于重新生成并挂载系统证书库。手动检查执行 `status --live`，并按证书内容查验当前进程 `AndroidCAStore` 的 `system:` 项；显示最近检查时间，不将 CLI 缓存或文件存在当作系统信任。Root、CLI 或导入身份核验失败时，仍独立读取并保存系统信任结果，保留待重启状态并继续报告原错误；界面刷新规则见 [flclash.md](flclash.md#导航与交互约定)。该结果不保证其他应用接受证书，协议与证书固定等兼容范围见 [libbox.md](libbox.md#httphttps-请求调试)。
 
 ## 已移除能力与兼容入口
 
@@ -142,6 +142,6 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
-[CertBridgeProtocolTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/CertBridgeProtocolTest.kt) 验证文件名、完整指纹及自定义证书列表解析。[CaptureCertificateTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/CaptureCertificateTest.kt) 使用隔离目录和测试专用 Keystore alias，验证实际 CA 生成、加密持久化/复用、附加认证数据校验、公开证书导出、导入身份核对、轮换待重启状态及外部删除后的恢复。CertBridge 命令由测试替身响应；Root 导入、重启后系统信任和目标应用兼容性仍需实机验收。
+[CertBridgeProtocolTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/CertBridgeProtocolTest.kt) 验证文件名、完整指纹、OpenSSL 标签兼容、无效/其他算法指纹拒绝及自定义证书列表解析。[CaptureCertificateTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/CaptureCertificateTest.kt) 使用隔离目录和测试专用 Keystore alias，验证实际 CA 生成、加密持久化/复用、附加认证数据校验、公开证书导出、导入身份核对、轮换待重启状态及外部删除后的恢复；还覆盖带标签指纹的导入/检查，以及 CLI/指纹失败后仍保存实际系统信任结果。CertBridge 命令由测试替身响应；Root 导入、重启后系统信任和目标应用兼容性仍需实机验收。
 
 原 `MODIFICATIONS.md` 与 `NEWUI.md` 已按领域归入这四份文档。历史 MOD-001～004、007～008、012 的 Compose 界面由 Flutter 替代；MOD-005/006/009 的品牌、安装身份及发布约定在本文继续维护；MOD-011/015/016 的删除项以本次迁移后的现状为准；MOD-013/014 的核心与工具裁剪已回退；MOD-017 的 UI 适配见 [flclash.md](flclash.md)。旧实现、逐次构建日志与产物哈希可通过 `git log --all -- MODIFICATIONS.md NEWUI.md` 和对应提交的文件内容查询，不再混入当前项目约束。

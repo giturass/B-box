@@ -185,6 +185,38 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final action in ['install', 'status']) {
+    testWidgets('CA $action refreshes saved state after a CertBridge error', (tester) async {
+      await mount(tester);
+      final ca = {'exists': true, 'fingerprint': 'ab' * 32, 'expiresAt': 2000000000000,
+        'filename': action == 'install' ? '' : '1234abcd.0', 'pendingReboot': false, 'checkedAt': 0};
+      snapshot['ca'] = ca;
+      await open(tester, CaptureCertificatePage(initial: ca, active: false));
+      extra = (call) async {
+        if (call.method == 'capture.ca.$action') {
+          snapshot['ca'] = {...ca, 'filename': '1234abcd.0', 'pendingReboot': true,
+            if (action == 'status') ...{'trusted': false, 'checkedAt': 1700000000000}};
+          throw PlatformException(code: 'capture', message: 'Invalid certificate fingerprint');
+        }
+        if (call.method == 'capture.ca.snapshot') return snapshot;
+        return null;
+      };
+      final button = find.text(action == 'install' ? 'Import with CertBridge' : 'Check system trust');
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Invalid certificate fingerprint'), -200,
+        scrollable: find.descendant(of: find.byType(CaptureCertificatePage), matching: find.byType(Scrollable)).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Invalid certificate fingerprint'), findsOneWidget);
+      expect(find.text('Imported'), findsOneWidget);
+      expect(find.text('Certificate change pending; reboot and verify again.'), findsOneWidget);
+      expect(find.text(action == 'status' ? 'Not trusted' : 'Not checked'), findsOneWidget);
+      expect(calls.where((call) => call.method == 'capture.ca.snapshot'), hasLength(1));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final (size, scale, dark) in [(const Size(360, 800), 1.0, false), (const Size(360, 800), 1.4, true), (const Size(800, 1000), 1.0, false)]) {
     testWidgets('request list and detail fit $size at $scale dark=$dark', (tester) async {
       await mount(tester, size: size, scale: scale, dark: dark);

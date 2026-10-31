@@ -143,4 +143,83 @@ class CaptureCertificateTest {
             assertFalse(commands.contains("remove_custom"))
         }
     }
+
+    @Test fun checksTheSystemStoreAfterImportWithAnOpenSSLFingerprintLabel() = runBlocking(Dispatchers.IO) {
+        fixture { context, alias, _ ->
+            var fingerprint = ""
+            val ca = CaptureCertificate(context, alias) { arguments ->
+                when (arguments.first()) {
+                    "install_custom" -> "ok=1\nfilename=1234abcd.0"
+                    "cert_info" -> "ok=1\nfingerprint_sha256=SHA256 Fingerprint=$fingerprint"
+                    "list_custom" -> "custom|1234abcd.0|B-box HTTP Debug CA"
+                    "status" -> {
+                        assertEquals(listOf("status", "--live"), arguments)
+                        "reboot_required=0"
+                    }
+                    else -> error("Unexpected command: ${arguments.first()}")
+                }
+            }
+            ca.material()
+            fingerprint = (ca.snapshot()["fingerprint"] as String).chunked(2).joinToString(":").uppercase()
+            ca.install()
+            val checked = ca.check()
+            // The CLI claims no reboot is pending, but this isolated CA has
+            // never been installed in the emulator's real AndroidCAStore.
+            assertEquals(false, checked["trusted"])
+            assertTrue((checked["checkedAt"] as Long) > 0)
+            assertEquals(true, checked["pendingReboot"])
+            assertEquals("1234abcd.0", checked["filename"])
+            assertEquals("reboot_required=0", checked["backendOutput"])
+        }
+    }
+
+    @Test fun certBridgeFailuresStillSaveTheActualSystemTrustResult() = runBlocking(Dispatchers.IO) {
+        for (failedCommand in listOf("status", "cert_info")) fixture { context, alias, _ ->
+            var fingerprint = ""
+            var fail = false
+            val ca = CaptureCertificate(context, alias) { arguments ->
+                when (arguments.first()) {
+                    "install_custom" -> "ok=1\nfilename=1234abcd.0"
+                    "cert_info" -> if (fail && failedCommand == "cert_info") "ok=1\nfingerprint_sha256=SHA256 Fingerprint=a1:b2"
+                        else "ok=1\nfingerprint_sha256=$fingerprint"
+                    "list_custom" -> "custom|1234abcd.0|B-box HTTP Debug CA"
+                    "status" -> {
+                        if (fail && failedCommand == "status") error("CertBridge unavailable")
+                        "reboot_required=0"
+                    }
+                    else -> error("Must not mutate certificates during a check: ${arguments.first()}")
+                }
+            }
+            val original = ca.material()
+            fingerprint = ca.snapshot()["fingerprint"] as String
+            ca.install()
+            fail = true
+            val failure = runCatching { ca.check() }.exceptionOrNull()
+            assertEquals(if (failedCommand == "status") "CertBridge unavailable" else "Invalid certificate fingerprint", failure?.message)
+            val checked = ca.snapshot()
+            assertEquals(false, checked["trusted"])
+            assertTrue((checked["checkedAt"] as Long) > 0)
+            assertEquals(true, checked["pendingReboot"])
+            assertEquals("1234abcd.0", checked["filename"])
+            assertEquals(if (failedCommand == "status") "" else "reboot_required=0", checked["backendOutput"])
+            assertEquals(original, ca.material())
+        }
+    }
+
+    @Test fun recognizesAnExistingSystemCertificateWhenCertBridgeIsUnavailable() = runBlocking(Dispatchers.IO) {
+        fixture { context, alias, file ->
+            val systemStore = KeyStore.getInstance("AndroidCAStore").apply { load(null) }
+            val systemAlias = systemStore.aliases().toList().first { it.startsWith("system:") }
+            val encoded = Base64.encodeToString(systemStore.getCertificate(systemAlias).encoded, Base64.NO_WRAP)
+            // Copy only a public system certificate into isolated test storage;
+            // no root store or real capture key is modified.
+            val pem = "-----BEGIN CERTIFICATE-----\n${encoded.chunked(64).joinToString("\n")}\n-----END CERTIFICATE-----\n"
+            check(file.parentFile!!.mkdirs())
+            file.writeText(JSONObject().put("certificate", pem).put("trusted", false).toString())
+            val ca = CaptureCertificate(context, alias) { error("CertBridge unavailable") }
+            assertEquals("CertBridge unavailable", runCatching { ca.check() }.exceptionOrNull()?.message)
+            assertEquals(true, ca.snapshot()["trusted"])
+            assertTrue((ca.snapshot()["checkedAt"] as Long) > 0)
+        }
+    }
 }
