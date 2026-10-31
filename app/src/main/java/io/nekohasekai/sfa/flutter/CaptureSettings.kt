@@ -5,12 +5,28 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.database.ProfileContent
 import org.json.JSONObject
 import java.io.File
+import java.io.FileNotFoundException
 import java.security.KeyStore
 
 /** Private application settings, independent of profiles and their service revisions. */
 internal class CaptureSettings(private val directory: File, private val retiredKeyAlias: String? = "b_box_http_debug_ca_v1") {
     private val file = AtomicFile(File(directory, "settings.json"))
     private var migrated = false
+
+    private fun read(maxBytes: Int): String? {
+        // openRead restores an interrupted write, including a legacy .bak with
+        // no base file. Check the recovered descriptor instead of the old path.
+        val input = try {
+            file.openRead()
+        } catch (error: FileNotFoundException) {
+            if (file.baseFile.exists() || File(file.baseFile.path + ".bak").exists()) throw error
+            return null
+        }
+        return input.use {
+            require(it.channel.size() <= maxBytes) { "Capture settings exceed ${maxBytes / 1024} KiB" }
+            it.readBytes().toString(Charsets.UTF_8)
+        }
+    }
 
     // Caller holds BoxCapture's process-wide operation mutex.
     private fun raw(): String {
@@ -20,9 +36,8 @@ internal class CaptureSettings(private val directory: File, private val retiredK
                 load(null)
                 if (containsAlias(retiredKeyAlias)) deleteEntry(retiredKeyAlias)
             }
-            if (file.baseFile.exists()) {
-                require(file.baseFile.length() <= 4 * 1024 * 1024) { "Legacy capture settings exceed 4 MiB" }
-                val previous = file.readFully().toString(Charsets.UTF_8)
+            val previous = read(4 * 1024 * 1024)
+            if (previous != null) {
                 val value = JSONObject(previous)
                 val retired = listOf("blockQUIC", "rewriteEnabled", "headerRewrite", "urlRewrite", "bodyRewrite", "mapLocal", "scripts")
                 if (retired.any(value::has)) {
@@ -32,8 +47,7 @@ internal class CaptureSettings(private val directory: File, private val retiredK
             }
             migrated = true
         }
-        require(!file.baseFile.exists() || file.baseFile.length() <= 64 * 1024) { "Capture settings exceed 64 KiB" }
-        return if (file.baseFile.exists()) file.readFully().toString(Charsets.UTF_8) else ""
+        return read(64 * 1024) ?: ""
     }
 
     fun snapshot(): Map<String, Any?> {

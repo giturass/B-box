@@ -78,7 +78,7 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 [BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 提供本地抓包启停、筛选、列表/详情、域名及 HAR/cURL 导出。启动先确认本地服务 Started，HTTPS 等待 Root 采集器挂载成功，再核对服务实例和选中配置未变化；失败释放源和管道。切到远程会话时停止本地抓包，远程会话拒绝读取本机记录。普通 Root/Shizuku、VPN 权限及服务确认流程保留。
 
-[CaptureSettings.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureSettings.kt) 将筛选、HTTPS 开关和正文限额保存到私有 `noBackupFilesDir/http-debug/settings.json`，最大 64 KiB。多个 Activity 共用操作互斥锁，保存检查内容修订并使用 AtomicFile；抓包期间禁止改设置，保存不会开启抓包或重载配置。这些设置和记录不随配置导出/备份。旧本机设置中的改写/脚本字段删除，同时清理本应用旧 CA 文件及专用 Keystore alias；旧配置扩展的解析/保存兼容由 [核心清理](libbox.md#旧抓包配置清理) 维护。
+[CaptureSettings.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureSettings.kt) 将筛选、HTTPS 开关和正文限额保存到私有 `noBackupFilesDir/http-debug/settings.json`，最大 64 KiB。多个 Activity 共用操作互斥锁，保存检查内容修订并使用 AtomicFile；读取先恢复中断写入的备份，再检查实际文件大小和修订。抓包期间禁止改设置，保存不会开启抓包或重载配置。这些设置和记录不随配置导出/备份。旧本机设置中的改写/脚本字段删除，同时清理本应用旧 CA 文件及专用 Keystore alias；旧配置扩展的解析/保存兼容由 [核心清理](libbox.md#旧抓包配置清理) 维护。
 
 [RootCaptureSession.kt](app/src/main/java/io/nekohasekai/sfa/bg/RootCaptureSession.kt) 只启动 APK 原生库目录中的固定采集器，通过 stdin 传递 UID/库设置，读取有界 ready 消息并在超时/失败时清理。输出由私有 pipe 交给 libbox，没有网络监听或外部可执行文件下载。[IRootService](app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl) 新增事务 10，旧事务 2/3 保持空缺；独立 `ICaptureSession` 提供 FD 和关闭方法。会话在启动前登记，Binder owner 死亡、Root 服务销毁、核心重载/停止均关闭 stdin 和探针，避免遗留采集进程。
 

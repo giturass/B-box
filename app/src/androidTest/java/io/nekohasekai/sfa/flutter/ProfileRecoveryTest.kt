@@ -68,6 +68,36 @@ class ProfileRecoveryTest {
         } finally { directory.deleteRecursively() }
     }
 
+    @Test fun captureSettingsRecoverInterruptedAtomicWrites() = runBlocking(Dispatchers.IO) {
+        Application.application.setupLibbox()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val directory = File(context.cacheDir, "capture-settings-recovery-test").apply { deleteRecursively(); mkdirs() }
+        try {
+            val base = File(directory, "settings.json")
+            val backup = File(directory, "settings.json.bak")
+            backup.writeText("""{"https":true,"ports":[8443],"scripts":[]}""")
+            val settings = CaptureSettings(directory, retiredKeyAlias = null)
+            val recovered = settings.snapshot()
+            val config = recovered["config"] as Map<*, *>
+            assertEquals(true, config["https"])
+            assertEquals(listOf(8443), config["ports"])
+            assertFalse(config.containsKey("scripts"))
+            assertFalse(backup.exists())
+            val content = base.readText()
+            assertTrue(base.renameTo(backup))
+            assertEquals(recovered, settings.snapshot())
+            assertEquals(content, base.readText())
+            assertFalse(backup.exists())
+
+            // A small base must not bypass the limit on the recovered backup.
+            base.writeText("{}")
+            backup.writeText(" ".repeat(4 * 1024 * 1024 + 1))
+            assertThrows(IllegalArgumentException::class.java) {
+                CaptureSettings(directory, retiredKeyAlias = null).snapshot()
+            }
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun binarySubscriptionsKeepTheirMetadata() = runBlocking(Dispatchers.IO) {
         Application.application.setupLibbox()
         val binary = io.nekohasekai.libbox.ProfileContent().apply {
