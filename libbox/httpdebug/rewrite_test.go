@@ -371,6 +371,9 @@ func TestRewriteValidationAndBoundedExpansion(t *testing.T) {
 	if _, err := replaceBounded(regexp.MustCompile(".+"), strings.Repeat("x", MaxRewriteBody), strings.Repeat("$0", 65536), MaxRewriteBody); err == nil {
 		t.Fatal("unbounded replacement accepted")
 	}
+	if _, err := replaceBounded(regexp.MustCompile(strings.Repeat("()", 64)), strings.Repeat("x", 4096), "", MaxRewriteBody); err == nil {
+		t.Fatal("unbounded capture-index allocation accepted")
+	}
 	encoded, err := Validate(`{"scripts":[{"pattern":".","source":"$done({});"}]}`)
 	if err != nil {
 		t.Fatal(err)

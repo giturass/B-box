@@ -74,7 +74,7 @@ TLS 解密使用每个安装独立的 CA，签发带 SAN 的 ECDSA P-256 叶证�
 
 ### HTTP 改写配置
 
-在原 sing-box JSON 的 `experimental.http_debug` 下保存抓包与改写设置，完整示例见 [http-debug.json](examples/http-debug.json)。合入原有配置时只合并该对象，保留自己的入站、出站、DNS 和路由；示例不是 VPN 入站模板。`httpdebug.patch` 向当前核心的 `option.ExperimentalOptions` 添加真实类型，`Libbox.checkConfig`、格式化与生成 schema 都识别并校验它；不是把核心不认识的字段留在应用侧。`ReadUICaptureConfig`/`SetUICaptureConfig` 提供读取/变换，Android 仍负责完整校验、修订检查和原子保存。没有该对象的旧配置可读取原本机抓包设置作为初始值，显式保存后使用配置中的值。
+在原 sing-box JSON 的 `experimental.http_debug` 下保存抓包与改写设置，完整示例见 [http-debug.json](examples/http-debug.json)。合入原有配置时只合并该对象，保留自己的入站、出站、DNS 和路由；示例不是 VPN 入站模板。`httpdebug.patch` 向当前核心的 `option.ExperimentalOptions` 添加真实类型，[配置适配](libbox/option/httpdebug.go) 安装到 `option/b_box_httpdebug.go`，复用引擎的严格 JSON 校验并实现上游 `schema.Describer`；`Libbox.checkConfig`、格式化与 schema 生成均识别该对象。`ReadUICaptureConfig`/`SetUICaptureConfig` 提供读取/变换，Android 仍负责完整校验、修订检查和原子保存。没有该对象的旧配置可读取原本机抓包设置作为初始值，显式保存后使用配置中的值。
 
 MITM 使用 `https`、`decryptHosts` 和 `decryptBypassHosts`；公开 CA 与私钥不放进 JSON。规则总开关为 `rewriteEnabled`，默认关闭；规则仅在用户启动本地抓包后生效，配置加载不自动抓包。规则均支持 `name`、完整 URL 正则 `pattern` 及 `disabled`。最多 128 条规则，其中脚本最多 16 条；设置对象最大 4 MiB。
 
@@ -94,7 +94,7 @@ MITM 使用 `https`、`decryptHosts` 和 `decryptBypassHosts`；公开 CA 与私
 
 目标主机或端口改变后，使用 `RouteConnectionEx` 重新执行 sing-box 路由，保留入站、源地址及应用归属，清除旧目标的 DNS/规则状态，并阻止再次进入抓包引擎；不回退为直连。新 HTTPS 目标继续验证证书。详情保留原始 URL/目标，但清空未观察到的新出站及命中规则，避免把原连接的选择当作改写后的路由。
 
-这里实现的是 B-box JSON 扩展，不读取 Surge INI 配置。域名筛选沿用前述精确/子域通配规则；配置正则使用 Go RE2，不支持模式内反向引用和环视，单次正文替换最多 16384 个匹配并限制展开长度。未实现 jq、Surge 的完整 Host List 语法、远程资源更新或通用脚本 API；不声称兼容任意 Surge 配置或脚本。
+这里实现的是 B-box JSON 扩展，不读取 Surge INI 配置。域名筛选沿用前述精确/子域通配规则；配置正则使用 Go RE2，不支持模式内反向引用和环视，单次正文替换最多 16384 个匹配，并限制捕获组索引及展开长度。未实现 jq、Surge 的完整 Host List 语法、远程资源更新或通用脚本 API；不声称兼容任意 Surge 配置或脚本。
 
 ## Android 自动重定向兼容
 

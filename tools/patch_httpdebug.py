@@ -15,7 +15,7 @@ def main():
     core = parser.parse_args().core.resolve()
     patch = ROOT / "libbox/httpdebug.patch"
     targets = [core / "experimental/httpdebug", core / "route/b_box_httpdebug.go",
-               core / "experimental/libbox/ui_capture.go"]
+               core / "experimental/libbox/ui_capture.go", core / "option/b_box_httpdebug.go"]
     if any(path.exists() for path in targets):
         raise SystemExit("Capture overlay already exists; use a clean matching core checkout")
     subprocess.run(["git", "apply", "--check", str(patch)], cwd=core, check=True)
@@ -24,6 +24,7 @@ def main():
     for source in (ROOT / "libbox/route").glob("*.go"):
         shutil.copyfile(source, core / "route" / ("b_box_" + source.name))
     shutil.copyfile(ROOT / "libbox/ui_capture.go", targets[2])
+    shutil.copyfile(ROOT / "libbox/option/httpdebug.go", targets[3])
     # This pinned pure-Go runtime supports Android without a second native
     # engine. go get resolves its sums without upgrading unrelated core modules.
     subprocess.run(["go", "get", SCRIPT_MODULE], cwd=core, check=True)

@@ -169,7 +169,7 @@ void main() {
   testWidgets('MITM bypass domains can be selected from captured hostnames', (tester) async {
     await mount(tester);
     await open(tester, const RequestSettingsPage(initial: {'https': true, 'decryptBypassHosts': ['existing.test']}));
-    final add = find.byKey(const ValueKey('add-bypass-hosts'));
+    final add = find.byKey(const ValueKey('add-bypass-hosts')).first;
     await tester.scrollUntilVisible(add, 250, scrollable: find.descendant(of: find.byType(RequestSettingsPage), matching: find.byType(Scrollable)).first);
     await tester.tap(add); await tester.pumpAndSettle();
     expect(find.byType(CaptureDomainsPage), findsOneWidget);

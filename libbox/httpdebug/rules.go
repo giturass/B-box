@@ -310,9 +310,12 @@ func validateHostHeader(value string) error {
 // Bound both output expansion and match bookkeeping. Go regexps use RE2
 // semantics; backreferences in patterns and look-around are not supported.
 func replaceBounded(pattern *regexp.Regexp, value, replacement string, limit int) (string, error) {
-	matches := pattern.FindAllStringSubmatchIndex(value, 16385)
-	if len(matches) > 16384 {
-		return "", errors.New("rewrite exceeds 16384 replacements")
+	// Each match stores a pair of indexes for every capture group. Bound their
+	// product as well as the number of matches, including empty-match patterns.
+	maxMatches := min(16384, 131072/(2*(pattern.NumSubexp()+1)))
+	matches := pattern.FindAllStringSubmatchIndex(value, maxMatches+1)
+	if len(matches) > maxMatches {
+		return "", errors.New("rewrite exceeds replacement or capture-index budget")
 	}
 	var output strings.Builder
 	last := 0

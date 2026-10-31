@@ -57,7 +57,7 @@ func SetUICaptureConfig(configContent, configJSON string) (*StringBox, error) {
 	if options.Experimental == nil {
 		options.Experimental = &option.ExperimentalOptions{}
 	}
-	options.Experimental.HTTPDebug = &config
+	options.Experimental.HTTPDebug = (*option.HTTPDebugOptions)(&config)
 	var buffer bytes.Buffer
 	encoder := corejson.NewEncoder(&buffer)
 	encoder.SetIndent("", "  ")
