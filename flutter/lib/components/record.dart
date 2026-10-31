@@ -183,10 +183,11 @@ class DetailRow extends StatelessWidget {
   final String title;
   final Widget? value;
   final String? copyText;
+  final bool stacked;
 
-  const DetailRow({super.key, required this.title, this.value, this.copyText});
+  const DetailRow({super.key, required this.title, this.value, this.copyText, this.stacked = false});
 
-  DetailRow.text({super.key, required this.title, required String value})
+  DetailRow.text({super.key, required this.title, required String value, this.stacked = false})
     : value = Text(value),
       copyText = value;
 
@@ -202,13 +203,17 @@ class DetailRow extends StatelessWidget {
     final copyText = this.copyText;
     return DecorationListItem(
       onPressed: copyText == null ? null : () => _copy(context, copyText),
-      title: value == null
+      subtitle: stacked ? value : null,
+      title: value == null || stacked
           ? Text(title)
-          : Row(
+          : LayoutBuilder(builder: (context, constraints) => Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               spacing: 20,
               children: [
-                Text(title),
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: (constraints.maxWidth - 20) * .45),
+                  child: Text(title),
+                ),
                 Expanded(
                   child: Align(
                     alignment: Alignment.centerRight,
@@ -224,7 +229,7 @@ class DetailRow extends StatelessWidget {
                   ),
                 ),
               ],
-            ),
+            )),
     );
   }
 }

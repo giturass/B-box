@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import '../widgets.dart';
 import '../components/form.dart';
 
@@ -39,11 +40,17 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
 
   @override void dispose() { for (final c in [_decrypt, _include, _exclude, _ports]) { c.dispose(); } super.dispose(); }
 
-  Widget _hosts(TextEditingController controller, String label, String hint) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 10),
-    child: TextField(controller: controller, maxLines: 4, minLines: 2, maxLength: 65536, autocorrect: false,
-      decoration: InputDecoration(labelText: context.tr(label), helperText: context.tr(hint), helperMaxLines: 4, counterText: ''),
-      onChanged: (_) => setState(() => _dirty = true)),
+  Widget _field(TextEditingController controller, String label, {String? footer, String? hint, bool multiline = true}) => generateSection(
+    title: context.tr(label), footer: footer == null ? null : context.tr(footer),
+    items: [DecorationListItem(title: TextField(
+      key: ValueKey(label), controller: controller, minLines: multiline ? 2 : 1, maxLines: multiline ? 4 : 2,
+      keyboardType: multiline ? TextInputType.multiline : TextInputType.text,
+      textInputAction: multiline ? TextInputAction.newline : TextInputAction.done,
+      inputFormatters: [LengthLimitingTextInputFormatter(65536)], autocorrect: false, enableSuggestions: false,
+      style: AppTextStyle.body.of(context),
+      decoration: InputDecoration.collapsed(border: const NoInputBorder(), hintText: hint),
+      onChanged: (_) => setState(() => _dirty = true),
+    ))],
   );
 
   @override Widget build(BuildContext context) {
@@ -53,14 +60,17 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
         ListItem.toggle(title: Text(context.tr('Decrypt HTTPS')), value: _https, onChanged: (value) => setState(() { _https = value; _dirty = true; })),
       ]),
       if (_https) ...[
-        _hosts(_decrypt, 'HTTPS domains', 'Leave empty to decrypt all domains. Use exact names or *.example.com; bypass rules take priority.'),
-        Text(context.tr('Install the debugging CA on the target device. Apps with certificate pinning or their own trust store may require bypass.')),
-        ListItem.toggle(title: Text(context.tr('Block selected QUIC connections')), value: _quic,
-          subtitle: Text(context.tr('Try HTTP/2 or HTTP/1.1 fallback for matching HTTPS domains. Unknown QUIC domains are passed through.')),
-          onChanged: (value) => setState(() { _quic = value; _dirty = true; })),
+        _field(_decrypt, 'HTTPS domains', hint: '*.example.com',
+          footer: 'Leave empty to decrypt all domains. Use exact names or *.example.com; bypass rules take priority.'),
+        ListFooter(text: context.tr('Install the debugging CA on the target device. Apps with certificate pinning or their own trust store may require bypass.')),
+        generateSection(items: [
+          ListItem.toggle(title: Text(context.tr('Block selected QUIC connections')), value: _quic,
+            subtitle: Text(context.tr('Try HTTP/2 or HTTP/1.1 fallback for matching HTTPS domains. Unknown QUIC domains are passed through.')),
+            onChanged: (value) => setState(() { _quic = value; _dirty = true; })),
+        ]),
       ],
-      _hosts(_include, 'Capture domains', 'Leave empty to capture all domains. Applies to both HTTP and HTTPS.'),
-      _hosts(_exclude, 'Bypass domains', 'Matching domains pass through without capture or HTTPS decryption.'),
+      _field(_include, 'Capture domains', hint: '*.example.com', footer: 'Leave empty to capture all domains. Applies to both HTTP and HTTPS.'),
+      _field(_exclude, 'Bypass domains', hint: 'private.example.com', footer: 'Matching domains pass through without capture or HTTPS decryption.'),
       generateSection(title: context.tr('Filters and storage'), items: [
         ListItem(leading: const GlyphIcon(AppGlyphs.appsList), title: Text(context.tr('Capture applications')),
           subtitle: Text(_packages.isEmpty ? context.tr('All applications') : _packages.join(', ')), onTap: () async {
@@ -70,10 +80,8 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
         ListItem.options(title: Text(context.tr('Body limit per message')), options: const [64, 128, 256, 1024], value: _bodyKiB,
           textBuilder: (value) => '$value KiB', onChanged: (value) => setState(() { _bodyKiB = value; _dirty = true; })),
       ]),
-      Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: TextField(controller: _ports,
-        decoration: InputDecoration(labelText: context.tr('Capture ports'), helperText: '80, 443, 8080, 8443'),
-        onChanged: (_) => setState(() => _dirty = true))),
-      Text(context.tr('Keeps up to 300 requests and 32 MiB. Large bodies keep a prefix; forwarding continues in full. Capture stops on service restart.')),
+      _field(_ports, 'Capture ports', hint: '80, 443, 8080, 8443', multiline: false,
+        footer: 'Keeps up to 300 requests and 32 MiB. Large bodies keep a prefix; forwarding continues in full. Capture stops on service restart.'),
     ]));
   }
 }

@@ -41,7 +41,8 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 - 出站模式只显示内核提供的值。规则、全局、直连使用参考版字形，名称和选中态忽略大小写，排列和切换参数保留内核原值。系统 HTTP 代理卡片按内核能力显示，支持首页编辑中的排序、移除和重新添加；能力暂不可用时保留顺序和隐藏偏好。卡片沿用参考版 VPN 卡片的 48 像素徽章、加粗标题、启用/禁用副标题及紧凑开关；启用时徽章为主题色六瓣形，禁用时为低强调圆形。卡片和首页编辑列表共用 [system_proxy_glyph.dart](flutter/lib/components/system_proxy_glyph.dart) 中的大陆轮廓地球字形，使用共享 Glyph 的线宽与圆角；全局出站模式保留参考版经纬线球体字形。
 - 服务按钮的暂停图形表示停止服务，不新增暂停核心能力。远程会话、启停过渡和不可用操作必须反映真实状态。
 - 工具页远程控制紧跟终端；终端设置在终端内，仪表盘编辑在首页工具栏。设置依次为外观、常规、访问控制、备份与恢复；高级配置从配置的“编辑”页进入，不保留重复资源入口。
-- “请求”紧挨在工具页“连接”上方；列表支持搜索和分批加载，详情区分请求/响应头、正文前缀与截断/未完成状态。抓取开关等待原生确认，停服时保留历史记录；远程会话显示不可用。HTTPS 白名单说明与 [核心选择规则](libbox.md#httphttps-请求调试) 一致；CA 页面区分导入、待重启与最近系统信任检查，操作报错后仍刷新原生快照并保留原错误，展示已保存的导入/信任状态。Android 处理见 [app.md](app.md#请求抓取与调试证书)。
+- “请求”紧挨在工具页“连接”上方；列表沿用连接页的卡片、左右边距、行间距和字形，支持搜索和分批加载。详情使用同一点击复制行及反馈，长 URL、头部与 Cookie 分行显示；右上角菜单切换请求、响应和 Cookies，请求与响应 Cookie 分组展示，保留重复 `Set-Cookie`、空值、值中的等号及属性，点击 Cookie 复制该条原文。抓取开关等待原生确认，停服时保留历史记录；远程会话显示不可用。
+- 抓包设置的域名和端口输入置于共享分组表单中，标签、说明及圆角表面跟随应用样式；HTTPS 白名单说明与 [核心选择规则](libbox.md#httphttps-请求调试) 一致。CA 页面区分导入、待重启与最近系统信任检查，操作报错后仍刷新原生快照并保留原错误，展示已保存的导入/信任状态。Android 处理见 [app.md](app.md#请求抓取与调试证书)。
 - 常规服务页使用即时应用的开关，保存和重启期间显示进度并禁用开关，底部没有“应用服务设置”按钮；启动确认及失败恢复见 [app.md](app.md#配置服务应用与备份)。
 - 日志页默认选择“跟随配置”，显示内核上报的日志级别及更严重的记录；菜单同时显示当前级别，仍可手动选择“全部”或单一级别，手动筛选不会被后续状态更新覆盖。搜索、暂停和导出沿用同一筛选结果；默认级别尚未收到时保留已接收记录。日志来源及本地重载同步见 [app.md](app.md#配置服务应用与备份)。
 - 应用始终跟随系统语言并响应运行时变化。旧设置及备份中的语言选项丢弃，其他偏好保留。
@@ -55,6 +56,8 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 [data_subscription.dart](flutter/lib/components/data_subscription.dart) 按页面活动状态、TickerMode 和应用生命周期合并内存/日志订阅；卡片与详情页共享一个原生采样请求，最后一个可见消费者退出时停止。日志增量保留既有记录对象，暂停快照独立于后续追加和淘汰，恢复可见时重新同步原生缓冲。原生采样与消息边界见 [app.md](app.md#配置服务应用与备份)。
 
 [capture_poll.dart](flutter/lib/components/capture_poll.dart) 仅在本地请求列表/详情页活动、TickerMode 开启且应用前台时每两秒查询；调用不重叠，筛选变化合并刷新，并忽略旧筛选或会话的迟到结果。隐藏页面停止轮询，抓取引擎继续运行至用户或服务停止。页面为 B-box 业务代码，没有直接修改 FlClash 导入文件。
+
+[captured_body.dart](flutter/lib/components/captured_body.dart) 将正文预览放在等宽、自动折行、有界滚动的卡片中，展示内容类型、保存/总字节数及 Base64、截断、未完成状态。完整 JSON 可切换格式化与原文；[http_message.dart](flutter/lib/common/http_message.dart) 仅调整 JSON 字符串外的空白，保留数值字面量、重复键及转义，无法解析或超过格式化限额时显示原文。长预览分批展开，边界不拆开 UTF-16 代理对；复制始终使用内核返回的原始预览，不受当前格式或已展开长度影响，也不代表未保存的完整正文。
 
 ### 配置页与内核差异
 
@@ -113,7 +116,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [access_test.dart](flutter/test/access_test.dart) 与 [migration_regression_test.dart](flutter/test/migration_regression_test.dart) 覆盖进入托管页面不扫描、显示范围与隐藏选择保留、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。它们验证交互和调用行为，不代替实机加载耗时或视觉验收。
 
-[requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口顺序、远程隔离、空 HTTPS 白名单保存、启动确认、后台停止轮询、迟到搜索结果、CA 待重启状态及窄屏/大字号深色/宽屏布局，并输出请求列表和详情截图到 `build/screenshots/requests/`。正文不完整或截断时不提供 cURL 导出。该测试使用桥接替身，不等于真实 TLS 或 Root 验收；相应核心和 Android 验证见 [libbox.md](libbox.md#构建同步和验证) 与 [app.md](app.md#验证与历史记录)。
+[requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口顺序、远程隔离、空 HTTPS 白名单及多行域名/端口保存、启动确认、后台停止轮询、迟到搜索结果、CA 待重启状态、报文菜单切换、字段/Cookie 点击复制、正文原文复制与格式切换、Unicode 分批展开，并在窄屏/大字号深色/宽屏下输出设置、列表、详情、头部、正文、菜单及 Cookies 截图到 `build/screenshots/requests/`。[http_message_test.dart](flutter/test/http_message_test.dart) 检查 JSON 数值/重复键/转义保真、无效或过大内容回退，以及重复 Cookie、空值、等号和 Expires 逗号。正文不完整或截断时不提供 cURL 导出。这些是配置的检查，实际结果以对应源码 SHA 的 Actions 为准；桥接替身不等于真实 TLS 或 Root 验收，相应核心和 Android 验证见 [libbox.md](libbox.md#构建同步和验证) 与 [app.md](app.md#验证与历史记录)。
 
 [status_panel_parity_test.dart](flutter/test/status_panel_parity_test.dart) 与冻结的 [flclash_status_reference.dart](flutter/test/support/flclash_status_reference.dart) 比较像素，覆盖中英文、深浅主题、0.8/1.0/1.4 字号比例、IPv6、查询等待/失败、组织/ASN 回退及质量等级；停止按钮另行比较。停服状态包含无配置首次启动和设备网络查询的成功/等待/失败情况。
 

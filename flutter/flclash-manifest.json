@@ -224,7 +224,7 @@
     "lib/components/record.dart": {
       "source": "lib/widgets/record.dart",
       "sourceSHA256": "1a29b9c8e41a2f3dec32e496019dd3299234947c2dbad8c037094a8c0a67cd92",
-      "changes": "Shared log/connection record surfaces, header, timestamp, labels, typography and copyable detail rows retained; semantic color roles copied from the reference RecordTone enum."
+      "changes": "Shared log/connection/request record surfaces, header, timestamp, labels, typography and copyable detail rows retained; semantic color roles copied from the reference RecordTone enum. Detail rows constrain long labels and support stacked HTTP URLs, headers and cookies while retaining tap-to-copy feedback."
     },
     "lib/pages/tools.dart": {
       "source": "lib/views/tools.dart",

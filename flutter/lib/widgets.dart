@@ -20,16 +20,18 @@ class BoxMenu extends StatelessWidget {
 }
 
 class BoxPage extends StatelessWidget {
-  const BoxPage({super.key, required this.title, required this.children, this.actions = const [], this.primaryAction, this.confirmationAction, this.loading = false});
+  const BoxPage({super.key, required this.title, required this.children, this.actions = const [], this.menuItems = const [], this.primaryAction, this.confirmationAction, this.loading = false});
   final String title;
   final List<Widget> children;
   final List<IconButtonData> actions;
+  final List<CommonPopupMenuItem> menuItems;
   final IconButtonData? primaryAction, confirmationAction;
   final bool loading;
   @override
   Widget build(BuildContext context) => CommonScaffold(
     title: context.tr(title),
     iconActions: actions,
+    menuItems: menuItems,
     primaryAction: primaryAction,
     confirmationAction: confirmationAction,
     isLoading: loading,

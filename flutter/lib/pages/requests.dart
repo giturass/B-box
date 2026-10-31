@@ -1,6 +1,8 @@
 import 'package:flutter/services.dart';
 import '../widgets.dart';
+import '../common/http_message.dart';
 import '../components/capture_poll.dart';
+import '../components/captured_body.dart';
 import '../components/record.dart';
 import 'request_settings.dart';
 import 'capture_certificate.dart';
@@ -49,10 +51,10 @@ class _RequestsPageState extends State<RequestsPage> {
             }),
           ],
           body: ListView.builder(
-            padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 24 + context.bottomInset),
+            padding: EdgeInsets.only(top: context.contentTopPadding, bottom: 24 + context.bottomInset),
             itemCount: entries.length + 2,
             itemBuilder: (context, index) {
-              if (index == 0) return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              if (index == 0) return Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 generateGroup([
                   ListItem.toggle(key: const ValueKey('capture-toggle'), title: Text(context.tr('Capture requests')),
                     subtitle: Text(context.tr(active ? 'Capturing new connections' : 'Capture stopped')), value: active,
@@ -70,7 +72,7 @@ class _RequestsPageState extends State<RequestsPage> {
                 if (snapshot == null && error == null) const Center(child: CircularProgressIndicator()),
                 if (snapshot != null && entries.isEmpty) EmptyState(_query.isEmpty ? 'No captured requests' : 'No results',
                   message: _query.isEmpty ? 'Only new connections through the local service are captured. Reconnect the target app after changing capture settings.' : null),
-              ]);
+              ]));
               if (index > entries.length) return (page['total'] as num? ?? 0) > entries.length
                 ? TextButton(onPressed: () => setState(() => _limit = (_limit + 50).clamp(1, 300).toInt()), child: Text(context.tr('Show more')))
                 : const SizedBox.shrink();
@@ -105,8 +107,40 @@ class RequestDetailPage extends StatefulWidget {
 
 class _RequestDetailPageState extends State<RequestDetailPage> {
   String _part = 'Response';
-  int _previewLimit = 16384;
   bool _busy = false;
+
+  Future<void> _copy(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) context.box.messages.add(context.tr('Copied'));
+  }
+
+  Widget _headers(Json message, bool response) {
+    final headers = rows(message['headers']);
+    return generateSection(title: context.tr(response ? 'Response headers' : 'Request headers'), actions: [
+      IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr('Copy headers'), onPressed: headers.isEmpty ? null : () => _copy(
+        headers.map((header) => '${header['name']}: ${header['value']}').join('\n'))),
+    ], items: [
+      if (headers.isEmpty) ListItem(title: Text(context.tr('No headers captured'))),
+      for (final header in headers) DetailRow.text(title: header['name']?.toString() ?? '',
+        value: header['value']?.toString() ?? '', stacked: true),
+    ], footer: message['headersTruncated'] == true ? context.tr('Headers truncated') : null);
+  }
+
+  Widget _cookies(Json message, bool response) {
+    final cookies = capturedCookies(rows(message['headers']), response: response);
+    return generateSection(title: context.tr(response ? 'Response cookies' : 'Request cookies'), actions: [
+      IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr('Copy cookies'), onPressed: cookies.isEmpty ? null : () => _copy(
+        cookies.map((cookie) => cookie.raw).join('\n'))),
+    ], items: [
+      if (cookies.isEmpty) ListItem(title: Text(context.tr('No cookies captured'))),
+      for (final cookie in cookies) DetailRow(title: cookie.name, copyText: cookie.raw, stacked: true,
+        value: Column(crossAxisAlignment: CrossAxisAlignment.start, spacing: 6, children: [
+          Text(cookie.value.isEmpty ? context.tr('Empty value') : cookie.value),
+          if (cookie.attributes.isNotEmpty) Text(cookie.attributes.join('\n'), style: context.listCaptionStyle),
+        ])),
+    ], footer: message['headersTruncated'] == true ? context.tr('Headers truncated') : null);
+  }
+
   @override Widget build(BuildContext context) {
     if (context.box.remote) return const BoxPage(title: 'Requests', children: [EmptyState('HTTP debugging is only available for the local service')]);
     return CapturePoll(method: 'capture.detail', arguments: {'id': widget.id}, builder: (context, detail, error, refresh) {
@@ -114,43 +148,40 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
       final response = _part == 'Response';
       final message = json(detail?[response ? 'response' : 'request']);
       final preview = json(detail?[response ? 'responsePreview' : 'requestPreview']);
-      final text = preview['text']?.toString() ?? '';
+      final values = <String, dynamic>{
+        'URL': request['url'], 'Method': request['method'], 'Created': localDate(detail?['startedAt']),
+        'Duration': '${detail?['durationMs'] ?? 0} ms', 'Status': json(detail?['response'])['status'],
+        'Protocol': request['protocol'], 'Outbound': metadata['outbound'], 'Rule matched': metadata['rule'],
+        'App': (metadata['packages'] as List? ?? []).join(', '), 'UID': metadata['uid'],
+        'Source': metadata['source'], 'Destination': metadata['destination'],
+        if (metadata['originalDestination'] != null) 'Original destination': metadata['originalDestination'],
+        if ((detail?['error'] as String? ?? '').isNotEmpty) 'Error': detail?['error'],
+        if ((detail?['note'] as String? ?? '').isNotEmpty) 'Note': detail?['note'],
+      };
       return BoxPage(title: 'Request details', loading: _busy, actions: [
-        IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr('Copy URL'), onPressed: detail == null ? null : () async {
-          await Clipboard.setData(ClipboardData(text: request['url']?.toString() ?? ''));
-        }),
+        IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr('Copy URL'), onPressed: detail == null ? null : () => _copy(request['url']?.toString() ?? '')),
         IconButtonData(glyph: AppGlyphs.arrowDown, tooltip: context.tr('Export cURL'), onPressed: detail == null || _busy || request['bodyComplete'] != true || request['bodyTruncated'] == true || request['headersTruncated'] == true || request['method'] == 'TLS' ? null : () async {
           setState(() => _busy = true);
           await context.box.act('capture.export', {'format': 'curl', 'id': widget.id});
           if (mounted) setState(() => _busy = false);
         }),
+      ], menuItems: [
+        for (final part in const ['Request', 'Response', 'Cookies']) CommonPopupMenuItem(label: context.tr(part),
+          section: part == 'Request' ? CommonPopupMenuSection(title: context.tr('Message type')) : null,
+          checked: part == _part, onPressed: () => setState(() => _part = part)),
       ], children: [
         if (error != null) ErrorState(error, retry: refresh),
         if (detail == null && error == null) const Center(child: CircularProgressIndicator()),
         if (detail != null) ...[
-          DetailRows({'URL': request['url'], 'Method': request['method'], 'Created': localDate(detail['startedAt']),
-            'Duration': '${detail['durationMs']} ms', 'Status': json(detail['response'])['status'],
-            'Protocol': request['protocol'], 'Outbound': metadata['outbound'], 'Rule matched': metadata['rule'],
-            'App': (metadata['packages'] as List? ?? []).join(', '), 'UID': metadata['uid'],
-            'Source': metadata['source'], 'Destination': metadata['destination'],
-            if (metadata['originalDestination'] != null) 'Original destination': metadata['originalDestination'],
-            if ((detail['error'] as String? ?? '').isNotEmpty) 'Error': detail['error'],
-            if ((detail['note'] as String? ?? '').isNotEmpty) 'Note': detail['note']}),
-          ListItem.options(title: Text(context.tr('Message')), value: _part, options: const ['Request', 'Response'],
-            textBuilder: context.tr, onChanged: (value) => setState(() { _part = value; _previewLimit = 16384; })),
-          generateSection(title: context.tr('Headers'), items: [
-            for (final header in rows(message['headers'])) ListItem(title: Text(header['name'].toString()), subtitle: SelectableText(header['value'].toString())),
-          ]),
-          if (message['headersTruncated'] == true) Text(context.tr('Headers truncated')),
-          Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Text(
-            '${context.tr('Body')} · ${bytes(message['capturedBytes'] as num? ?? 0)} / ${bytes(message['bodyBytes'] as num? ?? 0)}'
-            '${preview['encoding'] == 'base64' ? ' · Base64' : ''}', style: context.listTitleStyle,
-          )),
-          if (message['bodyTruncated'] == true || preview['truncated'] == true) Text(context.tr('Only a limited body preview was saved or decoded.')),
-          if (message['bodyComplete'] != true) Text(context.tr('Body stream is incomplete')),
-          SelectableText(text.length > _previewLimit ? text.substring(0, _previewLimit) : text,
-            style: const TextStyle(fontFamily: 'JetBrainsMono', fontSize: 12)),
-          if (text.length > _previewLimit) TextButton(onPressed: () => setState(() => _previewLimit += 16384), child: Text(context.tr('Show more'))),
+          generateGroup([for (final value in values.entries) DetailRow.text(title: context.tr(value.key),
+            value: value.value?.toString() ?? '—', stacked: const ['URL', 'App', 'Error', 'Note'].contains(value.key))]),
+          if (_part == 'Cookies') ...[
+            _cookies(request, false),
+            _cookies(json(detail['response']), true),
+          ] else ...[
+            _headers(message, response),
+            CapturedBody(key: ValueKey('body-$_part'), message: message, preview: preview),
+          ],
         ],
       ]);
     });
