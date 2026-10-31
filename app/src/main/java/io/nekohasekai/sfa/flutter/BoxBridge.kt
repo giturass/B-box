@@ -76,6 +76,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         }
     }
     private val reports = BoxReports(activity)
+    private val capture = BoxCapture(activity)
     private val profiles = BoxProfiles { recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) } }
     private val qrScanner = BoxQrScanner(profiles::decode)
     private val preferences = activity.getSharedPreferences("flclash_ui", 0)
@@ -469,7 +470,11 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             } }
             "webdav.read" -> withContext(Dispatchers.IO) { backups.read(webdav.download(), args["scope"] as? String ?: "all") }
             "terminal.set", "terminal.importFont", "terminal.deleteFont" -> operations.withLock { toolBridge.invoke(call.method, args) }
-            else -> if (call.method.startsWith("reports.")) reports.invoke(call.method, args) else toolBridge.invoke(call.method, args)
+            else -> when {
+                call.method.startsWith("capture.") -> capture.invoke(call.method, args)
+                call.method.startsWith("reports.") -> reports.invoke(call.method, args)
+                else -> toolBridge.invoke(call.method, args)
+            }
         }
     }
 

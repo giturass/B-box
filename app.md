@@ -74,6 +74,18 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 托管应用模式仍在激活前完成扫描，安装/卸载广播沿用自动更新；列表查询完成后同步最新的已保存设置，包含后台更新的托管结果，打开页面不触发 APK/DEX 扫描。手动重新扫描通过既有桥接更新设置。查询策略继续持久化；Android 12 精确定位同时申请 fine/coarse 权限；远程配置卡不使用本地配置名。
 
+## 请求抓取与调试证书
+
+[BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 通过 `capture.*` 接口连接本地运行中的 libbox，提供抓取启停、筛选、列表/详情、HAR/cURL 导出及 CA 管理。启动须确认本地服务为 Started，并等待内核接受；多个 Activity 共用操作互斥锁，配置和证书变更受抓取状态约束。切换或恢复远程控制时停止本地抓取，并在并发启动返回后重新核对目标；远程会话拒绝读取本地抓取数据。域名选择、协议支持和存储限额由核心维护，见 [libbox.md](libbox.md#httphttps-请求调试)。
+
+抓取设置、记录和 CA 保存在 `noBackupFilesDir/http-debug/`，与 Room 配置和应用备份隔离。设置先经 `ValidateUICaptureConfig` 校验再原子保存，不向 sing-box JSON 添加私有字段。导出沿用 Android 文档选择器，取消时不报告成功；临时导出文件用后删除。此数据不会随普通配置/设置备份导出。
+
+[CaptureCertificate.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureCertificate.kt) 生成并复用每个安装独立的调试 CA。私钥经 Android Keystore AES-GCM 密钥加密后原子保存，以公开证书作为附加认证数据，混换证书与私钥会导致解密失败。只有公开证书可导出或交给 CertBridge；不生成、替换或导出应用发布签名密钥。
+
+CertBridge 调用依据固定提交 [`bda7cb26e6b831768e8faf2cac6bcde7c89d7fc7`](https://github.com/Eikeitsu/CertBridge/tree/bda7cb26e6b831768e8faf2cac6bcde7c89d7fc7) 的 CLI，复用普通 Root 能力，使用固定入口 `/data/adb/certbridge/cb` 或模块入口 `/data/adb/modules/CertBridge/bin/cb`。`install_custom` 只接收公开 PEM 的 Base64；导入后及删除前，通过 `cert_info custom:<filename>` 核对完整 SHA-256。记录的文件已被外部删除时通过 `list_custom` 恢复状态；同名但指纹不同的证书拒绝删除。轮换先移除已记录的旧导入，再生成新 CA，并保留待重启状态。
+
+导入/移除成功仅表示 CertBridge 配置已改变，界面提示重启。手动检查执行 `status --live`，并按证书内容查验当前进程 `AndroidCAStore` 的 `system:` 项；显示最近检查时间，不将 CLI 缓存或文件存在当作系统信任。该结果不保证其他应用接受证书，协议与证书固定等兼容范围见 [libbox.md](libbox.md#httphttps-请求调试)。
+
 ## 已移除能力与兼容入口
 
 - **Xposed/LSPosed：** 删除模块 API、Hook、Provider/AIDL、模块注册、vendored `libxposed-api`、Gradle 子项目/依赖及特权增强页面/设置。普通 VPN、Root/Shizuku 查询、桥接/自动重定向、Shell 和报告继续保留。
@@ -112,7 +124,7 @@ Release 流程运行 Flutter 分析/测试、`testOtherDebugUnitTest` 及保留 
 | 入口 | 配置的验证范围 |
 | --- | --- |
 | [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入、Android 入口及旧 UI/更新依赖残留的静态检查 |
-| [newui.yml](.github/workflows/newui.yml) | `dev` push 或手动触发；Go 扩展及自动重定向布局回归、Flutter 分析/交互/布局测试及 ARM64 Flutter AAR |
+| [newui.yml](.github/workflows/newui.yml) | `dev` / `newui` push 或手动触发；Go 扩展、HTTP 抓取/路由及自动重定向布局回归、Flutter 分析/交互/布局测试及 ARM64 Flutter AAR |
 | [newui-android.yml](.github/workflows/newui-android.yml) | 手动触发；JVM 回归、`play` Kotlin 编译、`other` APK/仪器测试构建及 API 24/31/35 模拟器 smoke |
 | [build-release.yml](.github/workflows/build-release.yml) | 手动触发；自动重定向布局回归、签名 ARM64 Release、安装身份/产物校验及可选发布 |
 
@@ -129,5 +141,7 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 [LogStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/LogStreamTest.kt) 覆盖日志快照、增量、淘汰边界、等级更新、清空、重新订阅和缓冲重置，并检查 3000 条缓冲新增一条时只编码一条。[VisiblePollingTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/VisiblePollingTest.kt) 用虚拟时间检查不可见/后台/熄屏时零采样、恢复立即采样及取消在途任务；两者由 Android smoke 和 Release 的 JVM 测试运行，Flutter 通知与订阅测试见 [flclash.md](flclash.md#验证与升级参考版本)。这些调用计数不代表实测内存或帧率收益。
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
+
+[CertBridgeProtocolTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/CertBridgeProtocolTest.kt) 验证文件名、完整指纹及自定义证书列表解析。[CaptureCertificateTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/CaptureCertificateTest.kt) 使用隔离目录和测试专用 Keystore alias，验证实际 CA 生成、加密持久化/复用、附加认证数据校验、公开证书导出、导入身份核对、轮换待重启状态及外部删除后的恢复。CertBridge 命令由测试替身响应；Root 导入、重启后系统信任和目标应用兼容性仍需实机验收。
 
 原 `MODIFICATIONS.md` 与 `NEWUI.md` 已按领域归入这四份文档。历史 MOD-001～004、007～008、012 的 Compose 界面由 Flutter 替代；MOD-005/006/009 的品牌、安装身份及发布约定在本文继续维护；MOD-011/015/016 的删除项以本次迁移后的现状为准；MOD-013/014 的核心与工具裁剪已回退；MOD-017 的 UI 适配见 [flclash.md](flclash.md)。旧实现、逐次构建日志与产物哈希可通过 `git log --all -- MODIFICATIONS.md NEWUI.md` 和对应提交的文件内容查询，不再混入当前项目约束。

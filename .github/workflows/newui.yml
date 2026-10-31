@@ -2,7 +2,7 @@ name: New UI validation
 
 on:
   push:
-    branches: [dev]
+    branches: [dev, newui]
   workflow_dispatch:
 
 permissions:
@@ -37,6 +37,7 @@ jobs:
           git apply --check ../libbox/libbox-no-legacy.patch
           git apply ../libbox/libbox-no-legacy.patch
           python3 ../tools/patch_sing_tun.py .
+          python3 ../tools/patch_httpdebug.py .
       - name: Android ingress-discard map compatibility tests
         working-directory: .core
         run: go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1
@@ -45,6 +46,11 @@ jobs:
         run: |
           cp ../libbox/ui_http.go ../libbox/ui_http_test.go ../libbox/ui_egress.go ../libbox/ui_egress_test.go ../libbox/ui_lan.go ../libbox/ui_lan_test.go experimental/libbox/
           go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(WebDAV|HTTPGet|Egress|LAN)' -count=1
+      - name: HTTP capture protocol, storage and route tests
+        working-directory: .core
+        run: |
+          go test -race ./experimental/httpdebug -count=1
+          go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1
   flutter:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

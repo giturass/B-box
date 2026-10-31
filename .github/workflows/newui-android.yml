@@ -39,6 +39,7 @@ jobs:
           git apply --check ../libbox/libbox-no-legacy.patch
           git apply ../libbox/libbox-no-legacy.patch
           python3 ../tools/patch_sing_tun.py .
+          python3 ../tools/patch_httpdebug.py .
           cp ../libbox/ui_dashboard.go experimental/libbox/ui_dashboard.go
           cp ../libbox/ui_http.go experimental/libbox/ui_http.go
           cp ../libbox/ui_egress.go experimental/libbox/ui_egress.go

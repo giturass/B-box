@@ -6,7 +6,7 @@
 
 上游为 [SagerNet/sing-box](https://github.com/SagerNet/sing-box)，绑定位于 `experimental/libbox`。当前基线是 [`v1.15.0-alpha.13`](https://github.com/SagerNet/sing-box/tree/v1.15.0-alpha.13/experimental/libbox)，Go 为 `go1.26.10`；实际版本由 [version.properties](version.properties) 的 `VERSION_NAME` 和 `GO_VERSION` 决定，工作流检出 `v${VERSION_NAME}`。
 
-本仓库不存储完整核心或 AAR，构建补丁与扩展源码统一保存在 [libbox/](libbox/)。CI 检出上游至 `.core/`，应用构建补丁和下述 sing-tun 兼容补丁，再将四个生产 Go 文件复制到 `experimental/libbox/`，构建标准 `libbox.aar` 供 Android 使用。仅有上游原版 AAR 不足以编译当前 B-box，因为它没有下面的 UI 扩展绑定，也不包含本仓库的自动重定向兼容补丁。
+本仓库不存储完整核心或 AAR，构建补丁与扩展源码统一保存在 [libbox/](libbox/)。CI 检出上游至 `.core/`，应用构建补丁、sing-tun 兼容补丁和 HTTP 调试补丁，安装抓取引擎、路由适配及五个 `ui_*.go` 生产扩展，构建标准 `libbox.aar` 供 Android 使用。仅有上游原版 AAR 不足以编译当前 B-box，因为它没有下面的 UI 扩展绑定，也不包含本仓库的路由和自动重定向兼容补丁。
 
 | 差异 | 文件 | 作用 |
 | --- | --- | --- |
@@ -16,6 +16,7 @@
 | HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码和有大小上限的响应，供备份及 Release 元数据使用 |
 | 出口探测绑定 | [ui_egress.go](libbox/ui_egress.go) | 可取消的设备网络/运行中路由探测、出口 IP 多源查询与质量请求传输 |
 | 局域网代理配置绑定 | [ui_lan.go](libbox/ui_lan.go) | 读取 mixed/http/socks 监听端点、修改 listen 或显式新增 mixed 入站 |
+| HTTP/HTTPS 调试 | [httpdebug.patch](libbox/httpdebug.patch)、[httpdebug/](libbox/httpdebug/)、[route/](libbox/route/)、[ui_capture.go](libbox/ui_capture.go) | 在已选路的连接上抓取请求、按域名解密 HTTPS，提供本地记录和导出绑定 |
 
 ## 新增接口与行为
 
@@ -53,6 +54,22 @@
 
 该绑定只返回变换后的 JSON，不负责保存和启动服务。Android 调用方必须继续执行内容修订检查、完整 `Libbox.checkConfig`、原子写入、服务应用及失败恢复；运行时复制端点使用已成功启动的配置快照。
 
+### HTTP/HTTPS 请求调试
+
+[patch_httpdebug.py](tools/patch_httpdebug.py) 对匹配核心应用路由和服务生命周期补丁，将 `libbox/httpdebug/` 安装到 `experimental/httpdebug/`、路由适配安装到 `route/b_box_*.go`，并复制 `ui_capture.go`。已有覆盖文件时拒绝重复安装。补丁在路由选择、出站组解析和连接跟踪之后接管符合条件的新连接；上游连接继续使用原来的 `ConnectionHandler` 或连接管理器，保留目的地址、路由选项、出站链和应用归属，不新增监听器或独立直连回退。补充嗅探只修改元数据副本，不匹配的已读字节回放到原出站。抓取关闭时路由保持原行为；启用后候选流走连接路径，显式 bypass 规则仍保留。
+
+HTTPS 默认关闭。开启后，**HTTPS 域名白名单为空表示不限制解密域名**；填写后只解密匹配的域名。精确域名和 `*.example.com` 分别匹配本域和子域，通配符不包含主域；排除域名优先，通用抓取域名筛选同时约束 HTTP 与 HTTPS。应用选择为空表示所有归属，非空时未知归属不匹配，共享 UID 按包名集合判断。默认端口为 80、443、8080、8443，可选择最多 32 个端口。
+
+TLS 解密使用每个安装独立的 CA，签发带 SAN 的 ECDSA P-256 叶证书，叶证书缓存最多 128 项；上游继续使用当前 libbox 根证书池验证真实服务端，失败不会跳过验证。支持 HTTP/1.1、TLS ALPN 的 HTTP/2 及流式请求/响应；SSE 及时转发，WebSocket 只记录 HTTP 升级握手，后续帧双向透传。合并到同一 TLS 连接但域名不同的请求返回 421，要求客户端另建连接，避免越过域名选择。CA 的 Android 保存及系统导入见 [app.md](app.md#请求抓取与调试证书)。
+
+记录保留最近 300 条，磁盘总量上限 32 MiB；每条请求和响应各保存正文前缀，默认 64 KiB、最大 1 MiB，记录头上限 64 KiB。完整正文持续转发，不为录制缓存整个下载；最多同时接管 32 条连接，每条 HTTP/2 连接最多 16 个流，超过连接容量的新连接继续走原出站。停止抓取关闭已接管连接并等待处理器退出；服务重载、关闭及进程重启后不自动恢复抓取。记录可在停服时查看，进程重启将未结束记录标记为中断，并核对正文文件实际长度。
+
+正文预览和 HAR 中的压缩正文解码支持 gzip/deflate，展开上限 64 KiB；其他编码或二进制可查看 Base64。HAR 保留原始压缩前缀于扩展字段，标准 `content.text` 只放解码结果，无法解码时省略；截断、完整性和未知大小均有标记。耗时仅记录总时长，HAR 的 `wait` 使用总时长并明确标注 send/receive 未测量，不表示 DNS/TCP/TLS 分阶段计时。cURL 仅导出完整且未截断的 HTTP 请求头/正文，使用 shell 引用和 Base64 管道保留正文；TLS 失败和正文文件缺失时拒绝生成。没有录制 HTTP trailers 或 WebSocket 帧，也不提供重放和修改请求。
+
+可选 QUIC 阻断只作用于已观察到 ClientHello 域名、且匹配 HTTPS 解密及应用/端口筛选的连接，尝试促使客户端回退到 HTTP/2 或 HTTP/1.1；未知域名和不完整的嗅探数据仍回放。HTTP/3 不解密，不能保证客户端一定回退。证书固定、自有证书库、mTLS、ECH 和不兼容的 TLS 协议可能需要排除目标域名。
+
+`CommandServer.StartUICapture` 必须绑定运行中的本地实例，并与服务重载/关闭串行；其余 `Open/Validate/Stop/Read/List/Clear/ExportUICapture*` 绑定提供配置校验、状态、列表、详情、清空和导出。Android 只读取有界预览，原始正文通过文件导出，不在轮询桥接中传送。
+
 ## Android 自动重定向兼容
 
 当前核心依赖 [sing-tun `611d83b7a57b4719be45581eb674942ff561de6c`](https://github.com/SagerNet/sing-tun/tree/611d83b7a57b4719be45581eb674942ff561de6c)，模块版本为 `v0.9.7-0.20261023115453-611d83b7a57b`。该版本的 `redirect_ingress_discard_android.go` 只接受 hash 类型、16 字节 key、8 字节 value 的系统 map；[AOSP Android 15 的实现](https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/tags/android-15.0.0_r1/bpf_progs/netd.c) 使用两个接口编号。一加 10 Pro / Android 15 的问题报告返回 `type 1, key 16, value 4`，因此会在自动重定向启动时被上游的布局检查拒绝。不能仅按 Android 版本号选择布局。
@@ -71,11 +88,13 @@
 
 ## 构建、同步和验证
 
-- [Release 工作流](.github/workflows/build-release.yml) 检查并应用 legacy 和 sing-tun 兼容补丁，运行上述布局回归测试，复制四个生产扩展，使用 JDK 17、版本文件指定的 Go 和 NDK 28.0.13004108，执行上游 `make lib_install` 与 `build_libbox -target android -platform android/arm64`。要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
-- [Android smoke 工作流](.github/workflows/newui-android.yml) 同样应用两个补丁和四个扩展，构建 `android/amd64` 核心用于 x86_64 模拟器。
-- [UI 验证工作流](.github/workflows/newui.yml) 应用两个补丁，运行 `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1`，再在匹配核心中复制 HTTP、出口和 LAN 扩展及对应测试，运行 `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(WebDAV|HTTPGet|Egress|LAN)' -count=1`。它不是完整 AAR 构建，内存绑定由 Android/Release 构建覆盖。
+- [Release 工作流](.github/workflows/build-release.yml) 检查并应用 legacy、sing-tun 兼容和 HTTP 调试补丁，运行上述布局回归测试，安装抓取引擎、路由适配和五个生产扩展，使用 JDK 17、版本文件指定的 Go 和 NDK 28.0.13004108，执行上游 `make lib_install` 与 `build_libbox -target android -platform android/arm64`。要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
+- [Android smoke 工作流](.github/workflows/newui-android.yml) 同样应用上述补丁、抓取引擎、路由适配和五个扩展，构建 `android/amd64` 核心用于 x86_64 模拟器。
+- [UI 验证工作流](.github/workflows/newui.yml) 应用上述补丁并安装抓取扩展，运行 `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1`，再在匹配核心中复制 HTTP、出口和 LAN 扩展及对应测试，运行 `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(WebDAV|HTTPGet|Egress|LAN)' -count=1`。它不是完整 AAR 构建，内存绑定由 Android/Release 构建覆盖。另执行 `go test -race ./experimental/httpdebug -count=1` 和 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1`，覆盖抓取引擎、数据竞争及原出站和嗅探字节保留。
 - 对应回归文件为 [ui_http_test.go](libbox/ui_http_test.go)、[ui_egress_test.go](libbox/ui_egress_test.go)、[ui_lan_test.go](libbox/ui_lan_test.go)，覆盖请求限制/重定向、源回退/公网 IP 校验/解析失败后继续竞速/取消/服务替换、监听转换和端点生成。
 
-升级核心时先检查补丁是否仍准确排除 legacy 分支，核对 sing-tun 依赖版本及自动重定向补丁，再逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对上述各工作流的复制清单。
+[httpdebug_test.go](libbox/httpdebug/httpdebug_test.go) 覆盖域名/应用过滤、HTTP/HTTPS/HTTP2、上游证书验证、SSE/WebSocket、正文和记录上限、恢复及导出；[httpdebug_test.go](libbox/route/httpdebug_test.go) 在匹配核心中验证路由不被嗅探覆盖及不匹配流量字节回放。获准本机验证时可运行 [verify_httpdebug.py](tools/verify_httpdebug.py)，限制 Go 并发和内存；该脚本只测试独立引擎，不编译路由或生成 Android 绑定。
+
+升级核心时先检查补丁是否仍准确排除 legacy 分支，核对 sing-tun 依赖版本及自动重定向补丁，检查 HTTP 调试路由/服务生命周期补丁及覆盖文件，再逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对上述各工作流的复制清单。
 
 以上是源码和工作流的覆盖范围，不是本次测试通过记录；实际结果须对应提交 SHA 和 Actions 运行。本机构建限制见 [AGENTS.md](AGENTS.md)。

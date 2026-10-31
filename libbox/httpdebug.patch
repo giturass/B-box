@@ -1,0 +1,71 @@
+diff --git a/route/route.go b/route/route.go
+--- a/route/route.go
++++ b/route/route.go
+@@ -166,6 +166,11 @@
+ 	ctx = interrupt.ContextWithIsExternalConnection(ctx, true)
+ 	onClose = registerInterrupt(chain, conn, onClose)
+ 	outbound := chain[len(chain)-1]
++	var captured bool
++	conn, captured = r.routeHTTPDebug(ctx, conn, metadata, outbound, onClose)
++	if captured {
++		return nil
++	}
+ 	if outboundHandler, isHandler := outbound.(adapter.ConnectionHandler); isHandler {
+ 		outboundHandler.NewConnection(ctx, conn, metadata, onClose)
+ 	} else {
+@@ -316,6 +321,12 @@
+ 	if err != nil {
+ 		N.ReleaseMultiPacketBuffer(packetBuffers)
+ 		return err
++	}
++	var rejectedQUIC bool
++	packetBuffers, rejectedQUIC = debugRejectQUIC(ctx, conn, metadata, packetBuffers)
++	if rejectedQUIC {
++		N.ReleaseMultiPacketBuffer(packetBuffers)
++		return errors.New("QUIC blocked for a selected HTTP debugging domain")
+ 	}
+ 	for _, buffer := range slices.Backward(packetBuffers) {
+ 		conn = bufio.NewCachedPacketConn(conn, buffer.Buffer, buffer.Destination)
+@@ -480,6 +491,9 @@
+ 
+ func (r *Router) preMatchFlow(ctx context.Context, metadata *adapter.InboundContext, packetDestination M.Socksaddr, matchedRule adapter.Rule, outboundTag string) adapter.PreMatchResult {
+ 	continueResult := adapter.PreMatchResult{Action: adapter.PreMatchContinue}
++	if debugNeedsStream(*metadata) {
++		return continueResult
++	}
+ 	var outbound adapter.Outbound
+ 	if outboundTag == "" {
+ 		outbound = r.outbound.Default()
+diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command_server.go
+--- a/experimental/libbox/command_server.go
++++ b/experimental/libbox/command_server.go
+@@ -179,6 +179,9 @@
+ }
+ 
+ func (s *CommandServer) Close() {
++	uiCaptureLifecycle.Lock()
++	defer uiCaptureLifecycle.Unlock()
++	StopUICapture()
+ 	if s.grpcServer != nil {
+ 		s.grpcServer.Stop()
+ 	}
+@@ -195,6 +198,9 @@
+ }
+ 
+ func (s *CommandServer) StartOrReloadService(configContent string, options *OverrideOptions) error {
++	uiCaptureLifecycle.Lock()
++	defer uiCaptureLifecycle.Unlock()
++	StopUICapture()
+ 	saveConfigSnapshot(configContent)
+ 	if s.powerManager.Recorder() != nil {
+ 		copyConfigSnapshot(filepath.Join(sWorkingPath, powerreport.DraftDirectoryName))
+@@ -211,6 +217,9 @@
+ }
+ 
+ func (s *CommandServer) CloseService() error {
++	uiCaptureLifecycle.Lock()
++	defer uiCaptureLifecycle.Unlock()
++	StopUICapture()
+ 	return s.StartedService.CloseService()
+ }
+ 

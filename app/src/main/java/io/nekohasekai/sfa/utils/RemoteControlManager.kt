@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.utils
 
+import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.backend.base.GlobalEventBus
@@ -9,6 +10,7 @@ import io.nekohasekai.sfa.database.RemoteServerManager
 import io.nekohasekai.sfa.database.Settings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -68,7 +70,7 @@ object RemoteControlManager : CommandClient.Handler {
         }
     }
 
-    fun enterRemoteControl(server: RemoteServer) {
+    suspend fun enterRemoteControl(server: RemoteServer) {
         CommandTarget.setRemoteServer(server)
         resetSessionState()
         _remoteServer.value = server
@@ -78,6 +80,9 @@ object RemoteControlManager : CommandClient.Handler {
         scope.launch(Dispatchers.IO) {
             Settings.activeRemoteServerId = server.id
         }
+        // Set the target before stopping: concurrent local starts recheck it after
+        // libbox acknowledges capture, including restoration of a saved session.
+        withContext(NonCancellable + Dispatchers.IO) { Libbox.stopUICapture() }
     }
 
     fun exitRemoteControl() {
