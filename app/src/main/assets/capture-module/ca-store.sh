@@ -44,15 +44,21 @@ ca_set_context() (
 
 ca_mount_namespace() {
     [ -e "/proc/$3/ns/mnt" ] || return 0
-    # Resolve the prepared tmpfs through OUR namespace. The same path in the
-    # destination namespace may still be an empty directory underneath it.
-    nsenter --mount="/proc/$3/ns/mnt" -- mount --bind "/proc/$$/root$1" "$2" || \
-        ca_log "Unable to mount $2 in process $3"
+    [ "/proc/$$/ns/mnt" -ef "/proc/$3/ns/mnt" ] && return 0
+    # A bind source must belong to the destination mount namespace. Prepare
+    # its own tmpfs there, preserving the certificates visible to that process.
+    nsenter --mount="/proc/$3/ns/mnt" -- sh -c '
+        MODDIR=$1
+        . "$MODDIR/ca-store.sh" || exit 1
+        ca_mount_store "$2" "$3" 1
+    ' sh "$MODDIR" "$1" "$2" || ca_log "Unable to mount $1 in process $3"
 }
 
 ca_mount_store() (
     target=$1
-    stage="$MODDIR/.ca-$2"
+    store_kind=$2
+    namespace_only=${3:-0}
+    stage="$MODDIR/.ca-$store_kind"
     [ -d "$target" ] || exit 0
     set -- "$MODDIR"/system/etc/security/cacerts/*.0
     [ "$#" -eq 1 ] && [ -f "$1" ] || { ca_log "Expected one B-box public CA"; exit 1; }
@@ -73,13 +79,17 @@ ca_mount_store() (
     fi
 
     mount --bind "$stage" "$target" || { ca_log "Unable to mount $target"; exit 1; }
-    ca_mount_namespace "$stage" "$target" 1
+    if [ "$namespace_only" = 1 ]; then
+        ca_log "Mounted B-box public CA at $target in target namespace"
+        exit 0
+    fi
+    ca_mount_namespace "$target" "$store_kind" 1
     for pid in $(pidof zygote) $(pidof zygote64); do
-        ca_mount_namespace "$stage" "$target" "$pid"
+        ca_mount_namespace "$target" "$store_kind" "$pid"
     done
     # post-fs-data runs before apps; service.sh also covers existing processes.
     for pid in $(pidof io.ericlee.bfa) $(pidof com.android.settings); do
-        ca_mount_namespace "$stage" "$target" "$pid"
+        ca_mount_namespace "$target" "$store_kind" "$pid"
     done
     ca_log "Mounted B-box public CA at $target"
 )

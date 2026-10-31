@@ -19,11 +19,12 @@ CommonPopupMenuItem action(WidgetTester tester, String label) {
   return flatten(scaffold(tester).menuItems).firstWhere((item) => item.label == label);
 }
 
-Future<BoxController> openAccess(WidgetTester tester, Future<Object?> Function(MethodCall) handler) async {
+Future<BoxController> openAccess(WidgetTester tester, Future<Object?> Function(MethodCall) handler,
+  {StreamController<dynamic>? eventController}) async {
   tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];
   addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
   const channel = MethodChannel('test.access-loading');
-  final events = StreamController<dynamic>.broadcast();
+  final events = eventController ?? StreamController<dynamic>.broadcast();
   final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   messenger.setMockMethodCallHandler(channel, handler);
   final box = BoxController(channel: channel, events: events.stream);
@@ -46,6 +47,57 @@ Json ready([Json settings = const {}]) => {'version': 'test', 'coreVersion': 'te
   'settings': {'perAppEnabled': true, ...settings}, 'dashboard': {'status': 'Stopped'}};
 
 void main() {
+  testWidgets('app selections remain editable after a failed save', (tester) async {
+    var reject = true;
+    final edits = <Json>[];
+    await openAccess(tester, (call) async {
+      if (call.method == 'ready') return ready({'perAppMode': 1, 'perAppList': ['hidden.app']});
+      if (call.method == 'apps.list') return [visibleApp];
+      if (call.method == 'settings.patch') {
+        edits.add(json(json(call.arguments)['value']));
+        if (reject) throw PlatformException(code: 'disk', message: 'Save failed');
+        return edits.last;
+      }
+      return null;
+    });
+    await tester.tap(find.text('Visible app'));
+    await tester.pumpAndSettle();
+    expect(edits, isEmpty);
+    scaffold(tester).confirmationAction!.onPressed!();
+    await tester.pumpAndSettle();
+    expect(find.byType(AccessPage), findsOneWidget);
+    expect(scaffold(tester).confirmationAction, isNotNull);
+    reject = false;
+    scaffold(tester).confirmationAction!.onPressed!();
+    await tester.pumpAndSettle();
+    expect(edits, hasLength(2));
+    expect(edits.last['perAppList'], containsAll(['visible.app', 'hidden.app']));
+    expect(edits.last['perAppEnabled'], true);
+    expect(scaffold(tester).confirmationAction, isNull);
+  });
+
+  testWidgets('managed application page uses the latest saved selections without scanning APKs', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    final calls = <String>[];
+    final settings = ready({'perAppManaged': true, 'perAppManagedList': <String>[]});
+    final box = await openAccess(tester, (call) async {
+      calls.add(call.method);
+      if (call.method == 'ready') return settings;
+      if (call.method == 'apps.rescan') throw StateError('Opening the page must not scan APKs');
+      if (call.method == 'apps.list') {
+        events.add({'type': 'settings', 'value': {
+          ...json(settings['settings']), 'perAppManagedList': ['visible.app'],
+        }});
+        return [visibleApp];
+      }
+      return null;
+    }, eventController: events);
+    expect(calls.where((method) => method == 'apps.rescan'), isEmpty);
+    expect(calls.where((method) => method == 'apps.list'), hasLength(1));
+    expect(box.settings['perAppManagedList'], ['visible.app']);
+    expect(find.text('Visible app'), findsOneWidget);
+  });
+
   testWidgets('filters request cached metadata and preserve selections for hidden apps', (tester) async {
     final lists = <Json>[];
     final icons = <String>[];

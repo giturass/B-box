@@ -11,8 +11,15 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  validation:
+    uses: ./.github/workflows/newui.yml
   build:
+    needs: validation
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     defaults:
@@ -24,93 +31,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Prepare signing key
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
-          ALIAS_NAME: ${{ secrets.ALIAS_NAME }}
-          ALIAS_PASS: ${{ secrets.ALIAS_PASS }}
-        run: |
-          for name in KEYSTORE_BASE64 KEYSTORE_PASS ALIAS_NAME ALIAS_PASS; do
-            if [[ -z "${!name}" ]]; then
-              echo "::error::Missing repository secret: $name (see app.md)"
-              exit 1
-            fi
-          done
-          umask 077
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > app/release.keystore
-          test -s app/release.keystore
-
-      - name: Read core and Go versions
-        id: versions
-        run: |
-          version=$(sed -n 's/^VERSION_NAME=//p' version.properties | tr -d '\r')
-          go_version=$(sed -n 's/^GO_VERSION=go//p' version.properties | tr -d '\r')
-          [[ "$version" =~ ^[0-9][0-9A-Za-z.+-]*$ ]]
-          [[ "$go_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "go_version=$go_version" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout matching sing-box core
-        uses: actions/checkout@v5
+      - id: core
+        uses: ./.github/actions/build-libbox
         with:
-          repository: SagerNet/sing-box
-          ref: v${{ steps.versions.outputs.version }}
-          path: .core
-          persist-credentials: false
-
-      - name: Disable legacy libbox build
-        working-directory: .core
-        run: |
-          git apply --check ../libbox/libbox-no-legacy.patch
-          git apply ../libbox/libbox-no-legacy.patch
-          python3 ../tools/patch_httpdebug.py .
-          cp ../libbox/ui_dashboard.go experimental/libbox/ui_dashboard.go
-          cp ../libbox/ui_http.go experimental/libbox/ui_http.go
-          cp ../libbox/ui_egress.go experimental/libbox/ui_egress.go
-          cp ../libbox/ui_lan.go experimental/libbox/ui_lan.go
-
-      # The upstream libbox builder explicitly requires OpenJDK 17.
-      - name: Set up Java for libbox
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Android SDK and NDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: >-
-            platform-tools
-            platforms;android-36
-            platforms;android-37.1
-            build-tools;36.0.0
-            build-tools;37.0.0
-            ndk;28.0.13004108
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ steps.versions.outputs.go_version }}
-          cache-dependency-path: .core/go.sum
-
-      - name: Patch and test Android ingress-discard map compatibility
-        working-directory: .core
-        run: |
-          python3 ../tools/patch_sing_tun.py .
-          go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1
-
-      - name: Build arm64 libbox
-        working-directory: .core
-        run: |
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
-          make lib_install
-          go_bin="$(go env GOPATH)/bin"
-          export PATH="$PATH:$go_bin"
-          go run ./cmd/internal/build_libbox -target android -platform android/arm64
-          test ! -e libbox-legacy.aar
-          mkdir -p ../app/libs
-          cp libbox.aar ../app/libs/libbox.aar
+          platform: android/arm64
 
       - name: Set up Java for Gradle
         uses: actions/setup-java@v5
@@ -121,20 +45,11 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - name: Download validated Flutter libraries
+        uses: actions/download-artifact@v5
         with:
-          flutter-version: '3.47.6'
-          channel: stable
-          cache: true
-
-      - name: Validate and build Flutter module
-        working-directory: flutter
-        run: |
-          flutter pub get
-          flutter analyze --no-fatal-infos
-          flutter test --reporter expanded
-          flutter build aar --no-profile --target-platform android-arm64
+          name: flutter-aar-arm64
+          path: flutter/build/host/outputs/repo
 
       - name: Run unit tests
         run: |
@@ -155,6 +70,23 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+      - name: Prepare signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          ALIAS_NAME: ${{ secrets.ALIAS_NAME }}
+          ALIAS_PASS: ${{ secrets.ALIAS_PASS }}
+        run: |
+          for name in KEYSTORE_BASE64 KEYSTORE_PASS ALIAS_NAME ALIAS_PASS; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing repository secret: $name (see app.md)"
+              exit 1
+            fi
+          done
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > app/release.keystore
+          test -s app/release.keystore
+
       - name: Build signed Release APK
         env:
           KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
@@ -168,66 +100,12 @@ jobs:
             -Pkotlin.compiler.execution.strategy=in-process
 
       - name: Verify APK identity, architecture and signature
-        run: |
-          python3 - <<'PY'
-          import os
-          import re
-          import subprocess
-          from pathlib import Path
-          from zipfile import ZipFile
-
-          properties = dict(
-              line.strip().split('=', 1)
-              for line in Path('version.properties').read_text().splitlines()
-              if line.strip() and not line.lstrip().startswith('#') and '=' in line
-          )
-          apks = list(Path('app/build/outputs/apk/other/release').glob('*.apk'))
-          expected_name = f"B-box-{properties['VERSION_NAME']}-arm64-v8a.apk"
-          if len(apks) != 1 or apks[0].name != expected_name:
-              raise SystemExit(f'Expected exactly one {expected_name}, found: {apks}')
-          with ZipFile(apks[0]) as apk:
-              abis = {name.split('/')[1] for name in apk.namelist()
-                      if name.startswith('lib/') and name.endswith('.so')}
-          if abis != {'arm64-v8a'}:
-              raise SystemExit(f'Unexpected native ABIs: {abis}')
-
-          aapt2 = Path(os.environ['ANDROID_HOME']) / 'build-tools/37.0.0/aapt2'
-          badging = subprocess.check_output(
-              [str(aapt2), 'dump', 'badging', str(apks[0])], text=True
-          )
-          sdk_versions = re.findall(r"^(?:minSdkVersion|sdkVersion):'([^']*)'$", badging, re.MULTILINE)
-          if sdk_versions != ['24']:
-              raise SystemExit(f'Expected minimum Android SDK 24 (Android 7.0), found: {sdk_versions}')
-          package_line = next(
-              (line for line in badging.splitlines() if line.startswith('package: ')), ''
-          )
-          package = dict(re.findall(r"(\w+)='([^']*)'", package_line))
-          expected_package = {
-              'name': 'io.ericlee.bfa',
-              'versionName': properties['VERSION_NAME'],
-              'versionCode': properties['VERSION_CODE'],
-          }
-          for key, expected in expected_package.items():
-              if package.get(key) != expected:
-                  raise SystemExit(f'Unexpected APK {key}: {package.get(key)!r}, expected {expected!r}')
-          launcher_line = next(
-              (line for line in badging.splitlines() if line.startswith('launchable-activity: ')), ''
-          )
-          launcher = dict(re.findall(r"(\w+)='([^']*)'", launcher_line))
-          if launcher.get('name') != 'io.nekohasekai.sfa.compose.MainActivity':
-              raise SystemExit(f'Unexpected launcher activity: {launcher.get("name")!r}')
-          labels = dict(re.findall(r"^(application-label(?:-[^:]+)?):'(.*)'$", badging, re.MULTILINE))
-          if 'application-label' not in labels or any(label != 'B-box' for label in labels.values()):
-              raise SystemExit(f'Unexpected application labels: {labels}')
-          print(f'Verified ARM64 APK identity, minimum SDK 24 and {len(labels)} application labels: {apks[0]}')
-          PY
-          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose \
-            app/build/outputs/apk/other/release/*-arm64-v8a.apk
+        run: python3 tools/verify_release.py
 
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: B-box-${{ steps.versions.outputs.version }}-arm64-v8a-release
+          name: B-box-${{ steps.core.outputs.version }}-arm64-v8a-release
           path: app/build/outputs/apk/other/release/*-arm64-v8a.apk
           if-no-files-found: error
           compression-level: 0
@@ -237,94 +115,8 @@ jobs:
         if: ${{ inputs.publish_release }}
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION_NAME: ${{ steps.versions.outputs.version }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import re
-          import subprocess
-          from pathlib import Path
-          from urllib.parse import quote
-
-          repository = os.environ['GITHUB_REPOSITORY']
-          commit = os.environ['GITHUB_SHA']
-          version = os.environ['VERSION_NAME']
-          properties = dict(
-              line.strip().split('=', 1)
-              for line in Path('version.properties').read_text().splitlines()
-              if line.strip() and not line.lstrip().startswith('#') and '=' in line
-          )
-          if version != properties['VERSION_NAME']:
-              raise SystemExit('Release tag must exactly match VERSION_NAME in version.properties')
-          ref = f'refs/tags/{version}'
-          encoded_version = quote(version, safe='')
-
-          def api(path, *arguments):
-              return json.loads(subprocess.check_output(
-                  ['gh', 'api', f'repos/{repository}/{path}', *arguments], text=True
-              ))
-
-          def find_tag():
-              refs = api(f'git/matching-refs/tags/{encoded_version}')
-              return next((entry for entry in refs if entry['ref'] == ref), None)
-
-          tag = find_tag()
-          if tag is None:
-              try:
-                  api('git/refs', '--method', 'POST', '-f', f'ref={ref}', '-f', f'sha={commit}')
-              except subprocess.CalledProcessError:
-                  # Another run may have created this tag in the meantime.
-                  if find_tag() is None:
-                      raise
-              tag = find_tag()
-          if tag is None:
-              raise SystemExit(f'Cannot read release tag after creation: {ref}')
-          target = tag['object']
-          while target['type'] == 'tag':
-              target = api(f"git/tags/{target['sha']}")['object']
-          if target['type'] != 'commit' or target['sha'] != commit:
-              raise SystemExit(
-                  f'Refusing to publish: {ref} points to {target["sha"]}, expected {commit}. '
-                  'Existing release tags are never moved.'
-              )
-
-          apk = Path('app/build/outputs/apk/other/release') / f'B-box-{version}-arm64-v8a.apk'
-          metadata = apk.parent / 'B-box-version-metadata.json'
-          metadata.write_text(json.dumps({
-              'version_code': int(properties['VERSION_CODE']),
-              'version_name': version,
-              'application_id': 'io.ericlee.bfa',
-          }, indent=2) + '\n')
-          prerelease = bool(re.search(r'(alpha|beta|rc)', version, re.IGNORECASE))
-          release_options = [
-              '--repo', repository,
-              '--title', f'B-box {version}',
-              f'--prerelease={str(prerelease).lower()}',
-              f'--latest={str(not prerelease).lower()}',
-          ]
-          existing = subprocess.run(
-              ['gh', 'release', 'view', version, '--repo', repository, '--json', 'tagName'],
-              capture_output=True, text=True
-          )
-          if existing.returncode == 0:
-              subprocess.run(
-                  ['gh', 'release', 'upload', version, str(apk), str(metadata),
-                   '--repo', repository, '--clobber'],
-                  check=True
-              )
-              subprocess.run(
-                  ['gh', 'release', 'edit', version, '--draft=false', *release_options], check=True
-              )
-          else:
-              subprocess.run(
-                  ['gh', 'release', 'create', version, str(apk), str(metadata),
-                   '--verify-tag', '--target', commit,
-                   '--notes', f'Signed ARM64 APK built from {commit}.', *release_options],
-                  check=True
-              )
-          print(f'Published {version} from {commit}: {apk.name}')
-          PY
+          VERSION_NAME: ${{ steps.core.outputs.version }}
+        run: python3 tools/publish_release.py
 
       - name: Remove signing key
         if: always()

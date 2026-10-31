@@ -1,4 +1,4 @@
-name: New UI Android smoke
+name: Android regression and smoke
 
 on:
   workflow_dispatch:
@@ -6,72 +6,38 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
-      - id: versions
-        run: |
-          echo "core=$(sed -n 's/^VERSION_NAME=//p' version.properties)" >> "$GITHUB_OUTPUT"
-          echo "go=$(sed -n 's/^GO_VERSION=go//p' version.properties)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v5
+      - uses: ./.github/actions/build-libbox
         with:
-          repository: SagerNet/sing-box
-          ref: v${{ steps.versions.outputs.core }}
-          path: .core
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: android-actions/setup-android@v3
-        with:
-          log-accepted-android-sdk-licenses: false
-          packages: platform-tools platforms;android-37.1 build-tools;37.0.0 ndk;28.0.13004108 ndk;28.2.13676358
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ steps.versions.outputs.go }}
-          cache-dependency-path: .core/go.sum
-      - name: Build emulator libbox
-        working-directory: .core
-        run: |
-          git apply --check ../libbox/libbox-no-legacy.patch
-          git apply ../libbox/libbox-no-legacy.patch
-          python3 ../tools/patch_sing_tun.py .
-          python3 ../tools/patch_httpdebug.py .
-          cp ../libbox/ui_dashboard.go experimental/libbox/ui_dashboard.go
-          cp ../libbox/ui_http.go experimental/libbox/ui_http.go
-          cp ../libbox/ui_egress.go experimental/libbox/ui_egress.go
-          cp ../libbox/ui_lan.go experimental/libbox/ui_lan.go
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
-          make lib_install
-          export PATH="$PATH:$(go env GOPATH)/bin"
-          go run ./cmd/internal/build_libbox -target android -platform android/amd64
-          mkdir -p ../app/libs
-          cp libbox.aar ../app/libs/libbox.aar
+          platform: android/amd64
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.6'
-          channel: stable
-          cache: true
+      - uses: ./.github/actions/setup-flutter
       - uses: gradle/actions/setup-gradle@v4
       - name: Build Flutter debug library
         working-directory: flutter
-        run: |
-          flutter pub get --enforce-lockfile
-          flutter build aar --no-profile --no-release --target-platform android-x64
+        run: flutter build aar --no-profile --no-release --target-platform android-x64
       - name: Build emulator APK
         run: ./gradlew :app:testOtherDebugUnitTest :app:compilePlayDebugKotlin :app:assembleOtherDebug :app:assembleOtherDebugAndroidTest -PemulatorOnly=true --no-daemon --console=plain --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: native-unit-tests
-          path: app/build/reports/tests/
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
           name: emulator-apk
@@ -106,7 +72,7 @@ jobs:
           arch: x86_64
           profile: pixel_2
           disable-animations: true
-          script: python3 tools/verify_newui_android.py && python3 tools/verify_native_android.py
+          script: python3 tools/android_smoke.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

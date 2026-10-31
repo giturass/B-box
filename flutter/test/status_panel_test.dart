@@ -111,6 +111,8 @@ Future<void> _advance(WidgetTester tester) async {
 
 void main() {
   testWidgets('start is disabled until a usable profile is selected', (tester) async {
+    final semantics = tester.ensureSemantics();
+    addTearDown(semantics.dispose);
     final dashboard = _Dashboard()..status = 'Stopped'..autoQuality = true;
     await dashboard.mount(tester);
     await tester.pumpAndSettle();
@@ -129,7 +131,9 @@ void main() {
     dashboard.events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 1}});
     await tester.pumpAndSettle();
     expect(dashboard.ids, hasLength(1));
-    await tester.tap(toggle);
+    final start = find.bySemanticsLabel('Start');
+    expect(start, findsOneWidget);
+    await tester.tap(start);
     await tester.pumpAndSettle();
     expect(dashboard.calls.where((call) => call.method == 'service.start'), hasLength(1));
     expect(tester.takeException(), isNull);

@@ -12,6 +12,7 @@ const _local = {'id': 2, 'name': 'Local B', 'remote': false};
 
 Future<BoxController> _mount(WidgetTester tester, {List<Json> profiles = const [_remote, _local],
   int selected = 1, bool remoteSession = false, StreamController<dynamic>? eventController,
+  Json dashboard = const {},
   Future<dynamic> Function(MethodCall)? handler}) async {
   tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];
   addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
@@ -25,7 +26,7 @@ Future<BoxController> _mount(WidgetTester tester, {List<Json> profiles = const [
   messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready' ? {
     'version': 'test', 'coreVersion': 'test', 'profiles': profiles,
     'dashboard': {'status': 'Stopped', 'selectedProfileId': selected,
-      if (remoteSession) ...{'remote': 'Server', 'remoteConnected': true}},
+      if (remoteSession) ...{'remote': 'Server', 'remoteConnected': true}, ...dashboard},
   } : await handler?.call(call));
   final box = BoxController(channel: channel, events: events.stream);
   await tester.pumpWidget(BoxApp(controller: box));
@@ -233,12 +234,58 @@ void main() {
   });
 
   testWidgets('remote sessions expose no local profile actions', (tester) async {
-    await _mount(tester, remoteSession: true);
+    await _mount(tester, remoteSession: true, dashboard: {'profileName': 'Private local profile'},
+      profiles: [{'id': 1, 'name': 'Private local profile'}]);
+    expect(find.text('Remote configuration'), findsOneWidget);
+    expect(find.text('Private local profile'), findsNothing);
     await _profiles(tester);
     expect(find.text('Disconnect remote session to edit local profiles'), findsOneWidget);
     expect(find.byType(ProfileCard), findsNothing);
     expect(find.byType(AddProfileMenu), findsNothing);
     expect(find.byTooltip('Update all'), findsNothing);
     expect(find.byTooltip('Reorder'), findsNothing);
+  });
+
+  test('remote profile links preserve names in the sing-box fragment', () {
+    const name = '工作 #1 & home';
+    const url = 'https://example.com/profile.json?token=a%26b';
+    final link = Uri.parse(remoteProfileLink({'name': name, 'url': url}));
+    expect(link.scheme, 'sing-box');
+    expect(link.host, 'import-remote-profile');
+    expect(Uri.decodeComponent(link.fragment), name);
+    expect(link.queryParameters, {'url': url});
+  });
+
+  testWidgets('new profiles save the entered name and original sing-box content', (tester) async {
+    Json? saved;
+    await _mount(tester, handler: (call) async {
+      if (call.method == 'profiles.save') saved = json(call.arguments);
+      return null;
+    });
+    openForm(tester.element(find.byType(HomePage)),
+      const ProfileForm(initial: {'content': '{"log":{"level":"info"}}'}));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, 'My profile');
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    expect(saved?['name'], 'My profile');
+    expect(saved?['content'], '{"log":{"level":"info"}}');
+    expect(find.byType(ProfileForm), findsNothing);
+  });
+
+  testWidgets('binary subscription metadata survives the import form', (tester) async {
+    Json? saved;
+    await _mount(tester, handler: (call) async {
+      if (call.method == 'profiles.save') saved = json(call.arguments);
+      return null;
+    });
+    const imported = {'name': 'Imported subscription', 'content': '{}', 'remote': true,
+      'url': 'https://example.com/config.json', 'autoUpdate': false, 'interval': 120, 'updatedAt': 1700000000000};
+    openForm(tester.element(find.byType(HomePage)), const ProfileForm(initial: imported));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    expect(saved, imported);
+    expect(find.byType(ProfileForm), findsNothing);
   });
 }

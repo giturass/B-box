@@ -2,6 +2,7 @@ package io.nekohasekai.sfa.flutter
 
 import android.os.Build
 import androidx.lifecycle.ViewModelProvider
+import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -11,10 +12,13 @@ import io.nekohasekai.sfa.backend.log.LogLevel
 import io.nekohasekai.sfa.backend.log.LogViewModel
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.compose.MainActivity
+import io.nekohasekai.sfa.constant.Path
+import io.nekohasekai.sfa.constant.SettingsKey
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.database.preference.KeyValueDatabase
 import io.nekohasekai.sfa.vendor.PackageQueryManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -157,14 +161,24 @@ class ProfileRecoveryTest {
         }
     }
 
-    @Test fun queryModeIsPersisted() = runBlocking(Dispatchers.IO) {
+    @Test fun queryModesSurviveReopeningTheSettingsDatabase() = runBlocking(Dispatchers.IO) {
         Settings.dataStore.initialize()
         val before = Settings.perAppProxyPackageQueryMode
         try {
-            PackageQueryManager.setQueryMode(Settings.PACKAGE_QUERY_MODE_ROOT)
-            Settings.dataStore.flush()
-            assertEquals(Settings.PACKAGE_QUERY_MODE_ROOT, Settings.perAppProxyPackageQueryMode)
-            assertEquals(Settings.PACKAGE_QUERY_MODE_ROOT, PackageQueryManager.queryMode.value)
+            for (mode in listOf(Settings.PACKAGE_QUERY_MODE_ROOT, Settings.PACKAGE_QUERY_MODE_SHIZUKU)) {
+                PackageQueryManager.setQueryMode(mode)
+                Settings.dataStore.flush()
+                // Read a new Room connection, not the data store's in-memory cache.
+                val stored = Room.databaseBuilder(
+                    Application.application, KeyValueDatabase::class.java, Path.SETTINGS_DATABASE_PATH,
+                ).build()
+                try {
+                    assertEquals(mode, stored.keyValuePairDao()[SettingsKey.PER_APP_PROXY_PACKAGE_QUERY_MODE]?.string)
+                } finally {
+                    stored.close()
+                }
+                assertEquals(mode, PackageQueryManager.queryMode.value)
+            }
         } finally {
             PackageQueryManager.setQueryMode(before)
             Settings.dataStore.flush()

@@ -1,0 +1,52 @@
+name: Build B-box libbox
+description: Build the patched Android core with the upstream Java and NDK versions.
+
+inputs:
+  platform:
+    description: Android target platform (android/arm64 or android/amd64).
+    required: true
+
+outputs:
+  version:
+    description: Version used to build the core.
+    value: ${{ steps.core.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - id: core
+      uses: ./.github/actions/setup-core
+    # The upstream libbox builder explicitly requires OpenJDK 17.
+    - uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: '17'
+    - uses: android-actions/setup-android@v3
+      with:
+        log-accepted-android-sdk-licenses: false
+        packages: >-
+          platform-tools
+          platforms;android-36
+          platforms;android-37.1
+          build-tools;36.0.0
+          build-tools;37.0.0
+          ndk;28.0.13004108
+          ndk;28.2.13676358
+    - name: Build Android libbox
+      shell: bash
+      working-directory: .core
+      env:
+        LIBBOX_PLATFORM: ${{ inputs.platform }}
+      run: |
+        case "$LIBBOX_PLATFORM" in
+          android/arm64|android/amd64) ;;
+          *) echo "Unsupported Android platform: $LIBBOX_PLATFORM" >&2; exit 1 ;;
+        esac
+        export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
+        make lib_install
+        libbox_go_bin="$(go env GOPATH)/bin"
+        export PATH="$PATH:$libbox_go_bin"
+        go run ./cmd/internal/build_libbox -target android -platform "$LIBBOX_PLATFORM"
+        test ! -e libbox-legacy.aar
+        mkdir -p ../app/libs
+        cp libbox.aar ../app/libs/libbox.aar

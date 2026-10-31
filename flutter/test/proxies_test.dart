@@ -1,77 +1,95 @@
 import 'dart:async';
 import 'package:b_box_ui/main.dart';
-import 'package:b_box_ui/widgets.dart';
-import 'package:b_box_ui/pages/access.dart';
 import 'package:b_box_ui/pages/proxies.dart';
+import 'package:b_box_ui/widgets.dart';
+import 'package:b_box_ui/components/proxy_card.dart';
+import 'package:b_box_ui/components/proxy_list.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/errors.dart';
 
 void main() {
-  testWidgets('fresh startup opens the dashboard without accepting a disclaimer', (tester) async {
-    final events = StreamController<dynamic>.broadcast();
-    const channel = MethodChannel('test.fresh-start');
-    final calls = <MethodCall>[];
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (call) async {
-      calls.add(call);
-      return call.method == 'ready' ? {'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'}, 'preferences': {}} : null;
-    });
-    await tester.pumpWidget(BoxApp(controller: BoxController(channel: channel, events: events.stream)));
-    await tester.pumpAndSettle();
-    expect(find.byType(HomePage), findsOneWidget);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(find.text('Disclaimer'), findsNothing);
-    expect(calls.where((call) => call.method.contains('accept') || call.method.contains('disclaimer')), isEmpty);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-    await events.close();
-  });
-
-  testWidgets('app selections are saved together and remain editable after a failed save', (tester) async {
+  testWidgets('list groups fold per profile, build nodes lazily and locate the selected row', (tester) async {
     reportFlutterErrors();
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final events = StreamController<dynamic>.broadcast();
-    const channel = MethodChannel('test.access-save');
+    const channel = MethodChannel('test.proxy-list');
+    final preferences = <String, dynamic>{'locale': 'en', 'proxyLayout': 'List'};
     final calls = <MethodCall>[];
-    var reject = true;
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (call) async {
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
-      switch (call.method) {
-        case 'ready': return {'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'},
-          'settings': {'perAppEnabled': true, 'perAppMode': 1, 'perAppList': ['hidden.app']}};
-        case 'apps.list': return [
-          {'package': 'alpha.app', 'name': 'Alpha', 'internet': true},
-          {'package': 'beta.app', 'name': 'Beta', 'internet': true},
-        ];
-        case 'settings.patch':
-          if (reject) throw PlatformException(code: 'disk', message: 'Save failed');
-          return (call.arguments as Map)['value'];
+      if (call.method == 'ready') return {'version': 'test', 'coreVersion': 'test', 'preferences': preferences,
+        'dashboard': {'status': 'Started', 'selectedProfileId': 1}};
+      if (call.method == 'preferences.set') {
+        preferences.addAll(json((call.arguments as Map)['value']));
+        return preferences;
       }
       return null;
     });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     await tester.pumpWidget(BoxApp(controller: BoxController(channel: channel, events: events.stream)));
     await tester.pumpAndSettle();
-    openPage(tester.element(find.byType(HomePage)), const AccessPage());
+    events.add({'type': 'groups', 'value': [{'tag': 'Large group', 'type': 'Selector', 'selectable': true, 'selected': 'Node 150',
+      'items': [for (var index = 0; index < 200; index++) {'tag': 'Node $index', 'type': 'Direct'}]}]});
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Alpha'));
+    await tester.tap(find.text('Proxies').last);
     await tester.pumpAndSettle();
-    expect(calls.where((call) => call.method == 'settings.patch'), isEmpty);
-    Finder saveAction() => find.text('Save').evaluate().isNotEmpty ? find.text('Save').last : find.byTooltip('Save').last;
-    await tester.tap(saveAction());
+    expect(find.byType(ProxyListView), findsOneWidget);
+    expect(find.byType(ProxyNodeCard), findsNothing);
+    await tester.tap(find.byTooltip('Show more'));
     await tester.pumpAndSettle();
-    expect(find.byType(AccessPage), findsOneWidget);
-    expect(saveAction(), findsOneWidget);
-    reject = false;
-    await tester.tap(saveAction());
+    expect(json(preferences['proxyUnfolded'])['local:1'], ['Large group']);
+    expect(find.byType(ProxyNodeCard).evaluate().length, inInclusiveRange(1, 40));
+    final selected = find.descendant(of: find.byType(ProxyNodeCard), matching: find.text('Node 150'));
+    expect(selected, findsNothing);
+    await tester.tap(find.byTooltip('Scroll to selected'));
     await tester.pumpAndSettle();
-    final values = ((calls.lastWhere((call) => call.method == 'settings.patch').arguments as Map)['value'] as Map);
-    expect(values['perAppList'], containsAll(['alpha.app', 'hidden.app']));
-    expect(values['perAppEnabled'], true);
-    expect(find.byTooltip('Save'), findsNothing);
-    expect(find.text('Save'), findsNothing);
+    expect(selected.hitTestable(), findsOneWidget);
+    expect(find.byType(ProxyGroupHeader).hitTestable(), findsOneWidget);
+    expect(find.text('Node 199'), findsNothing);
+    await tester.tap(find.byTooltip('Test latency').first);
+    await tester.pumpAndSettle();
+    expect((calls.lastWhere((call) => call.method == 'groups.test').arguments as Map)['tag'], 'Large group');
+    events.add({'type': 'dashboard', 'value': {'status': 'Started', 'selectedProfileId': 2}});
+    await tester.pumpAndSettle();
+    expect(find.byType(ProxyNodeCard), findsNothing);
+    events.add({'type': 'dashboard', 'value': {'status': 'Started', 'selectedProfileId': 1}});
+    await tester.pumpAndSettle();
+    expect(find.byType(ProxyNodeCard).evaluate(), isNotEmpty);
+    await tester.tap(find.byTooltip('Show less'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ProxyNodeCard), findsNothing);
+    expect(json(preferences['proxyUnfolded'])['local:1'], isEmpty);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await events.close();
+  });
+
+  testWidgets('automatic groups cannot send manual selection commands', (tester) async {
+    final calls = <MethodCall>[];
+    final events = StreamController<dynamic>.broadcast();
+    const channel = MethodChannel('test.automatic');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      return call.method == 'ready' ? {'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Started'}} : null;
+    });
+    final box = BoxController(channel: channel, events: events.stream);
+    await tester.pumpWidget(BoxApp(controller: box));
+    await tester.pumpAndSettle();
+    events.add({'type': 'groups', 'value': [{'tag': 'Auto', 'selected': 'Node A', 'selectable': false, 'items': [
+      {'tag': 'Node A', 'type': 'Shadowsocks', 'delay': 10}, {'tag': 'Node B', 'type': 'Shadowsocks', 'delay': 20},
+    ]}]});
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Proxies').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Node B'));
+    await tester.pumpAndSettle();
+    expect(calls.where((call) => call.method == 'groups.select'), isEmpty);
+    expect(find.byType(ProxiesPage), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
     await events.close();

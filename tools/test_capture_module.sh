@@ -30,20 +30,23 @@ for applet in mount umount mountpoint nsenter; do
 done
 PATH="$fixture_dir/bin:$PATH"
 export PATH
-getenforce() { echo Disabled; }
+# The namespace worker is a fresh shell, so its SELinux fixture must be on PATH.
+printf '#!/bin/sh\necho Disabled\n' > "$fixture_dir/bin/getenforce"
+chmod 0755 "$fixture_dir/bin/getenforce"
 pidof() { return 0; }
 
 MODDIR="$fixture_dir/module"
 mkdir -p "$MODDIR/system/etc/security/cacerts" "$fixture_dir/target" "$MODDIR/.ca-system"
 cert="$MODDIR/system/etc/security/cacerts/6187b673.0"
 cp "$repo_root/app/src/test/resources/capture-ca.pem" "$cert"
+cp "$repo_root/app/src/main/assets/capture-module/ca-store.sh" "$MODDIR/ca-store.sh"
 printf 'original zero\n' > "$fixture_dir/target/6187b673.0"
 printf 'original one\n' > "$fixture_dir/target/6187b673.1"
 printf 'unrelated root\n' > "$fixture_dir/target/aaaaaaaa.0"
 cp -R "$fixture_dir/target" "$fixture_dir/original"
 
-# Start the destination namespace BEFORE the staging tmpfs exists. A plain
-# source path after nsenter would bind an empty directory over its CA store.
+# Start the destination namespace BEFORE the staging tmpfs exists. It must
+# prepare its own store instead of binding a mount from a different namespace.
 /usr/bin/unshare --mount --propagation private sh -c 'touch "$1"; exec sleep 120' sh "$fixture_dir/peer-ready" &
 peer_pid=$!
 attempts=0
@@ -60,8 +63,11 @@ for original in "$fixture_dir/original"/*; do
     cmp "$original" "$fixture_dir/target/${original##*/}"
 done
 nsenter --mount="/proc/$peer_pid/ns/mnt" -- test ! -e "$fixture_dir/target/6187b673.2"
-ca_mount_namespace "$MODDIR/.ca-system" "$fixture_dir/target" "$peer_pid"
+nsenter --mount="/proc/$peer_pid/ns/mnt" -- sh -c 'printf "peer root\n" > "$1/bbbbbbbb.0"' sh "$fixture_dir/target"
+ca_mount_namespace "$fixture_dir/target" system "$peer_pid"
 nsenter --mount="/proc/$peer_pid/ns/mnt" -- cmp "$cert" "$fixture_dir/target/6187b673.2"
+nsenter --mount="/proc/$peer_pid/ns/mnt" -- test -s "$fixture_dir/target/bbbbbbbb.0"
+[ ! -e "$fixture_dir/target/bbbbbbbb.0" ]
 for original in "$fixture_dir/original"/*; do
     nsenter --mount="/proc/$peer_pid/ns/mnt" -- cmp "$original" "$fixture_dir/target/${original##*/}"
 done
@@ -69,6 +75,8 @@ done
 # Re-running boot/service helpers must preserve originals and avoid duplicates.
 ca_mount_store "$fixture_dir/target" system
 [ ! -e "$fixture_dir/target/6187b673.3" ]
+ca_mount_namespace "$fixture_dir/target" system "$peer_pid"
+nsenter --mount="/proc/$peer_pid/ns/mnt" -- test ! -e "$fixture_dir/target/6187b673.3"
 mkdir "$fixture_dir/copied"
 ca_copy_store "$fixture_dir/target" "$fixture_dir/copied" "$cert"
 [ ! -e "$fixture_dir/copied/6187b673.3" ]

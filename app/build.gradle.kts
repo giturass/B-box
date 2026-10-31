@@ -112,17 +112,6 @@ android {
         create("other")
     }
 
-    sourceSets {
-        getByName("play") {
-            java.directories.add("src/minApi24/java")
-            aidl.directories.add("src/minApi24/aidl")
-        }
-        getByName("other") {
-            java.directories.add("src/minApi24/java")
-            aidl.directories.add("src/minApi24/aidl")
-        }
-    }
-
     splits {
         abi {
             val arm64Only = providers.gradleProperty("arm64Only").orNull.toBoolean()
@@ -171,7 +160,6 @@ android {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
             var fileName = output.outputFileName
             fileName = fileName.replace("-release", "")
-            fileName = fileName.replace("-play", "-play")
             fileName = fileName.replace("-other", "")
             output.outputFileName = fileName
         }
@@ -184,18 +172,12 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
     // libbox
-    "playImplementation"(files("libs/libbox.aar"))
-    "otherImplementation"(files("libs/libbox.aar"))
+    implementation(files("libs/libbox.aar"))
 
-    // API level specific versions
-    val lifecycleVersion24 = "2.11.0"
-    val roomVersion24 = "2.8.4"
-    val workVersion24 = "2.11.2"
-    val webkitVersion24 = "1.16.0"
-    val coreVersion24 = "1.19.0"
-    val materialVersion24 = "1.14.0"
+    // Both flavors use the same API 24+ backend.
+    val lifecycleVersion = "2.11.0"
+    val roomVersion = "2.8.4"
 
-    // Common dependencies (no API level difference)
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.preference:preference-ktx:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
@@ -205,40 +187,25 @@ dependencies {
     }
     implementation("com.google.guava:guava:33.6.0-android")
 
-    // API 24+ dependencies (play/other)
-    "playImplementation"("androidx.lifecycle:lifecycle-livedata-ktx:$lifecycleVersion24")
-    "playImplementation"("androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycleVersion24")
-    "playImplementation"("androidx.lifecycle:lifecycle-process:$lifecycleVersion24")
-    "playImplementation"("androidx.room:room-runtime:$roomVersion24")
-    "playImplementation"("androidx.work:work-runtime-ktx:$workVersion24")
-    "playImplementation"("androidx.webkit:webkit:$webkitVersion24")
-    "playImplementation"("androidx.core:core-ktx:$coreVersion24")
-    "playImplementation"("com.google.android.material:material:$materialVersion24")
-    "kspPlay"("androidx.room:room-compiler:$roomVersion24")
-
-    "otherImplementation"("androidx.lifecycle:lifecycle-livedata-ktx:$lifecycleVersion24")
-    "otherImplementation"("androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycleVersion24")
-    "otherImplementation"("androidx.lifecycle:lifecycle-process:$lifecycleVersion24")
-    "otherImplementation"("androidx.room:room-runtime:$roomVersion24")
-    "otherImplementation"("androidx.work:work-runtime-ktx:$workVersion24")
-    "otherImplementation"("androidx.webkit:webkit:$webkitVersion24")
-    "otherImplementation"("androidx.core:core-ktx:$coreVersion24")
-    "otherImplementation"("com.google.android.material:material:$materialVersion24")
-    "kspOther"("androidx.room:room-compiler:$roomVersion24")
+    implementation("androidx.lifecycle:lifecycle-livedata-ktx:$lifecycleVersion")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycleVersion")
+    implementation("androidx.lifecycle:lifecycle-process:$lifecycleVersion")
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.work:work-runtime-ktx:2.11.2")
+    implementation("androidx.webkit:webkit:1.16.0")
+    implementation("androidx.core:core-ktx:1.19.0")
+    implementation("com.google.android.material:material:1.14.0")
+    ksp("androidx.room:room-compiler:$roomVersion")
 
     // Shizuku (play and other flavors, API 24+ only)
     val shizukuVersion = "13.1.5"
-    "playImplementation"("dev.rikka.shizuku:api:$shizukuVersion")
-    "playImplementation"("dev.rikka.shizuku:provider:$shizukuVersion")
-    "otherImplementation"("dev.rikka.shizuku:api:$shizukuVersion")
-    "otherImplementation"("dev.rikka.shizuku:provider:$shizukuVersion")
+    implementation("dev.rikka.shizuku:api:$shizukuVersion")
+    implementation("dev.rikka.shizuku:provider:$shizukuVersion")
 
     // libsu for ROOT package query (all flavors)
     val libsuVersion = "6.0.0"
-    "playImplementation"("com.github.topjohnwu.libsu:core:$libsuVersion")
-    "playImplementation"("com.github.topjohnwu.libsu:service:$libsuVersion")
-    "otherImplementation"("com.github.topjohnwu.libsu:core:$libsuVersion")
-    "otherImplementation"("com.github.topjohnwu.libsu:service:$libsuVersion")
+    implementation("com.github.topjohnwu.libsu:core:$libsuVersion")
+    implementation("com.github.topjohnwu.libsu:service:$libsuVersion")
 
     implementation("androidx.activity:activity-ktx:1.13.0")
     testImplementation("junit:junit:4.13.2")

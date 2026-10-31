@@ -1,0 +1,39 @@
+name: Prepare B-box core
+description: Check out the matching sing-box version and install all B-box patches and bindings.
+
+outputs:
+  version:
+    description: Core and application version from version.properties.
+    value: ${{ steps.versions.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Read core and Go versions
+      id: versions
+      shell: bash
+      run: |
+        version=$(sed -n 's/^VERSION_NAME=//p' version.properties | tr -d '\r')
+        go_version=$(sed -n 's/^GO_VERSION=go//p' version.properties | tr -d '\r')
+        [[ "$version" =~ ^[0-9][0-9A-Za-z.+-]*$ ]]
+        [[ "$go_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "go_version=$go_version" >> "$GITHUB_OUTPUT"
+    - uses: actions/checkout@v5
+      with:
+        repository: SagerNet/sing-box
+        ref: v${{ steps.versions.outputs.version }}
+        path: .core
+        persist-credentials: false
+    - uses: actions/setup-go@v5
+      with:
+        go-version: ${{ steps.versions.outputs.go_version }}
+        cache-dependency-path: .core/go.sum
+    - name: Apply patches and install bindings
+      shell: bash
+      run: |
+        git -C .core apply --check ../libbox/libbox-no-legacy.patch
+        git -C .core apply ../libbox/libbox-no-legacy.patch
+        python3 tools/patch_sing_tun.py .core
+        python3 tools/patch_httpdebug.py .core
+        cp libbox/ui_*.go .core/experimental/libbox/

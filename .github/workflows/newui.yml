@@ -1,15 +1,20 @@
-name: New UI validation
+name: Core and Flutter validation
 
 on:
   push:
     branches: [dev, newui]
+    paths-ignore: ['**/*.md']
+  pull_request:
+    branches: [dev, newui]
+    paths-ignore: ['**/*.md']
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: newui-${{ github.ref }}
+  group: validation-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -27,39 +32,18 @@ jobs:
           done
       - name: Test CA mounts in isolated Linux namespaces
         run: sudo env CAPTURE_MODULE_CI=1 unshare --mount --pid --fork --mount-proc busybox ash tools/test_capture_module.sh
-  webdav:
+  core:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
-      - id: versions
-        run: |
-          echo "core=$(sed -n 's/^VERSION_NAME=//p' version.properties)" >> "$GITHUB_OUTPUT"
-          echo "go=$(sed -n 's/^GO_VERSION=go//p' version.properties)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v5
-        with:
-          repository: SagerNet/sing-box
-          ref: v${{ steps.versions.outputs.core }}
-          path: .core
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ steps.versions.outputs.go }}
-          cache-dependency-path: .core/go.sum
-      - name: Apply matching core patches
-        working-directory: .core
-        run: |
-          git apply --check ../libbox/libbox-no-legacy.patch
-          git apply ../libbox/libbox-no-legacy.patch
-          python3 ../tools/patch_sing_tun.py .
-          python3 ../tools/patch_httpdebug.py .
+      - uses: ./.github/actions/setup-core
       - name: Android ingress-discard map compatibility tests
         working-directory: .core
         run: go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1
       - name: HTTP, routed IP and LAN tests against the matching core
         working-directory: .core
-        run: |
-          cp ../libbox/ui_http.go ../libbox/ui_http_test.go ../libbox/ui_egress.go ../libbox/ui_egress_test.go ../libbox/ui_lan.go ../libbox/ui_lan_test.go ../libbox/ui_capture_test.go experimental/libbox/
-          go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(WebDAV|HTTPGet|Egress|LAN|Capture)' -count=1
+        run: go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1
       - name: HTTP capture, rewrite, script, storage and route tests
         working-directory: .core
         run: |
@@ -71,11 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: python3 tools/verify_newui.py
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.6'
-          channel: stable
-          cache: true
+      - uses: ./.github/actions/setup-flutter
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -84,11 +64,9 @@ jobs:
         with:
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
-      - name: Resolve and analyze Flutter
+      - name: Analyze Flutter
         working-directory: flutter
-        run: |
-          flutter pub get
-          flutter analyze --no-fatal-infos
+        run: flutter analyze --no-fatal-infos
       - name: Flutter interaction and layout tests
         working-directory: flutter
         run: flutter test --reporter expanded
@@ -100,8 +78,12 @@ jobs:
         with:
           name: newui-validation
           path: |
-            flutter/pubspec.lock
             flutter/test/failures/
             flutter/build/screenshots/
-            flutter/build/host/outputs/repo/
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flutter-aar-arm64
+          path: flutter/build/host/outputs/repo/
+          if-no-files-found: error
           retention-days: 7

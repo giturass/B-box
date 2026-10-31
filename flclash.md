@@ -104,9 +104,11 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 ## 验证与升级参考版本
 
-[newui.yml](.github/workflows/newui.yml) 配置 Flutter 分析、测试及 AAR 构建。现有测试覆盖导航、配置编辑、首页编辑、代理列表、备份、外观、关于、终端设置、模式、内网 IP、IP 查询/缓存和迁移回归；源码约束检查为 [verify_newui.py](tools/verify_newui.py)。
+[newui.yml](.github/workflows/newui.yml) 配置 Flutter 分析、测试及 AAR 构建，由 [setup-flutter](.github/actions/setup-flutter/action.yml) 固定 SDK 和依赖锁文件。测试按功能组织，覆盖导航、配置编辑、首页编辑、代理列表、备份、外观、关于、终端设置、模式、内网 IP 和 IP 查询/缓存；源码约束检查为 [verify_newui.py](tools/verify_newui.py)。截图/像素比较仍由同一测试入口运行，截图与 AAR 分别上传到 `newui-validation` 和 `flutter-aar-arm64`，Release 消费同次运行的 AAR，见 [构建与发布](app.md#构建与发布)。
 
-[profiles_test.dart](flutter/test/profiles_test.dart) 覆盖添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、自动更新校验、选中配置定位、列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、排序冲突及远程会话隔离。[navigation_test.dart](flutter/test/navigation_test.dart) 另输出配置编辑与排序弹层在窄屏、大字号和宽屏下的截图；这些是布局回归产物，配置页尚未声明与上游逐像素一致。
+[profiles_test.dart](flutter/test/profiles_test.dart) 覆盖新建与二进制导入的内容/元数据、添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、自动更新校验、选中配置定位、列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、排序冲突及远程会话隔离。[navigation_test.dart](flutter/test/navigation_test.dart) 另输出配置编辑与排序弹层在窄屏、大字号和宽屏下的截图；这些是布局回归产物，配置页尚未声明与上游逐像素一致。
+
+[proxies_test.dart](flutter/test/proxies_test.dart) 集中验证自动组禁止手选、延迟测试目标、分组切换、列表折叠及视口外节点定位。[connections_test.dart](flutter/test/connections_test.dart) 检查关闭连接页后释放订阅；[status_panel_test.dart](flutter/test/status_panel_test.dart) 将启动按钮的独立无障碍点击入口与配置可用性、实际桥接调用一起验证。
 
 配置测试另覆盖本地时间的未知占位及原生元数据事件刷新；[code_editor_test.dart](flutter/test/code_editor_test.dart) 对照实际 `RenderEditable` 检查行号在折行、宽度/字号变化及滚动后的对齐，并覆盖空行、末尾换行和替换内容。[intranet_panel_test.dart](flutter/test/intranet_panel_test.dart) 检查大字号下复制按钮的尺寸与位置，以及运行/停服/远程会话的复制内容；这些几何断言不代替实机视觉验收。
 
@@ -116,7 +118,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [state_updates_test.dart](flutter/test/state_updates_test.dart) 检查高频数据只重建对应订阅者、服务状态仍通知、应用根部不随遥测变化重建且外观设置继续生效，并覆盖日志增量淘汰、暂停快照与重置。[data_subscription_test.dart](flutter/test/data_subscription_test.dart) 检查卡片/详情共享订阅、隐藏页面、TickerMode、前后台和销毁时的订阅切换。测试验证通知和调用行为，实际 PSS/RSS、CPU 和帧耗时仍需在同设备、同配置下测量。
 
-[access_test.dart](flutter/test/access_test.dart) 与 [migration_regression_test.dart](flutter/test/migration_regression_test.dart) 覆盖进入托管页面不扫描、显示范围与隐藏选择保留、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。它们验证交互和调用行为，不代替实机加载耗时或视觉验收。
+[access_test.dart](flutter/test/access_test.dart) 覆盖进入托管页面不扫描、加载期间接收最新托管选择、显示范围与隐藏选择保留、保存失败后重试、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。它验证交互和调用行为，不代替实机加载耗时或视觉验收。
 
 [requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口顺序、远程隔离、空 HTTPS 白名单及多行域名/端口保存、启动确认、后台停止轮询、迟到搜索结果、CA/模块保存成功与取消/失败、等待期间禁用操作、抓包期间禁止换证及信任刷新/错误保留，另覆盖报文菜单切换、字段/Cookie 点击复制、正文原文复制与格式切换、Unicode 分批展开。在窄屏/大字号深色/宽屏下输出 CA 状态/操作、设置、列表、详情、头部、正文、菜单及 Cookies 截图到 `build/screenshots/requests/`。截图显式加载 SDK 的 Roboto 和应用的 JetBrains Mono，并包含 JSON 格式化/原文视图。[http_message_test.dart](flutter/test/http_message_test.dart) 检查 JSON 数值/重复键/转义保真、无效或过大内容回退，以及重复 Cookie、空值、等号和 Expires 逗号。正文不完整或截断时不提供 cURL 导出。这些是配置的检查，实际结果以对应源码 SHA 的 Actions 为准；桥接替身不等于真实 TLS 或 Root 验收，相应核心和 Android 验证见 [libbox.md](libbox.md#构建同步和验证) 与 [app.md](app.md#验证与历史记录)。
 

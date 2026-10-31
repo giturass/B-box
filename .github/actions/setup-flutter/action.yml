@@ -1,0 +1,15 @@
+name: Prepare B-box Flutter
+description: Use the pinned Flutter SDK and the committed dependency lockfile.
+
+runs:
+  using: composite
+  steps:
+    - uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.47.6'
+        channel: stable
+        cache: true
+    - name: Resolve locked Flutter dependencies
+      shell: bash
+      working-directory: flutter
+      run: flutter pub get --enforce-lockfile

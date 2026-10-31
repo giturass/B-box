@@ -36,7 +36,7 @@
 | 原生状态 | `backend/` | 仪表盘、分组、连接、日志、Tailscale/Taildrop、诊断和认证状态模型 |
 | 平台视图 | `flutter/BoxBrowserFactory.kt`、`flutter/BoxTerminalFactory.kt` | OpenConnect WebView 与 Ghostty 终端嵌入 Flutter，不回到旧 Compose 对话框 |
 | 服务与数据 | `bg/`、`database/`、`utils/` | 保留 sing-box 服务、Room、订阅更新及本地/远程命令目标 |
-| 应用查询 | `vendor/PerAppProxyScanner.kt`、[API 24+ 查询实现](app/src/minApi24/java/io/nekohasekai/sfa/vendor/) | 普通、Root/Shizuku 应用查询和托管列表扫描 |
+| 应用查询 | [vendor/](app/src/main/java/io/nekohasekai/sfa/vendor/) | 普通、Root/Shizuku 应用查询和托管列表扫描；API 24+ 实现及依赖由 `play` / `other` 共用 |
 
 Flutter 配置是 sing-box JSON，分组、可选节点、延迟和模式由 libbox 提供；自动组不可手动选择。VPN 授权、前台服务、连接管理、日志、流量、本地/远程会话及路由保持原有能力边界。具体布局、语言、卡片与工具入口见 [flclash.md](flclash.md)。
 
@@ -90,7 +90,7 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 [CaptureCertificateModule.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureCertificateModule.kt) 在用户点击下载时，使用当前公开 CA 和内置脚本生成 `B-box-CA-<指纹前12位>.zip`，不访问网络或调用设备 OpenSSL。ZIP 使用独立模块 ID `bbox_http_debug_ca`，只包含一张公开 CA、安装/启动脚本、元数据及许可，不包含通用证书、私钥、WebUI 或上游更新入口。系统证书文件名按原始 Subject DER 计算 OpenSSL `subject_hash_old`，完整 SHA-256 用于确认内容身份；也可单独导出相同的 `<hash>.0`。
 
-用户在 Magisk 或 KernelSU 中刷入后完整重启设备。[ca-store.sh](app/src/main/assets/capture-module/ca-store.sh) 在私有 tmpfs 中完整复制原证书库，再添加本机 CA，同名不同证书顺延 `.N`，复制失败不覆盖原库。脚本挂载系统与存在的 Conscrypt APEX 证书库，并在启动后补充 init、Zygote、B-box 和设置进程的命名空间挂载；跨命名空间从准备进程的 `/proc/<pid>/root` 解析源挂载。模块用 `skip_mount` 禁用自动覆盖，按 [KernelSU 模块文档](https://kernelsu.org/guide/module.html) 使用脚本挂载，不依赖系统覆盖用的 metamodule。
+用户在 Magisk 或 KernelSU 中刷入后完整重启设备。[ca-store.sh](app/src/main/assets/capture-module/ca-store.sh) 在私有 tmpfs 中完整复制原证书库，再添加本机 CA，同名不同证书顺延 `.N`，复制失败不覆盖原库。脚本挂载系统与存在的 Conscrypt APEX 证书库，并在启动后补充 init、Zygote、B-box 和设置进程的命名空间挂载。不同命名空间分别读取其中可见的原证书库、准备 tmpfs 并执行本地 bind，保留各自已有证书；同一命名空间不重复派发，子任务不再向其他进程派发。模块用 `skip_mount` 禁用自动覆盖，按 [KernelSU 模块文档](https://kernelsu.org/guide/module.html) 使用脚本挂载，不依赖系统覆盖用的 metamodule。
 
 导出在文档选择器返回后重新核对本地会话及 CA 指纹，避免等待期间重新生成证书却写出过期模块。只有完整写入并关闭目标文件后才记录最近模块导出时间；取消或失败不报告保存成功。导出记录不代表安装或信任。手动检查按完整证书 DER 查验当前进程 `AndroidCAStore` 的 `system:` 项并保存检查时间，无需 Root 或外部 CLI；界面行为见 [flclash.md](flclash.md#导航与交互约定)。该结果不保证其他应用接受证书，协议与证书固定等限制见 [libbox.md](libbox.md#httphttps-请求调试)。
 
@@ -108,11 +108,11 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 ## 构建与发布
 
-[app/build.gradle.kts](app/build.gradle.kts) 从本地 `app/libs/libbox.aar` 和 Flutter 生成的 Maven 仓库消费依赖。核心必须包含 [libbox.md](libbox.md) 的当前扩展。Flutter 固定为 3.47.6，CI 先构建 AAR 到 `flutter/build/host/outputs/repo`，再构建 Android。
+[app/build.gradle.kts](app/build.gradle.kts) 从本地 `app/libs/libbox.aar` 和 Flutter 生成的 Maven 仓库消费依赖。核心必须包含 [libbox.md](libbox.md) 的当前扩展。[setup-flutter](.github/actions/setup-flutter/action.yml) 统一固定 Flutter 3.47.6，并以 `--enforce-lockfile` 读取已提交的依赖锁文件。CI 先构建 AAR 到 `flutter/build/host/outputs/repo`，再构建 Android；应用使用 AAR 时不需要再安装 Flutter SDK。
 
 默认 ABI 为 ARMv7、ARM64、x86_64 并生成 universal；Flutter 不提供 x86 AOT，因此没有 x86。`-Parm64Only=true` 只生成 ARM64，`-PemulatorOnly=true` 只生成 x86_64，二者都关闭 universal；核心及 Flutter AAR 必须包含目标 ABI。
 
-[build-release.yml](.github/workflows/build-release.yml) 仅手动触发，发布 Android 7.0+ 的 ARM64 `otherRelease`。核心使用 JDK 17，应用使用 JDK 21；具体 SDK/Build Tools/NDK 版本以工作流和 Gradle 为准。本机未经明确要求不构建，见 [AGENTS.md](AGENTS.md)。
+[build-release.yml](.github/workflows/build-release.yml) 仅手动触发，发布 Android 7.0+ 的 ARM64 `otherRelease`。Release 与模拟器构建共用 [build-libbox](.github/actions/build-libbox/action.yml)，核心使用 JDK 17，应用使用 JDK 21；具体 SDK/Build Tools/NDK 版本以共享 Action 和 Gradle 为准。本机未经明确要求不构建，见 [AGENTS.md](AGENTS.md)。
 
 发布签名使用以下仓库 Actions Secrets：
 
@@ -125,20 +125,24 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 工作流将已有密钥解码至 `app/release.keystore`，结束时清理，不上传密钥。Gradle 属性优先读取直接环境变量，再回退 `LOCAL_PROPERTIES` 和 `local.properties`。本地签名文件不入库，不重新生成发布密钥。
 
-Release 流程运行 Flutter 分析/测试、`testOtherDebugUnitTest` 及保留 R8 的签名 Release 构建；单元测试成功或失败后均上传 HTML/XML 报告至 `release-unit-tests` Artifact（报告已生成时），保留 30 天。APK 上传前校验唯一 APK、最低 API 24、ARM64、应用包名/版本/标签、启动 Activity 和签名。APK Artifact 名为 `B-box-<版本>-arm64-v8a-release`，保留 30 天。
+Release 调用 [newui.yml](.github/workflows/newui.yml) 完成核心、CA 模块及 Flutter 验证，直接下载**同一次运行**的 `flutter-aar-arm64` Artifact，不再次分析、测试或构建 Flutter。随后运行 `testOtherDebugUnitTest` 及保留 R8 的签名 Release 构建；单元测试成功或失败后均上传 HTML/XML 报告至 `release-unit-tests` Artifact（报告已生成时），保留 30 天。签名密钥在单元测试通过后才准备。[verify_release.py](tools/verify_release.py) 在 APK 上传前校验唯一 APK、最低 API 24、ARM64、应用包名/版本/标签、启动 Activity 和签名。APK Artifact 名为 `B-box-<版本>-arm64-v8a-release`，保留 30 天。
 
-`publish_release` 默认开启；设为 `false` 时仍构建、校验并上传 Actions Artifact，仅跳过发布。Release tag 必须严格等于 `VERSION_NAME`（不加 `v`）且指向本次源码 SHA；已有 tag 指向其他提交时失败，不移动版本标签。同一提交重跑可重传资产。发布 APK 及 `B-box-version-metadata.json`，alpha/beta/rc 标为预发布。
+`publish_release` 默认开启；设为 `false` 时仍构建、校验并上传 Actions Artifact，仅跳过发布。[publish_release.py](tools/publish_release.py) 要求 Release tag 严格等于 `VERSION_NAME`（不加 `v`）且指向本次源码 SHA；已有 tag 指向其他提交时失败，不移动版本标签。同一提交重跑可重传资产。发布 APK 及 `B-box-version-metadata.json`，alpha/beta/rc 标为预发布。
 
 ## 验证与历史记录
 
 | 入口 | 配置的验证范围 |
 | --- | --- |
 | [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入、Android 入口、旧 UI/更新依赖残留及模块无内置 CA/私钥的静态检查 |
-| [newui.yml](.github/workflows/newui.yml) | `dev` / `newui` push 或手动触发；CA 模块脚本、Go 扩展、HTTP 抓取/路由及自动重定向布局回归、Flutter 分析/交互/布局测试及 ARM64 Flutter AAR |
+| [newui.yml](.github/workflows/newui.yml) | `dev` / `newui` push、目标为这两个分支的 PR、手动触发或 Release 复用；仅 Markdown 的 push/PR 跳过。检查 CA 模块脚本、Go 扩展、HTTP 抓取/路由及自动重定向布局，运行 Flutter 分析/交互/布局测试并构建 ARM64 Flutter AAR |
 | [newui-android.yml](.github/workflows/newui-android.yml) | 手动触发；JVM 回归、`play` Kotlin 编译、`other` APK/仪器测试构建及 API 24/31/35 模拟器 smoke |
-| [build-release.yml](.github/workflows/build-release.yml) | 手动触发；自动重定向布局回归、签名 ARM64 Release、安装身份/产物校验及可选发布 |
+| [build-release.yml](.github/workflows/build-release.yml) | 手动触发；复用完整核心/Flutter 验证，运行 JVM 测试、签名 ARM64 Release、安装身份/产物校验及可选发布 |
 
-JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界和 QRS；[ServiceSettingsChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ServiceSettingsChangeTest.kt) 覆盖服务开关保存后的启动确认、失败/超时/取消恢复及恢复错误保留；[ProfileChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/database/ProfileChangeTest.kt) 覆盖配置持久化失败、应用超时/取消、恢复确认及恢复错误保留。[ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/手动与自动订阅/完整备份恢复失败，以及停服和未选中配置更新的服务状态。模拟器入口为 [verify_newui_android.py](tools/verify_newui_android.py) 与 [verify_native_android.py](tools/verify_native_android.py)，Flutter 视觉验证见 [flclash.md](flclash.md)。
+JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界和 QRS；[ServiceSettingsChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ServiceSettingsChangeTest.kt) 覆盖服务开关保存后的启动确认、失败/超时/取消恢复及恢复错误保留；[ProfileChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/database/ProfileChangeTest.kt) 覆盖配置持久化失败、应用超时/取消、恢复确认及恢复错误保留。[ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/手动与自动订阅/完整备份恢复失败，以及停服和未选中配置更新的服务状态。Flutter 视觉验证见 [flclash.md](flclash.md)。
+
+模拟器统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、远程 JSON 导入、VPN 授权、启动/停止、实际内核分组及进程重启后的配置保留；原生组运行全部仪器测试并拒绝零测试结果。`build/android-smoke/` 保存分组截图、logcat、失败堆栈、仪器测试输出及带源码 SHA 的 `results.json`；仪器测试超时也保留已写入的日志。启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
+
+查询策略回归在每次切换 Root/Shizuku 并刷盘后重新打开 Room 数据库读取持久值，同时核对状态流，不以读取同一内存缓存代替持久化验证。
 
 `ProfileRecoveryTest.logLevelFollowsSuccessfulConfigurationReloads` 另覆盖真实内核日志订阅的默认级别、运行中修改 `log.level` 后刷新，以及移除该字段后恢复当前核心的默认值。
 
@@ -156,6 +160,6 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 [CaptureCertificateModuleTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/CaptureCertificateModuleTest.kt) 使用公开系统 CA 对照 OpenSSL 文件名/指纹，检查 ZIP 内容、重复导出、私钥/多证书/路径/身份拒绝及写入失败。[CaptureCertificateTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/CaptureCertificateTest.kt) 使用隔离目录和测试专用 Keystore alias，验证实际 CA 生成、安装间隔离、加密持久化/复用、附加认证数据校验、签名与导出 CA 公钥匹配、ZIP 仅含当前公开 CA、轮换后旧导出失效、加密密钥丢失不静默替换及真实系统证书库检查。
 
-[test_capture_module.sh](tools/test_capture_module.sh) 在 UI 验证工作流的独立 Linux 挂载/PID 命名空间中使用 BusyBox 和临时目录，检查真实 tmpfs/bind 挂载、原证书保留、同哈希冲突、重复挂载、跨命名空间源路径及复制失败/空库不覆盖。它不触碰 Android 设备，不能代替 Magisk/KernelSU 安装、SELinux、设备重启及目标应用 HTTPS 验收。
+[test_capture_module.sh](tools/test_capture_module.sh) 在 UI 验证工作流的独立 Linux 挂载/PID 命名空间中使用 BusyBox 和临时目录，检查真实 tmpfs/bind 挂载、原证书保留、同哈希冲突、重复挂载、各命名空间独有证书保留及复制失败/空库不覆盖。它不触碰 Android 设备，不能代替 Magisk/KernelSU 安装、SELinux、设备重启及目标应用 HTTPS 验收。
 
 原 `MODIFICATIONS.md` 与 `NEWUI.md` 已按领域归入这四份文档。历史 MOD-001～004、007～008、012 的 Compose 界面由 Flutter 替代；MOD-005/006/009 的品牌、安装身份及发布约定在本文继续维护；MOD-011/015/016 的删除项以本次迁移后的现状为准；MOD-013/014 的核心与工具裁剪已回退；MOD-017 的 UI 适配见 [flclash.md](flclash.md)。旧实现、逐次构建日志与产物哈希可通过 `git log --all -- MODIFICATIONS.md NEWUI.md` 和对应提交的文件内容查询，不再混入当前项目约束。

@@ -6,7 +6,7 @@
 
 上游为 [SagerNet/sing-box](https://github.com/SagerNet/sing-box)，绑定位于 `experimental/libbox`。当前基线是 [`v1.15.0-alpha.13`](https://github.com/SagerNet/sing-box/tree/v1.15.0-alpha.13/experimental/libbox)，Go 为 `go1.26.10`；实际版本由 [version.properties](version.properties) 的 `VERSION_NAME` 和 `GO_VERSION` 决定，工作流检出 `v${VERSION_NAME}`。
 
-本仓库不存储完整核心或 AAR，构建补丁与扩展源码统一保存在 [libbox/](libbox/)。CI 检出上游至 `.core/`，应用构建补丁、sing-tun 兼容补丁和 HTTP 调试补丁，安装抓取引擎、路由适配及五个 `ui_*.go` 生产扩展，构建标准 `libbox.aar` 供 Android 使用。仅有上游原版 AAR 不足以编译当前 B-box，因为它没有下面的 UI 扩展绑定，也不包含本仓库的路由和自动重定向兼容补丁。
+本仓库不存储完整核心或 AAR，构建补丁与扩展源码统一保存在 [libbox/](libbox/)。CI 通过 [setup-core](.github/actions/setup-core/action.yml) 检出上游至 `.core/`，先准备版本文件指定的 Go，再应用构建补丁、sing-tun 兼容补丁和 HTTP 调试补丁。抓取引擎、路由适配及所有 `ui_*.go`（五个生产扩展和相应测试）使用同一安装入口；Android 构建由 [build-libbox](.github/actions/build-libbox/action.yml) 生成标准 `libbox.aar`。仅有上游原版 AAR 不足以编译当前 B-box，因为它没有下面的 UI 扩展绑定，也不包含本仓库的路由和自动重定向兼容补丁。
 
 | 差异 | 文件 | 作用 |
 | --- | --- | --- |
@@ -114,15 +114,15 @@ MITM 使用 `https`、`decryptHosts` 和 `decryptBypassHosts`；公开 CA 与私
 
 ## 构建、同步和验证
 
-- [Release 工作流](.github/workflows/build-release.yml) 检查并应用 legacy、sing-tun 兼容和 HTTP 调试补丁，运行上述布局回归测试，安装抓取引擎、路由适配和五个生产扩展，使用 JDK 17、版本文件指定的 Go 和 NDK 28.0.13004108，执行上游 `make lib_install` 与 `build_libbox -target android -platform android/arm64`。要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
-- [Android smoke 工作流](.github/workflows/newui-android.yml) 同样应用上述补丁、抓取引擎、路由适配和五个扩展，构建 `android/amd64` 核心用于 x86_64 模拟器。
-- [UI 验证工作流](.github/workflows/newui.yml) 应用上述补丁并安装抓取扩展，运行 `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1`，再在匹配核心中复制 HTTP、出口、LAN 与抓包配置测试，运行 `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(WebDAV|HTTPGet|Egress|LAN|Capture)' -count=1`。它不是完整核心 AAR 构建，内存绑定由 Android/Release 构建覆盖。另执行 `go test -race ./experimental/httpdebug -count=1` 和 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1`，覆盖抓取/改写引擎、数据竞争及原出站和嗅探字节保留。
+- [Release 工作流](.github/workflows/build-release.yml) 复用 UI 验证工作流运行下述核心测试，再通过共享构建 Action 使用 JDK 17、版本文件指定的 Go 和 NDK 28.0.13004108，执行上游 `make lib_install` 与 `build_libbox -target android -platform android/arm64`。
+- [Android smoke 工作流](.github/workflows/newui-android.yml) 使用同一构建 Action，目标为 `android/amd64`，用于 x86_64 模拟器。两种构建均要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
+- [UI 验证工作流](.github/workflows/newui.yml) 使用共享准备 Action，运行 `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1` 及 `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`。五个生产扩展均参与编译，所有 `TestUI` 测试自动纳入，不再维护具体扩展名的筛选清单；它不构建核心 AAR。另执行 `go test -race ./experimental/httpdebug -count=1` 和 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1`，覆盖抓取/改写引擎、数据竞争及原出站和嗅探字节保留。
 - 对应回归文件为 [ui_http_test.go](libbox/ui_http_test.go)、[ui_egress_test.go](libbox/ui_egress_test.go)、[ui_lan_test.go](libbox/ui_lan_test.go)，覆盖请求限制/重定向、源回退/公网 IP 校验/解析失败后继续竞速/取消/服务替换、监听转换和端点生成。
 
 [httpdebug_test.go](libbox/httpdebug/httpdebug_test.go) 覆盖域名/应用过滤、HTTP/HTTPS/HTTP2、上游证书验证、SSE/WebSocket、正文和记录上限、恢复及导出；[httpdebug_test.go](libbox/route/httpdebug_test.go) 在匹配核心中验证路由不被嗅探覆盖及不匹配流量字节回放。获准本机验证时可运行 [verify_httpdebug.py](tools/verify_httpdebug.py)，限制 Go 并发和内存；该脚本只测试独立引擎，不编译路由或生成 Android 绑定。
 
 [rewrite_test.go](libbox/httpdebug/rewrite_test.go) 覆盖规则顺序、有效报文录制、首个脚本、Map Local/重定向不访问上游、压缩与超限透传、SSE、chunked/Expect、脚本超时/二进制/消息边界、改写目标的选路与 TLS、MITM 绕过及域名导出。[ui_capture_test.go](libbox/ui_capture_test.go) 检查完整配置校验、格式化往返与 schema；路由测试另检查重选路清除旧规则状态并阻止递归抓包。对应结果须由当前 SHA 的 Actions 提供。
 
-升级核心时先检查补丁是否仍准确排除 legacy 分支，核对 sing-tun 依赖版本及自动重定向补丁，检查 HTTP 调试路由/服务生命周期补丁及覆盖文件，再逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对上述各工作流的复制清单。
+升级核心时先检查补丁是否仍准确排除 legacy 分支，核对 sing-tun 依赖版本及自动重定向补丁，检查 HTTP 调试路由/服务生命周期补丁及覆盖文件，再逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对共享准备 Action 的安装范围及三条工作流的调用。
 
 以上是源码和工作流的覆盖范围，不是本次测试通过记录；实际结果须对应提交 SHA 和 Actions 运行。本机构建限制见 [AGENTS.md](AGENTS.md)。
