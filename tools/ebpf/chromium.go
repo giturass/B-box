@@ -416,7 +416,7 @@ func chromiumReset(f *chromiumFunction, call uint64) (uint64, int64, bool) {
 		return 0, 0, false
 	}
 	for register := 19; register <= 28; register++ {
-		if r[register].argument(0, false) && !armSavedStable(f, firstCall+4, uint32(register)) {
+		if r[register].argument(0, false) && !armSavedAtCall(f, firstCall, call, uint32(register)) {
 			return 0, 0, false
 		}
 	}
@@ -452,7 +452,7 @@ func chromiumSocketSlot(f *chromiumFunction, call uint64) (int64, bool) {
 		return 0, false
 	}
 	for register := 19; register <= 28; register++ {
-		if r[register].argument(0, false) && !armSavedStable(f, firstCall+4, uint32(register)) {
+		if r[register].argument(0, false) && !armSavedAtCall(f, firstCall, call, uint32(register)) {
 			return 0, false
 		}
 	}

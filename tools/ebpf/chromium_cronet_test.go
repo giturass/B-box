@@ -62,6 +62,13 @@ func TestCronetRejectsUnverifiedCopyConsumptionAndBoundaries(t *testing.T) {
 		},
 		"unresolved read branch":  func(f chromiumFixture) { word(f, "SSL_read", 0x18, 0xd61f0100) },
 		"no allocation/free pair": func(f chromiumFixture) { word(f, "SSL_free", 0x1c, 0xd503201f) },
+		"reused socket loops back to allocation": func(f chromiumFixture) {
+			// The later error path reuses x19 for a stack object. It is harmless
+			// only while that path cannot return to the SSL ownership check.
+			init := f.functions["Chrome_Init"]
+			at, target := init.address+0x4cc, init.address+0xb4
+			word(f, "Chrome_Init", 0x4cc, 0x14000000|uint32((int64(target)-int64(at))/4)&0x3ffffff)
+		},
 		"copy import overwritten": func(f chromiumFixture) {
 			// The PLT loads x17, then clobbers it before the indirect branch.
 			binary.LittleEndian.PutUint32(f.imports["memcpy"].code[8:], 0xd2800011)

@@ -285,41 +285,94 @@ func armCalls(f *chromiumFunction) []armCall {
 // SSL/socket pointer or integer length in local call/guard checks.
 func armSavedStable(f *chromiumFunction, start uint64, register uint32) bool {
 	for pc := start; pc < f.end(); pc += 4 {
-		word := f.word(pc)
-		if armHint(word) || armReturn(word) {
-			continue
-		}
-		if _, _, branch := armBranch(word, pc); branch {
-			continue
-		}
-		if _, branch := armConditional(word, pc); branch {
-			continue
-		}
-		if memory, ok := armLoadStore(word); ok {
-			if memory.update && memory.base == register {
-				return false
-			}
-			if memory.load && (memory.first == register || memory.pair && memory.second == register) &&
-				((memory.base != 31 && memory.base != 29) || !armStackReturn(f, pc)) {
-				return false
-			}
-			continue
-		}
-		if word&0x0a000000 == 0x08000000 {
-			// An unfamiliar load/store can write multiple registers. SIMD uses
-			// a separate register file but can still update its address register.
-			if word&(1<<26) != 0 {
-				if memory, ok := armLoadStore(word &^ (1 << 26)); ok && (!memory.update || memory.base != register) {
-					continue
-				}
-			}
-			return false
-		}
-		if word&31 == register {
+		if !armSavedInstructionStable(f, pc, register) {
 			return false
 		}
 	}
 	return true
+}
+
+func armSavedInstructionStable(f *chromiumFunction, pc uint64, register uint32) bool {
+	word := f.word(pc)
+	if armHint(word) || armReturn(word) {
+		return true
+	}
+	if _, _, branch := armBranch(word, pc); branch {
+		return true
+	}
+	if _, branch := armConditional(word, pc); branch {
+		return true
+	}
+	if memory, ok := armLoadStore(word); ok {
+		return !(memory.update && memory.base == register) &&
+			(!memory.load || memory.first != register && (!memory.pair || memory.second != register) ||
+				(memory.base == 31 || memory.base == 29) && armStackReturn(f, pc))
+	}
+	if word&0x0a000000 == 0x08000000 {
+		// An unfamiliar load/store can write multiple registers. SIMD uses
+		// a separate register file but can still update its address register.
+		if word&(1<<26) != 0 {
+			if memory, ok := armLoadStore(word &^ (1 << 26)); ok && (!memory.update || memory.base != register) {
+				return true
+			}
+		}
+		return false
+	}
+	return word&31 != register
+}
+
+// A socket method may reuse its saved this pointer on a later error path.
+// Only changes on paths that can reach this particular call invalidate it.
+// Include back edges: merely stopping a linear scan at the call would accept
+// a loop which overwrites the pointer before returning to the same probe site.
+func armSavedAtCall(f *chromiumFunction, start, call uint64, register uint32) bool {
+	if start < f.address || start > call || call >= f.end() || start%4 != 0 || call%4 != 0 {
+		return false
+	}
+	predecessors := make(map[uint64][]uint64)
+	for pc := start; pc < f.end(); pc += 4 {
+		word := f.word(pc)
+		if armReturn(word) || armTrap(word) {
+			continue
+		}
+		if target, linked, branch := armBranch(word, pc); branch {
+			if !linked {
+				if target >= f.address && target < start {
+					return false // Do not re-enter the prelude with changed arguments.
+				}
+				if target >= start && target < f.end() {
+					predecessors[target] = append(predecessors[target], pc)
+				}
+				continue
+			}
+		} else if target, conditional := armConditional(word, pc); conditional {
+			if target < start || target >= f.end() {
+				return false
+			}
+			predecessors[target] = append(predecessors[target], pc)
+		} else if word&0xfffffc1f == 0xd63f0000 { // BLR preserves callee-saved registers.
+		} else if word&0xfe000000 == 0xd6000000 || word&0xff000000 == 0xd4000000 || word&0xff000000 == 0x54000000 {
+			return false
+		}
+		if pc+4 < f.end() {
+			predecessors[pc+4] = append(predecessors[pc+4], pc)
+		}
+	}
+	queue := []uint64{call}
+	seen := make(map[uint64]bool)
+	for len(queue) > 0 {
+		pc := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		if seen[pc] {
+			continue
+		}
+		seen[pc] = true
+		if !armSavedInstructionStable(f, pc, register) {
+			return false
+		}
+		queue = append(queue, predecessors[pc]...)
+	}
+	return seen[start]
 }
 
 func armStackReturn(f *chromiumFunction, pc uint64) bool {

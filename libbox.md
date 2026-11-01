@@ -70,6 +70,8 @@ HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF upr
 
 部分 Cronet 使用 [`-fno-unwind-tables`](https://chromium.googlesource.com/chromium/src/+/48db307645dcbaa0bb5ccee0cd096cf22971bb84/build/config/compiler/BUILD.gn#495)，链接的汇编代码仍留下稀疏 unwind 表。[控制流识别](tools/ebpf/chromium_flow.go)区分有效 FDE 未覆盖的空隙与损坏记录，仅在前者使用当前代码中的直接 `BL` 调用入口，遍历有界分支、返回及陷阱，拒绝越界、未知间接跳转、不可解码指令和混入函数的不可达代码；允许 NOP 和 Chromium 的 BRK/HLT 陷阱填充。尾调用须有独立调用入口，`abort` 等不返回的调用通过 ELF 动态重定位和 PLT 指令确认，不能将任意末尾调用当作函数结束。不符合条件的源文件引用不进入候选集，必需函数及 ABI/生命周期验证仍须全部成功；损坏的 unwind 数据不会触发该回退。
 
+socket 对象指针须在所有能到达被检查调用的路径上保持有效，包括回跳；后续错误路径在无法返回该调用时可复用寄存器。这项[寄存器检查](tools/ebpf/chromium_decode.go)保留同一对象的生命周期验证，不因无关路径复用寄存器而拒绝整个方法。
+
 [挂载](tools/ebpf/attach.go) 在解析期间保持原始文件描述符，通过 `/proc/self/fd` 将同一 inode 交给 uprobe PMU，地址为 APK 条目数据偏移加 ELF 函数文件偏移。只挂载 APK 内未压缩的对应 ABI `.so`；压缩条目的提取副本由原生库目录和进程映射发现。映射路径在目标进程的 mount namespace 中解析，设备号/inode 不符或文件已删除时使用 `map_files`，避免包更新后把新文件当作旧映射。
 
 采集器的 `--inspect-library <ELF 或 APK 路径>` 只读诊断入口使用同一识别器，输出条目、识别方式、APK 数据偏移及实际识别出的函数文件偏移；它不需要 Root、不加载 BPF，也不读取目标进程或网络数据。可用 CI 构建的对应 ABI 采集器检查安装文件，结果仅证明静态识别，不能当作实机抓包通过。
