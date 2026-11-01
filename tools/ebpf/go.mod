@@ -1,6 +1,6 @@
 module github.com/giturass/B-box/capture
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/cilium/ebpf v0.17.3
