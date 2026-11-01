@@ -8,12 +8,12 @@ import (
 )
 
 func TestGoTLSVersionGateAndInstructionBoundaries(t *testing.T) {
-	for _, version := range []string{"go1.24.0", "go1.25.3", "go1.26.10"} {
+	for _, version := range []string{"go1.24.0", "go1.25.3", "go1.26.10", "go1.27.0", "go1.27.3"} {
 		if !supportedGoVersion(version) {
 			t.Fatal(version)
 		}
 	}
-	for _, version := range []string{"go1.23.9", "go1.27.0", "devel go1.26", "go1.26rc1", "go1.26.0 X:experiment", "go1.26.-1", "go1.26.+1", "go1.026.0"} {
+	for _, version := range []string{"go1.23.9", "go1.28.0", "devel go1.27", "go1.27rc1", "go1.27.3 X:experiment", "go1.27.-1", "go1.27.+1", "go1.027.0", "go1.27", "go1.27.03"} {
 		if supportedGoVersion(version) {
 			t.Fatal("accepted unverified ABI", version)
 		}

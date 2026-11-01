@@ -78,7 +78,7 @@ jobs:
         if: ${{ !cancelled() && steps.collector_build.outcome == 'success' }}
         run: |
           mkdir -p "$HOME/tmp/bbox-go-tls"
-          for fixture_go in go1.24.0 go1.25.0 go1.26.10; do
+          for fixture_go in go1.24.0 go1.25.0 go1.26.10 go1.27.3; do
             for fixture_link in internal external; do
               GOTOOLCHAIN="$fixture_go" CGO_ENABLED=1 go build -trimpath -buildmode=pie \
                 -ldflags="-s -w -linkmode=$fixture_link" \

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Go 1.24-1.26 ABIInternal, amd64/arm64. Return probes are ordinary uprobes
+// Go 1.24-1.27 ABIInternal, amd64/arm64. Return probes are ordinary uprobes
 // placed on decoded RET instructions, never kernel uretprobes on Go stacks.
 // runtime.g begins with stack{lo,hi}; no tls.Conn/net.Conn private offsets.
 struct go_key { u64 g; u32 pid, direction; };

@@ -7,11 +7,14 @@ import (
 	"errors"
 )
 
-// Go 1.26 no longer stores runtime.text in pcHeader. Its moduledata prefix is
+// Go 1.26/1.27 no longer store runtime.text in pcHeader. Their moduledata prefix is
 // one pointer, six slices, findfunctab, minpc/maxpc, then text/etext (192 bytes
 // on our two supported 64-bit ABIs). The layout and its linker initialization:
 // https://github.com/golang/go/blob/go1.26.10/src/runtime/symtab.go
 // https://github.com/golang/go/blob/go1.26.10/src/cmd/link/internal/ld/symtab.go
+// https://github.com/golang/go/blob/go1.27.3/src/runtime/symtab.go
+// https://github.com/golang/go/blob/go1.27.3/src/cmd/link/internal/ld/symtab.go
+// Go 1.27 changes type metadata after this prefix, not these address fields.
 //
 // Locate the prefix by ftab's length/capacity, which do not need relocation.
 // Then verify all six slices, pcHeader, and both PC bounds. This works in
@@ -112,7 +115,7 @@ func goModuleTextAddress(ctx context.Context, file *elf.File, pclnSection *elf.S
 		}
 	}
 	if found == 0 {
-		return 0, errors.New("Go 1.26 moduledata is missing or does not match pclntab")
+		return 0, errors.New("Go moduledata is missing or does not match pclntab")
 	}
 	return found, ctx.Err()
 }

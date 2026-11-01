@@ -31,8 +31,8 @@ func TestWireIndependentDecryption(t *testing.T) {
 		}
 		return nil
 	})
-	if err != nil || len(fixtures) != 24 {
-		t.Fatalf("expected 2 architectures x 3 Go versions x 2 link modes x 2 TLS versions: %d fixtures, %v", len(fixtures), err)
+	if err != nil || len(fixtures) != 32 {
+		t.Fatalf("expected 2 architectures x 4 Go versions x 2 link modes x 2 TLS versions: %d fixtures, %v", len(fixtures), err)
 	}
 	for _, path := range fixtures {
 		relative, _ := filepath.Rel(directory, path)

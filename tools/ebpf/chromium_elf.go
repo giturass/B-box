@@ -39,11 +39,17 @@ type chromiumImage struct {
 	functions    map[uint64]*chromiumFunction
 	sslFiles     map[uint64]bool
 	socketFiles  map[uint64]bool
+	codeEntries  []uint64
+	codeFailures map[uint64]error
+	pltImports   map[uint64]string
 }
+
+var errChromiumUnwindGap = errors.New("probe site is not covered by unwind information")
 
 func chromiumSection(file *elf.File, name string, limit uint64, executable bool) (*elf.Section, error) {
 	s := file.Section(name)
 	if s == nil || s.Type != elf.SHT_PROGBITS || s.Size == 0 || s.Size > limit ||
+		s.Addr > ^uint64(0)-s.Size || s.Offset > ^uint64(0)-s.Size ||
 		s.Flags&elf.SHF_ALLOC == 0 || s.Flags&(elf.SHF_COMPRESSED|elf.SHF_WRITE) != 0 ||
 		(s.Flags&elf.SHF_EXECINSTR != 0) != executable {
 		return nil, fmt.Errorf("missing or unsupported %s", name)
@@ -186,19 +192,30 @@ func (c *chromiumImage) frameRecord(address uint64) ([]byte, error) {
 }
 
 func (c *chromiumImage) function(pc uint64) (*chromiumFunction, error) {
+	f, err := c.unwindFunction(pc)
+	if errors.Is(err, errChromiumUnwindGap) {
+		return c.codeFunction(pc)
+	}
+	return f, err
+}
+
+func (c *chromiumImage) unwindFunction(pc uint64) (*chromiumFunction, error) {
 	if err := c.ctx.Err(); err != nil {
 		return nil, err
 	}
+	if pc%4 != 0 || pc < c.text.Addr || pc-c.text.Addr >= c.text.Size {
+		return nil, errors.New("probe site is outside ARM64 text")
+	}
 	index := sort.Search(len(c.table)/8, func(i int) bool { start, _ := c.entry(i); return start > pc }) - 1
 	if index < 0 {
-		return nil, errors.New("no unwind function at probe site")
+		return nil, errChromiumUnwindGap
 	}
 	start, frame := c.entry(index)
 	if f := c.functions[start]; f != nil {
 		if pc < f.end() {
 			return f, nil
 		}
-		return nil, errors.New("probe site falls in an unwind gap")
+		return nil, errChromiumUnwindGap
 	}
 	fde, err := c.frameRecord(frame)
 	if err != nil {
@@ -222,14 +239,17 @@ func (c *chromiumImage) function(pc uint64) (*chromiumFunction, error) {
 	actualStart := addSigned(frame+8, int64(int32(binary.LittleEndian.Uint32(fde[4:]))))
 	size := uint64(binary.LittleEndian.Uint32(fde[8:]))
 	if actualStart != start || size == 0 || size%4 != 0 || size > maxChromiumFunctionSize ||
-		start < c.text.Addr || start-c.text.Addr > c.text.Size || size > c.text.Size-(start-c.text.Addr) || pc-start >= size {
-		return nil, errors.New("invalid unwind function range")
+		start < c.text.Addr || start-c.text.Addr > c.text.Size || size > c.text.Size-(start-c.text.Addr) {
+		return nil, fmt.Errorf("invalid unwind function range at %#x (FDE %#x, start %#x, size %#x)", pc, frame, actualStart, size)
 	}
 	if index+1 < len(c.table)/8 {
 		next, _ := c.entry(index + 1)
 		if size > next-start {
 			return nil, errors.New("overlapping unwind functions")
 		}
+	}
+	if pc-start >= size {
+		return nil, errChromiumUnwindGap
 	}
 	if len(c.functions) >= maxChromiumCandidates {
 		return nil, errors.New("too many Chromium function candidates")

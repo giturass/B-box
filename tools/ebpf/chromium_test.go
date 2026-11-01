@@ -30,6 +30,7 @@ type chromiumSample struct {
 type chromiumFixture struct {
 	data                     []byte
 	functions                map[string]*chromiumSample
+	imports                  map[string]*chromiumSample
 	header, frames, sections uint64
 }
 
@@ -46,15 +47,20 @@ func fixtureAddress(t *testing.T, text string) uint64 {
 // source strings and external call targets are relocated. External helpers
 // are RET stubs: this is static analysis input and can never perform TLS.
 func makeChromiumFixture(t *testing.T, seed int64, duplicateWrite bool) chromiumFixture {
+	return makeChromiumFixtureSource(t, "instructions.json", seed, duplicateWrite, false)
+}
+
+func makeChromiumFixtureSource(t *testing.T, source string, seed int64, duplicateWrite, entryCalls bool) chromiumFixture {
 	t.Helper()
 	var input struct {
 		Sources   map[string]string `json:"sources"`
+		Imports   map[string]string `json:"imports"`
 		Functions []struct {
 			Name, Address, SHA256 string
 			Code                  []string
 		}
 	}
-	data, err := os.ReadFile("testdata/chromium/instructions.json")
+	data, err := os.ReadFile("testdata/chromium/" + source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +102,16 @@ func makeChromiumFixture(t *testing.T, seed int64, duplicateWrite bool) chromium
 	}
 	sort.Slice(targets, func(i, j int) bool { return targets[i] < targets[j] })
 	for _, target := range targets {
-		samples = append(samples, &chromiumSample{name: fmt.Sprintf("helper_%x", target), old: target, code: []byte{0xc0, 0x03, 0x5f, 0xd6}})
+		code := []byte{0xc0, 0x03, 0x5f, 0xd6}
+		if input.Imports[fmt.Sprintf("%#x", target)] != "" {
+			code = make([]byte, 16) // Filled below with an inert, relocated PLT stub.
+		}
+		samples = append(samples, &chromiumSample{name: fmt.Sprintf("helper_%x", target), old: target, code: code})
+	}
+	if entryCalls {
+		// Stand in for callers outside the nine extracted functions. A direct
+		// BL is required even when the callee has no unwind record.
+		samples = append(samples, &chromiumSample{name: "fixture_entry_calls", code: make([]byte, 4*(len(input.Functions)+1))})
 	}
 	if duplicateWrite {
 		for _, sample := range samples {
@@ -175,7 +190,7 @@ func makeChromiumFixture(t *testing.T, seed int64, duplicateWrite bool) chromium
 		t.Fatalf("unmapped fixture call target %#x", target)
 		return 0
 	}
-	fixture := chromiumFixture{data: output, functions: make(map[string]*chromiumSample), header: header, frames: frames, sections: sectionOffset}
+	fixture := chromiumFixture{data: output, functions: make(map[string]*chromiumSample), imports: make(map[string]*chromiumSample), header: header, frames: frames, sections: sectionOffset}
 	for _, sample := range samples {
 		for index := 0; index < len(sample.code); index += 4 {
 			word := binary.LittleEndian.Uint32(sample.code[index:])
@@ -194,6 +209,16 @@ func makeChromiumFixture(t *testing.T, seed int64, duplicateWrite bool) chromium
 				}
 				delta := uint32((int64(page)-int64(newPC&^uint64(4095)))/4096) & 0x1fffff
 				word = word&0x9f00001f | (delta&3)<<29 | (delta>>2)<<5
+			case word&0x9f000000 == 0x10000000:
+				_, oldTarget, _ := armAddress(word, oldPC)
+				target := base + 0x3000 + (oldTarget & 4095)
+				if page, found := pages[oldTarget&^uint64(4095)]; found {
+					target = page + (oldTarget & 4095)
+				} else if inside(oldTarget) {
+					target = relocate(sample, oldTarget)
+				}
+				delta := uint32(int64(target)-int64(newPC)) & 0x1fffff
+				word = word&0x9f00001f | (delta&3)<<29 | (delta>>2)<<5
 			case word&0xffe0001f == 0x52800004:
 				// Deliberately change error source lines on every relocation.
 				line := ((word>>5)&0xffff + uint32(seed)*97) & 0xffff
@@ -203,6 +228,17 @@ func makeChromiumFixture(t *testing.T, seed int64, duplicateWrite bool) chromium
 		}
 		sample.code = output[sample.address-base : sample.address-base+uint64(len(sample.code))]
 		fixture.functions[sample.name] = sample
+		if name := input.Imports[fmt.Sprintf("%#x", sample.old)]; name != "" {
+			fixture.imports[name] = sample
+		}
+	}
+	if driver := fixture.functions["fixture_entry_calls"]; driver != nil {
+		for index, source := range input.Functions {
+			target := fixture.functions[source.Name].address
+			pc := driver.address + uint64(index)*4
+			put32(pc-base, 0x94000000|uint32((int64(target)-int64(pc))/4)&0x3ffffff)
+		}
+		put32(driver.address-base+uint64(len(driver.code))-4, 0xd65f03c0)
 	}
 	copy(output[header:], []byte{1, 0x1b, 3, 0x3b})
 	put32(header+4, uint32(frames-(header+4)))
@@ -241,7 +277,112 @@ func makeChromiumFixture(t *testing.T, seed int64, duplicateWrite bool) chromium
 		put64(offset+32, section.size)
 		put64(offset+48, 4)
 	}
+	if len(fixture.imports) != 0 {
+		fixture.addImportSections(base)
+	}
 	return fixture
+}
+
+// Inert dynamic symbols, relocations and PLT instruction stubs. No imported
+// implementation is included or executed. The .plt view covers the shuffled
+// stubs inside the executable fixture segment, independently of the FDE table.
+func (f *chromiumFixture) addImportSections(base uint64) {
+	b := binary.LittleEndian
+	var names []string
+	for name := range f.imports {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	strtab := []byte{0}
+	symbols := make([]byte, (len(names)+1)*24)
+	relocations := make([]byte, len(names)*24)
+	pltStart, pltEnd := ^uint64(0), uint64(0)
+	for index, name := range names {
+		sample := f.imports[name]
+		pltStart, pltEnd = min(pltStart, sample.address), max(pltEnd, sample.address+16)
+		got := base + 0x3000 + uint64(index)*8
+		pageDelta := uint32((int64(got&^uint64(4095))-int64(sample.address&^uint64(4095)))/4096) & 0x1fffff
+		b.PutUint32(sample.code, 0x90000010|(pageDelta&3)<<29|(pageDelta>>2)<<5)
+		b.PutUint32(sample.code[4:], 0xf9400211|uint32(got&4095)/8<<10)
+		b.PutUint32(sample.code[8:], 0x91000210|uint32(got&4095)<<10)
+		b.PutUint32(sample.code[12:], 0xd61f0220)
+		symbol := symbols[(index+1)*24:]
+		b.PutUint32(symbol, uint32(len(strtab)))
+		symbol[4] = byte(elf.STB_GLOBAL)<<4 | byte(elf.STT_FUNC)
+		strtab = append(strtab, []byte(name)...)
+		strtab = append(strtab, 0)
+		relocation := relocations[index*24:]
+		b.PutUint64(relocation, got)
+		b.PutUint64(relocation[8:], uint64(index+1)<<32|uint64(elf.R_AARCH64_JUMP_SLOT))
+	}
+	oldCount := int(b.Uint16(f.data[60:]))
+	oldSections := bytes.Clone(f.data[f.sections : f.sections+uint64(oldCount)*64])
+	stringsSection := oldSections[5*64 : 6*64]
+	stringsStart, stringsSize := b.Uint64(stringsSection[24:]), b.Uint64(stringsSection[32:])
+	sectionNames := bytes.Clone(f.data[stringsStart : stringsStart+stringsSize])
+	sectionNames = append(sectionNames, []byte(".plt\x00.dynsym\x00.dynstr\x00.rela.plt\x00")...)
+	appendData := func(data []byte) uint64 {
+		for len(f.data)%8 != 0 {
+			f.data = append(f.data, 0)
+		}
+		offset := uint64(len(f.data))
+		f.data = append(f.data, data...)
+		return offset
+	}
+	symbolsOffset := appendData(symbols)
+	stringsOffset := appendData(strtab)
+	relocationsOffset := appendData(relocations)
+	namesOffset := appendData(sectionNames)
+	b.PutUint64(stringsSection[24:], namesOffset)
+	b.PutUint64(stringsSection[32:], uint64(len(sectionNames)))
+	f.sections = appendData(oldSections)
+	f.data = append(f.data, make([]byte, 4*64)...)
+	b.PutUint64(f.data[40:], f.sections)
+	b.PutUint16(f.data[60:], uint16(oldCount+4))
+	for index, info := range []struct {
+		name         string
+		kind         elf.SectionType
+		offset, size uint64
+		link, entry  uint32
+	}{
+		{".plt", elf.SHT_PROGBITS, pltStart - base, pltEnd - pltStart, 0, 0},
+		{".dynsym", elf.SHT_DYNSYM, symbolsOffset, uint64(len(symbols)), uint32(oldCount + 2), 24},
+		{".dynstr", elf.SHT_STRTAB, stringsOffset, uint64(len(strtab)), 0, 0},
+		{".rela.plt", elf.SHT_RELA, relocationsOffset, uint64(len(relocations)), uint32(oldCount + 1), 24},
+	} {
+		section := f.data[f.sections+uint64(oldCount+index)*64:]
+		b.PutUint32(section, uint32(bytes.Index(sectionNames, []byte(info.name+"\x00"))))
+		b.PutUint32(section[4:], uint32(info.kind))
+		b.PutUint64(section[24:], info.offset)
+		b.PutUint64(section[32:], info.size)
+		b.PutUint32(section[40:], info.link)
+		b.PutUint64(section[48:], 8)
+		b.PutUint64(section[56:], uint64(info.entry))
+		if index == 0 {
+			b.PutUint64(section[8:], uint64(elf.SHF_ALLOC|elf.SHF_EXECINSTR))
+			b.PutUint64(section[16:], base+info.offset)
+		}
+	}
+	for _, sample := range f.functions {
+		sample.code = f.data[sample.address-base : sample.address-base+uint64(len(sample.code))]
+	}
+}
+
+func (f chromiumFixture) sparseUnwind() {
+	// Keep just the first helper's valid FDE, as in a library whose C/C++
+	// functions omit unwind tables but linked assembly still supplies them.
+	var selected *chromiumSample
+	for name, sample := range f.functions {
+		if strings.HasPrefix(name, "helper_") && (selected == nil || sample.address < selected.address) {
+			selected = sample
+		}
+	}
+	b := binary.LittleEndian
+	base := b.Uint64(f.data[64+16:])
+	b.PutUint32(f.data[f.header+8:], 1)
+	b.PutUint32(f.data[f.header+12:], uint32(selected.address-(base+f.header)))
+	b.PutUint32(f.data[f.header+16:], uint32(selected.frame-f.header))
+	b.PutUint64(f.data[f.sections+2*64+32:], 20)
 }
 
 func (f chromiumFixture) mergeLoadSegments() {

@@ -64,6 +64,11 @@ func resolveChromium(ctx context.Context, file *elf.File) (map[string]uint64, er
 			return err
 		}
 		f, err := c.function(pc)
+		if errors.Is(err, errChromiumCodeRange) {
+			// Sparse unwind tables need not describe every source reference.
+			// Only independently bounded functions can become TLS candidates.
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -133,20 +138,17 @@ func resolveChromium(ctx context.Context, file *elf.File) (map[string]uint64, er
 	if _, err = c.entryFunction(errorHelper); err != nil {
 		return nil, fmt.Errorf("BoringSSL error helper: %w", err)
 	}
-	var peek *chromiumFunction
+	var peeks []*chromiumFunction
 	for address, reasons := range errorsByFunction {
 		if len(reasons) != 1 || reasons[sslShouldNotBeCalled] != errorHelper {
 			continue
 		}
 		f := c.functions[address]
 		if armForwardsArguments(f, readImpl.address) {
-			if peek != nil {
-				return nil, errors.New("ambiguous SSL_peek wrappers")
-			}
-			peek = f
+			peeks = append(peeks, f)
 		}
 	}
-	if peek == nil {
+	if len(peeks) == 0 {
 		return nil, errors.New("SSL_peek/read call relationship is unavailable")
 	}
 	allocatedRegister, ok := c.validateAllocation(allocation, errorHelper)
@@ -201,7 +203,16 @@ func resolveChromium(ctx context.Context, file *elf.File) (map[string]uint64, er
 			if err != nil {
 				return nil, err
 			}
-			if !chromiumRead(candidate, peek.address) {
+			consuming := false
+			for _, peek := range peeks {
+				consuming = consuming || chromiumRead(candidate, peek.address)
+			}
+			// Clang may inline SSL_peek into SSL_read. The copy count and
+			// consumption must then be proven inside the same function.
+			if !consuming && len(errorsByFunction[candidate.address]) == 1 && errorsByFunction[candidate.address][sslShouldNotBeCalled] == errorHelper {
+				consuming = c.inlinedRead(candidate, readImpl.address)
+			}
+			if !consuming {
 				continue
 			}
 			if read != nil && read.address != candidate.address {
@@ -292,6 +303,11 @@ func (c *chromiumImage) errorCall(f *chromiumFunction, start, anchor uint64) (ch
 }
 
 func armForwardsArguments(f *chromiumFunction, target uint64) bool {
+	_, _, ok := armForwardedCall(f, target)
+	return ok
+}
+
+func armForwardedCall(f *chromiumFunction, target uint64) (armRegisters, uint64, bool) {
 	type state struct {
 		pc uint64
 		r  armRegisters
@@ -309,7 +325,7 @@ func armForwardsArguments(f *chromiumFunction, target uint64) bool {
 		if address, call, branch := armBranch(word, s.pc); branch {
 			if call {
 				if address == target && s.r[0].argument(0, false) && s.r[1].argument(1, false) && s.r[2].argument(2, true) {
-					return true
+					return s.r, s.pc, true
 				}
 				continue
 			}
@@ -324,7 +340,7 @@ func armForwardsArguments(f *chromiumFunction, target uint64) bool {
 		}
 		queue = append(queue, s)
 	}
-	return false
+	return armRegisters{}, 0, false
 }
 
 func (c *chromiumImage) validateAllocation(f *chromiumFunction, helper uint64) (uint32, bool) {

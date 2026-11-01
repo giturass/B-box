@@ -44,6 +44,10 @@ func armReturn(word uint32) bool {
 
 func armHint(word uint32) bool { return word&0xfffff01f == 0xd503201f }
 
+func armTrap(word uint32) bool {
+	return word&0xffe0001f == 0xd4200000 || word&0xffe0001f == 0xd4400000 // BRK / HLT.
+}
+
 type armValue struct {
 	kind   uint8
 	narrow bool
@@ -178,6 +182,8 @@ func armLoadStore(word uint32) (armMemory, bool) {
 		return m, false
 	}
 	switch {
+	case word&0x3ffffc00 == 0x08dffc00: // LDAR (e.g. Chromium's atomic SSLContext singleton).
+		m.load, m.width = true, 1<<(word>>30)
 	case word&0x3b000000 == 0x39000000: // Unsigned scaled immediate.
 		op := (word >> 22) & 3
 		if op > 1 && (word>>30 == 3 || word>>30 == 2 && op == 3) {

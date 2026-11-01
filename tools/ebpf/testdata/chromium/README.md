@@ -37,3 +37,36 @@ also distinguish ELF virtual addresses, ELF file offsets and ZIP data offsets.
 These tests exercise the production static recognizer on actual compiler output.
 They do not establish compatibility with every future compiler/BoringSSL change,
 or verify Root, SELinux, uprobes, Chrome reconnection or HTTP/3 on a device.
+
+## Cronet with sparse unwind information
+
+`cronet-150.json` contains 5,520 instruction bytes from the same nine function
+roles in Android ARM64 `libcronet.150.0.7871.28.so`, SHA-256
+`38c66f809e3e2acde4fffc20479cf31bc0a93eaccb40171cc0de900c2c86f93a`.
+The installed Google speech service's ARM64 split supplies this public library;
+no APK, application data or runtime traffic is included. Its `.eh_frame_hdr`
+contains 575 entries, none covering these nine functions. Direct call sites,
+disassembly and source relationships identify the extracted ranges; trailing
+BRK/HLT crash sequences are retained.
+
+The matching Chromium tag resolves to
+[`48db307645dcbaa0bb5ccee0cd096cf22971bb84`](https://chromium.googlesource.com/chromium/src/+/48db307645dcbaa0bb5ccee0cd096cf22971bb84/).
+Its [compiler configuration](https://chromium.googlesource.com/chromium/src/+/48db307645dcbaa0bb5ccee0cd096cf22971bb84/build/config/compiler/BUILD.gn#495)
+allows C/C++ unwind tables to be omitted. Its DEPS pins BoringSSL
+[`3a9254f16eda7a4c5d2260039ff23456a0a34de4`](https://boringssl.googlesource.com/boringssl/+/3a9254f16eda7a4c5d2260039ff23456a0a34de4/).
+The [SSL source](https://boringssl.googlesource.com/boringssl/+/3a9254f16eda7a4c5d2260039ff23456a0a34de4/ssl/ssl_lib.cc#913)
+defines the copy and consumption relationships even when clang inlines
+`SSL_peek` into `SSL_read`. Both pinned repositories' licenses are byte-for-byte
+identical to [LICENSE.chromium](LICENSE.chromium) and
+[LICENSE.boringssl](LICENSE.boringssl) already preserved here.
+
+[chromium_cronet_test.go](../../chromium_cronet_test.go) reconstructs complete
+and sparse unwind variants, relocates the functions, calls and source references,
+and changes line constants. Synthetic caller instructions stand in for callers
+outside the extracted functions. Inert ELF import metadata and PLT stubs model
+`memcpy`, `abort` and `__stack_chk_fail`; the imported implementations are not
+included. A `.plt` view spans those stubs in the shuffled executable segment.
+Unknown helpers remain RET stubs. Corrupted FDEs, unavailable call entries,
+unbounded control flow, incorrect imports, wrong copy bounds/buffers and
+non-consuming reads must all fail recognition. These fixtures are static input,
+never executable tests or production address tables.
