@@ -172,6 +172,8 @@ void main() {
       await tester.scrollUntilVisible(toggle, 240, scrollable: scrollable);
       await tester.tap(toggle); await tester.pumpAndSettle();
     }
+    await Scrollable.ensureVisible(tester.element(find.byKey(const ValueKey('capture-network'))), alignment: 0.2);
+    await tester.pumpAndSettle();
     await capture(tester, 'raw-capture-settings');
     await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
     final args = json(calls.singleWhere((call) => call.method == 'capture.configure').arguments);

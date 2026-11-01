@@ -86,7 +86,13 @@ func resolveGoTLS(ctx context.Context, file *elf.File, info *debug.BuildInfo) (r
 			if len(data)-at >= 72 && binary.LittleEndian.Uint64(data[at+8:]) <= 200000 {
 				// gosym requires runtime.text, which can follow C startup code
 				// inside .text in externally linked PIE/c-shared binaries.
-				textStart, addressErr := goTextAddress(ctx, file, section, data, at)
+				var textStart uint64
+				var addressErr error
+				if strings.HasPrefix(info.GoVersion, "go1.26.") {
+					textStart, addressErr = goModuleTextAddress(ctx, file, section, data, at)
+				} else {
+					textStart, addressErr = goTextAddress(ctx, file, section, data, at)
+				}
 				if addressErr != nil {
 					return nil, "", addressErr
 				}
@@ -149,8 +155,23 @@ func goTextAddress(ctx context.Context, file *elf.File, section *elf.Section, da
 		return 0, errors.New("invalid Go text address field")
 	}
 	field := section.Addr + uint64(at) + 24
-	value := binary.LittleEndian.Uint64(data[at+24:])
-	var relocated bool
+	values := map[uint64]uint64{field: binary.LittleEndian.Uint64(data[at+24:])}
+	if err := relocateGoAddresses(ctx, file, values); err != nil {
+		return 0, err
+	}
+	value := values[field]
+	text := file.Section(".text")
+	if text == nil || value == 0 || value < text.Addr || value-text.Addr >= text.Size {
+		return 0, errors.New("Go runtime.text address is unresolved or outside executable text")
+	}
+	return value, nil
+}
+
+// Resolve only requested address words, in the ELF's link-time address space.
+// ASLR changes every address by the load bias and does not change file offsets.
+func relocateGoAddresses(ctx context.Context, file *elf.File, values map[uint64]uint64) error {
+	relocated := make(map[uint64]bool)
+	var total uint64
 	for _, relocation := range file.Sections {
 		if relocation.Flags&elf.SHF_ALLOC == 0 || (relocation.Type != elf.SHT_RELA && relocation.Type != elf.SHT_REL) {
 			continue
@@ -159,27 +180,30 @@ func goTextAddress(ctx context.Context, file *elf.File, section *elf.Section, da
 		if relocation.Type == elf.SHT_RELA {
 			size = 24
 		}
-		if relocation.Size > 32*1024*1024 || relocation.Entsize != size || relocation.Size%size != 0 {
-			return 0, errors.New("unsupported ELF relocation table for Go text")
+		if relocation.Size > 32*1024*1024-total || relocation.Entsize != size || relocation.Size%size != 0 {
+			return errors.New("unsupported ELF relocation table for Go text")
 		}
+		total += relocation.Size
 		entries, err := relocation.Data()
 		if err != nil {
-			return 0, err
+			return err
 		}
 		for offset := 0; offset < len(entries); offset += int(size) {
 			if offset%4096 == 0 {
 				if err := ctx.Err(); err != nil {
-					return 0, err
+					return err
 				}
 			}
 			entry := entries[offset : offset+int(size)]
-			if binary.LittleEndian.Uint64(entry) != field {
+			field := binary.LittleEndian.Uint64(entry)
+			value, wanted := values[field]
+			if !wanted {
 				continue
 			}
-			if relocated {
-				return 0, errors.New("conflicting Go text relocations")
+			if relocated[field] {
+				return errors.New("conflicting Go address relocations")
 			}
-			relocated = true
+			relocated[field] = true
 			info := binary.LittleEndian.Uint64(entry[8:])
 			kind, symbol := uint32(info), uint32(info>>32)
 			addend := value
@@ -195,19 +219,16 @@ func goTextAddress(ctx context.Context, file *elf.File, section *elf.Section, da
 			} else if absolute && symbol > 0 {
 				symbols, err := file.DynamicSymbols()
 				if err != nil || uint64(symbol) > uint64(len(symbols)) || symbols[symbol-1].Section == elf.SHN_UNDEF {
-					return 0, errors.New("unresolved Go runtime.text symbol")
+					return errors.New("unresolved Go address symbol")
 				}
 				value = symbols[symbol-1].Value + addend
 			} else {
-				return 0, errors.New("unsupported Go runtime.text relocation")
+				return errors.New("unsupported Go address relocation")
 			}
+			values[field] = value
 		}
 	}
-	text := file.Section(".text")
-	if text == nil || value == 0 || value < text.Addr || value-text.Addr >= text.Size {
-		return 0, errors.New("Go runtime.text address is unresolved or outside executable text")
-	}
-	return value, nil
+	return ctx.Err()
 }
 
 func goReturnOffsets(code []byte, machine elf.Machine) ([]uint64, error) {
