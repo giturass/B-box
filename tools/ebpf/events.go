@@ -22,9 +22,12 @@ func decodeEvent(data []byte) (rawEvent, error) {
 		pid: b.Uint32(data[32:]), uid: b.Uint32(data[40:]), kind: b.Uint32(data[44:]), length: b.Uint32(data[52:]),
 		offset: b.Uint32(data[56:]), flags: b.Uint32(data[64:])}
 	length := b.Uint32(data[60:])
-	if length > 4096 || int(length)+72 > len(data) || event.kind < 1 || event.kind > 4 ||
+	if length > 4096 || int(length)+72 > len(data) || event.kind < 1 || event.kind > 5 ||
 		event.length > 128*1024 || event.offset+length > event.length {
 		return rawEvent{}, errors.New("invalid eBPF event bounds")
+	}
+	if event.kind == 5 && (event.flags < 1 || event.flags > 4 || event.length != 0 || length != 0 || event.sequence != 0) {
+		return rawEvent{}, errors.New("invalid eBPF gap event")
 	}
 	event.data = append([]byte(nil), data[72:72+length]...)
 	return event, nil
@@ -43,6 +46,7 @@ type pipeEvent struct {
 	Data      []byte   `json:"data,omitempty"`
 	Gap       bool     `json:"gap,omitempty"`
 	Libraries int      `json:"libraries,omitempty"`
+	Scanning  bool     `json:"scanning,omitempty"`
 	Error     string   `json:"error,omitempty"`
 }
 type eventGroup struct {
@@ -61,25 +65,32 @@ type eventFlow struct {
 	pending map[eventKey]*eventGroup
 	closing *rawEvent
 	closeAt time.Time
+	broken  *rawEvent
+	gapSent bool
+	created time.Time
 }
 type eventAssembler struct {
-	config collectorConfig
-	flows  map[string]*eventFlow
-	bytes  int
-	emit   func(pipeEvent) error
+	config  collectorConfig
+	flows   map[string]*eventFlow
+	retired map[string]time.Time
+	bytes   int
+	emit    func(pipeEvent) error
 }
 
 func newAssembler(config collectorConfig, emit func(pipeEvent) error) *eventAssembler {
-	return &eventAssembler{config: config, flows: make(map[string]*eventFlow), emit: emit}
+	return &eventAssembler{config: config, flows: make(map[string]*eventFlow), retired: make(map[string]time.Time), emit: emit}
 }
 func (a *eventAssembler) accept(event rawEvent) error {
 	id := event.id()
+	if _, done := a.retired[id]; done {
+		return nil
+	}
 	flow := a.flows[id]
 	if flow == nil {
 		if len(a.flows) >= 8192 {
 			return errors.New("eBPF connection limit reached")
 		}
-		flow = &eventFlow{next: [2]uint64{1, 1}, pending: make(map[eventKey]*eventGroup)}
+		flow = &eventFlow{next: [2]uint64{1, 1}, pending: make(map[eventKey]*eventGroup), created: time.Now()}
 		a.flows[id] = flow
 	}
 	switch event.kind {
@@ -99,7 +110,15 @@ func (a *eventAssembler) accept(event rawEvent) error {
 		copy := event
 		flow.closing = &copy
 		flow.closeAt = time.Now()
+		if event.flags != 0 {
+			a.breakFlow(flow, event)
+		}
+	case 5:
+		a.breakFlow(flow, event)
 	case 2, 3:
+		if flow.broken != nil {
+			return nil
+		}
 		direction := int(event.kind - 2)
 		if event.sequence < flow.next[direction] {
 			return errors.New("duplicate eBPF sequence")
@@ -137,6 +156,19 @@ func (a *eventAssembler) accept(event rawEvent) error {
 		return errors.New("invalid eBPF event kind")
 	}
 	if !flow.open {
+		return nil
+	}
+	if flow.broken != nil {
+		if !flow.gapSent {
+			if err := a.emit(pipeEvent{Type: "data", ID: id, PID: event.pid, UID: event.uid,
+				Direction: "write", Gap: true, Error: gapReason(flow.broken.flags)}); err != nil {
+				return err
+			}
+			flow.gapSent = true
+		}
+		if flow.closing != nil {
+			return a.closeFlow(id, flow.closing.pid, flow.closing.uid)
+		}
 		return nil
 	}
 	for direction := 0; direction < 2; direction++ {
@@ -180,16 +212,60 @@ func (a *eventAssembler) accept(event rawEvent) error {
 			if len(flow.pending) != 0 {
 				return errors.New("eBPF fragments after SSL_free")
 			}
-			if err := a.emit(pipeEvent{Type: "close", ID: id, PID: closing.pid, UID: closing.uid}); err != nil {
-				return err
-			}
-			delete(a.flows, id)
+			return a.closeFlow(id, closing.pid, closing.uid)
 		}
 	}
 	return nil
 }
+
+func (a *eventAssembler) breakFlow(flow *eventFlow, event rawEvent) {
+	if flow.broken != nil {
+		return
+	}
+	flow.broken = &event
+	for _, group := range flow.pending {
+		a.bytes -= group.size
+	}
+	clear(flow.pending)
+}
+
+func gapReason(reason uint32) string {
+	switch reason {
+	case 1:
+		return "TLS call exceeds the 128 KiB capture limit or returned an invalid length"
+	case 2:
+		return "TLS calls overlapped in the same direction; their byte order is unknown"
+	case 3:
+		return "TLS plaintext could not be read from the application"
+	default:
+		return "TLS object lifetime or call tracking was lost"
+	}
+}
+
+func (a *eventAssembler) closeFlow(id string, pid, uid uint32) error {
+	if err := a.emit(pipeEvent{Type: "close", ID: id, PID: pid, UID: uid}); err != nil {
+		return err
+	}
+	delete(a.flows, id)
+	if len(a.retired) >= 16384 {
+		return errors.New("eBPF retired connection limit reached")
+	}
+	// A close may overtake another CPU's gap event. Remember retired
+	// generations so that late events cannot recreate a completed stream.
+	a.retired[id] = time.Now()
+	return nil
+}
+
 func (a *eventAssembler) checkLoss(now time.Time) error {
+	for id, at := range a.retired {
+		if now.Sub(at) > 10*time.Second {
+			delete(a.retired, id)
+		}
+	}
 	for _, flow := range a.flows {
+		if !flow.open && now.Sub(flow.created) > 3*time.Second {
+			return errors.New("eBPF connection start was lost")
+		}
 		for _, group := range flow.pending {
 			if now.Sub(group.at) > 3*time.Second {
 				return errors.New("eBPF sequence gap; captured transactions are incomplete")

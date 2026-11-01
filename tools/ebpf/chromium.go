@@ -23,7 +23,7 @@ const (
 type unsupportedChromiumError struct{ name, reason string }
 
 func (e *unsupportedChromiumError) Error() string {
-	return fmt.Sprintf("Chrome/Chromium HTTPS plaintext is unavailable for %s: %s; TLS/QUIC domain observations may still be available", e.name, e.reason)
+	return fmt.Sprintf("Automatic TLS function resolution is unavailable for %s: %s; TLS/QUIC domain observations may still be available", e.name, e.reason)
 }
 
 func chromiumLibraryName(name string) bool {

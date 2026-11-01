@@ -50,9 +50,11 @@ jobs:
       - run: bash tools/ebpf/build.sh linux/amd64
       - name: Collector framing, ordering, symbol and platform tests
         working-directory: tools/ebpf
-        run: go test -mod=readonly -modfile=build/capture.mod -race -count=1 ./... github.com/cilium/ebpf/bboxtest
+        run: go test -mod=readonly -race -count=1 ./...
       - name: Root uprobe TLS smoke and owner shutdown
         run: sudo python3 tools/ebpf/smoke.py
+      - name: Stored APK uprobes, automatic offsets and TLS lifetime smoke
+        run: sudo python3 tools/ebpf/apk_smoke.py
   flutter:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

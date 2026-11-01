@@ -77,13 +77,17 @@ func TestPlaintextGapNeverRestartsOrExportsPartialBody(t *testing.T) {
 	for store.Page(10, "").Total == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if err := engine.passive.accept(plaintextEvent{Type: "data", ID: "gap", Direction: "write", Gap: true}); err != nil {
+	reason := "TLS call tracking was lost: " + strings.Repeat("x", 4096)
+	if err := engine.passive.accept(plaintextEvent{Type: "data", ID: "gap", Direction: "write", Gap: true, Error: reason}); err != nil {
 		t.Fatal(err)
 	}
 	item := waitComplete(t, store, 1)[0]
 	d, _ := store.Detail(item.ID)
 	if d.Error == "" || d.Request.BodyComplete {
 		t.Fatal("gap claimed a complete request")
+	}
+	if !strings.HasPrefix(d.Error, "TLS call tracking was lost:") || len(d.Error) > 1100 || !strings.Contains(d.Error, "reconnect") {
+		t.Fatal("connection gap explanation was lost or unbounded", d.Error)
 	}
 	if _, err := store.Curl(item.ID); err == nil {
 		t.Fatal("partial upload exported as complete")
@@ -231,8 +235,8 @@ func TestPlaintextLibraryWarningsKeepCaptureAndCountsActive(t *testing.T) {
 	encoder := json.NewEncoder(writer)
 	warning := "Chrome/Chromium HTTPS plaintext is unavailable: unverified function layout"
 	for _, event := range []plaintextEvent{
-		{Type: "ready", Version: 1, Libraries: 1, Error: warning},
-		{Type: "status", Version: 1, Libraries: 2, Error: warning},
+		{Type: "ready", Version: 1, Libraries: 1, Scanning: true, Error: warning},
+		{Type: "status", Version: 1, Libraries: 2, Scanning: true, Error: warning},
 		{Type: "open", ID: "warning", PID: 42, UID: 10001},
 		{Type: "data", ID: "warning", Direction: "write", Data: []byte("GET / HTTP/1.1\r\nHost: supported.test\r\n\r\n")},
 		{Type: "data", ID: "warning", Direction: "read", Data: []byte("HTTP/1.1 204 No Content\r\n\r\n")},
@@ -243,12 +247,22 @@ func TestPlaintextLibraryWarningsKeepCaptureAndCountsActive(t *testing.T) {
 		}
 	}
 	items := waitComplete(t, store, 1)
-	if state := Status(); !state.Active || state.Libraries != 2 || state.Error != warning {
+	if state := Status(); !state.Active || state.Libraries != 2 || !state.Scanning || state.Error != warning {
 		t.Fatalf("library warning was lost or stopped capture: %+v", state)
 	}
 	detail, err := store.Detail(items[0].ID)
 	if err != nil || detail.Error != "" || detail.Response.Status != 204 {
 		t.Fatalf("warning interrupted a supported application: %+v, %v", detail, err)
+	}
+	if err := encoder.Encode(plaintextEvent{Type: "status", Version: 1, Libraries: 2, Error: warning}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for Status().Scanning && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if state := Status(); !state.Active || state.Scanning || state.Libraries != 2 || state.Error != warning {
+		t.Fatalf("discovery completion lost capture state: %+v", state)
 	}
 }
 

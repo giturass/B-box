@@ -67,15 +67,17 @@ class RootServer : RootService() {
             val names = (0 until selected.length()).map { selected.getString(it) }.toSet()
             require(names.size <= 256) { "Too many capture applications" }
             val caller = Binder.getCallingUid()
-            val packages = PrivilegedServiceUtils.getInstalledPackages(0, caller / 100000)
+            val packages = PrivilegedServiceUtils.getInstalledPackages(PackageManager.GET_SHARED_LIBRARY_FILES, caller / 100000)
             val byUID = packages.mapNotNull { pkg -> pkg.applicationInfo?.let { it.uid to pkg.packageName } }
                 .groupBy({ it.first }, { it.second })
             val uids = byUID.filterValues { group -> group.any { it in names } }.keys
             if (names.isNotEmpty()) require(uids.isNotEmpty()) { "Selected capture applications are not installed" }
+            val targets = captureTargetPaths(packages, caller, if (names.isEmpty()) emptySet() else uids)
             val config = JSONObject().put("excludeUid", caller).put("userId", caller / 100000)
                 .put("uids", JSONArray(if (names.isEmpty()) emptyList<Int>() else uids.toList()))
                 .put("packages", JSONObject(byUID.mapKeys { it.key.toString() }))
                 .put("libraries", options.optJSONArray("tlsLibraries") ?: JSONArray())
+                .put("targets", JSONArray(targets))
             val session = synchronized(autoRedirectLifecycle) {
                 check(!destroyed) { "Root service is stopping" }
                 check(captureSessions.isEmpty()) { "An eBPF capture session is already running" }

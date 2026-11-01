@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Public OpenSSL/BoringSSL ABIs only; no private SSL structure offsets.
+// Passive public SSL ABI probes. File/offset attachment follows stackplz; the TLS
+// state machine never pauses the application or changes its memory.
 typedef unsigned char u8;
 typedef unsigned int u32;
 typedef int s32;
@@ -47,9 +48,10 @@ static long (*read_user)(void *, u32, const void *) = (void *)112;
 
 struct connection_key { u64 ssl; u32 pid, pad; };
 struct connection { u64 generation, write_sequence, read_sequence; };
-struct owner_key { struct connection_key connection; u32 direction, pad; };
+struct session_key { u64 ssl, generation; u32 pid, pad; };
+struct owner_key { u64 ssl, generation; u32 pid, direction; };
 struct call_key { u64 thread; u32 direction, pad; };
-struct call { u64 ssl, buffer, requested, count_pointer, stack; u32 depth, extended; };
+struct call { u64 ssl, generation, buffer, requested, count_pointer, stack; u32 depth, extended; };
 struct event {
     u64 timestamp, ssl, generation, sequence;
     u32 pid, tid, uid, kind;
@@ -59,14 +61,15 @@ struct event {
 };
 _Static_assert(__builtin_offsetof(struct event, data) == 72, "event ABI");
 
-struct { __uint(type, HASH); __uint(max_entries, 8192);
-    __type(key, struct connection_key); __type(value, struct connection); } connections SEC(".maps");
-struct { __uint(type, HASH); __uint(max_entries, 8192);
-    __type(key, struct owner_key); __type(value, u64); } owners SEC(".maps");
-struct { __uint(type, HASH); __uint(max_entries, 8192);
-    __type(key, struct call_key); __type(value, struct call); } calls SEC(".maps");
-struct { __uint(type, HASH); __uint(max_entries, 256);
-    __type(key, u32); __type(value, u8); } uids SEC(".maps");
+#define HASH_MAP(name, key_type, value_type, count) \
+    struct { __uint(type, HASH); __uint(max_entries, count); \
+    __type(key, key_type); __type(value, value_type); } name SEC(".maps")
+HASH_MAP(connections, struct connection_key, struct connection, 8192);
+HASH_MAP(owners, struct owner_key, u64, 8192);
+HASH_MAP(calls, struct call_key, struct call, 8192);
+HASH_MAP(broken, struct session_key, u32, 8192);
+HASH_MAP(clears, u64, u64, 8192);
+HASH_MAP(uids, u32, u8, 256);
 struct { __uint(type, ARRAY); __uint(max_entries, 3);
     __type(key, u32); __type(value, u32); } config SEC(".maps");
 struct { __uint(type, PERCPU_ARRAY); __uint(max_entries, 1);
@@ -82,15 +85,17 @@ INLINE void loss(void) {
 }
 INLINE int selected(void) {
     u32 uid = (u32)uid_gid(), zero = 0, one = 1, two = 2;
-    u32 *excluded = lookup(&config, &zero);
-    if (!excluded || uid == *excluded) return 0;
-    u32 *user = lookup(&config, &two);
-    if (!user || uid / 100000 != *user) return 0;
+    u32 *excluded = lookup(&config, &zero), *user = lookup(&config, &two);
+    if (!excluded || !user || uid == *excluded || uid / 100000 != *user) return 0;
     u32 *filtered = lookup(&config, &one);
     return filtered && (!*filtered || lookup(&uids, &uid));
 }
 INLINE struct connection_key key_for(u64 ssl) {
     struct connection_key key = { .ssl = ssl, .pid = pid_tid() >> 32 };
+    return key;
+}
+INLINE struct session_key session_for(u64 ssl, u64 generation) {
+    struct session_key key = { .ssl = ssl, .generation = generation, .pid = pid_tid() >> 32 };
     return key;
 }
 INLINE struct event *prepare(u64 ssl, struct connection *connection, u32 kind) {
@@ -100,14 +105,14 @@ INLINE struct event *prepare(u64 ssl, struct connection *connection, u32 kind) {
     event->timestamp = ktime();
     event->ssl = ssl;
     event->generation = connection->generation;
-    // A BPF_NOEXIST owner slot serializes each direction. No fetched atomic
-    // instruction is required, including on Android's Linux 5.10 kernels.
     event->sequence = 0;
+    // Owner slots serialize each direction without requiring fetched atomics
+    // that are unavailable on some Android 5.10 BPF implementations.
     if (kind == 2) event->sequence = ++connection->write_sequence;
     if (kind == 3) event->sequence = ++connection->read_sequence;
     if (kind == 4) {
         event->sequence = connection->write_sequence;
-        event->timestamp = connection->read_sequence; // Close carries both final counts.
+        event->timestamp = connection->read_sequence;
     }
     u64 task = pid_tid();
     event->pid = task >> 32; event->tid = (u32)task;
@@ -119,73 +124,147 @@ INLINE struct event *prepare(u64 ssl, struct connection *connection, u32 kind) {
 INLINE void emit(void *ctx, struct event *event, u32 length) {
     if (output(ctx, &events, CURRENT_CPU, event, 72 + length) < 0) loss();
 }
-INLINE void create(void *ctx, u64 ssl) {
-    if (!ssl || !selected()) return;
-    struct connection_key key = key_for(ssl);
-    struct connection value = { .generation = ktime() };
-    if (update(&connections, &key, &value, ANY)) { loss(); return; }
-    struct connection *connection = lookup(&connections, &key);
-    if (!connection) { loss(); return; }
-    struct event *event = prepare(ssl, connection, 1);
-    if (event) emit(ctx, event, 0);
+
+// A local capture failure poisons only this SSL generation. A separate gap
+// event avoids racing either direction's sequence counter. BPF_NOEXIST elects
+// a single reporter even when both directions discover the gap concurrently.
+INLINE void gap(void *ctx, u64 ssl, struct connection *connection, u32 reason) {
+    struct session_key key = session_for(ssl, connection->generation);
+    if (lookup(&broken, &key)) return;
+    if (update(&broken, &key, &reason, NOEXIST)) {
+        if (!lookup(&broken, &key)) loss();
+        return;
+    }
+    struct event *event = prepare(ssl, connection, 5);
+    if (event) { event->flags = reason; emit(ctx, event, 0); }
 }
 INLINE void retire(void *ctx, u64 ssl) {
     struct connection_key key = key_for(ssl);
     struct connection *connection = lookup(&connections, &key);
     if (!connection) return;
+    struct owner_key owner = { .ssl = ssl, .generation = connection->generation,
+        .pid = key.pid, .direction = 2 };
+    if (lookup(&owners, &owner)) gap(ctx, ssl, connection, 4);
+    owner.direction = 3;
+    if (lookup(&owners, &owner)) gap(ctx, ssl, connection, 4);
+    struct session_key session = session_for(ssl, connection->generation);
     struct event *event = prepare(ssl, connection, 4);
-    if (event) emit(ctx, event, 0);
+    u32 *reason = lookup(&broken, &session);
+    if (event) { if (reason) event->flags = *reason; emit(ctx, event, 0); }
     remove_key(&connections, &key);
+    remove_key(&broken, &session);
 }
+INLINE void create(void *ctx, u64 ssl) {
+    if (!ssl || !selected()) return;
+    struct connection_key key = key_for(ssl);
+    struct connection *previous = lookup(&connections, &key);
+    if (previous) { gap(ctx, ssl, previous, 4); retire(ctx, ssl); }
+    struct connection value = { .generation = ktime() };
+    if (update(&connections, &key, &value, NOEXIST)) { loss(); return; }
+    struct connection *connection = lookup(&connections, &key);
+    if (!connection) { loss(); return; }
+    struct event *event = prepare(ssl, connection, 1);
+    if (event) emit(ctx, event, 0);
+}
+
 SEC("uretprobe/ssl_new") int ssl_new(struct regs *ctx) { create(ctx, RESULT(ctx)); return 0; }
 SEC("uprobe/ssl_free") int ssl_free(struct regs *ctx) { retire(ctx, ARG1(ctx)); return 0; }
-// SSL_clear reuses a public SSL object for another connection.
-SEC("uprobe/ssl_clear") int ssl_clear(struct regs *ctx) {
-    struct connection_key key = key_for(ARG1(ctx));
-    if (lookup(&connections, &key)) { retire(ctx, ARG1(ctx)); create(ctx, ARG1(ctx)); }
+SEC("uprobe/ssl_clear_enter") int ssl_clear_enter(struct regs *ctx) {
+    u64 ssl = ARG1(ctx), thread = pid_tid();
+    struct connection_key key = key_for(ssl);
+    if (lookup(&connections, &key)) {
+        if (update(&clears, &thread, &ssl, ANY)) loss();
+        retire(ctx, ssl);
+    }
+    return 0;
+}
+SEC("uretprobe/ssl_clear_leave") int ssl_clear_leave(struct regs *ctx) {
+    u64 thread = pid_tid(), *saved = lookup(&clears, &thread);
+    if (!saved) return 0;
+    u64 ssl = *saved;
+    remove_key(&clears, &thread);
+    if ((s32)RESULT(ctx) == 1) create(ctx, ssl);
     return 0;
 }
 
 INLINE int enter(struct regs *ctx, u32 direction, u32 extended) {
     if (!selected()) return 0;
+    u64 ssl = ARG1(ctx);
+    struct connection_key conn_key = key_for(ssl);
+    struct connection *connection = lookup(&connections, &conn_key);
     struct call_key key = { .thread = pid_tid(), .direction = direction };
     struct call *active = lookup(&calls, &key);
-    if (active) {
-        if (active->ssl != ARG1(ctx) || ctx->sp >= active->stack) loss();
-        active->depth++; return 0; // Nested _ex/normal wrappers capture exactly once.
+    if (active && ctx->sp >= active->stack) {
+        // A skipped return (for example longjmp) must not retain this thread's
+        // owner slot or poison every later SSL object. Equal-stack tail calls
+        // cannot be paired reliably either, so retire only the old generation.
+        struct call stale = *active;
+        struct connection_key outer_key = key_for(stale.ssl);
+        struct connection *outer = lookup(&connections, &outer_key);
+        if (outer && outer->generation == stale.generation) gap(ctx, stale.ssl, outer, 4);
+        struct owner_key owner = { .ssl = stale.ssl, .generation = stale.generation,
+            .pid = conn_key.pid, .direction = direction };
+        remove_key(&calls, &key);
+        remove_key(&owners, &owner);
+        active = 0;
     }
-    struct connection_key conn_key = key_for(ARG1(ctx));
-    if (!lookup(&connections, &conn_key)) return 0;
-    struct owner_key owner = { .connection = conn_key, .direction = direction };
+    if (active) {
+        if (!connection || active->ssl != ssl || active->generation != connection->generation) {
+            if (connection) gap(ctx, ssl, connection, 2);
+            struct connection_key outer_key = key_for(active->ssl);
+            struct connection *outer = lookup(&connections, &outer_key);
+            if (outer && outer->generation == active->generation) gap(ctx, active->ssl, outer, 2);
+        }
+        if (active->depth < 64) {
+            active->depth++;
+        } else {
+            struct connection_key outer_key = key_for(active->ssl);
+            struct connection *outer = lookup(&connections, &outer_key);
+            if (outer && outer->generation == active->generation) gap(ctx, active->ssl, outer, 4);
+        }
+        return 0; // Public _ex/normal wrappers are captured exactly once.
+    }
+    if (!connection) return 0; // Never attach halfway through an existing TLS stream.
+    struct session_key session = session_for(ssl, connection->generation);
+    if (lookup(&broken, &session)) return 0;
+    struct owner_key owner = { .ssl = ssl, .generation = connection->generation,
+        .pid = conn_key.pid, .direction = direction };
     u64 thread = pid_tid();
-    // Concurrent callers in the SAME direction cannot be reliably ordered.
-    // Report loss instead of combining their data into a misleading stream.
-    if (update(&owners, &owner, &thread, NOEXIST)) { loss(); return 0; }
-    struct call value = { .ssl = ARG1(ctx), .buffer = ARG2(ctx), .requested = ARG3(ctx),
-        .count_pointer = ARG4(ctx), .stack = ctx->sp, .depth = 1, .extended = extended };
-    if (update(&calls, &key, &value, ANY)) { remove_key(&owners, &owner); loss(); }
+    if (update(&owners, &owner, &thread, NOEXIST)) { gap(ctx, ssl, connection, 2); return 0; }
+    struct call value = { .ssl = ssl, .generation = connection->generation,
+        .buffer = ARG2(ctx), .requested = ARG3(ctx), .count_pointer = ARG4(ctx),
+        .stack = ctx->sp, .depth = 1, .extended = extended };
+    if (update(&calls, &key, &value, NOEXIST)) {
+        remove_key(&owners, &owner);
+        gap(ctx, ssl, connection, 4);
+    }
     return 0;
 }
 INLINE void capture_return(struct regs *ctx, u32 direction, struct call value) {
+    struct connection_key key = key_for(value.ssl);
+    struct connection *connection = lookup(&connections, &key);
+    if (!connection || connection->generation != value.generation) return;
+    struct session_key session = session_for(value.ssl, value.generation);
+    if (lookup(&broken, &session)) return;
     u64 length = 0;
-    int failed = 0;
+    s32 result = (s32)RESULT(ctx);
     if (value.extended) {
-        if ((s32)RESULT(ctx) != 1) return;
-        if (read_user(&length, sizeof(length), (void *)value.count_pointer)) failed = 1;
+        // SSL_read_early_data returns SUCCESS=1 or FINISH=2. Both may
+        // carry a count; the ordinary _ex and early write APIs return 1.
+        if (result != 1 && !(value.extended == 2 && result == 2)) return;
+        if (read_user(&length, sizeof(length), (void *)value.count_pointer)) {
+            gap(ctx, value.ssl, connection, 3); return;
+        }
     } else {
-        s32 result = (s32)RESULT(ctx);
         if (result <= 0) return;
         length = (u32)result;
     }
-    if (!length && !failed) return;
-    struct connection_key conn_key = key_for(value.ssl);
-    struct connection *connection = lookup(&connections, &conn_key);
-    if (!connection) { loss(); return; }
+    if (!length) return;
+    if (length > value.requested || length > CHUNK * MAX_CHUNKS) {
+        gap(ctx, value.ssl, connection, 1); return;
+    }
     struct event *event = prepare(value.ssl, connection, direction);
     if (!event) return;
-    if (failed || length > value.requested || length > CHUNK * MAX_CHUNKS) {
-        event->flags = 1; emit(ctx, event, 0); return;
-    }
     event->original_len = (u32)length;
 #pragma unroll
     for (u32 i = 0; i < MAX_CHUNKS; i++) {
@@ -194,14 +273,12 @@ INLINE void capture_return(struct regs *ctx, u32 direction, struct call value) {
         u32 count = (u32)length - offset;
         if (count > CHUNK) count = CHUNK;
         if (!count) break;
-        event->offset = offset;
-        event->captured_len = count;
+        event->offset = offset; event->captured_len = count;
         if (read_user(event->data, count, (void *)(value.buffer + offset))) {
-            event->flags = 1; event->captured_len = 0; emit(ctx, event, 0); break;
+            gap(ctx, value.ssl, connection, 3); break;
         }
         emit(ctx, event, count);
     }
-    return;
 }
 INLINE int leave(struct regs *ctx, u32 direction) {
     struct call_key key = { .thread = pid_tid(), .direction = direction };
@@ -211,7 +288,8 @@ INLINE int leave(struct regs *ctx, u32 direction) {
     struct call value = *active;
     remove_key(&calls, &key);
     capture_return(ctx, direction, value);
-    struct owner_key owner = { .connection = key_for(value.ssl), .direction = direction };
+    struct owner_key owner = { .ssl = value.ssl, .generation = value.generation,
+        .pid = key.thread >> 32, .direction = direction };
     remove_key(&owners, &owner);
     return 0;
 }
@@ -221,4 +299,5 @@ SEC("uprobe/ssl_read_enter") int ssl_read_enter(struct regs *ctx) { return enter
 SEC("uretprobe/ssl_read_leave") int ssl_read_leave(struct regs *ctx) { return leave(ctx, 3); }
 SEC("uprobe/ssl_write_ex_enter") int ssl_write_ex_enter(struct regs *ctx) { return enter(ctx, 2, 1); }
 SEC("uprobe/ssl_read_ex_enter") int ssl_read_ex_enter(struct regs *ctx) { return enter(ctx, 3, 1); }
+SEC("uprobe/ssl_read_early_enter") int ssl_read_early_enter(struct regs *ctx) { return enter(ctx, 3, 2); }
 char bbox_license[] SEC("license") = "GPL";

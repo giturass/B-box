@@ -8,22 +8,22 @@ case "$capture_platform" in
   linux/amd64) capture_arch=amd64; capture_bpf_arch=x86 ;;
   *) echo "Unsupported capture platform: $capture_platform" >&2; exit 1 ;;
 esac
-python3 prepare.py
+mkdir -p build
 clang -target bpfel -mcpu=v2 -D"__TARGET_ARCH_$capture_bpf_arch" -O2 -g -Wall -Werror \
   -c bpf/capture.c -o bpf/capture.o
 if [[ "$capture_platform" == linux/* ]]; then
-  go build -mod=readonly -modfile=build/capture.mod -trimpath -o capture .
+  go build -mod=readonly -trimpath -o capture .
 else
   export GOOS=android GOARCH="$capture_arch" CGO_ENABLED=1
   export CC="${ANDROID_NDK_HOME:?Set ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/$capture_cc"
   capture_output="../../app/src/main/jniLibs/$capture_abi"
   mkdir -p "$capture_output"
-  go build -mod=readonly -modfile=build/capture.mod -trimpath -buildmode=pie \
+  go build -mod=readonly -trimpath -buildmode=pie \
     -ldflags="-s -w -linkmode=external -extldflags=-Wl,-z,max-page-size=16384" \
     -o "$capture_output/libbbox_capture.so" .
   if [[ "$capture_platform" == android/amd64 ]]; then
-    go test -mod=readonly -modfile=build/capture.mod -trimpath -c -buildmode=pie \
+    go test -mod=readonly -trimpath -c -buildmode=pie \
       -ldflags="-linkmode=external -extldflags=-Wl,-z,max-page-size=16384" \
-      -o build/capture-platform.test github.com/cilium/ebpf/bboxtest
+      -o build/capture-platform.test ./platformtest
   fi
 fi

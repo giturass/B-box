@@ -32,6 +32,7 @@ type Engine struct {
 	reader      io.ReadCloser
 	closeSource func()
 	libraries   atomic.Int64
+	scanning    atomic.Bool
 	warning     atomic.Pointer[string]
 }
 

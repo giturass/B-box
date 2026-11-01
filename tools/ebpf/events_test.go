@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -97,6 +98,16 @@ func TestSelectionAndPrivateConfigValidation(t *testing.T) {
 	if _, err := readSymbols(context.Background(), strings.NewReader("not ELF"), "libssl.so"); err == nil {
 		t.Fatal("non ELF library accepted")
 	}
+	for _, invalid := range []string{
+		"{} {}\n", "{\"targets\":[\"relative.apk\"]}\n", "{\"offsets\":{}}\n",
+	} {
+		if _, err := readConfig(bufio.NewReader(strings.NewReader(invalid))); err == nil {
+			t.Fatal("invalid private startup settings accepted", invalid)
+		}
+	}
+	if _, err := readConfig(bufio.NewReader(strings.NewReader("{\"targets\":[\"/data/app/base.apk\"]}\n"))); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestDirectionsHaveIndependentSequencesAndCloseWaitsForBoth(t *testing.T) {
@@ -125,5 +136,57 @@ func TestDirectionsHaveIndependentSequencesAndCloseWaitsForBoth(t *testing.T) {
 	}
 	if len(received) != 4 || received[2].Direction != "write" || received[3].Type != "close" {
 		t.Fatalf("close lost pending data: %+v", received)
+	}
+}
+
+func TestLocalGapDiscardsIncompleteCallButOtherConnectionsContinue(t *testing.T) {
+	for _, closeFirst := range []bool{false, true} {
+		var received []pipeEvent
+		a := newAssembler(collectorConfig{}, func(event pipeEvent) error {
+			received = append(received, event)
+			return nil
+		})
+		first := rawEvent{pid: 1, ssl: 2, generation: 3, kind: 1}
+		second := rawEvent{pid: 1, ssl: 4, generation: 5, kind: 1}
+		part := first
+		part.kind, part.sequence, part.length, part.data = 2, 1, 5000, bytes.Repeat([]byte{'x'}, 4096)
+		gap := first
+		gap.kind, gap.flags = 5, 3
+		closed := first
+		closed.kind, closed.sequence, closed.flags = 4, 1, 3
+		events := []rawEvent{first, second, part}
+		if closeFirst {
+			events = append(events, closed, gap)
+		} else {
+			events = append(events, gap, closed)
+		}
+		valid := second
+		valid.kind, valid.sequence, valid.length, valid.data = 2, 1, 2, []byte("ok")
+		events = append(events, valid)
+		for _, event := range events {
+			if err := a.accept(event); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := a.checkLoss(time.Now().Add(4 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		var gaps, validChunks int
+		for _, event := range received {
+			if event.Type != "data" {
+				continue
+			}
+			if event.ID == first.id() {
+				if !event.Gap || !strings.Contains(event.Error, "could not be read") {
+					t.Fatal("incomplete call emitted as data", event)
+				}
+				gaps++
+			} else if string(event.Data) == "ok" {
+				validChunks++
+			}
+		}
+		if gaps != 1 || validChunks != 1 || a.bytes != 0 {
+			t.Fatal(gaps, validChunks, a.bytes)
+		}
 	}
 }

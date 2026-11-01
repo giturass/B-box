@@ -82,7 +82,9 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 [RootCaptureSession.kt](app/src/main/java/io/nekohasekai/sfa/bg/RootCaptureSession.kt) 只启动 APK 原生库目录中的固定采集器，通过 stdin 传递 UID/库设置，读取有界启动进度及 ready 消息。等待总时限为 25 秒，进度不延长时限；超时报告最后的内核加载、perf 缓冲或 TLS 库检查/挂载阶段，失败清理会话。进度不能代替包含有效版本及挂载库数的 ready，也不会转发给 libbox。标准错误独立排空并最多保留 4 KiB 启动诊断，链接器警告不会混入事件协议。输出由私有 pipe 交给 libbox，没有网络监听或外部可执行文件下载。[IRootService](app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl) 新增事务 10，旧事务 2/3 保持空缺；独立 `ICaptureSession` 提供 FD 和关闭方法。会话在启动前登记，Binder owner 死亡、Root 服务销毁、核心重载/停止均关闭 stdin 和探针，避免遗留采集进程。
 
-采集器 ABI、内核/TLS 支持范围、Chrome 无版本表识别、HTTP 解析及资源限额统一见 [libbox.md](libbox.md#httphttps-请求调试)。应用 UI 展示采集来源、挂载库数、错误及不完整记录；部分库的兼容性诊断保留活动状态与已挂载数量，不把库挂载成功视为所有应用均可抓取。CA 管理、证书模块生成、信任检查、HTTP 改写、脚本导入及相应页面/桥接均已移除。此前自行刷入的系统证书模块仍需在对应 Root 管理器中卸载。
+[RootServer.kt](app/src/main/java/io/nekohasekai/sfa/bg/RootServer.kt) 查询当前用户的安装包和 `GET_SHARED_LIBRARY_FILES`，通过 [CaptureTargets.kt](app/src/main/java/io/nekohasekai/sfa/bg/CaptureTargets.kt) 按所选 UID 收集 `nativeLibraryDir`、base/split APK 及共享 APK/原生库路径，包含 Trichrome 共享库。共享 UID 的包使用同一选择，排除 B-box 自身和其他 Android 用户；目标应用尚未运行也能准备探针。候选路径经私有启动消息传给采集器，由后者自动解析函数偏移并补充运行中进程的实际映射，不保存每版本偏移表。
+
+采集器 ABI、内核/TLS 支持范围、无版本表自动识别、HTTP 解析及资源限额统一见 [libbox.md](libbox.md#httphttps-请求调试)。应用 UI 展示采集来源、准备进度、挂载库数、错误及不完整记录；部分库的兼容性诊断保留活动状态与已挂载数量，不把库挂载成功视为所有应用均可抓取。CA 管理、证书模块生成、信任检查、HTTP 改写、脚本导入及相应页面/桥接均已移除。此前自行刷入的系统证书模块仍需在对应 Root 管理器中卸载。
 
 HAR/cURL 和域名导出使用 Android 文档选择器；取消或写入失败不报告成功，临时文件用后删除。域名列表依据当前搜索条件提取所有保留记录；页面与视觉验证见 [flclash.md](flclash.md#导航与交互约定)。
 
@@ -124,13 +126,13 @@ Release 调用 [newui.yml](.github/workflows/newui.yml) 完成核心、eBPF 采�
 | 入口 | 配置的验证范围 |
 | --- | --- |
 | [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入、Android 入口、旧 UI/更新依赖及退役抓包实现残留的静态检查 |
-| [newui.yml](.github/workflows/newui.yml) | `dev` / `newui` push、目标为这两个分支的 PR、手动触发或 Release 复用；仅 Markdown 的 push/PR 跳过。检查 Go 扩展、HTTP/eBPF 抓取及自动重定向布局，执行 Linux Root TLS smoke，运行 Flutter 分析/交互/布局测试并构建 ARM64 Flutter AAR |
+| [newui.yml](.github/workflows/newui.yml) | `dev` / `newui` push、目标为这两个分支的 PR、手动触发或 Release 复用；仅 Markdown 的 push/PR 跳过。检查 Go 扩展、HTTP/eBPF 抓取及自动重定向布局，执行 Linux Root TLS/APK uprobe smoke，运行 Flutter 分析/交互/布局测试并构建 ARM64 Flutter AAR |
 | [newui-android.yml](.github/workflows/newui-android.yml) | 手动触发；JVM 回归、`play` Kotlin 编译、`other` APK/仪器测试构建及 API 24/31/35 模拟器 smoke |
 | [build-release.yml](.github/workflows/build-release.yml) | 手动触发；复用完整核心/Flutter 验证，运行 JVM 测试、签名 ARM64 Release、安装身份/产物校验及可选发布 |
 
 JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界和 QRS；[ServiceSettingsChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ServiceSettingsChangeTest.kt) 覆盖服务开关保存后的启动确认、失败/超时/取消恢复及恢复错误保留；[ProfileChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/database/ProfileChangeTest.kt) 覆盖配置持久化失败、应用超时/取消、恢复确认及恢复错误保留。[ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/手动与自动订阅/完整备份恢复失败，以及停服和未选中配置更新的服务状态。Flutter 视觉验证见 [flclash.md](flclash.md)。
 
-模拟器统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke、原生回归及采集器平台回归，前一组失败不跳过后一组。UI 覆盖首次启动、远程 JSON 导入、VPN 授权、启动/停止、实际内核分组及进程重启后的配置保留；原生组运行全部仪器测试并拒绝零测试结果。采集器组执行同次构建生成的 Android Go 测试二进制，检查 [eBPF 平台兼容补丁](libbox.md#httphttps-请求调试)，不要求模拟器具备 Root 抓取权限。`build/android-smoke/` 保存分组截图、logcat、失败堆栈、仪器测试与采集器测试输出及带源码 SHA 的 `results.json`；测试超时也保留已写入的日志。启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
+模拟器统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke、原生回归及采集器平台回归，前一组失败不跳过后一组。UI 覆盖首次启动、远程 JSON 导入、VPN 授权、启动/停止、实际内核分组及进程重启后的配置保留；原生组运行全部仪器测试并拒绝零测试结果。采集器组执行同次构建生成的 Android Go 测试二进制，检查 [eBPF 加载器平台路径](libbox.md#httphttps-请求调试)，不要求模拟器具备 Root 抓取权限。`build/android-smoke/` 保存分组截图、logcat、失败堆栈、仪器测试与采集器测试输出及带源码 SHA 的 `results.json`；测试超时也保留已写入的日志。启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
 
 查询策略回归在每次切换 Root/Shizuku 并刷盘后重新打开 Room 数据库读取持久值，同时核对状态流，不以读取同一内存缓存代替持久化验证。
 
@@ -139,6 +141,8 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 `ProfileRecoveryTest.localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。
 
 `ProfileRecoveryTest.captureSettingsAreLocalAndCheckRevisions` 使用实际 libbox 和 AtomicFile，覆盖本机设置迁移/保存/重新打开、修订冲突、退役选项拒绝及旧配置清理。[CaptureProtocolTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/CaptureProtocolTest.kt) 检查启动消息边界；[CaptureSessionTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/bg/CaptureSessionTest.kt) 用确定性的子进程检查进度过滤、ready/错误、超时阶段及清理、原始操作错误保留、FD 单次领取、owner 死亡及重复关闭，并运行实际打包的 Android 采集器检查加载及无 Root 错误。模拟器没有代表真实 Root eBPF 设备的权限环境，采集效果仍需实机验证。
+
+[CaptureTargetsTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/bg/CaptureTargetsTest.kt) 检查安装文件发现包含原生库目录、split 和共享 APK、共享 UID 选择及去重，并排除自身/其他 Android 用户；无需启动目标进程。实际 ELF/APK 偏移和挂载验证入口见 [libbox.md](libbox.md#构建同步和验证)。
 
 [DashboardConfigCacheTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/DashboardConfigCacheTest.kt) 通过调用计数覆盖重复轮询不再读取/哈希/解析、地址变化、配置切换、写入/回滚、运行快照更新及错误/取消重试；`ProfileRecoveryTest.lanCacheTracksEqualSizeWritesSuccessfulReloadsAndRecovery` 使用实际文件和 libbox，覆盖同大小同时间戳写入、保存与运行配置分离、成功重载、失败恢复和停服后的 LAN 状态。它们由 Android smoke 的 JVM/仪器测试步骤运行，Release 运行其中的 JVM 测试。
 

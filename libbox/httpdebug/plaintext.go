@@ -27,6 +27,7 @@ type plaintextEvent struct {
 	Data      []byte   `json:"data,omitempty"`
 	Gap       bool     `json:"gap,omitempty"`
 	Libraries int64    `json:"libraries,omitempty"`
+	Scanning  bool     `json:"scanning,omitempty"`
 	Error     string   `json:"error,omitempty"`
 }
 
@@ -62,6 +63,7 @@ func (e *Engine) readPlaintext(reader io.Reader) {
 			}
 			ready = true
 			e.libraries.Store(event.Libraries)
+			e.scanning.Store(event.Scanning)
 			if event.Error != "" {
 				warning := fmt.Sprintf("%.4096s", event.Error)
 				e.warning.Store(&warning)
@@ -78,6 +80,7 @@ func (e *Engine) readPlaintext(reader io.Reader) {
 				return
 			}
 			e.libraries.Store(event.Libraries)
+			e.scanning.Store(event.Scanning)
 			if event.Error != "" {
 				warning := fmt.Sprintf("%.4096s", event.Error)
 				e.warning.Store(&warning)
@@ -173,7 +176,11 @@ func (p *plaintextCapture) accept(event plaintextEvent) error {
 			}(event.ID, flow)
 		}
 		if event.Gap {
-			flow.stop(errors.New("eBPF plaintext was truncated or lost; reconnect to capture again"))
+			reason := "eBPF plaintext was truncated or lost; reconnect to capture again"
+			if event.Error != "" {
+				reason = fmt.Sprintf("%.1024s; reconnect to capture again", event.Error)
+			}
+			flow.stop(errors.New(reason))
 		} else if len(event.Data) > 0 {
 			flow.lastActivity.Store(now.Unix())
 			input := flow.request

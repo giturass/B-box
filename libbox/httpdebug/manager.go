@@ -94,6 +94,7 @@ type State struct {
 	Backend     string `json:"backend"`
 	Error       string `json:"error,omitempty"`
 	Libraries   int64  `json:"libraries"`
+	Scanning    bool   `json:"scanning"`
 	Active      bool   `json:"active"`
 	Connections int    `json:"connections"`
 	Skipped     int64  `json:"skipped"`
@@ -120,7 +121,7 @@ func Status() State {
 	}
 	return State{Active: !engine.closed, Backend: backend, Error: warning,
 		Connections: len(engine.connections) + engine.passive.count(),
-		Skipped:     engine.skipped.Load(), Libraries: engine.libraries.Load()}
+		Skipped:     engine.skipped.Load(), Libraries: engine.libraries.Load(), Scanning: engine.scanning.Load()}
 }
 
 func failCapture(engine *Engine, err error) {

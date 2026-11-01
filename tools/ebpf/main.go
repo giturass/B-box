@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/perf"
 	"golang.org/x/sys/unix"
 )
@@ -35,6 +34,7 @@ type collectorConfig struct {
 	UIDs       []uint32            `json:"uids"`
 	Packages   map[string][]string `json:"packages"`
 	Libraries  []string            `json:"libraries"`
+	Targets    []string            `json:"targets"`
 }
 
 func readConfig(reader *bufio.Reader) (collectorConfig, error) {
@@ -48,10 +48,13 @@ func readConfig(reader *bufio.Reader) (collectorConfig, error) {
 	if err = decoder.Decode(&config); err != nil {
 		return config, err
 	}
-	if len(config.UIDs) > 256 || len(config.Libraries) > 16 || len(config.Packages) > 8192 {
+	if err = decoder.Decode(new(any)); err != io.EOF {
+		return config, errors.New("unexpected data after eBPF startup settings")
+	}
+	if len(config.UIDs) > 256 || len(config.Libraries) > 16 || len(config.Packages) > 8192 || len(config.Targets) > 4096 {
 		return config, errors.New("too many eBPF capture filters")
 	}
-	for _, path := range config.Libraries {
+	for _, path := range append(append([]string(nil), config.Libraries...), config.Targets...) {
 		if !filepath.IsAbs(path) || len(path) > 4096 || strings.ContainsAny(path, "\x00\r\n") {
 			return config, errors.New("invalid TLS library path")
 		}
@@ -96,9 +99,11 @@ func inspectCommand(ctx context.Context, args []string, encode func(any) error) 
 	for _, library := range libraries {
 		if writeErr := encode(struct {
 			Path          string            `json:"path"`
+			Entry         string            `json:"entry"`
+			Method        string            `json:"method"`
 			ArchiveOffset uint64            `json:"archiveOffset"`
 			Symbols       map[string]uint64 `json:"symbols"`
-		}{library.path, library.base, library.symbols}); writeErr != nil {
+		}{library.path, library.entry, library.method, library.base, library.symbols}); writeErr != nil {
 			return writeErr
 		}
 	}
@@ -215,7 +220,11 @@ func run(encode func(any) error) error {
 
 	// Discovery owns its links and can inspect slow APK/debug-data files without
 	// blocking perf reads or delaying ready after the first successful attach.
-	discovery := newLibraryDiscovery(collection)
+	attacher, err := newUprobeAttacher()
+	if err != nil {
+		return err
+	}
+	discovery := newLibraryDiscovery(collection, attacher)
 	updates := make(chan discoveryUpdate)
 	discoveryDone := make(chan struct{})
 	go func() {
@@ -256,7 +265,7 @@ func run(encode func(any) error) error {
 				if activeResults == nil {
 					kind = "ready"
 				}
-				if err = emit(pipeEvent{Type: kind, Version: 1, Libraries: update.libraries, Error: update.warning}); err != nil {
+				if err = emit(pipeEvent{Type: kind, Version: 1, Libraries: update.libraries, Scanning: update.scanning, Error: update.warning}); err != nil {
 					return err
 				}
 				// A probe may already have produced data. Keep it buffered until
@@ -307,78 +316,18 @@ func run(encode func(any) error) error {
 	}
 }
 
-func (d *libraryDiscovery) attach(ctx context.Context, library library) (_ []link.Link, err error) {
-	executable, err := link.OpenExecutable(library.path)
-	if err != nil {
-		return nil, err
-	}
-	type hook struct {
-		symbol, program string
-		ret, optional   bool
-	}
-	hooks := []hook{
-		{"SSL_write", "ssl_write_enter", false, false}, {"SSL_write", "ssl_write_leave", true, false},
-		{"SSL_read", "ssl_read_enter", false, false}, {"SSL_read", "ssl_read_leave", true, false},
-		{"SSL_write_ex", "ssl_write_ex_enter", false, true}, {"SSL_write_ex", "ssl_write_leave", true, true},
-		{"SSL_read_ex", "ssl_read_ex_enter", false, true}, {"SSL_read_ex", "ssl_read_leave", true, true},
-		{"SSL_write_early_data", "ssl_write_ex_enter", false, true}, {"SSL_write_early_data", "ssl_write_leave", true, true},
-		{"SSL_read_early_data", "ssl_read_ex_enter", false, true}, {"SSL_read_early_data", "ssl_read_leave", true, true},
-		{"SSL_clear", "ssl_clear", false, true}, {"SSL_free", "ssl_free", false, false},
-		// Register allocations last, after every data/lifetime hook is ready.
-		{"SSL_new", "ssl_new", true, false},
-	}
-	var attached []link.Link
-	defer func() {
-		if err != nil {
-			for _, probe := range attached {
-				probe.Close()
-			}
-		}
-	}()
-	seen := make(map[string]bool)
-	for _, hook := range hooks {
-		if err = ctx.Err(); err != nil {
-			return nil, err
-		}
-		offset := library.symbols[hook.symbol]
-		if offset == 0 && hook.optional {
-			continue
-		}
-		options := &link.UprobeOptions{Address: library.base + offset}
-		key := fmt.Sprintf("%d:%t", options.Address, hook.ret)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		var probe link.Link
-		if hook.ret {
-			probe, err = executable.Uretprobe(hook.symbol, d.collection.Programs[hook.program], options)
-		} else {
-			probe, err = executable.Uprobe(hook.symbol, d.collection.Programs[hook.program], options)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("attach %s: %w", hook.symbol, err)
-		}
-		attached = append(attached, probe)
-	}
-	return attached, nil
-}
-func (d *libraryDiscovery) close() {
-	for _, probes := range d.attached {
-		for _, probe := range probes {
-			probe.Close()
-		}
-	}
-}
-
 type connectionKey struct {
 	SSL      uint64
 	PID, Pad uint32
 }
 type connectionValue struct{ Generation, WriteSequence, ReadSequence uint64 }
 type ownerKey struct {
-	Connection     connectionKey
-	Direction, Pad uint32
+	SSL, Generation uint64
+	PID, Direction  uint32
+}
+type sessionKey struct {
+	SSL, Generation uint64
+	PID, Pad        uint32
 }
 
 type callKey struct {
@@ -386,8 +335,8 @@ type callKey struct {
 	Direction, Pad uint32
 }
 type callValue struct {
-	SSL, Buffer, Requested, CountPointer, Stack uint64
-	Depth, Extended                             uint32
+	SSL, Generation, Buffer, Requested, CountPointer, Stack uint64
+	Depth, Extended                                         uint32
 }
 
 func cleanupExited(collection *ebpf.Collection, assembler *eventAssembler) error {
@@ -400,34 +349,79 @@ func cleanupExited(collection *ebpf.Collection, assembler *eventAssembler) error
 		alive[pid] = !errors.Is(err, os.ErrNotExist)
 		return alive[pid]
 	}
+	var call callKey
+	var state callValue
+	iterator := collection.Maps["calls"].Iterate()
+	for iterator.Next(&call, &state) {
+		pid, tid := uint32(call.Thread>>32), uint32(call.Thread)
+		_, threadErr := os.Stat(fmt.Sprintf("/proc/%d/task/%d", pid, tid))
+		if !exists(pid) || errors.Is(threadErr, os.ErrNotExist) {
+			// A thread dying inside SSL I/O has no return count. Poison the
+			// generation before releasing its owner; subsequent calls cannot
+			// silently resume a stream whose bytes may be missing.
+			var connection connectionValue
+			err := collection.Maps["connections"].Lookup(connectionKey{SSL: state.SSL, PID: pid}, &connection)
+			if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+				return err
+			}
+			if err == nil && connection.Generation == state.Generation {
+				session := sessionKey{SSL: state.SSL, Generation: state.Generation, PID: pid}
+				if err := collection.Maps["broken"].Update(session, uint32(4), ebpf.UpdateNoExist); err != nil && !errors.Is(err, ebpf.ErrKeyExist) {
+					return fmt.Errorf("retire interrupted TLS call: %w", err)
+				}
+				if err := assembler.accept(rawEvent{ssl: state.SSL, generation: state.Generation, pid: pid, kind: 5, flags: 4}); err != nil {
+					return err
+				}
+			}
+			_ = collection.Maps["calls"].Delete(call)
+			_ = collection.Maps["owners"].Delete(ownerKey{SSL: state.SSL, Generation: state.Generation, PID: uint32(call.Thread >> 32), Direction: call.Direction})
+		}
+	}
+	if err := iterator.Err(); err != nil {
+		return err
+	}
 	var key connectionKey
 	var value connectionValue
-	iterator := collection.Maps["connections"].Iterate()
+	iterator = collection.Maps["connections"].Iterate()
 	for iterator.Next(&key, &value) {
 		if exists(key.PID) {
 			continue
 		}
 		id := rawEvent{ssl: key.SSL, pid: key.PID, generation: value.Generation}.id()
-		if flow := assembler.flows[id]; flow != nil && len(flow.pending) == 0 && flow.open && flow.next[0] == value.WriteSequence+1 && flow.next[1] == value.ReadSequence+1 {
-			if err := assembler.emit(pipeEvent{Type: "close", ID: id}); err != nil {
+		if flow := assembler.flows[id]; flow != nil && len(flow.pending) == 0 && flow.open &&
+			(flow.broken != nil || flow.next[0] == value.WriteSequence+1 && flow.next[1] == value.ReadSequence+1) {
+			if err := assembler.closeFlow(id, key.PID, 0); err != nil {
 				return err
 			}
-			delete(assembler.flows, id)
 			_ = collection.Maps["connections"].Delete(key)
 		}
 	}
 	if err := iterator.Err(); err != nil {
 		return err
 	}
-	var call callKey
-	var state callValue
-	iterator = collection.Maps["calls"].Iterate()
-	for iterator.Next(&call, &state) {
-		pid, tid := uint32(call.Thread>>32), uint32(call.Thread)
-		_, threadErr := os.Stat(fmt.Sprintf("/proc/%d/task/%d", pid, tid))
-		if !exists(pid) || errors.Is(threadErr, os.ErrNotExist) {
-			_ = collection.Maps["calls"].Delete(call)
-			_ = collection.Maps["owners"].Delete(ownerKey{Connection: connectionKey{SSL: state.SSL, PID: uint32(call.Thread >> 32)}, Direction: call.Direction})
+	// SSL_free may race the interrupted-call update above. Retain failure
+	// markers only while the corresponding generation still exists.
+	var session sessionKey
+	var reason uint32
+	iterator = collection.Maps["broken"].Iterate()
+	for iterator.Next(&session, &reason) {
+		err := collection.Maps["connections"].Lookup(connectionKey{SSL: session.SSL, PID: session.PID}, &value)
+		if errors.Is(err, ebpf.ErrKeyNotExist) || err == nil && value.Generation != session.Generation {
+			_ = collection.Maps["broken"].Delete(session)
+		} else if err != nil {
+			return err
+		}
+	}
+	if err := iterator.Err(); err != nil {
+		return err
+	}
+	var thread, ssl uint64
+	iterator = collection.Maps["clears"].Iterate()
+	for iterator.Next(&thread, &ssl) {
+		pid, tid := uint32(thread>>32), uint32(thread)
+		_, err := os.Stat(fmt.Sprintf("/proc/%d/task/%d", pid, tid))
+		if !exists(pid) || errors.Is(err, os.ErrNotExist) {
+			_ = collection.Maps["clears"].Delete(thread)
 		}
 	}
 	return iterator.Err()

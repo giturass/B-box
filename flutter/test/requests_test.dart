@@ -208,6 +208,29 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('automatic TLS discovery reports preparation and keeps library diagnostics', (tester) async {
+    await mount(tester, size: const Size(320, 900), scale: 1.3);
+    const preparing = 'Preparing capture for more applications. Reconnect the target app when preparation finishes.';
+    const finished = 'Capture preparation finished. Reconnect the target app to capture new HTTPS connections.';
+    const warning = 'libprivate.so: automatic SSL function resolution is incomplete';
+    snapshot['state'] = {'active': true, 'backend': 'eBPF', 'libraries': 2, 'scanning': true, 'error': warning};
+    await open(tester, const RequestsPage());
+    expect(find.text(preparing), findsOneWidget);
+    expect(find.text(finished), findsNothing);
+    expect(find.text(warning), findsOneWidget);
+    await capture(tester, 'tls-preparing-narrow-large-text');
+    snapshot['state'] = {'active': true, 'backend': 'eBPF', 'libraries': 3, 'scanning': false, 'error': warning};
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(find.text(preparing), findsNothing);
+    expect(find.text(finished), findsOneWidget);
+    expect(find.text('eBPF · 3 TLS libraries attached'), findsOneWidget);
+    expect(find.text(warning), findsOneWidget);
+    expect(find.text('Capturing new connections'), findsOneWidget);
+    await capture(tester, 'tls-prepared-narrow-large-text');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('message menu switches headers and cookies, with copy feedback', (tester) async {
     await mount(tester);
     const responseCookie = 'session=server-one; Expires=Wed, 09 Jun 2027 10:18:14 GMT; Path=/; HttpOnly';

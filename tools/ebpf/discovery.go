@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,36 +12,49 @@ import (
 	"time"
 
 	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/link"
 )
+
+var errStopDiscovery = errors.New("TLS library attachment limit reached")
 
 type discoveryUpdate struct {
 	stage     string
 	libraries int
 	warning   string
 	err       error
+	scanning  bool
 }
 
-// One worker owns discovery state and links. Only progress/counts cross to the
-// event loop; closing the worker precedes closing the shared BPF collection.
+// One worker owns all file inspection and perf handles. The event loop keeps
+// draining plaintext while further APKs are analyzed. Shutdown waits for this
+// worker before closing the BPF maps and programs.
 type libraryDiscovery struct {
 	collection    *ebpf.Collection
-	attached      map[string][]link.Link
+	attacher      *uprobeAttacher
+	attached      map[string][]io.Closer
 	seen          map[string]bool
+	explicit      map[string]bool
 	failures      []string
-	inspect       func(context.Context, string) ([]library, error)
-	attachLibrary func(context.Context, library) ([]link.Link, error)
+	scanning      bool
+	walk          func(context.Context, string, func(library) error) error
+	attachLibrary func(context.Context, library) ([]io.Closer, error)
 }
 
-func newLibraryDiscovery(collection *ebpf.Collection) *libraryDiscovery {
+func newLibraryDiscovery(collection *ebpf.Collection, attacher *uprobeAttacher) *libraryDiscovery {
 	d := &libraryDiscovery{
-		collection: collection,
-		attached:   make(map[string][]link.Link),
-		seen:       make(map[string]bool),
-		inspect:    inspectLibraries,
+		collection: collection, attacher: attacher,
+		attached: make(map[string][]io.Closer), seen: make(map[string]bool),
+		explicit: make(map[string]bool), walk: walkLibraries,
+		scanning: true,
 	}
 	d.attachLibrary = d.attach
 	return d
+}
+
+func (d *libraryDiscovery) close() {
+	for _, probes := range d.attached {
+		closeProbes(probes)
+	}
+	clear(d.attached)
 }
 
 func (d *libraryDiscovery) watch(ctx context.Context, config collectorConfig, updates chan<- discoveryUpdate) error {
@@ -52,13 +66,15 @@ func (d *libraryDiscovery) watch(ctx context.Context, config collectorConfig, up
 			return ctx.Err()
 		}
 	}
-	// Explicit paths and system TLS libraries do not require a /proc sweep.
+	for _, path := range config.Libraries {
+		d.explicit[path] = true
+	}
 	if err := d.scan(ctx, initialLibraryPaths(config), report); err != nil {
 		return err
 	}
 	for {
 		if len(d.attached) == 0 {
-			if err := report(discoveryUpdate{stage: "discovering process TLS libraries"}); err != nil {
+			if err := report(discoveryUpdate{stage: "discovering installed application and process TLS libraries"}); err != nil {
 				return err
 			}
 		}
@@ -72,9 +88,15 @@ func (d *libraryDiscovery) watch(ctx context.Context, config collectorConfig, up
 		if len(d.attached) == 0 {
 			reason := strings.Join(d.failures, "; ")
 			if reason == "" {
-				reason = "SSL_new/free/read/write symbols or verified Chromium functions were not found. Open the target app or select its compatible TLS library."
+				reason = "automatic SSL function resolution found no compatible library in the selected applications"
 			}
-			return fmt.Errorf("no compatible TLS library could be attached: %s", reason)
+			return fmt.Errorf("no TLS probes attached: %s", reason)
+		}
+		if d.scanning {
+			d.scanning = false
+			if err := report(discoveryUpdate{libraries: len(d.attached), warning: strings.Join(d.failures, "; ")}); err != nil {
+				return err
+			}
 		}
 		timer := time.NewTimer(3 * time.Second)
 		select {
@@ -86,6 +108,20 @@ func (d *libraryDiscovery) watch(ctx context.Context, config collectorConfig, up
 	}
 }
 
+func (d *libraryDiscovery) warn(message string) bool {
+	message = fmt.Sprintf("%.1024s", message)
+	for _, previous := range d.failures {
+		if previous == message {
+			return false
+		}
+	}
+	if len(d.failures) < 3 {
+		d.failures = append(d.failures, message)
+		return true
+	}
+	return false
+}
+
 func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func(discoveryUpdate) error) error {
 	stage := func(action, path string) error {
 		if len(d.attached) > 0 {
@@ -93,15 +129,28 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 		}
 		return report(discoveryUpdate{stage: fmt.Sprintf("%s %.512s", action, path)})
 	}
+	status := func() error {
+		return report(discoveryUpdate{libraries: len(d.attached), warning: strings.Join(d.failures, "; "), scanning: d.scanning})
+	}
 	for _, path := range paths {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if len(d.attached) >= 64 {
+			if d.warn("TLS discovery reached its 64-library limit; select fewer applications") {
+				if err := status(); err != nil {
+					return err
+				}
+			}
 			break
 		}
 		info, err := os.Stat(path)
 		if err != nil || !info.Mode().IsRegular() {
+			if d.explicit[path] && d.warn(filepath.Base(path)+": library is unavailable") && len(d.attached) > 0 {
+				if err := status(); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		stat := info.Sys().(*syscall.Stat_t)
@@ -110,58 +159,72 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 			continue
 		}
 		if len(d.seen) >= 2048 {
+			d.warn("TLS discovery reached its 2048-file limit; select fewer applications")
+			if len(d.attached) > 0 {
+				return status()
+			}
 			break
 		}
 		d.seen[key] = true
-		if err = stage("inspecting TLS symbols in", path); err != nil {
+		if !d.scanning {
+			d.scanning = true
+			if len(d.attached) > 0 {
+				if err := status(); err != nil {
+					return err
+				}
+			}
+		}
+		if err = stage("resolving TLS function offsets in", path); err != nil {
 			return err
 		}
-		libraries, err := d.inspect(ctx, path)
-		warningChanged := false
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			var unsupported *unsupportedChromiumError
-			if errors.As(err, &unsupported) && len(d.failures) < 3 {
-				d.failures = append(d.failures, fmt.Sprintf("%.1024s", err.Error()))
-				warningChanged = true
-			}
-			// A stored APK may contain both compatible and unsupported libraries.
-			// Keep the compatible results and report the diagnostic after ready.
-		}
-		for _, library := range libraries {
-			if err = ctx.Err(); err != nil {
+		before := strings.Join(d.failures, "; ")
+		resolved := false
+		err = d.walk(ctx, path, func(value library) error {
+			resolved = true
+			if err := ctx.Err(); err != nil {
 				return err
+			}
+			if _, exists := d.attached[value.identity]; exists {
+				return nil
 			}
 			if len(d.attached) >= 64 {
-				break
+				return errStopDiscovery
 			}
-			if _, exists := d.attached[library.identity]; exists {
-				continue
-			}
-			if err = stage("attaching TLS probes to", path); err != nil {
+			if err := stage("attaching TLS probes to", value.path+"!"+value.entry); err != nil {
 				return err
 			}
-			links, err := d.attachLibrary(ctx, library)
-			if err != nil {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				if len(d.failures) < 3 {
-					d.failures = append(d.failures, fmt.Sprintf("%.1024s", filepath.Base(path)+": "+err.Error()))
-					warningChanged = true
-				}
-				continue
+			probes, err := d.attachLibrary(ctx, value)
+			if err != nil || len(probes) == 0 {
+				closeProbes(probes)
+				d.warn(fmt.Sprintf("%s: attach failed: %v", value.entry, err))
+				return ctx.Err()
 			}
-			d.attached[library.identity] = links
-			if err = report(discoveryUpdate{libraries: len(d.attached), warning: strings.Join(d.failures, "; ")}); err != nil {
-				return err
-			}
-			warningChanged = false
+			d.attached[value.identity] = probes
+			return status()
+		})
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
-		if warningChanged && len(d.attached) > 0 {
-			if err = report(discoveryUpdate{libraries: len(d.attached), warning: strings.Join(d.failures, "; ")}); err != nil {
+		// A package update may replace the pathname between Stat and Open.
+		// Do not mark the earlier inode as inspected when a different file won.
+		if after, statErr := os.Stat(path); statErr != nil || !os.SameFile(info, after) ||
+			after.Size() != info.Size() || !after.ModTime().Equal(info.ModTime()) {
+			delete(d.seen, key)
+		}
+		var visitErr *libraryVisitError
+		if errors.As(err, &visitErr) && !errors.Is(err, errStopDiscovery) {
+			return visitErr.err
+		}
+		if err != nil && !errors.Is(err, errStopDiscovery) {
+			var unsupported *unsupportedChromiumError
+			if d.explicit[path] || errors.As(err, &unsupported) {
+				d.warn(filepath.Base(path) + ": " + err.Error())
+			}
+		} else if d.explicit[path] && !resolved {
+			d.warn(filepath.Base(path) + ": no compatible TLS library found")
+		}
+		if len(d.attached) > 0 && strings.Join(d.failures, "; ") != before {
+			if err = status(); err != nil {
 				return err
 			}
 		}

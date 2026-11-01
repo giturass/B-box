@@ -68,6 +68,9 @@ class _RequestsPageState extends State<RequestsPage> {
                 )),
                 if ((state['skipped'] as num? ?? 0) > 0) Text('${context.tr('Connections skipped or interrupted')}: ${state['skipped']}'),
                 if (active && state['backend'] == 'eBPF') Text('eBPF · ${state['libraries'] ?? 0} ${context.tr('TLS libraries attached')}'),
+                if (active && state['backend'] == 'eBPF') Text(context.tr(state['scanning'] == true
+                  ? 'Preparing capture for more applications. Reconnect the target app when preparation finishes.'
+                  : 'Capture preparation finished. Reconnect the target app to capture new HTTPS connections.')),
                 if ((state['error'] as String? ?? '').isNotEmpty) Text(state['error'].toString(), style: TextStyle(color: context.colorScheme.error)),
                 if ((page['error'] as String? ?? '').isNotEmpty) Text(page['error'].toString(), style: TextStyle(color: context.colorScheme.error)),
                 if (error != null) ErrorState(error, retry: refresh),

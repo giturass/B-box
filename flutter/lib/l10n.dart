@@ -4,6 +4,8 @@ import 'ui/l10n.dart';
 
 const _zh = <String, String>{
   "Capture HTTPS with eBPF": "使用 eBPF 抓取 HTTPS",
+  "Preparing capture for more applications. Reconnect the target app when preparation finishes.": "正在准备其他应用的抓取。准备完成后，请让目标应用重新连接。",
+  "Capture preparation finished. Reconnect the target app to capture new HTTPS connections.": "抓取准备已完成。请让目标应用重新连接，以抓取新建的 HTTPS 连接。",
   "HTTPS excluded domains": "HTTPS 排除域名",
   "Add captured HTTPS domains": "从记录添加 HTTPS 域名",
   "Add captured HTTPS exclusions": "从记录添加 HTTPS 排除域名",
@@ -12,7 +14,7 @@ const _zh = <String, String>{
   "Skip plaintext capture for these HTTPS domains. Visible hostnames can still be extracted.": "不抓取这些 HTTPS 域名的明文，仍可提取可见域名。",
   "Requires Root, Linux 5.10 or newer, permitted eBPF uprobes and a compatible 64-bit OpenSSL or BoringSSL library. Reconnect the target app after starting. QUIC and unsupported TLS stacks are not captured.": "需要 Root、Linux 5.10 或更新内核、eBPF uprobe 权限，以及兼容的 64 位 OpenSSL/BoringSSL 库。开启后请让目标应用重新连接。无法抓取 QUIC 或不兼容的 TLS 实现。",
   "Additional TLS libraries": "其他 TLS 库",
-  "Optional absolute library paths, one per line. System TLS libraries and running apps are discovered automatically.": "可选填库文件的绝对路径，每行一条。自动查找系统 TLS 库和正在运行的应用。",
+  "Optional absolute library or APK paths, one per line. Installed apps, shared libraries and function offsets are discovered automatically.": "可选填库文件或 APK 的绝对路径，每行一条。自动查找已安装应用、共享库并识别函数偏移。",
   "Collect visible TLS/QUIC hostnames through the local service. These records contain names only.": "从经过本地服务的 TLS/QUIC 流量中提取可见域名，仅记录域名信息。",
   "Matching domains are excluded from capture.": "不抓取匹配的域名。",
   "Keeps up to 300 requests and 32 MiB. Large bodies keep a prefix. HTTPS ports use the HTTP authority when socket metadata is unavailable.": "最多保留 300 条请求、32 MiB 数据。超长正文只保存开头。无法获取套接字信息时，HTTPS 端口按 HTTP 请求目标判断。",
