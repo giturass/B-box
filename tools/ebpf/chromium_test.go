@@ -244,6 +244,16 @@ func makeChromiumFixture(t *testing.T, seed int64, duplicateWrite bool) chromium
 	return fixture
 }
 
+func (f chromiumFixture) mergeLoadSegments() {
+	// Match --no-rosegment: .rodata, unwind data and .text share one RX load.
+	data, code := f.data[64:64+56], f.data[64+56:64+2*56]
+	size := binary.LittleEndian.Uint64(code[8:]) + binary.LittleEndian.Uint64(code[32:])
+	binary.LittleEndian.PutUint16(f.data[56:], 1)
+	binary.LittleEndian.PutUint32(data[4:], uint32(elf.PF_R|elf.PF_X))
+	binary.LittleEndian.PutUint64(data[32:], size)
+	binary.LittleEndian.PutUint64(data[40:], size)
+}
+
 func resolveFixture(ctx context.Context, fixture chromiumFixture) (map[string]uint64, error) {
 	file, err := elf.NewFile(contextReaderAt{ctx, bytes.NewReader(fixture.data)})
 	if err != nil {
@@ -255,21 +265,26 @@ func resolveFixture(ctx context.Context, fixture chromiumFixture) (map[string]ui
 
 func TestChromiumResolvesRelocatedStrippedLibrary(t *testing.T) {
 	for _, seed := range []int64{1, 7, 23, 71} {
-		t.Run(fmt.Sprint(seed), func(t *testing.T) {
-			fixture := makeChromiumFixture(t, seed, false)
-			resolved, err := resolveFixture(context.Background(), fixture)
-			if err != nil {
-				t.Fatal(err)
-			}
-			want := make(map[string]uint64)
-			base := uint64(0x10000000) + uint64(seed)*0x1000000
-			for _, name := range []string{"SSL_new", "SSL_free", "SSL_read", "SSL_write"} {
-				want[name] = fixture.functions[name].address - base
-			}
-			if !reflect.DeepEqual(resolved, want) {
-				t.Fatalf("resolved %v; expected %v", resolved, want)
-			}
-		})
+		for _, sharedLoad := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%d/shared-load=%t", seed, sharedLoad), func(t *testing.T) {
+				fixture := makeChromiumFixture(t, seed, false)
+				if sharedLoad {
+					fixture.mergeLoadSegments()
+				}
+				resolved, err := resolveFixture(context.Background(), fixture)
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := make(map[string]uint64)
+				base := uint64(0x10000000) + uint64(seed)*0x1000000
+				for _, name := range []string{"SSL_new", "SSL_free", "SSL_read", "SSL_write"} {
+					want[name] = fixture.functions[name].address - base
+				}
+				if !reflect.DeepEqual(resolved, want) {
+					t.Fatalf("resolved %v; expected %v", resolved, want)
+				}
+			})
+		}
 	}
 }
 
@@ -357,6 +372,23 @@ func TestChromiumRejectsUnverifiedFunctions(t *testing.T) {
 		"unwind range mismatch":       func(f chromiumFixture) { binary.LittleEndian.PutUint32(f.data[f.functions["SSL_read"].frame+8:], 0) },
 		"unsupported unwind encoding": func(f chromiumFixture) { f.data[f.frames+16] = 0x1c },
 		"non-executable text":         func(f chromiumFixture) { binary.LittleEndian.PutUint32(f.data[64+56+4:], uint32(elf.PF_R)) },
+		"unreadable text load":        func(f chromiumFixture) { binary.LittleEndian.PutUint32(f.data[64+56+4:], uint32(elf.PF_X)) },
+		"unreadable data load":        func(f chromiumFixture) { binary.LittleEndian.PutUint32(f.data[64+4:], uint32(elf.PF_X)) },
+		"rodata exceeds file-backed load": func(f chromiumFixture) {
+			binary.LittleEndian.PutUint64(f.data[64+32:], 0x3fff) // Still within p_memsz.
+		},
+		"rodata file/virtual mismatch": func(f chromiumFixture) {
+			binary.LittleEndian.PutUint64(f.data[f.sections+64+24:], 0x1004)
+		},
+		"executable rodata section": func(f chromiumFixture) {
+			binary.LittleEndian.PutUint64(f.data[f.sections+64+8:], uint64(elf.SHF_ALLOC|elf.SHF_EXECINSTR))
+		},
+		"writable rodata section": func(f chromiumFixture) {
+			binary.LittleEndian.PutUint64(f.data[f.sections+64+8:], uint64(elf.SHF_ALLOC|elf.SHF_WRITE))
+		},
+		"text section marked as data": func(f chromiumFixture) {
+			binary.LittleEndian.PutUint64(f.data[f.sections+4*64+8:], uint64(elf.SHF_ALLOC))
+		},
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -375,6 +407,7 @@ func TestChromiumRejectsUnverifiedFunctions(t *testing.T) {
 
 func TestChromiumAPKAddressesAreFileOffsets(t *testing.T) {
 	fixture := makeChromiumFixture(t, 19, false)
+	fixture.mergeLoadSegments()
 	var archive bytes.Buffer
 	writer := zip.NewWriter(&archive)
 	padding, _ := writer.CreateHeader(&zip.FileHeader{Name: "assets/padding", Method: zip.Store})

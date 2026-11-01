@@ -48,10 +48,12 @@ func chromiumSection(file *elf.File, name string, limit uint64, executable bool)
 		(s.Flags&elf.SHF_EXECINSTR != 0) != executable {
 		return nil, fmt.Errorf("missing or unsupported %s", name)
 	}
-	// A section table alone must never turn data into an executable probe site.
+	// Android Chromium uses --no-rosegment, so read-only sections may share
+	// an executable PT_LOAD with .text. Section flags still distinguish data
+	// from code; a section table alone must never create an executable probe site.
 	for _, p := range file.Progs {
 		if p.Type == elf.PT_LOAD && p.Flags&elf.PF_R != 0 &&
-			(p.Flags&elf.PF_X != 0) == executable && s.Addr >= p.Vaddr && s.Offset >= p.Off &&
+			(!executable || p.Flags&elf.PF_X != 0) && s.Addr >= p.Vaddr && s.Offset >= p.Off &&
 			s.Addr-p.Vaddr == s.Offset-p.Off && s.Addr-p.Vaddr <= p.Filesz &&
 			s.Size <= p.Filesz-(s.Addr-p.Vaddr) {
 			return s, nil

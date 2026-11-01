@@ -64,7 +64,7 @@ HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF upr
 
 ARM64 Chrome/Chromium 的 `libchrome.so`、`libmonochrome*.so`、`libtrichrome.so` 和 `libwebviewchromium.so` 缺少 SSL 符号时，使用[静态识别器](tools/ebpf/chromium.go)检查当前文件，不绑定 Chrome 版本、build ID、代码哈希或固定地址。依据 BoringSSL/Chromium 源文件字符串、公共错误码、标准 unwind 函数范围及调用关系识别 `SSL_new/free/read/write`；必须确认分配/释放配对、Chrome socket 中同一 SSL 对象的调用、整数长度 ABI，以及 `SSL_read` 对 `SSL_peek` 结果的消耗和原值返回。源码行号、寄存器和结构字段的绝对偏移不作为版本签名。识别有歧义、符号冲突、缺少生命周期或不支持的编译布局时不挂载猜测地址，并在抓包状态中提示未支持的库；其他兼容库继续采集。普通更新移动代码/行号不需要维护地址表，修改函数实现、编译布局或删除识别信息仍可能需要更新识别器。
 
-[ELF 检查](tools/ebpf/chromium_elf.go)核对可执行加载段和 `.eh_frame_hdr`/FDE/CIE 范围，目前接受 Android clang 常用的 `pcrel/sdata4`、`datarel/sdata4` 表及 `zR` CIE。只缓存有界候选函数，分块扫描 `.text` 并保留取消检查；APK 探针地址为 ZIP 数据偏移加 ELF 文件偏移，不使用运行时虚拟地址。安装后的新 inode 会重新检查，旧结果不会按包名或版本号套用。
+[ELF 检查](tools/ebpf/chromium_elf.go)核对加载段、节标志和 `.eh_frame_hdr`/FDE/CIE 范围。依据 [Chromium Android 的 `--no-rosegment` 链接配置](https://chromium.googlesource.com/chromium/src/+/861389936bf33ea77529ee5dcc0605e68f6bb620/build/config/compiler/BUILD.gn#1161)，允许 `.rodata` 和 unwind 数据与 `.text` 共用可读/可执行的 `PT_LOAD`；每个节仍须完整位于加载段的文件范围内，并保持虚拟地址与文件偏移对应，`.text` 同时要求节和加载段带执行标志。目前接受 Android clang 常用的 `pcrel/sdata4`、`datarel/sdata4` 表及 `zR` CIE。只缓存有界候选函数，分块扫描 `.text` 并保留取消检查；APK 探针地址为 ZIP 数据偏移加 ELF 文件偏移，不使用运行时虚拟地址。安装后的新 inode 会重新检查，旧结果不会按包名或版本号套用。
 
 采集器的 `--inspect-library <ELF 或 APK 路径>` 只读诊断入口使用同一识别器，输出 APK 数据偏移及实际识别出的函数文件偏移；它不需要 Root、不加载 BPF，也不读取目标进程或网络数据。可用 CI 构建的对应 ABI 采集器检查安装文件，结果仅证明静态识别，不能当作实机抓包通过。
 
@@ -123,7 +123,7 @@ ARM64 Chrome/Chromium 的 `libchrome.so`、`libmonochrome*.so`、`libtrichrome.s
 
 UI 验证还编译 Linux BPF/采集器、运行 [事件测试](tools/ebpf/events_test.go)、[库发现测试](tools/ebpf/discovery_test.go)、[平台回归测试](tools/ebpf/testdata/platform_test.go) 和 [真实 OpenSSL smoke](tools/ebpf/smoke.py)，核对首个挂载不等待慢库、后续挂载计数/去重、取消与探针释放、失败不能报告 ready、两方向明文、分片/重复处理及 owner EOF 退出。平台测试复制到补丁依赖中，检查 Linux 内核版本匹配及 map/程序/BTF 加载，拒绝加载前的平台不支持错误；允许真实内核或权限限制，不将其通过视为抓取可用。共享 Android 构建 Action 使用同一补丁和 NDK 编译 PIE 采集器，链接 16 KiB page alignment，打包为 `libbbox_capture.so`；x86_64 构建额外生成 Android 平台回归二进制，由 Android smoke 在 API 24/31/35 的无特权 shell 中执行。生成的依赖副本、模块文件、BPF 对象和可执行文件不入库。Linux smoke 和无特权平台测试不代替 Android 实机内核、SELinux、Conscrypt 和目标应用验收。
 
-[Chromium 识别回归](tools/ebpf/chromium_test.go)纳入同一 Go 测试入口，以[带来源和许可的实际 ARM64 指令片段](tools/ebpf/testdata/chromium/README.md)构造无符号 ELF，改变函数排列、虚拟地址和错误行号，并检查 APK 文件偏移、取消、歧义/损坏 unwind、错误参数、非消耗读取和缺少释放配对。库发现及明文管道测试另检查兼容结果与未支持提示并存、ready 在前、挂载数保留及其他应用继续采集；这些静态指令/协议回归不能代替 Chrome 实机抓取结果。
+[Chromium 识别回归](tools/ebpf/chromium_test.go)纳入同一 Go 测试入口，以[带来源和许可的实际 ARM64 指令片段](tools/ebpf/testdata/chromium/README.md)构造无符号 ELF，改变函数排列、虚拟地址和错误行号，覆盖只读数据与代码分段及共用可读/可执行段的布局，并检查节标志/加载映射不符、APK 文件偏移、取消、歧义/损坏 unwind、错误参数、非消耗读取和缺少释放配对。库发现及明文管道测试另检查兼容结果与未支持提示并存、ready 在前、挂载数保留及其他应用继续采集；这些静态指令/协议回归不能代替 Chrome 实机抓取结果。
 
 升级核心时先检查补丁是否仍准确排除 legacy 分支，核对 sing-tun 依赖版本及自动重定向补丁，检查 HTTP 调试路由/服务生命周期补丁及覆盖文件，再逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对共享准备 Action 的安装范围及三条工作流的调用。
 
