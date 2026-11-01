@@ -172,10 +172,25 @@ SEC("uprobe/ssl_free") int ssl_free(struct regs *ctx) { retire(ctx, ARG1(ctx)); 
 SEC("uprobe/ssl_clear_enter") int ssl_clear_enter(struct regs *ctx) {
     u64 ssl = ARG1(ctx), thread = pid_tid();
     struct connection_key key = key_for(ssl);
-    if (lookup(&connections, &key)) {
-        if (update(&clears, &thread, &ssl, ANY)) loss();
-        retire(ctx, ssl);
-    }
+    struct connection *connection = lookup(&connections, &key);
+    if (!connection) return 0;
+    struct owner_key owner = { .ssl = ssl, .generation = connection->generation,
+        .pid = key.pid, .direction = 2 };
+    u64 *writer = lookup(&owners, &owner);
+    u64 write_owner = writer ? *writer : 0;
+    owner.direction = 3;
+    u64 *reader = lookup(&owners, &owner);
+    u64 read_owner = reader ? *reader : 0;
+    // OpenSSL's state_machine calls SSL_clear while the first SSL_read/write
+    // lazily initializes its handshake. No application bytes exist yet and
+    // this thread owns the only active direction: retain that fresh lifetime.
+    if (!connection->write_sequence && !connection->read_sequence &&
+        ((write_owner == thread && !read_owner) || (read_owner == thread && !write_owner))) return 0;
+    // A reset after data, or from another thread, cannot migrate an in-flight
+    // call into a fresh generation without losing its returned bytes. Retire
+    // it and require a later idle clear/new before observing another stream.
+    if (!write_owner && !read_owner && update(&clears, &thread, &ssl, ANY)) loss();
+    retire(ctx, ssl);
     return 0;
 }
 SEC("uretprobe/ssl_clear_leave") int ssl_clear_leave(struct regs *ctx) {

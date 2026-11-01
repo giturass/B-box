@@ -274,6 +274,21 @@ def exercise(apk, directory):
         fixture.free(C.byref(state))
         collector.expect(state, write=b"normal-nested-ex", read=response)
 
+        state = fixture.session(b"lazy handshake response")
+        state.abandon = 3  # SSL_clear nested in the first public I/O call
+        fixture.write(state, b"lazy handshake request")
+        assert fixture.read(state, 100) == b"lazy handshake response"
+        fixture.free(C.byref(state))
+        collector.expect(state, write=b"lazy handshake request", read=b"lazy handshake response")
+
+        state = fixture.session()
+        fixture.write(state, b"before-inflight-clear")
+        state.abandon = 3
+        fixture.write(state, b"cannot-migrate-an-inflight-call")
+        fixture.write(state, b"must-not-restart-midstream")
+        fixture.free(C.byref(state))
+        collector.expect(state, write=b"before-inflight-clear", gap=True)
+
         state = fixture.session()
         boundary = b"b" * (128 * 1024)
         fixture.write(state, boundary, "SSL_write_ex")

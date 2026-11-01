@@ -76,7 +76,7 @@ HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF upr
 
 加载依赖由 [go.mod](tools/ebpf/go.mod) / [go.sum](tools/ebpf/go.sum) 固定，Linux 与 Android 由 [build.sh](tools/ebpf/build.sh) 直接构建同一份模块源码。探针采用 `perf_event_open` 和 `PERF_EVENT_IOC_SET_BPF`，无需 BPF token、attach cookie 或 Linux 5.15 的 BPF link。内核/权限错误保留在启动诊断中；[平台测试](tools/ebpf/platformtest/platform_test.go) 检查 Android 能进入实际 Linux 系统调用路径。
 
-每个库先挂载 I/O 和释放探针，最后启用 `SSL_new`，部分失败按相反顺序释放全部句柄。仅接受观察到分配后的新连接；`SSL_clear` 在入口结束旧代次，仅返回成功时创建新代次，`SSL_free` 结束当前代次。普通与 `_ex`/early-data 嵌套调用按方向去重，`SSL_read_early_data` 的 FINISH 返回也读取实际字节数。跳过返回或线程退出的未完成调用会使旧代次不完整，并释放占用的跟踪槽。开启后需让目标应用重新连接。UID 在 BPF 中筛选，排除 B-box 自身及其他 Android 用户；共享 UID 使用同一选择，包名集合保留在记录中。HTTPS 可以观察选中应用的本机连接，不依赖其是否通过 sing-box；本地服务的启停仍决定抓包会话的生命周期。
+每个库先挂载 I/O 和释放探针，最后启用 `SSL_new`，部分失败按相反顺序释放全部句柄。仅接受观察到分配后的新连接；空闲时 `SSL_clear` 在入口结束旧代次，仅返回成功时创建新代次，`SSL_free` 结束当前代次。OpenSSL 在首个 I/O 内部初始化握手而调用 `SSL_clear` 时，若尚无明文字节且只有当前线程占用一个方向，保留初始代次；已有数据或其他线程调用期间的重置则标为不完整，并等待后续空闲 clear/new。普通与 `_ex`/early-data 嵌套调用按方向去重，`SSL_read_early_data` 的 FINISH 返回也读取实际字节数。跳过返回或线程退出的未完成调用会使旧代次不完整，并释放占用的跟踪槽。开启后需让目标应用重新连接。UID 在 BPF 中筛选，排除 B-box 自身及其他 Android 用户；共享 UID 使用同一选择，包名集合保留在记录中。HTTPS 可以观察选中应用的本机连接，不依赖其是否通过 sing-box；本地服务的启停仍决定抓包会话的生命周期。
 
 域名和端口按每条 HTTP 请求判断，支持 HTTP/2 合并连接上的不同域名。HTTPS 域名列表为空表示不限制受支持的域名；精确名称匹配本域，`*.example.com` 匹配子域，排除优先。通用包含/排除筛选同时约束 HTTP 和 HTTPS，HTTPS 排除仅影响明文录制。默认端口 80、443、8080、8443，最多 32 个。eBPF 尚未关联套接字，HTTPS 端口使用 HTTP authority（默认 443），源/目的套接字地址、出站和路由规则保持未知；记录明确标明来源、PID/UID 和此限制。
 

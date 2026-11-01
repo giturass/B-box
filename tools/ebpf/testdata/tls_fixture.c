@@ -28,6 +28,10 @@ API int SSL_write(struct fixture_ssl *ssl, const void *buffer, int length) {
         __builtin_unreachable();
     }
     if (ssl->abandon == 1) __builtin_longjmp(ssl->jump, 1);
+    if (ssl->abandon == 3) {
+        ssl->abandon = 0;
+        if (!SSL_clear(ssl)) return -1;
+    }
     if (ssl->block && __atomic_exchange_n(&ssl->entered, 1, __ATOMIC_RELAXED) == 0) {
         while (ssl->block) __asm__ volatile("" : : : "memory");
     }
