@@ -4,7 +4,6 @@ import android.os.Binder
 import android.os.ParcelFileDescriptor
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -17,13 +16,13 @@ class CaptureSessionTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val executable = File(context.applicationInfo.nativeLibraryDir, "libbbox_capture.so")
         assertTrue("Collector must be packaged and executable", executable.canExecute())
-        val process = ProcessBuilder(executable.absolutePath).redirectErrorStream(true).start()
+        val closed = AtomicInteger()
+        val session = RootCaptureSession(executable, Binder(), { closed.incrementAndGet() })
         try {
-            val event = JSONObject(readCaptureLine(process.inputStream).toString(Charsets.UTF_8))
-            assertEquals("error", event.getString("type"))
-            assertTrue(event.getString("error").contains("requires Root"))
-            assertNotEquals(0, process.waitFor())
-        } finally { process.destroy() }
+            val error = assertThrows(IllegalStateException::class.java) { session.start("{}") }
+            assertTrue(error.message, error.message.orEmpty().contains("requires Root"))
+            assertEquals(1, closed.get())
+        } finally { session.close() }
     }
 
     @Test fun collectorReadyPipeAndOwnerDeath() {
@@ -32,7 +31,7 @@ class CaptureSessionTest {
         val session = RootCaptureSession(File("/system/bin/sh"), Binder(), { closed.incrementAndGet() },
             spawn = {
                 ProcessBuilder("/system/bin/sh", "-c",
-                    """read config; printf '%s\n' '{"type":"ready","version":1,"libraries":1}'; cat >/dev/null""")
+                    """read config; printf '%131072s' warning >&2; printf '%s\n' '{"type":"ready","version":1,"libraries":1}'; cat >/dev/null""")
                     .start().also { child = it }
             })
         try {
@@ -60,5 +59,17 @@ class CaptureSessionTest {
         assertTrue(error.message.orEmpty().contains("unsupported kernel"))
         assertThrows(IllegalStateException::class.java) { session.getFileDescriptor() }
         assertEquals(1, closed.get())
+    }
+
+    @Test fun collectorStartupKeepsStderrDiagnosticsBounded() {
+        val session = RootCaptureSession(File("/system/bin/sh"), Binder(), {},
+            spawn = {
+                ProcessBuilder("/system/bin/sh", "-c",
+                    """read config; printf 'loader failure\n' >&2; printf '%131072s' warning >&2; exit 1""").start()
+            })
+        val error = assertThrows(IllegalStateException::class.java) { session.start("{}") }
+        assertTrue(error.message.orEmpty().contains("loader failure"))
+        assertTrue(error.message.orEmpty().length < 8192)
+        assertThrows(IllegalStateException::class.java) { session.getFileDescriptor() }
     }
 }

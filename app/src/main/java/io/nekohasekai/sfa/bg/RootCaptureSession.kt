@@ -16,7 +16,7 @@ internal class RootCaptureSession(
     private val executable: File,
     private val owner: IBinder,
     private val onClosed: (RootCaptureSession) -> Unit,
-    private val spawn: (File) -> Process = { ProcessBuilder(it.absolutePath).redirectErrorStream(true).start() },
+    private val spawn: (File) -> Process = { ProcessBuilder(it.absolutePath).start() },
     private val startupTimeoutMillis: Long = 25000,
 ) : ICaptureSession.Stub(), IBinder.DeathRecipient {
     private val lock = Any()
@@ -24,6 +24,25 @@ internal class RootCaptureSession(
     private var process: Process? = null
     private val pipe = ParcelFileDescriptor.createPipe()
     private var claimed = false
+    private val diagnostics = ByteArrayOutputStream()
+    private var errorReader: Thread? = null
+
+    private fun drainErrors(child: Process): Thread = Thread({
+        try {
+            child.errorStream.use { input ->
+                val buffer = ByteArray(4096)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    synchronized(diagnostics) {
+                        diagnostics.write(buffer, 0, minOf(count, 4096 - diagnostics.size()))
+                    }
+                }
+            }
+        } catch (_: IOException) {
+            // Session shutdown closes the child streams.
+        }
+    }, "capture-errors").apply { isDaemon = true; start() }
 
     fun start(config: String) {
         try {
@@ -31,23 +50,37 @@ internal class RootCaptureSession(
                 check(!closed) { "Capture owner disconnected" }
                 owner.linkToDeath(this, 0)
                 check(executable.canExecute()) { "The packaged eBPF collector is unavailable" }
-                spawn(executable).also { process = it }
+                spawn(executable).also {
+                    process = it
+                    errorReader = drainErrors(it)
+                }
             }
-            child.outputStream.write((config + "\n").toByteArray(Charsets.UTF_8))
-            child.outputStream.flush()
             val input = BufferedInputStream(child.inputStream)
             val executor = Executors.newSingleThreadExecutor { task ->
                 Thread(task, "capture-start").apply { isDaemon = true }
             }
-            val first = try {
-                executor.submit<ByteArray> { readCaptureLine(input) }.get(startupTimeoutMillis, TimeUnit.MILLISECONDS)
+            val startup = try {
+                executor.submit<Pair<ByteArray, IOException?>> {
+                    val sendError = try {
+                        child.outputStream.write((config + "\n").toByteArray(Charsets.UTF_8))
+                        child.outputStream.flush()
+                        null
+                    } catch (error: IOException) {
+                        error
+                    }
+                    // Root/kernel checks may exit before reading stdin; preserve
+                    // their structured error even if sending settings hit EPIPE.
+                    readCaptureLine(input) to sendError
+                }.get(startupTimeoutMillis, TimeUnit.MILLISECONDS)
             } finally {
                 executor.shutdownNow()
             }
+            val first = startup.first
             val event = try { JSONObject(first.toString(Charsets.UTF_8)) } catch (_: Exception) {
                 throw IOException("eBPF collector failed: ${first.toString(Charsets.UTF_8).take(4096)}")
             }
             if (event.optString("type") == "error") throw IOException(event.optString("error"))
+            startup.second?.let { throw IOException("Unable to send eBPF capture settings", it) }
             check(event.optString("type") == "ready" && event.optInt("version") == 1 && event.optInt("libraries") > 0) {
                 "The eBPF collector did not attach compatible TLS probes"
             }
@@ -70,7 +103,9 @@ internal class RootCaptureSession(
         } catch (error: Exception) {
             close()
             val cause = error.cause ?: error
-            throw IllegalStateException(cause.message ?: "eBPF capture startup failed", cause)
+            val reason = cause.message ?: "eBPF capture startup failed"
+            val detail = synchronized(diagnostics) { diagnostics.toString(Charsets.UTF_8.name()).trim() }
+            throw IllegalStateException(if (detail.isEmpty()) reason else "$reason\n$detail", cause)
         }
     }
 
@@ -105,6 +140,8 @@ internal class RootCaptureSession(
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) child.destroyForcibly()
                 }
                 runCatching { child.inputStream.close() }
+                runCatching { errorReader?.join(250) }
+                runCatching { child.errorStream.close() }
             }
         } finally {
             onClosed(this)
