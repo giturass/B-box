@@ -342,11 +342,13 @@ func TestChromiumRejectsUnverifiedFunctions(t *testing.T) {
 			code := f.functions["SSL_read"].code
 			binary.LittleEndian.PutUint32(code[0x20:], binary.LittleEndian.Uint32(code[0x20:])&^uint32(15)|3)
 		},
-		"different SSL pointer": func(f chromiumFixture) { mutateWord(f, "SSL_read", 0x10, 0xaa0103f4) },
-		"no allocation guard":   func(f chromiumFixture) { mutateWord(f, "SSL_new", 0x14, 0xd503201f) },
-		"wrong error argument":  func(f chromiumFixture) { mutateWord(f, "SSL_new", 0x54, 0x52800022) },
-		"missing destructor":    func(f chromiumFixture) { mutateWord(f, "SSL_free", 0x20, 0xd503201f) },
-		"free another pointer":  func(f chromiumFixture) { mutateWord(f, "SSL_free", 0x24, 0xaa1403e0) },
+		"different SSL pointer":      func(f chromiumFixture) { mutateWord(f, "SSL_read", 0x10, 0xaa0103f4) },
+		"no allocation guard":        func(f chromiumFixture) { mutateWord(f, "SSL_new", 0x14, 0xd503201f) },
+		"wrong error argument":       func(f chromiumFixture) { mutateWord(f, "SSL_new", 0x54, 0x52800022) },
+		"missing destructor":         func(f chromiumFixture) { mutateWord(f, "SSL_free", 0x20, 0xd503201f) },
+		"free another pointer":       func(f chromiumFixture) { mutateWord(f, "SSL_free", 0x24, 0xaa1403e0) },
+		"overwritten integer length": func(f chromiumFixture) { mutateWord(f, "SSL_write", 0x38, 0x52800033) },
+		"overwritten socket pointer": func(f chromiumFixture) { mutateWord(f, "Chrome_Write", 0x38, 0xaa1403f3) },
 		"different socket slot": func(f chromiumFixture) {
 			code := f.functions["Chrome_Write"].code
 			binary.LittleEndian.PutUint32(code[0x48:], binary.LittleEndian.Uint32(code[0x48:])+(1<<10))

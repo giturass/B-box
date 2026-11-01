@@ -257,10 +257,12 @@ func (c *chromiumImage) sourceReference(pc uint64) (uint64, uint64, error) {
 func (c *chromiumImage) errorCall(f *chromiumFunction, start, anchor uint64) (chromiumErrorSite, bool) {
 	var r armRegisters
 	r[31] = armValue{kind: armConstant}
+	anchored := false
 	for pc, steps := start, 0; pc >= f.address && pc < f.end() && steps < 40; steps++ {
+		anchored = anchored || pc >= anchor
 		word := f.word(pc)
 		if target, call, branch := armBranch(word, pc); branch {
-			if pc >= anchor {
+			if anchored {
 				if call {
 					if r[0].kind == armConstant && r[0].id == sslErrorLibrary && r[1].kind == armConstant && r[1].id == 0 &&
 						r[2].kind == armConstant && r[2].id > 0 && r[2].id <= 4095 && r[3].kind == armConstant &&
@@ -274,7 +276,7 @@ func (c *chromiumImage) errorCall(f *chromiumFunction, start, anchor uint64) (ch
 			}
 			r = armRegisters{}
 		} else if _, branch := armConditional(word, pc); branch || armReturn(word) {
-			if pc >= anchor {
+			if anchored {
 				return chromiumErrorSite{}, false
 			}
 			r = armRegisters{}
@@ -361,12 +363,15 @@ func (c *chromiumImage) validateAllocation(f *chromiumFunction, helper uint64) (
 }
 
 func (c *chromiumImage) validateWrite(f *chromiumFunction, helper uint64) bool {
-	r, _, ok := armPrelude(f)
+	r, firstCall, ok := armPrelude(f)
 	if !ok {
 		return false
 	}
 	hasSSL, hasBuffer, hasLength := false, false, false
 	for register := 19; register <= 28; register++ {
+		if r[register].kind == armArgument && !armSavedStable(f, firstCall+4, uint32(register)) {
+			return false
+		}
 		hasSSL = hasSSL || r[register].argument(0, false)
 		hasBuffer = hasBuffer || r[register].argument(1, false)
 		hasLength = hasLength || r[register].argument(2, true) && r[register].narrow
@@ -390,9 +395,14 @@ func (c *chromiumImage) validateWrite(f *chromiumFunction, helper uint64) bool {
 }
 
 func chromiumReset(f *chromiumFunction, call uint64) (uint64, int64, bool) {
-	r, _, ok := armPrelude(f)
+	r, firstCall, ok := armPrelude(f)
 	if !ok {
 		return 0, 0, false
+	}
+	for register := 19; register <= 28; register++ {
+		if r[register].argument(0, false) && !armSavedStable(f, firstCall+4, uint32(register)) {
+			return 0, 0, false
+		}
 	}
 	r.clobberCall()
 	r[0] = armValue{kind: armResult, id: call}
@@ -421,9 +431,14 @@ func chromiumReset(f *chromiumFunction, call uint64) (uint64, int64, bool) {
 }
 
 func chromiumSocketSlot(f *chromiumFunction, call uint64) (int64, bool) {
-	r, _, ok := armPrelude(f)
+	r, firstCall, ok := armPrelude(f)
 	if !ok {
 		return 0, false
+	}
+	for register := 19; register <= 28; register++ {
+		if r[register].argument(0, false) && !armSavedStable(f, firstCall+4, uint32(register)) {
+			return 0, false
+		}
 	}
 	r.clobberCall()
 	for pc := max(f.address, call-min(call-f.address, 24)); pc < call; pc += 4 {
@@ -495,7 +510,8 @@ func chromiumReturns(f *chromiumFunction, pc uint64, r armRegisters, expected ar
 	for steps := 0; pc >= f.address && pc < f.end() && steps < 40; steps++ {
 		word := f.word(pc)
 		if armReturn(word) {
-			return r[0].kind == expected.kind && r[0].id == expected.id && r[0].narrow == expected.narrow
+			return r[0].kind == expected.kind && r[0].id == expected.id &&
+				(expected.kind == armConstant || r[0].narrow == expected.narrow)
 		}
 		if target, call, branch := armBranch(word, pc); branch {
 			if call {

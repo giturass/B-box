@@ -155,6 +155,7 @@ func (r *armRegisters) move(word uint32, pc uint64) bool {
 			}
 			r[destination] = value
 		} else if immediate == 0 {
+			value.narrow = value.narrow || word>>31 == 0
 			r[destination] = value
 		} else {
 			r[destination] = armValue{}
@@ -179,17 +180,17 @@ func armLoadStore(word uint32) (armMemory, bool) {
 	switch {
 	case word&0x3b000000 == 0x39000000: // Unsigned scaled immediate.
 		op := (word >> 22) & 3
-		if op > 1 {
+		if op > 1 && (word>>30 == 3 || word>>30 == 2 && op == 3) {
 			return m, false
 		}
-		m.load, m.width = op == 1, 1<<(word>>30)
+		m.load, m.width = op != 0, 1<<(word>>30)
 		m.offset = int64((word>>10)&4095) * int64(m.width)
 	case word&0x3b200000 == 0x38000000: // Unscaled/pre/post indexed immediate.
 		op, mode := (word>>22)&3, (word>>10)&3
-		if op > 1 || mode == 2 {
+		if mode == 2 || op > 1 && (word>>30 == 3 || word>>30 == 2 && op == 3) {
 			return m, false
 		}
-		m.load, m.width = op == 1, 1<<(word>>30)
+		m.load, m.width = op != 0, 1<<(word>>30)
 		m.offset, m.update = armSigned((word>>12)&511, 9), mode != 0
 		if mode == 1 {
 			m.offset = 0
@@ -273,10 +274,60 @@ func armCalls(f *chromiumFunction) []armCall {
 	return calls
 }
 
-func armCallsTarget(f *chromiumFunction, target uint64) bool {
-	for _, call := range armCalls(f) {
-		if call.target == target {
+// A saved entry argument may only be restored on a straight path to RET.
+// This prevents a later reuse of (say) x19 from masquerading as the original
+// SSL/socket pointer or integer length in local call/guard checks.
+func armSavedStable(f *chromiumFunction, start uint64, register uint32) bool {
+	for pc := start; pc < f.end(); pc += 4 {
+		word := f.word(pc)
+		if armHint(word) || armReturn(word) {
+			continue
+		}
+		if _, _, branch := armBranch(word, pc); branch {
+			continue
+		}
+		if _, branch := armConditional(word, pc); branch {
+			continue
+		}
+		if memory, ok := armLoadStore(word); ok {
+			if memory.update && memory.base == register {
+				return false
+			}
+			if memory.load && (memory.first == register || memory.pair && memory.second == register) &&
+				((memory.base != 31 && memory.base != 29) || !armStackReturn(f, pc)) {
+				return false
+			}
+			continue
+		}
+		if word&0x0a000000 == 0x08000000 {
+			// An unfamiliar load/store can write multiple registers. SIMD uses
+			// a separate register file but can still update its address register.
+			if word&(1<<26) != 0 {
+				if memory, ok := armLoadStore(word &^ (1 << 26)); ok && (!memory.update || memory.base != register) {
+					continue
+				}
+			}
+			return false
+		}
+		if word&31 == register {
+			return false
+		}
+	}
+	return true
+}
+
+func armStackReturn(f *chromiumFunction, pc uint64) bool {
+	var r armRegisters
+	for steps := 0; pc < f.end() && steps < 32; pc, steps = pc+4, steps+1 {
+		word := f.word(pc)
+		if armReturn(word) {
 			return true
+		}
+		if memory, ok := armLoadStore(word); ok && memory.base != 31 && memory.base != 29 {
+			return false
+		}
+		if !r.simple(word, pc) {
+			return false
 		}
 	}
 	return false
