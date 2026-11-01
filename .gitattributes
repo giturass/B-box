@@ -1,2 +1,3 @@
 # Unified patches retain context prefixes before Go tabs and blank lines.
 libbox/*.patch -whitespace
+tools/ebpf/*.patch -whitespace

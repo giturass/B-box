@@ -44,6 +44,7 @@ jobs:
           path: |
             app/build/outputs/apk/other/debug/*-x86_64-debug.apk
             app/build/outputs/apk/androidTest/other/debug/*.apk
+            tools/ebpf/build/capture-platform.test
           if-no-files-found: error
           retention-days: 7
   smoke:

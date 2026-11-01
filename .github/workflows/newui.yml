@@ -48,9 +48,9 @@ jobs:
           cache-dependency-path: tools/ebpf/go.sum
       - run: sudo apt-get update -qq && sudo apt-get install -y clang llvm libssl-dev
       - run: bash tools/ebpf/build.sh linux/amd64
-      - name: Collector framing, ordering and symbol tests
+      - name: Collector framing, ordering, symbol and platform tests
         working-directory: tools/ebpf
-        run: go test -race -count=1 ./...
+        run: go test -mod=readonly -modfile=build/capture.mod -race -count=1 ./... github.com/cilium/ebpf/bboxtest
       - name: Root uprobe TLS smoke and owner shutdown
         run: sudo python3 tools/ebpf/smoke.py
   flutter:

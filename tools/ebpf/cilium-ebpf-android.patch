@@ -1,0 +1,31 @@
+diff --git a/internal/platform/platform.go b/internal/platform/platform.go
+--- a/internal/platform/platform.go
++++ b/internal/platform/platform.go
+@@ -2,7 +2,6 @@ package platform
+ 
+ import (
+ 	"errors"
+-	"runtime"
+ 	"strings"
+ )
+ 
+@@ -12,8 +11,8 @@ const (
+ )
+ 
+ const (
+-	IsLinux   = runtime.GOOS == "linux"
+-	IsWindows = runtime.GOOS == "windows"
++	IsLinux   = Native == Linux
++	IsWindows = Native == Windows
+ )
+ 
+ // SelectVersion extracts the platform-appropriate version from a list of strings like
+@@ -21,7 +20,7 @@ const (
+ //
+ // Returns an empty string and nil if no version matched or an error if no strings were passed.
+ func SelectVersion(versions []string) (string, error) {
+-	const prefix = runtime.GOOS + ":"
++	const prefix = Native + ":"
+ 
+ 	if len(versions) == 0 {
+ 		return "", errors.New("no versions specified")

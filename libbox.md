@@ -62,6 +62,8 @@ HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF upr
 
 采集器使用 [cilium/ebpf v0.22.0](https://github.com/cilium/ebpf/tree/v0.22.0)，依据 [Linux uprobes](https://www.kernel.org/doc/html/latest/trace/uprobetracer.html) 和公开 SSL 函数 ABI 工作，不读取 BoringSSL 私有结构偏移。支持 ARM64/x86_64 的 64 位库，需要 Root、Linux 5.10 或更新内核、BPF/uprobe/perf 支持及 SELinux 许可。自动检查系统 Conscrypt/libssl 和当前 Android 用户的进程映射，可补充最多 16 个绝对库路径；查找 ELF 动态/本地符号、有界 XZ mini-debugdata 及 APK 内未压缩的对应 ABI `.so`。没有兼容库或挂载失败时启动报错；挂载库数不表示所有目标应用均受支持。32 位进程、Go TLS、没有相应符号的自有/裁剪 TLS 库和 QUIC/HTTP/3 不在当前支持范围。
 
+[Android 平台补丁](tools/ebpf/cilium-ebpf-android.patch) 修正该版本依据 `runtime.GOOS` 判断 Linux 的问题：Android 构建使用上游由构建标签选出的 `platform.Native = Linux`，让 token、mountinfo、map、程序及 BTF 加载使用 Linux 路径，并按 Linux 前缀匹配内核版本。原先的 `bpf token: not supported on android` 在调用 BPF 系统调用前产生，不能据此认定内核或 SELinux 拒绝了操作。未提供 BPF token 时继续使用上游的普通特权加载路径，仍保留真实内核和权限错误。[prepare.py](tools/ebpf/prepare.py) 核对依赖版本后刷新 `tools/ebpf/build/` 下的副本、应用补丁，并生成备用模块文件供构建和测试使用；不修改共享模块缓存、已提交的 `go.mod/go.sum` 或 libbox 的依赖。
+
 仅接受探针观察到 `SSL_new` 后的新连接；`SSL_clear`/`SSL_free` 区分连接代次。开启后需让目标应用重新连接。UID 在 BPF 中筛选，排除 B-box 自身及其他 Android 用户；共享 UID 使用同一选择，包名集合保留在记录中。HTTPS 可以观察选中应用的本机连接，不依赖其是否通过 sing-box；本地服务的启停仍决定抓包会话的生命周期。
 
 域名和端口按每条 HTTP 请求判断，支持 HTTP/2 合并连接上的不同域名。HTTPS 域名列表为空表示不限制受支持的域名；精确名称匹配本域，`*.example.com` 匹配子域，排除优先。通用包含/排除筛选同时约束 HTTP 和 HTTPS，HTTPS 排除仅影响明文录制。默认端口 80、443、8080、8443，最多 32 个。eBPF 尚未关联套接字，HTTPS 端口使用 HTTP authority（默认 443），源/目的套接字地址、出站和路由规则保持未知；记录明确标明来源、PID/UID 和此限制。
@@ -109,7 +111,7 @@ HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF upr
 
 [httpdebug_test.go](libbox/httpdebug/httpdebug_test.go) 保留 HTTP 路由、SSE/WebSocket、存储上限和导出回归；[plaintext_test.go](libbox/httpdebug/plaintext_test.go) 覆盖分片、HTTP/2 并发/跨域筛选、缺口、半截正文、采集器退出与源关闭。[ui_capture_test.go](libbox/ui_capture_test.go) 检查本地设置、退役字段清理和 schema；[路由测试](libbox/route/httpdebug_test.go) 检查原出站和字节回放。获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py)，它不构建 Android 绑定。
 
-UI 验证还编译 Linux BPF/采集器、运行 [事件测试](tools/ebpf/events_test.go) 和 [真实 OpenSSL smoke](tools/ebpf/smoke.py)，核对两方向明文、分片/重复处理及 owner EOF 退出。共享 Android 构建 Action 使用 NDK 编译 PIE 采集器，链接 16 KiB page alignment，打包为 `libbbox_capture.so`；生成的 BPF 对象和可执行文件不入库。Linux smoke 不代替 Android 实机内核、SELinux、Conscrypt 和目标应用验收。
+UI 验证还编译 Linux BPF/采集器、运行 [事件测试](tools/ebpf/events_test.go)、[平台回归测试](tools/ebpf/testdata/platform_test.go) 和 [真实 OpenSSL smoke](tools/ebpf/smoke.py)，核对两方向明文、分片/重复处理及 owner EOF 退出。平台测试复制到补丁依赖中，检查 Linux 内核版本匹配及 map/程序/BTF 加载，拒绝加载前的平台不支持错误；允许真实内核或权限限制，不将其通过视为抓取可用。共享 Android 构建 Action 使用同一补丁和 NDK 编译 PIE 采集器，链接 16 KiB page alignment，打包为 `libbbox_capture.so`；x86_64 构建额外生成 Android 平台回归二进制，由 Android smoke 在 API 24/31/35 的无特权 shell 中执行。生成的依赖副本、模块文件、BPF 对象和可执行文件不入库。Linux smoke 和无特权平台测试不代替 Android 实机内核、SELinux、Conscrypt 和目标应用验收。
 
 升级核心时先检查补丁是否仍准确排除 legacy 分支，核对 sing-tun 依赖版本及自动重定向补丁，检查 HTTP 调试路由/服务生命周期补丁及覆盖文件，再逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对共享准备 Action 的安装范围及三条工作流的调用。
 
