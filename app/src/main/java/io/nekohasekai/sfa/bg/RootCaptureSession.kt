@@ -8,8 +8,11 @@ import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicReference
 
 /** Owns one fixed, packaged collector. No shell, listener or downloaded executable. */
 internal class RootCaptureSession(
@@ -45,6 +48,7 @@ internal class RootCaptureSession(
     }, "capture-errors").apply { isDaemon = true; start() }
 
     fun start(config: String) {
+        val stage = AtomicReference("launching the collector")
         try {
             val child = synchronized(lock) {
                 check(!closed) { "Capture owner disconnected" }
@@ -59,8 +63,9 @@ internal class RootCaptureSession(
             val executor = Executors.newSingleThreadExecutor { task ->
                 Thread(task, "capture-start").apply { isDaemon = true }
             }
-            val startup = try {
-                executor.submit<Pair<ByteArray, IOException?>> {
+            val first = try {
+                executor.submit<ByteArray> {
+                    stage.set("sending capture settings")
                     val sendError = try {
                         child.outputStream.write((config + "\n").toByteArray(Charsets.UTF_8))
                         child.outputStream.flush()
@@ -70,19 +75,11 @@ internal class RootCaptureSession(
                     }
                     // Root/kernel checks may exit before reading stdin; preserve
                     // their structured error even if sending settings hit EPIPE.
-                    readCaptureLine(input) to sendError
+                    stage.set("waiting for the collector's startup response")
+                    readCaptureStartup(input, sendError) { stage.set(it) }
                 }.get(startupTimeoutMillis, TimeUnit.MILLISECONDS)
             } finally {
                 executor.shutdownNow()
-            }
-            val first = startup.first
-            val event = try { JSONObject(first.toString(Charsets.UTF_8)) } catch (_: Exception) {
-                throw IOException("eBPF collector failed: ${first.toString(Charsets.UTF_8).take(4096)}")
-            }
-            if (event.optString("type") == "error") throw IOException(event.optString("error"))
-            startup.second?.let { throw IOException("Unable to send eBPF capture settings", it) }
-            check(event.optString("type") == "ready" && event.optInt("version") == 1 && event.optInt("libraries") > 0) {
-                "The eBPF collector did not attach compatible TLS probes"
             }
             synchronized(lock) {
                 check(!closed) { "Capture owner disconnected" }
@@ -101,9 +98,17 @@ internal class RootCaptureSession(
                 }, "capture-events").apply { isDaemon = true }.start()
             }
         } catch (error: Exception) {
-            close()
-            val cause = error.cause ?: error
-            val reason = cause.message ?: "eBPF capture startup failed"
+            val cause = if (error is ExecutionException) error.cause ?: error else error
+            // Only unwrap the Future wrapper; an IOException's own message
+            // describes the failed operation and must not be lost to its cause.
+            val reason = when (cause) {
+                is TimeoutException -> "eBPF capture startup timed out after $startupTimeoutMillis ms while ${stage.get()}"
+                is InterruptedException -> "eBPF capture startup was interrupted while ${stage.get()}"
+                else -> cause.message?.takeIf { it.isNotBlank() }
+                    ?: "eBPF capture startup failed (${cause.javaClass.simpleName}) while ${stage.get()}"
+            }
+            runCatching { close() }.onFailure { cause.addSuppressed(it) }
+            if (cause is InterruptedException) Thread.currentThread().interrupt()
             val detail = synchronized(diagnostics) { diagnostics.toString(Charsets.UTF_8.name()).trim() }
             throw IllegalStateException(if (detail.isEmpty()) reason else "$reason\n$detail", cause)
         }
@@ -145,6 +150,37 @@ internal class RootCaptureSession(
             }
         } finally {
             onClosed(this)
+        }
+    }
+}
+
+private fun readCaptureStartup(
+    input: java.io.InputStream,
+    sendError: IOException?,
+    onProgress: (String) -> Unit,
+): ByteArray {
+    while (true) {
+        val line = readCaptureLine(input)
+        val text = line.toString(Charsets.UTF_8)
+        val event = try { JSONObject(text) } catch (_: Exception) {
+            throw IOException("eBPF collector failed: ${text.take(4096)}")
+        }
+        when (event.optString("type")) {
+            "progress" -> {
+                val stage = event.optString("stage").take(512).trim()
+                check(event.optInt("version") == 1 && stage.isNotEmpty()) { "Invalid eBPF startup progress" }
+                onProgress(stage)
+            }
+            "error" -> throw IOException(event.optString("error").ifBlank { "The eBPF collector reported a startup error" })
+            else -> {
+                sendError?.let { throw IOException("Unable to send eBPF capture settings", it) }
+                check(event.optString("type") == "ready" && event.optInt("version") == 1 && event.optInt("libraries") > 0) {
+                    "The eBPF collector did not attach compatible TLS probes"
+                }
+                // Startup progress belongs to Android; libbox must still see
+                // ready as the first event on its private pipe.
+                return line
+            }
         }
     }
 }

@@ -34,6 +34,7 @@ func (e rawEvent) id() string { return fmt.Sprintf("%d-%x-%x", e.pid, e.ssl, e.g
 type pipeEvent struct {
 	Type      string   `json:"type"`
 	Version   int      `json:"version,omitempty"`
+	Stage     string   `json:"stage,omitempty"`
 	ID        string   `json:"id,omitempty"`
 	PID       uint32   `json:"pid,omitempty"`
 	UID       uint32   `json:"uid,omitempty"`

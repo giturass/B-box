@@ -8,6 +8,8 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(AndroidJUnit4::class)
@@ -31,7 +33,7 @@ class CaptureSessionTest {
         val session = RootCaptureSession(File("/system/bin/sh"), Binder(), { closed.incrementAndGet() },
             spawn = {
                 ProcessBuilder("/system/bin/sh", "-c",
-                    """read config; printf '%131072s' warning >&2; printf '%s\n' '{"type":"ready","version":1,"libraries":1}'; cat >/dev/null""")
+                    """read config; printf '%131072s' warning >&2; printf '%s\n' '{"type":"progress","version":1,"stage":"loading BPF programs"}' '{"type":"progress","version":1,"stage":"attaching TLS probes"}' '{"type":"ready","version":1,"libraries":1}'; cat >/dev/null""")
                     .start().also { child = it }
             })
         try {
@@ -53,11 +55,61 @@ class CaptureSessionTest {
         val session = RootCaptureSession(File("/system/bin/sh"), Binder(), { closed.incrementAndGet() },
             spawn = {
                 ProcessBuilder("/system/bin/sh", "-c",
-                    """read config; printf '%s\n' '{"type":"error","error":"unsupported kernel"}'""").start()
+                    """read config; printf '%s\n' '{"type":"progress","version":1,"stage":"loading BPF programs"}' '{"type":"error","error":"unsupported kernel"}'""").start()
             })
         val error = assertThrows(IllegalStateException::class.java) { session.start("{}") }
         assertTrue(error.message.orEmpty().contains("unsupported kernel"))
         assertThrows(IllegalStateException::class.java) { session.getFileDescriptor() }
+        assertEquals(1, closed.get())
+    }
+
+    @Test fun collectorStartupTimeoutIncludesStageAndClosesSession() {
+        val closed = AtomicInteger()
+        lateinit var child: Process
+        val session = RootCaptureSession(File("/system/bin/sh"), Binder(), { closed.incrementAndGet() },
+            spawn = {
+                ProcessBuilder("/system/bin/sh", "-c",
+                    """read config; printf '%s\n' '{"type":"progress","version":1,"stage":"loading BPF programs"}' '{"type":"progress","version":1,"stage":"inspecting TLS symbols in libslow.so"}'; cat >/dev/null""")
+                    .start().also { child = it }
+            }, startupTimeoutMillis = 2000)
+        try {
+            val error = assertThrows(IllegalStateException::class.java) { session.start("{}") }
+            assertTrue(error.message, error.message.orEmpty().contains("timed out after 2000 ms"))
+            assertTrue(error.message, error.message.orEmpty().contains("inspecting TLS symbols in libslow.so"))
+            assertTrue(error.cause is TimeoutException)
+            assertThrows(IllegalStateException::class.java) { session.getFileDescriptor() }
+            assertEquals(0, child.exitValue())
+            assertEquals(1, closed.get())
+        } finally { session.close() }
+        assertEquals(1, closed.get())
+    }
+
+    @Test fun startupProgressCannotReplaceValidReady() {
+        for (ready in listOf(
+            """{"type":"ready","version":1,"libraries":0}""",
+            """{"type":"ready","version":2,"libraries":1}""",
+        )) {
+            val session = RootCaptureSession(File("/system/bin/sh"), Binder(), {},
+                spawn = {
+                    ProcessBuilder("/system/bin/sh", "-c",
+                        """read config; printf '%s\n' '{"type":"progress","version":1,"stage":"attaching TLS probes"}' '$ready'; cat >/dev/null""").start()
+                })
+            try {
+                val error = assertThrows(IllegalStateException::class.java) { session.start("{}") }
+                assertTrue(error.message, error.message.orEmpty().contains("did not attach compatible TLS probes"))
+                assertThrows(IllegalStateException::class.java) { session.getFileDescriptor() }
+            } finally { session.close() }
+        }
+    }
+
+    @Test fun startupFailureKeepsTheFailedOperation() {
+        val closed = AtomicInteger()
+        val failure = IOException("Unable to launch the packaged collector", IOException("permission denied"))
+        val session = RootCaptureSession(File("/system/bin/sh"), Binder(), { closed.incrementAndGet() },
+            spawn = { throw failure })
+        val error = assertThrows(IllegalStateException::class.java) { session.start("{}") }
+        assertEquals(failure.message, error.message)
+        assertSame(failure, error.cause)
         assertEquals(1, closed.get())
     }
 

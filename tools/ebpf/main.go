@@ -13,7 +13,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -107,15 +106,27 @@ func run(encode func(any) error) error {
 	// The owner keeps stdin open; process death closes it and removes all probes.
 	go func() { _, _ = io.Copy(io.Discard, reader); cancel() }()
 	_ = rlimit.RemoveMemlock()
+	progress := func(stage string) error {
+		return encode(pipeEvent{Type: "progress", Version: 1, Stage: stage})
+	}
+	if err = progress("reading the capture BPF object"); err != nil {
+		return err
+	}
 	spec, err := ebpf.LoadCollectionSpecFromReader(bytes.NewReader(program))
 	if err != nil {
 		return fmt.Errorf("load capture BPF object: %w", err)
+	}
+	if err = progress("loading BPF programs and maps into the kernel"); err != nil {
+		return err
 	}
 	collection, err := ebpf.NewCollection(spec)
 	if err != nil {
 		return fmt.Errorf("load eBPF probes (check kernel and SELinux permission): %w", err)
 	}
 	defer collection.Close()
+	if err = progress("configuring capture UID filters"); err != nil {
+		return err
+	}
 	zero, one := uint32(0), uint32(1)
 	if err = collection.Maps["config"].Put(zero, config.ExcludeUID); err != nil {
 		return err
@@ -135,20 +146,14 @@ func run(encode func(any) error) error {
 			return err
 		}
 	}
+	if err = progress("opening the eBPF perf event buffers"); err != nil {
+		return err
+	}
 	events, err := perf.NewReader(collection.Maps["events"], 64*os.Getpagesize())
 	if err != nil {
 		return fmt.Errorf("open eBPF perf buffer: %w", err)
 	}
 	defer events.Close()
-	discovery := &libraryDiscovery{collection: collection, attached: make(map[string][]link.Link), seen: make(map[string]bool)}
-	defer discovery.close()
-	if err = discovery.scan(config); err != nil {
-		return err
-	}
-	emit := func(event pipeEvent) error { return encode(event) }
-	if err = emit(pipeEvent{Type: "ready", Version: 1, Libraries: len(discovery.attached)}); err != nil {
-		return err
-	}
 	type readResult struct {
 		record perf.Record
 		err    error
@@ -168,16 +173,60 @@ func run(encode func(any) error) error {
 		}
 	}()
 	go func() { <-ctx.Done(); events.Close() }()
+	emit := func(event pipeEvent) error { return encode(event) }
 	assembler := newAssembler(config, emit)
-	scan := time.NewTicker(3 * time.Second)
-	defer scan.Stop()
+
+	// Discovery owns its links and can inspect slow APK/debug-data files without
+	// blocking perf reads or delaying ready after the first successful attach.
+	discovery := newLibraryDiscovery(collection)
+	updates := make(chan discoveryUpdate)
+	discoveryDone := make(chan struct{})
+	go func() {
+		defer close(discoveryDone)
+		defer discovery.close()
+		if err := discovery.watch(ctx, config, updates); err != nil && ctx.Err() == nil {
+			select {
+			case updates <- discoveryUpdate{err: err}:
+			case <-ctx.Done():
+			}
+		}
+	}()
+	defer func() {
+		cancel()
+		// Never close programs/maps while discovery is still attaching probes.
+		<-discoveryDone
+	}()
+	var activeResults <-chan readResult
+	cleanup := time.NewTicker(3 * time.Second)
+	defer cleanup.Stop()
 	health := time.NewTicker(250 * time.Millisecond)
 	defer health.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case result := <-results:
+		case update := <-updates:
+			if update.err != nil {
+				return update.err
+			}
+			if update.stage != "" && activeResults == nil {
+				if err = progress(update.stage); err != nil {
+					return err
+				}
+			}
+			if update.libraries > 0 {
+				kind := "status"
+				if activeResults == nil {
+					kind = "ready"
+				}
+				if err = emit(pipeEvent{Type: kind, Version: 1, Libraries: update.libraries}); err != nil {
+					return err
+				}
+				// A probe may already have produced data. Keep it buffered until
+				// ready has been written as the first capture event.
+				activeResults = results
+			}
+		case result := <-activeResults:
 			if result.err != nil {
 				if ctx.Err() != nil {
 					return nil
@@ -195,6 +244,9 @@ func run(encode func(any) error) error {
 				return err
 			}
 		case now := <-health.C:
+			if activeResults == nil {
+				continue
+			}
 			var losses []uint64
 			if err = collection.Maps["lost"].Lookup(zero, &losses); err != nil {
 				return err
@@ -207,15 +259,9 @@ func run(encode func(any) error) error {
 			if err = assembler.checkLoss(now); err != nil {
 				return err
 			}
-		case <-scan.C:
-			previous := len(discovery.attached)
-			if err = discovery.scan(config); err != nil {
-				return err
-			}
-			if len(discovery.attached) != previous {
-				if err = emit(pipeEvent{Type: "status", Libraries: len(discovery.attached)}); err != nil {
-					return err
-				}
+		case <-cleanup.C:
+			if activeResults == nil {
+				continue
 			}
 			if err = cleanupExited(collection, assembler); err != nil {
 				return err
@@ -224,72 +270,7 @@ func run(encode func(any) error) error {
 	}
 }
 
-type libraryDiscovery struct {
-	collection *ebpf.Collection
-	attached   map[string][]link.Link
-	seen       map[string]bool
-}
-
-func (d *libraryDiscovery) scan(config collectorConfig) error {
-	paths := discoverPaths(config)
-	sort.Slice(paths, func(i, j int) bool {
-		priority := func(path string) bool {
-			return strings.Contains(path, "libssl") || strings.Contains(path, "libjavacrypto")
-		}
-		if priority(paths[i]) != priority(paths[j]) {
-			return priority(paths[i])
-		}
-		return paths[i] < paths[j]
-	})
-	var failures []string
-	for _, path := range paths {
-		if len(d.attached) >= 64 {
-			break
-		}
-		info, err := os.Stat(path)
-		if err != nil {
-			continue
-		}
-		stat := info.Sys().(*syscall.Stat_t)
-		key := fmt.Sprintf("%d:%d:%d:%d", stat.Dev, stat.Ino, info.Size(), info.ModTime().UnixNano())
-		if d.seen[key] {
-			continue
-		}
-		if len(d.seen) >= 2048 {
-			break
-		}
-		d.seen[key] = true
-		libraries, err := inspectLibraries(path)
-		if err != nil {
-			continue
-		}
-		for _, library := range libraries {
-			if len(d.attached) >= 64 {
-				break
-			}
-			if _, exists := d.attached[library.identity]; exists {
-				continue
-			}
-			links, err := d.attach(library)
-			if err != nil {
-				if len(failures) < 3 {
-					failures = append(failures, filepath.Base(path)+": "+err.Error())
-				}
-				continue
-			}
-			d.attached[library.identity] = links
-		}
-	}
-	if len(d.attached) == 0 {
-		reason := strings.Join(failures, "; ")
-		if reason == "" {
-			reason = "SSL_new/free/read/write symbols were not found. Open the target app or select its compatible TLS library."
-		}
-		return fmt.Errorf("no compatible TLS library could be attached: %s", reason)
-	}
-	return nil
-}
-func (d *libraryDiscovery) attach(library library) ([]link.Link, error) {
+func (d *libraryDiscovery) attach(ctx context.Context, library library) (_ []link.Link, err error) {
 	executable, err := link.OpenExecutable(library.path)
 	if err != nil {
 		return nil, err
@@ -310,8 +291,18 @@ func (d *libraryDiscovery) attach(library library) ([]link.Link, error) {
 		{"SSL_new", "ssl_new", true, false},
 	}
 	var attached []link.Link
+	defer func() {
+		if err != nil {
+			for _, probe := range attached {
+				probe.Close()
+			}
+		}
+	}()
 	seen := make(map[string]bool)
 	for _, hook := range hooks {
+		if err = ctx.Err(); err != nil {
+			return nil, err
+		}
 		offset := library.symbols[hook.symbol]
 		if offset == 0 && hook.optional {
 			continue
@@ -329,9 +320,6 @@ func (d *libraryDiscovery) attach(library library) ([]link.Link, error) {
 			probe, err = executable.Uprobe(hook.symbol, d.collection.Programs[hook.program], options)
 		}
 		if err != nil {
-			for _, probe := range attached {
-				probe.Close()
-			}
 			return nil, fmt.Errorf("attach %s: %w", hook.symbol, err)
 		}
 		attached = append(attached, probe)

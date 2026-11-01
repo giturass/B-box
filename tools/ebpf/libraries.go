@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bufio"
 	"bytes"
+	"context"
 	"debug/elf"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -91,7 +93,22 @@ func readSymbols(reader io.ReaderAt) (map[string]uint64, error) {
 	return result, nil
 }
 
-func inspectLibraries(path string) ([]library, error) {
+type contextReaderAt struct {
+	ctx context.Context
+	io.ReaderAt
+}
+
+func (r contextReaderAt) ReadAt(data []byte, offset int64) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.ReaderAt.ReadAt(data, offset)
+}
+
+func inspectLibraries(ctx context.Context, path string) ([]library, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -106,8 +123,9 @@ func inspectLibraries(path string) ([]library, error) {
 	}
 	stat := info.Sys().(*syscall.Stat_t)
 	identity := fmt.Sprintf("%d:%d", stat.Dev, stat.Ino)
+	reader := contextReaderAt{ctx, file}
 	if strings.HasSuffix(path, ".apk") {
-		archive, err := zip.NewReader(file, info.Size())
+		archive, err := zip.NewReader(reader, info.Size())
 		if err != nil {
 			return nil, err
 		}
@@ -120,6 +138,9 @@ func inspectLibraries(path string) ([]library, error) {
 		}
 		var result []library
 		for _, entry := range archive.File {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			if entry.Method != zip.Store || !strings.HasPrefix(entry.Name, prefix) ||
 				!strings.HasSuffix(entry.Name, ".so") || entry.UncompressedSize64 > 256*1024*1024 {
 				continue
@@ -128,18 +149,21 @@ func inspectLibraries(path string) ([]library, error) {
 			if err != nil || offset < 0 || uint64(offset)+entry.UncompressedSize64 > uint64(info.Size()) {
 				continue
 			}
-			symbols, err := readSymbols(io.NewSectionReader(file, offset, int64(entry.UncompressedSize64)))
+			symbols, err := readSymbols(io.NewSectionReader(reader, offset, int64(entry.UncompressedSize64)))
 			if err != nil {
 				continue
 			}
 			result = append(result, library{path, fmt.Sprintf("%s:%d", identity, offset), uint64(offset), symbols})
 		}
-		return result, nil
+		return result, ctx.Err()
 	}
 	if info.Size() > 256*1024*1024 {
 		return nil, errors.New("ELF exceeds 256 MiB")
 	}
-	symbols, err := readSymbols(file)
+	symbols, err := readSymbols(reader)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -161,17 +185,28 @@ func (c collectorConfig) selected(uid uint32) bool {
 	return false
 }
 
-func discoverPaths(config collectorConfig) []string {
-	paths := map[string]bool{
-		"/apex/com.android.conscrypt/lib64/libssl.so":        true,
-		"/apex/com.android.conscrypt/lib64/libjavacrypto.so": true,
-		"/system/lib64/libssl.so":                            true, "/system/lib64/libjavacrypto.so": true,
+func initialLibraryPaths(config collectorConfig) []string {
+	paths := append([]string(nil), config.Libraries...)
+	return append(paths,
+		"/apex/com.android.conscrypt/lib64/libssl.so",
+		"/apex/com.android.conscrypt/lib64/libjavacrypto.so",
+		"/system/lib64/libssl.so", "/system/lib64/libjavacrypto.so",
+	)
+}
+
+func discoverPaths(ctx context.Context, config collectorConfig) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	for _, path := range config.Libraries {
+	paths := make(map[string]bool)
+	for _, path := range initialLibraryPaths(config) {
 		paths[path] = true
 	}
 	processes, _ := os.ReadDir("/proc")
 	for _, process := range processes {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if _, err := strconv.ParseUint(process.Name(), 10, 32); err != nil {
 			continue
 		}
@@ -187,6 +222,10 @@ func discoverPaths(config collectorConfig) []string {
 		scanner := bufio.NewScanner(io.LimitReader(file, 8*1024*1024))
 		scanner.Buffer(make([]byte, 8192), 64*1024)
 		for scanner.Scan() {
+			if err := ctx.Err(); err != nil {
+				file.Close()
+				return nil, err
+			}
 			fields := strings.Fields(scanner.Text())
 			if len(fields) < 6 || !strings.Contains(fields[1], "x") {
 				continue
@@ -207,5 +246,14 @@ func discoverPaths(config collectorConfig) []string {
 	for path := range paths {
 		result = append(result, path)
 	}
-	return result
+	sort.Slice(result, func(i, j int) bool {
+		priority := func(path string) bool {
+			return strings.Contains(path, "libssl") || strings.Contains(path, "libjavacrypto")
+		}
+		if priority(result[i]) != priority(result[j]) {
+			return priority(result[i])
+		}
+		return result[i] < result[j]
+	})
+	return result, ctx.Err()
 }

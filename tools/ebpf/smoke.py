@@ -63,8 +63,18 @@ def main():
                       "uids": [os.getuid()], "packages": {}, "libraries": [library]}
             collector.stdin.write((json.dumps(config) + "\n").encode())
             collector.stdin.flush()
-            ready = event(collector.stdout)
+            deadline = time.monotonic() + 25
+            stages = []
+            while True:
+                remaining = deadline - time.monotonic()
+                assert remaining > 0, f"collector startup timed out: {stages[-1:] or ['no progress']}"
+                ready = event(collector.stdout, remaining)
+                if ready["type"] != "progress":
+                    break
+                assert ready["version"] == 1 and ready.get("stage"), ready
+                stages.append(ready["stage"])
             assert ready["type"] == "ready" and ready["libraries"] > 0, ready
+            assert stages, "collector did not report startup stages"
             client = subprocess.Popen(["openssl", "s_client", "-connect", f"127.0.0.1:{port}",
                                        "-servername", "capture.test", "-quiet", "-ign_eof"],
                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
