@@ -21,7 +21,6 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/perf"
-	"github.com/cilium/ebpf/rlimit"
 	"golang.org/x/sys/unix"
 )
 
@@ -105,10 +104,18 @@ func run(encode func(any) error) error {
 	defer cancel()
 	// The owner keeps stdin open; process death closes it and removes all probes.
 	go func() { _, _ = io.Copy(io.Discard, reader); cancel() }()
-	_ = rlimit.RemoveMemlock()
 	progress := func(stage string) error {
 		return encode(pipeEvent{Type: "progress", Version: 1, Stage: stage})
 	}
+	if err = progress("preparing the eBPF memory limit"); err != nil {
+		return err
+	}
+	// rlimit's package initializer probes BPF before run can check Root. Android
+	// app seccomp can kill that probe with SIGSYS. Raise only this collector's
+	// limit here instead; kernels with memcg accounting need no limit change.
+	// Best effort: the actual BPF load below still reports allocation failures.
+	limit := unix.Rlimit{Cur: unix.RLIM_INFINITY, Max: unix.RLIM_INFINITY}
+	_ = unix.Prlimit(0, unix.RLIMIT_MEMLOCK, &limit, nil)
 	if err = progress("reading the capture BPF object"); err != nil {
 		return err
 	}

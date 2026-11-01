@@ -64,6 +64,8 @@ HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF upr
 
 [库发现](tools/ebpf/discovery.go) 优先检查显式库路径和系统 TLS 库，首个库的完整探针挂载成功后发送 ready，其余进程、ELF/APK 及调试符号检查在独立工作协程继续，新增挂载通过 status 更新数量。事件读取和完整性检查不等待整个扫描结束，ready 始终先于采集数据。启动进度覆盖 BPF 加载、perf 缓冲及库检查/挂载，Android 的超时与协议处理见 [app.md](app.md#请求抓取与-rootebpf)。owner EOF 取消库扫描及后续文件读取，先释放探针并等待扫描退出，再关闭共享 BPF 程序和 map；扫描仍保留 2048 个文件身份及 64 个挂载库的上限。
 
+采集器在确认 Root 后直接尝试提高自身的 `RLIMIT_MEMLOCK`，支持仍受该限额约束的内核；提高失败后由实际 BPF 加载报告分配错误，使用 memcg 计费的内核不依赖提高此限额。不导入会在 Go 初始化阶段探测 BPF map 的 [rlimit 包](https://github.com/cilium/ebpf/blob/v0.22.0/rlimit/rlimit_linux.go)，避免 Android 应用 seccomp 在权限错误返回前以 `SIGSYS` 终止进程。
+
 [Android 平台补丁](tools/ebpf/cilium-ebpf-android.patch) 修正该版本依据 `runtime.GOOS` 判断 Linux 的问题：Android 构建使用上游由构建标签选出的 `platform.Native = Linux`，让 token、mountinfo、map、程序及 BTF 加载使用 Linux 路径，并按 Linux 前缀匹配内核版本。原先的 `bpf token: not supported on android` 在调用 BPF 系统调用前产生，不能据此认定内核或 SELinux 拒绝了操作。未提供 BPF token 时继续使用上游的普通特权加载路径，仍保留真实内核和权限错误。[prepare.py](tools/ebpf/prepare.py) 核对依赖版本后刷新 `tools/ebpf/build/` 下的副本、应用补丁，并生成备用模块文件供构建和测试使用；不修改共享模块缓存、已提交的 `go.mod/go.sum` 或 libbox 的依赖。
 
 仅接受探针观察到 `SSL_new` 后的新连接；`SSL_clear`/`SSL_free` 区分连接代次。开启后需让目标应用重新连接。UID 在 BPF 中筛选，排除 B-box 自身及其他 Android 用户；共享 UID 使用同一选择，包名集合保留在记录中。HTTPS 可以观察选中应用的本机连接，不依赖其是否通过 sing-box；本地服务的启停仍决定抓包会话的生命周期。
