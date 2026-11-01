@@ -222,6 +222,8 @@ func TestPlaintextCollectorExitStopsSessionAndClosesSource(t *testing.T) {
 }
 
 func TestPlaintextLibraryWarningsKeepCaptureAndCountsActive(t *testing.T) {
+	ClearCaptureLogs()
+	t.Cleanup(ClearCaptureLogs)
 	managerMu.Lock()
 	store = nil
 	lastCaptureError = ""
@@ -237,6 +239,7 @@ func TestPlaintextLibraryWarningsKeepCaptureAndCountsActive(t *testing.T) {
 	for _, event := range []plaintextEvent{
 		{Type: "ready", Version: 1, Libraries: 1, Scanning: true, Error: warning},
 		{Type: "status", Version: 1, Libraries: 2, Scanning: true, Error: warning},
+		{Type: "log", Version: 1, Time: 1700000000000, Level: "debug", Message: "libssl.so SSL_read=0x1020"},
 		{Type: "open", ID: "warning", PID: 42, UID: 10001},
 		{Type: "data", ID: "warning", Direction: "write", Data: []byte("GET / HTTP/1.1\r\nHost: supported.test\r\n\r\n")},
 		{Type: "data", ID: "warning", Direction: "read", Data: []byte("HTTP/1.1 204 No Content\r\n\r\n")},
@@ -263,6 +266,66 @@ func TestPlaintextLibraryWarningsKeepCaptureAndCountsActive(t *testing.T) {
 	}
 	if state := Status(); !state.Active || state.Scanning || state.Libraries != 2 || state.Error != warning {
 		t.Fatalf("discovery completion lost capture state: %+v", state)
+	}
+	Stop()
+	var found bool
+	for _, log := range CaptureLogs() {
+		if log.Message == "libssl.so SSL_read=0x1020" {
+			found = log.Level == "debug" && log.ReceivedAt == 1700000000000
+		}
+	}
+	if !found {
+		t.Fatal("diagnostics were lost without a visible log reader, or after stopping")
+	}
+	ClearCaptureLogs()
+	if len(CaptureLogs()) != 0 || store.Page(10, "").Total != 1 {
+		t.Fatal("clearing diagnostics removed requests or retained old log entries")
+	}
+}
+
+func TestPlaintextDiagnosticsKeepEveryFailureAndCollectorExit(t *testing.T) {
+	managerMu.Lock()
+	store = nil
+	lastCaptureError = ""
+	managerMu.Unlock()
+	ClearCaptureLogs()
+	t.Cleanup(func() { Stop(); ClearCaptureLogs(); managerMu.Lock(); store = nil; managerMu.Unlock() })
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	closed := make(chan struct{}, 1)
+	if err := Start(t.TempDir(), `{"https":true}`, reader, func() { closed <- struct{}{} }); err != nil {
+		t.Fatal(err)
+	}
+	encoder := json.NewEncoder(writer)
+	if err := encoder.Encode(plaintextEvent{Type: "ready", Version: 1, Libraries: 1}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 6; i++ {
+		if err := encoder.Encode(plaintextEvent{Type: "log", Version: 1, Level: "warn", Message: fmt.Sprintf("incompatible-library-%d", i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := encoder.Encode(plaintextEvent{Type: "error", Error: "perf events lost"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("collector error left the session active")
+	}
+	if state := Status(); state.Active || !strings.Contains(state.Error, "perf events lost") {
+		t.Fatalf("collector failure did not stop capture: %+v", state)
+	}
+	var warnings int
+	var failure bool
+	for _, log := range CaptureLogs() {
+		if log.Level == "warn" && strings.HasPrefix(log.Message, "incompatible-library-") {
+			warnings++
+		}
+		failure = failure || log.Level == "error" && strings.Contains(log.Message, "perf events lost")
+	}
+	if warnings != 6 || !failure {
+		t.Fatalf("history discarded library or final errors: warnings=%d failure=%t", warnings, failure)
 	}
 }
 

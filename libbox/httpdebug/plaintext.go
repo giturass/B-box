@@ -29,6 +29,9 @@ type plaintextEvent struct {
 	Libraries int64    `json:"libraries,omitempty"`
 	Scanning  bool     `json:"scanning,omitempty"`
 	Error     string   `json:"error,omitempty"`
+	Time      int64    `json:"time,omitempty"`
+	Level     string   `json:"level,omitempty"`
+	Message   string   `json:"message,omitempty"`
 }
 
 func (e *Engine) readPlaintext(reader io.Reader) {
@@ -57,16 +60,18 @@ func (e *Engine) readPlaintext(reader io.Reader) {
 			return
 		}
 		if !ready {
-			if event.Type != "ready" || event.Version != 1 || event.Libraries < 1 {
+			if event.Type != "ready" || event.Version != 1 || event.Libraries < 1 || event.Libraries > 64 {
 				failCapture(e, errors.New("eBPF collector did not attach compatible TLS probes"))
 				return
 			}
 			ready = true
+			AppendCaptureLog("info", fmt.Sprintf("TLS collector ready: %d libraries attached; preparing more applications=%t", event.Libraries, event.Scanning))
 			e.libraries.Store(event.Libraries)
 			e.scanning.Store(event.Scanning)
 			if event.Error != "" {
 				warning := fmt.Sprintf("%.4096s", event.Error)
 				e.warning.Store(&warning)
+				AppendCaptureLog("warn", warning)
 			}
 			continue
 		}
@@ -74,16 +79,29 @@ func (e *Engine) readPlaintext(reader io.Reader) {
 			failCapture(e, fmt.Errorf("eBPF capture stopped: %.4096s", event.Error))
 			return
 		}
+		if event.Type == "log" {
+			if event.Version != 1 || event.Message == "" {
+				failCapture(e, errors.New("invalid eBPF diagnostic event"))
+				return
+			}
+			captureLogs.append(event.Time, event.Level, event.Message)
+			continue
+		}
 		if event.Type == "status" {
 			if event.Libraries < 1 || event.Libraries > 64 {
 				failCapture(e, errors.New("invalid eBPF library status"))
 				return
 			}
-			e.libraries.Store(event.Libraries)
+			if e.libraries.Swap(event.Libraries) != event.Libraries || e.scanning.Load() != event.Scanning {
+				AppendCaptureLog("info", fmt.Sprintf("TLS discovery updated: %d libraries attached; preparing more applications=%t", event.Libraries, event.Scanning))
+			}
 			e.scanning.Store(event.Scanning)
 			if event.Error != "" {
 				warning := fmt.Sprintf("%.4096s", event.Error)
-				e.warning.Store(&warning)
+				previous := e.warning.Swap(&warning)
+				if previous == nil || *previous != warning {
+					AppendCaptureLog("warn", warning)
+				}
 			}
 			continue
 		}
@@ -145,10 +163,12 @@ func (p *plaintextCapture) accept(event plaintextEvent) error {
 		}
 		if len(p.known) >= 1024 {
 			p.engine.skipped.Add(1)
+			AppendCaptureLog("warn", fmt.Sprintf("TLS connection %s skipped: pending connection limit reached; PID=%d UID=%d", event.ID, event.PID, event.UID))
 			return nil
 		}
 		p.known[event.ID] = pendingFlow{Metadata{Protocol: "tls", UID: event.UID, PID: event.PID,
 			Packages: event.Packages, CaptureSource: "eBPF"}, now}
+		AppendCaptureLog("debug", fmt.Sprintf("TLS connection opened: id=%s PID=%d UID=%d packages=%v", event.ID, event.PID, event.UID, event.Packages))
 	case "data":
 		if event.Direction != "read" && event.Direction != "write" {
 			return errors.New("invalid eBPF direction")
@@ -162,9 +182,11 @@ func (p *plaintextCapture) accept(event plaintextEvent) error {
 			delete(p.known, event.ID)
 			if len(p.flows) >= MaxConnections {
 				p.engine.skipped.Add(1)
+				AppendCaptureLog("warn", fmt.Sprintf("TLS connection %s skipped: active parsing limit reached; PID=%d UID=%d", event.ID, pending.metadata.PID, pending.metadata.UID))
 				return nil
 			}
 			flow = newPlaintextFlow(p.engine, pending.metadata)
+			flow.id = event.ID
 			p.flows[event.ID] = flow
 			p.wg.Add(1)
 			go func(id string, f *plaintextFlow) {
@@ -186,12 +208,18 @@ func (p *plaintextCapture) accept(event plaintextEvent) error {
 			input := flow.request
 			if event.Direction == "read" {
 				input = flow.response
+				flow.readBytes.Add(uint64(len(event.Data)))
+			} else {
+				flow.writeBytes.Add(uint64(len(event.Data)))
 			}
 			if !input.push(event.Data) {
 				flow.stop(errors.New("eBPF parsing queue overflow; transaction is incomplete"))
 			}
 		}
 	case "close":
+		if pending, ok := p.known[event.ID]; ok {
+			AppendCaptureLog("debug", fmt.Sprintf("TLS connection closed without plaintext: id=%s PID=%d UID=%d", event.ID, pending.metadata.PID, pending.metadata.UID))
+		}
 		delete(p.known, event.ID)
 		if flow := p.flows[event.ID]; flow != nil {
 			flow.stop(nil)
@@ -277,6 +305,7 @@ func (r *plaintextInput) close(err error) {
 }
 
 type plaintextFlow struct {
+	id                string
 	engine            *Engine
 	metadata          Metadata
 	request, response *plaintextInput
@@ -286,6 +315,8 @@ type plaintextFlow struct {
 	failure           error
 	records           map[string][2]bool
 	lastActivity      atomic.Int64
+	readBytes         atomic.Uint64
+	writeBytes        atomic.Uint64
 }
 
 func newPlaintextFlow(e *Engine, metadata Metadata) *plaintextFlow {
@@ -318,6 +349,12 @@ func (f *plaintextFlow) run() {
 			f.engine.store.setError(id, err)
 			f.engine.store.finish(id)
 		}
+		level, result := "debug", "finished"
+		if f.failure != nil || len(f.records) > 0 {
+			level, result = "warn", err.Error()
+		}
+		AppendCaptureLog(level, fmt.Sprintf("TLS capture ended: id=%s PID=%d UID=%d read=%d bytes write=%d bytes; %s",
+			f.id, f.metadata.PID, f.metadata.UID, f.readBytes.Load(), f.writeBytes.Load(), result))
 	}()
 	request := bufio.NewReaderSize(f.request, 4096)
 	prefix, err := request.Peek(3)

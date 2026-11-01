@@ -79,10 +79,17 @@ ready:
 			t.Fatal("first attach waited for an unrelated slow library")
 		}
 	}
-	select {
-	case <-slowStarted:
-	case <-deadline:
-		t.Fatal("discovery stopped after its first attach")
+	// Continue consuming diagnostics after ready, as the event loop does, while
+	// the next library is being inspected independently of plaintext reads.
+waiting:
+	for {
+		select {
+		case <-slowStarted:
+			break waiting
+		case <-updates:
+		case <-deadline:
+			t.Fatal("discovery stopped after its first attach")
+		}
 	}
 	cancel()
 	select {
@@ -172,9 +179,13 @@ func TestDiscoveryNeverReportsAnEmptyOrFailedAttachAsReady(t *testing.T) {
 			}
 			return nil, nil
 		}
+		var diagnostics []string
 		if err := d.scan(context.Background(), paths, func(update discoveryUpdate) error {
 			if update.libraries != 0 {
 				t.Fatal("failed probe reported as attached")
+			}
+			if update.level == "warn" {
+				diagnostics = append(diagnostics, update.stage)
 			}
 			return nil
 		}); err != nil {
@@ -183,6 +194,37 @@ func TestDiscoveryNeverReportsAnEmptyOrFailedAttachAsReady(t *testing.T) {
 		if len(d.attached) != 0 || len(d.failures) != 3 {
 			t.Fatalf("attached=%d failures=%v", len(d.attached), d.failures)
 		}
+		if len(diagnostics) != len(paths) || !strings.Contains(diagnostics[3], paths[3]) {
+			t.Fatalf("detailed log lost failures beyond the three-warning status summary: %v", diagnostics)
+		}
+	}
+}
+
+func TestDiscoveryLogsResolvedOffsetsAndPreparationAfterReady(t *testing.T) {
+	paths := discoveryFiles(t, 2)
+	d := newLibraryDiscovery(nil, nil)
+	d.walk = func(_ context.Context, path string, visit func(library) error) error {
+		return visit(library{path: path, entry: "lib/arm64-v8a/libssl.so", identity: path, method: "symbols", base: 4096,
+			symbols: map[string]uint64{"SSL_new": 16, "SSL_read": 32}})
+	}
+	var closed atomic.Int32
+	d.attachLibrary = func(context.Context, library) ([]io.Closer, error) { return []io.Closer{countedLink{&closed}}, nil }
+	defer d.close()
+	var logs []string
+	if err := d.scan(context.Background(), paths, func(update discoveryUpdate) error {
+		logs = append(logs, update.stage)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(logs, "\n")
+	for _, detail := range []string{paths[1], "method=symbols", "archiveOffset=0x1000", "SSL_new=0x1010", "SSL_read=0x1020", "probes=1"} {
+		if !strings.Contains(joined, detail) {
+			t.Fatalf("missing diagnostic %q: %s", detail, joined)
+		}
+	}
+	if !strings.Contains(joined, "resolving TLS function offsets in \""+paths[1]+"\"") {
+		t.Fatal("preparation diagnostics stopped after the first attached library")
 	}
 }
 

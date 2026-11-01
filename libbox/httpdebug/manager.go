@@ -3,6 +3,7 @@ package httpdebug
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -56,6 +57,7 @@ func Start(directory, configJSON string, reader io.ReadCloser, closeSource func(
 	lastCaptureError = ""
 	active.Store(engine)
 	if reader != nil {
+		AppendCaptureLog("info", fmt.Sprintf("eBPF capture connected to the local service; ports=%v; body limit=%d bytes", config.Ports, config.BodyLimit))
 		go engine.readPlaintext(reader)
 	}
 	return nil
@@ -75,7 +77,13 @@ func Stop() {
 	managerMu.Lock()
 	defer managerMu.Unlock()
 	if engine := active.Swap(nil); engine != nil {
+		if engine.config.HTTPS {
+			AppendCaptureLog("info", "Stopping eBPF capture and releasing the collector")
+		}
 		engine.Close()
+		if engine.config.HTTPS {
+			AppendCaptureLog("info", "eBPF capture stopped")
+		}
 	}
 }
 
@@ -129,6 +137,7 @@ func failCapture(engine *Engine, err error) {
 	defer managerMu.Unlock()
 	if active.CompareAndSwap(engine, nil) {
 		lastCaptureError = err.Error()
+		AppendCaptureLog("error", lastCaptureError)
 		engine.Close()
 	}
 }

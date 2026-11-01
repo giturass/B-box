@@ -67,7 +67,19 @@ type pipeEvent struct {
 	Libraries int      `json:"libraries,omitempty"`
 	Scanning  bool     `json:"scanning,omitempty"`
 	Error     string   `json:"error,omitempty"`
+	Time      int64    `json:"time,omitempty"`
+	Level     string   `json:"level,omitempty"`
+	Message   string   `json:"message,omitempty"`
 }
+
+func diagnosticEvent(level, message string, startup bool) pipeEvent {
+	event := pipeEvent{Type: "log", Version: 1, Time: time.Now().UnixMilli(), Level: level, Message: fmt.Sprintf("%.4096s", message)}
+	if startup {
+		event.Type, event.Stage = "progress", fmt.Sprintf("%.512s", message)
+	}
+	return event
+}
+
 type eventGroup struct {
 	first rawEvent
 	parts map[uint32][]byte

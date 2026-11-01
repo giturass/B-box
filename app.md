@@ -80,15 +80,15 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 [CaptureSettings.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureSettings.kt) 将筛选、HTTPS 开关和正文限额保存到私有 `noBackupFilesDir/http-debug/settings.json`，最大 64 KiB。多个 Activity 共用操作互斥锁，保存检查内容修订并使用 AtomicFile；读取先恢复中断写入的备份，再检查实际文件大小和修订。抓包期间禁止改设置，保存不会开启抓包或重载配置。这些设置和记录不随配置导出/备份。旧本机设置中的改写/脚本字段删除，同时清理本应用旧 CA 文件及专用 Keystore alias；旧配置扩展的解析/保存兼容由 [核心清理](libbox.md#旧抓包配置清理) 维护。
 
-[RootCaptureSession.kt](app/src/main/java/io/nekohasekai/sfa/bg/RootCaptureSession.kt) 只启动 APK 原生库目录中的固定采集器，通过 stdin 传递 UID/库设置，读取有界启动进度及 ready 消息。等待总时限为 25 秒，进度不延长时限；超时报告最后的内核加载、perf 缓冲或 TLS 库检查/挂载阶段，失败清理会话。进度不能代替包含有效版本及挂载库数的 ready，也不会转发给 libbox。标准错误独立排空并最多保留 4 KiB 启动诊断，链接器警告不会混入事件协议。输出由私有 pipe 交给 libbox，没有网络监听或外部可执行文件下载。[IRootService](app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl) 新增事务 10，旧事务 2/3 保持空缺；独立 `ICaptureSession` 提供 FD 和关闭方法。会话在启动前登记，Binder owner 死亡、Root 服务销毁、核心重载/停止均关闭 stdin 和探针，避免遗留采集进程。
+[RootCaptureSession.kt](app/src/main/java/io/nekohasekai/sfa/bg/RootCaptureSession.kt) 只启动 APK 原生库目录中的固定采集器，通过 stdin 传递 UID/库设置，读取有界启动进度及 ready 消息。等待总时限为 25 秒，进度不延长时限；超时报告最后的内核加载、perf 缓冲或 TLS 库检查/挂载阶段，失败清理会话。进度不能代替包含有效版本及挂载库数的 ready。启动历史最多保留 64 条、64 KiB，保留时间及级别，在 ready 之后转换为日志事件交给 libbox；启动失败将阶段历史及原错误一并交回应用记录。标准错误独立排空并最多保留 4 KiB 诊断，就绪后及退出前转换为日志，链接器警告不作为采集数据解析。输出由私有 pipe 交给 libbox，没有网络监听或外部可执行文件下载。[IRootService](app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl) 使用事务 10，旧事务 2/3 保持空缺；独立 `ICaptureSession` 提供 FD 和关闭方法。会话在启动前登记，Binder owner 死亡、Root 服务销毁、核心重载/停止均关闭 stdin 和探针，避免遗留采集进程。
 
 [RootServer.kt](app/src/main/java/io/nekohasekai/sfa/bg/RootServer.kt) 查询当前用户的安装包和 `GET_SHARED_LIBRARY_FILES`，通过 [CaptureTargets.kt](app/src/main/java/io/nekohasekai/sfa/bg/CaptureTargets.kt) 按所选 UID 收集 `nativeLibraryDir`、base/split APK 及共享 APK/原生库路径，包含 Trichrome 共享库。共享 UID 的包使用同一选择，排除 B-box 自身和其他 Android 用户；目标应用尚未运行也能准备探针。候选路径经私有启动消息传给采集器，由后者自动解析函数偏移并补充运行中进程的实际映射，不保存每版本偏移表。
 
 自动候选只传递不含 NUL/换行且 UTF-8 长度不超过 4096 字节的绝对路径。Android 的共享库列表也可能返回 `libOpenCL.so` 等原生库名称：依据 [AOSP SystemConfig](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-15.0.0_r1/services/core/java/com/android/server/SystemConfig.java#2017) 和 [SharedLibrariesImpl](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-15.0.0_r1/services/core/java/com/android/server/pm/SharedLibrariesImpl.java#503)，这类条目使用 soname 而非绝对路径。发现阶段跳过这些条目，保留有效的 APK/库路径，并继续由进程映射补充实际加载位置，避免一个非路径条目使整个抓取启动失败。
 
-采集器 ABI、内核/TLS 支持范围、无版本表自动识别、HTTP 解析及资源限额统一见 [libbox.md](libbox.md#httphttps-请求调试)。应用 UI 展示采集来源、准备进度、挂载库数、错误及不完整记录；部分库的兼容性诊断保留活动状态与已挂载数量，不把库挂载成功视为所有应用均可抓取。CA 管理、证书模块生成、信任检查、HTTP 改写、脚本导入及相应页面/桥接均已移除。此前自行刷入的系统证书模块仍需在对应 Root 管理器中卸载。
+采集器 ABI、内核/TLS 支持范围、无版本表自动识别、HTTP 解析、详细诊断日志及资源限额统一见 [libbox.md](libbox.md#httphttps-请求调试)。`BoxCapture` 通过独立的 `capture.logs` / `capture.logs.clear` 桥接读取和清空日志；启动 Root 失败也写入日志，操作失败提示引导用户查看详情。读取日志不依赖请求存储能否打开，清日志不删除请求。状态和日志的界面入口见 [flclash.md](flclash.md#导航与交互约定)。部分库的兼容性诊断保留活动状态与已挂载数量，不把库挂载成功视为所有应用均可抓取。CA 管理、证书模块生成、信任检查、HTTP 改写、脚本导入及相应页面/桥接均已移除。此前自行刷入的系统证书模块仍需在对应 Root 管理器中卸载。
 
-HAR/cURL 和域名导出使用 Android 文档选择器；取消或写入失败不报告成功，临时文件用后删除。域名列表依据当前搜索条件提取所有保留记录；页面与视觉验证见 [flclash.md](flclash.md#导航与交互约定)。
+HAR/cURL 导出使用 Android 文档选择器；取消或写入失败不报告成功，临时文件用后删除。eBPF 日志通过已有的 `document.save` 导出当前筛选结果。域名查询继续用于抓包设置的筛选选择；页面与视觉验证见 [flclash.md](flclash.md#导航与交互约定)。
 
 ## 已移除能力与兼容入口
 
@@ -142,7 +142,7 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 `ProfileRecoveryTest.localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。
 
-`ProfileRecoveryTest.captureSettingsAreLocalAndCheckRevisions` 使用实际 libbox 和 AtomicFile，覆盖本机设置迁移/保存/重新打开、修订冲突、退役选项拒绝及旧配置清理。[CaptureProtocolTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/CaptureProtocolTest.kt) 检查启动消息边界；[CaptureSessionTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/bg/CaptureSessionTest.kt) 用确定性的子进程检查进度过滤、ready/错误、超时阶段及清理、原始操作错误保留、FD 单次领取、owner 死亡及重复关闭，并运行实际打包的 Android 采集器检查加载及无 Root 错误。模拟器没有代表真实 Root eBPF 设备的权限环境，采集效果仍需实机验证。
+`ProfileRecoveryTest.captureSettingsAreLocalAndCheckRevisions` 使用实际 libbox 和 AtomicFile，覆盖本机设置迁移/保存/重新打开、修订冲突、退役选项拒绝及旧配置清理。[CaptureProtocolTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/CaptureProtocolTest.kt) 检查启动消息边界；[CaptureSessionTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/bg/CaptureSessionTest.kt) 用确定性的子进程检查 ready 始终先于启动日志、日志时间/级别/细节、历史淘汰、标准错误分离、ready/错误、超时阶段及清理、原始操作错误保留、FD 单次领取、owner 死亡及重复关闭，并运行实际打包的 Android 采集器检查加载及无 Root 错误。模拟器没有代表真实 Root eBPF 设备的权限环境，采集效果仍需实机验证。
 
 [CaptureTargetsTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/bg/CaptureTargetsTest.kt) 检查安装文件发现包含原生库目录、split 和共享 APK、共享 UID 选择及去重，并排除自身/其他 Android 用户；另覆盖全部/选定应用中的原生 soname 过滤、非法候选跳过及 UTF-8 路径长度边界，无需启动目标进程。实际 ELF/APK 偏移和挂载验证入口见 [libbox.md](libbox.md#构建同步和验证)。
 

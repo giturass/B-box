@@ -5,7 +5,7 @@ import '../components/capture_poll.dart';
 import '../components/captured_body.dart';
 import '../components/record.dart';
 import 'request_settings.dart';
-import 'capture_domains.dart';
+import 'capture_logs.dart';
 
 class RequestsPage extends StatefulWidget {
   const RequestsPage({super.key});
@@ -45,8 +45,8 @@ class _RequestsPageState extends State<RequestsPage> {
               } catch (error) { if (context.mounted) context.box.messages.add(BoxController.describe(error)); }
               finally { if (mounted) setState(() { _busy = false; _revision++; }); }
             }),
+            CommonPopupMenuItem(glyph: AppGlyphs.logs, label: context.tr('eBPF logs'), onPressed: () => openPage(context, const CaptureLogsPage())),
             CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'), onPressed: _busy || entries.isEmpty ? null : () => _act('capture.export', {'format': 'har', 'query': _query})),
-            CommonPopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Extract domains'), onPressed: _busy ? null : () => openPage(context, CaptureDomainsPage(query: _query))),
             CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear requests'), onPressed: _busy ? null : () async {
               if (await confirm(context, 'Clear captured requests?') && mounted) await _act('capture.clear');
             }),
@@ -66,12 +66,6 @@ class _RequestsPageState extends State<RequestsPage> {
                   '${page['total'] ?? 0} ${context.tr('Requests')} · ${bytes(page['storedBytes'] as num? ?? 0)} / 32 MiB',
                   style: context.listSubtitleStyle,
                 )),
-                if ((state['skipped'] as num? ?? 0) > 0) Text('${context.tr('Connections skipped or interrupted')}: ${state['skipped']}'),
-                if (active && state['backend'] == 'eBPF') Text('eBPF · ${state['libraries'] ?? 0} ${context.tr('TLS libraries attached')}'),
-                if (active && state['backend'] == 'eBPF') Text(context.tr(state['scanning'] == true
-                  ? 'Preparing capture for more applications. Reconnect the target app when preparation finishes.'
-                  : 'Capture preparation finished. Reconnect the target app to capture new HTTPS connections.')),
-                if ((state['error'] as String? ?? '').isNotEmpty) Text(state['error'].toString(), style: TextStyle(color: context.colorScheme.error)),
                 if ((page['error'] as String? ?? '').isNotEmpty) Text(page['error'].toString(), style: TextStyle(color: context.colorScheme.error)),
                 if (error != null) ErrorState(error, retry: refresh),
                 if (snapshot == null && error == null) const Center(child: CircularProgressIndicator()),

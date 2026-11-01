@@ -8,6 +8,8 @@ import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.io.OutputStream
+import java.util.ArrayDeque
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -49,6 +51,12 @@ internal class RootCaptureSession(
 
     fun start(config: String) {
         val stage = AtomicReference("launching the collector")
+        val history = CaptureStartupHistory()
+        fun progress(value: String) {
+            stage.set(value)
+            history.record(value)
+        }
+        progress(stage.get())
         try {
             val child = synchronized(lock) {
                 check(!closed) { "Capture owner disconnected" }
@@ -65,7 +73,7 @@ internal class RootCaptureSession(
             }
             val first = try {
                 executor.submit<ByteArray> {
-                    stage.set("sending capture settings")
+                    progress("sending capture settings")
                     val sendError = try {
                         child.outputStream.write((config + "\n").toByteArray(Charsets.UTF_8))
                         child.outputStream.flush()
@@ -75,8 +83,12 @@ internal class RootCaptureSession(
                     }
                     // Root/kernel checks may exit before reading stdin; preserve
                     // their structured error even if sending settings hit EPIPE.
-                    stage.set("waiting for the collector's startup response")
-                    readCaptureStartup(input, sendError) { stage.set(it) }
+                    progress("waiting for the collector's startup response")
+                    readCaptureStartup(input, sendError) { value, event ->
+                        stage.set(value)
+                        history.record(event.optString("message").ifBlank { value },
+                            event.optString("level", "debug"), event.optLong("time"))
+                    }
                 }.get(startupTimeoutMillis, TimeUnit.MILLISECONDS)
             } finally {
                 executor.shutdownNow()
@@ -88,7 +100,17 @@ internal class RootCaptureSession(
                         ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { output ->
                             output.write(first)
                             output.write('\n'.code)
+                            // Ready remains first. Replay the bounded startup
+                            // history afterward so libbox can retain it off-page.
+                            history.writeTo(output)
+                            val initialErrors = synchronized(diagnostics) { diagnostics.toByteArray() }
+                            writeCaptureDiagnostic(output, initialErrors.toString(Charsets.UTF_8))
                             input.copyTo(output, 8192)
+                            val finalErrors = synchronized(diagnostics) { diagnostics.toByteArray() }
+                            if (finalErrors.size > initialErrors.size) {
+                                writeCaptureDiagnostic(output, String(finalErrors, initialErrors.size,
+                                    finalErrors.size - initialErrors.size, Charsets.UTF_8))
+                            }
                         }
                     } catch (_: IOException) {
                         // Closing the core reader or owner session intentionally breaks the pipe.
@@ -110,7 +132,7 @@ internal class RootCaptureSession(
             runCatching { close() }.onFailure { cause.addSuppressed(it) }
             if (cause is InterruptedException) Thread.currentThread().interrupt()
             val detail = synchronized(diagnostics) { diagnostics.toString(Charsets.UTF_8.name()).trim() }
-            throw IllegalStateException(if (detail.isEmpty()) reason else "$reason\n$detail", cause)
+            throw IllegalStateException(listOf(history.text(), reason, detail).filter { it.isNotBlank() }.joinToString("\n"), cause)
         }
     }
 
@@ -157,7 +179,7 @@ internal class RootCaptureSession(
 private fun readCaptureStartup(
     input: java.io.InputStream,
     sendError: IOException?,
-    onProgress: (String) -> Unit,
+    onProgress: (String, JSONObject) -> Unit,
 ): ByteArray {
     while (true) {
         val line = readCaptureLine(input)
@@ -169,7 +191,7 @@ private fun readCaptureStartup(
             "progress" -> {
                 val stage = event.optString("stage").take(512).trim()
                 check(event.optInt("version") == 1 && stage.isNotEmpty()) { "Invalid eBPF startup progress" }
-                onProgress(stage)
+                onProgress(stage, event)
             }
             "error" -> throw IOException(event.optString("error").ifBlank { "The eBPF collector reported a startup error" })
             else -> {
@@ -177,12 +199,44 @@ private fun readCaptureStartup(
                 check(event.optString("type") == "ready" && event.optInt("version") == 1 && event.optInt("libraries") > 0) {
                     "The eBPF collector did not attach compatible TLS probes"
                 }
-                // Startup progress belongs to Android; libbox must still see
-                // ready as the first event on its private pipe.
+                // Progress cannot confirm startup; only this ready event can.
                 return line
             }
         }
     }
+}
+
+private class CaptureStartupHistory {
+    private val lines = ArrayDeque<Pair<String, ByteArray>>()
+    private var bytes = 0
+
+    @Synchronized fun record(message: String, level: String = "info", at: Long = 0) {
+        val value = message.take(4096)
+        val event = JSONObject().put("type", "log").put("version", 1)
+            .put("time", at.takeIf { it > 0 } ?: System.currentTimeMillis())
+            .put("level", level).put("message", value).toString().toByteArray(Charsets.UTF_8)
+        while (lines.isNotEmpty() && (lines.size >= 64 || bytes + event.size > 64 * 1024)) {
+            bytes -= lines.removeFirst().second.size
+        }
+        lines.addLast("[$level] $value" to event)
+        bytes += event.size
+    }
+
+    @Synchronized fun writeTo(output: OutputStream) {
+        for ((_, event) in lines) {
+            output.write(event)
+            output.write('\n'.code)
+        }
+    }
+
+    @Synchronized fun text(): String = lines.joinToString("\n") { it.first }
+}
+
+private fun writeCaptureDiagnostic(output: OutputStream, message: String) {
+    if (message.isBlank()) return
+    val history = CaptureStartupHistory()
+    history.record(message.trim(), "warn")
+    history.writeTo(output)
 }
 
 internal fun readCaptureLine(input: java.io.InputStream): ByteArray {

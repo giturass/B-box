@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../widgets.dart';
 
-/// Capture lists/details poll only while their page is visible in the foreground.
+/// Capture lists/details/logs poll only while their page is visible in the foreground.
 /// Request generations keep a slow reply from replacing a newer filter or session.
 class CapturePoll extends StatefulWidget {
   const CapturePoll({super.key, required this.method, required this.arguments,

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -18,6 +19,7 @@ var errStopDiscovery = errors.New("TLS library attachment limit reached")
 
 type discoveryUpdate struct {
 	stage     string
+	level     string
 	libraries int
 	warning   string
 	err       error
@@ -33,6 +35,7 @@ type libraryDiscovery struct {
 	attached      map[string][]io.Closer
 	seen          map[string]bool
 	explicit      map[string]bool
+	noted         map[string]bool
 	failures      []string
 	scanning      bool
 	walk          func(context.Context, string, func(library) error) error
@@ -43,7 +46,7 @@ func newLibraryDiscovery(collection *ebpf.Collection, attacher *uprobeAttacher) 
 	d := &libraryDiscovery{
 		collection: collection, attacher: attacher,
 		attached: make(map[string][]io.Closer), seen: make(map[string]bool),
-		explicit: make(map[string]bool), walk: walkLibraries,
+		explicit: make(map[string]bool), noted: make(map[string]bool), walk: walkLibraries,
 		scanning: true,
 	}
 	d.attachLibrary = d.attach
@@ -124,11 +127,9 @@ func (d *libraryDiscovery) warn(message string) bool {
 
 func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func(discoveryUpdate) error) error {
 	stage := func(action, path string) error {
-		if len(d.attached) > 0 {
-			return nil
-		}
-		return report(discoveryUpdate{stage: fmt.Sprintf("%s %.512s", action, path)})
+		return report(discoveryUpdate{stage: fmt.Sprintf("%s %.2048q", action, path), level: "debug"})
 	}
+	log := func(level, message string) error { return report(discoveryUpdate{stage: message, level: level}) }
 	status := func() error {
 		return report(discoveryUpdate{libraries: len(d.attached), warning: strings.Join(d.failures, "; "), scanning: d.scanning})
 	}
@@ -137,7 +138,12 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 			return err
 		}
 		if len(d.attached) >= 64 {
-			if d.warn("TLS discovery reached its 64-library limit; select fewer applications") {
+			if !d.noted["library-limit"] {
+				d.noted["library-limit"] = true
+				d.warn("TLS discovery reached its 64-library limit; select fewer applications")
+				if err := log("warn", "TLS discovery reached its 64-library limit; select fewer applications"); err != nil {
+					return err
+				}
 				if err := status(); err != nil {
 					return err
 				}
@@ -146,13 +152,20 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 		}
 		info, err := os.Stat(path)
 		if err != nil || !info.Mode().IsRegular() {
-			if d.explicit[path] && d.warn(filepath.Base(path)+": library is unavailable") && len(d.attached) > 0 {
-				if err := status(); err != nil {
+			if d.explicit[path] && !d.noted["unavailable:"+path] {
+				d.noted["unavailable:"+path] = true
+				d.warn(filepath.Base(path) + ": library is unavailable")
+				if err == nil {
+					err = errors.New("not a regular file")
+				}
+				if err := report(discoveryUpdate{stage: fmt.Sprintf("TLS library unavailable: %.2048q: %v", path, err), level: "warn",
+					libraries: len(d.attached), warning: strings.Join(d.failures, "; "), scanning: d.scanning}); err != nil {
 					return err
 				}
 			}
 			continue
 		}
+		delete(d.noted, "unavailable:"+path)
 		stat := info.Sys().(*syscall.Stat_t)
 		key := fmt.Sprintf("%d:%d:%d:%d", stat.Dev, stat.Ino, info.Size(), info.ModTime().UnixNano())
 		if d.seen[key] {
@@ -160,6 +173,12 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 		}
 		if len(d.seen) >= 2048 {
 			d.warn("TLS discovery reached its 2048-file limit; select fewer applications")
+			if !d.noted["file-limit"] {
+				d.noted["file-limit"] = true
+				if err := log("warn", "TLS discovery reached its 2048-file limit; select fewer applications"); err != nil {
+					return err
+				}
+			}
 			if len(d.attached) > 0 {
 				return status()
 			}
@@ -196,11 +215,18 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 			probes, err := d.attachLibrary(ctx, value)
 			if err != nil || len(probes) == 0 {
 				closeProbes(probes)
+				if err == nil {
+					err = errors.New("no probes attached")
+				}
 				d.warn(fmt.Sprintf("%s: attach failed: %v", value.entry, err))
+				if logErr := log("warn", fmt.Sprintf("TLS probe attachment failed: %.2048q!%.512q: %v", value.path, value.entry, err)); logErr != nil {
+					return logErr
+				}
 				return ctx.Err()
 			}
 			d.attached[value.identity] = probes
-			return status()
+			return report(discoveryUpdate{stage: describeAttachedLibrary(value, len(probes)), level: "info",
+				libraries: len(d.attached), warning: strings.Join(d.failures, "; "), scanning: d.scanning})
 		})
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -217,11 +243,23 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 		}
 		if err != nil && !errors.Is(err, errStopDiscovery) {
 			var unsupported *unsupportedChromiumError
+			level := "debug"
 			if d.explicit[path] || errors.As(err, &unsupported) {
 				d.warn(filepath.Base(path) + ": " + err.Error())
+				level = "warn"
 			}
-		} else if d.explicit[path] && !resolved {
-			d.warn(filepath.Base(path) + ": no compatible TLS library found")
+			if logErr := log(level, fmt.Sprintf("TLS library inspection failed: %.2048q: %v", path, err)); logErr != nil {
+				return logErr
+			}
+		} else if !resolved {
+			level := "debug"
+			if d.explicit[path] {
+				d.warn(filepath.Base(path) + ": no compatible TLS library found")
+				level = "warn"
+			}
+			if err := log(level, fmt.Sprintf("No compatible TLS functions found in %.2048q", path)); err != nil {
+				return err
+			}
 		}
 		if len(d.attached) > 0 && strings.Join(d.failures, "; ") != before {
 			if err = status(); err != nil {
@@ -230,4 +268,18 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 		}
 	}
 	return ctx.Err()
+}
+
+func describeAttachedLibrary(value library, probes int) string {
+	names := make([]string, 0, len(value.symbols))
+	for name := range value.symbols {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	offsets := make([]string, 0, len(names))
+	for _, name := range names {
+		offsets = append(offsets, fmt.Sprintf("%s=%#x", name, value.base+value.symbols[name]))
+	}
+	return fmt.Sprintf("TLS probes attached: path=%.2048q entry=%.512q method=%s identity=%s archiveOffset=%#x probes=%d; file offsets: %s",
+		value.path, value.entry, value.method, value.identity, value.base, probes, strings.Join(offsets, ", "))
 }

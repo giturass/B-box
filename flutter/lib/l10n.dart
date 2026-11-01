@@ -3,6 +3,12 @@ import 'package:flutter/widgets.dart';
 import 'ui/l10n.dart';
 
 const _zh = <String, String>{
+  "eBPF logs": "eBPF 日志",
+  "Copy logs": "复制日志",
+  "No eBPF logs": "暂无 eBPF 日志",
+  "Latest error": "最新错误",
+  "Recent logs are kept until the app process exits. Export logs to keep them.": "保留近期日志，应用进程退出后清除。可导出日志以便留存。",
+  "Unable to start HTTPS capture. See eBPF logs for details.": "无法启动 HTTPS 抓取，请在 eBPF 日志中查看详情。",
   "Capture HTTPS with eBPF": "使用 eBPF 抓取 HTTPS",
   "Preparing capture for more applications. Reconnect the target app when preparation finishes.": "正在准备其他应用的抓取。准备完成后，请让目标应用重新连接。",
   "Capture preparation finished. Reconnect the target app to capture new HTTPS connections.": "抓取准备已完成。请让目标应用重新连接，以抓取新建的 HTTPS 连接。",

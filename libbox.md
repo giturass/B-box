@@ -72,6 +72,8 @@ HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF upr
 
 [库发现](tools/ebpf/discovery.go) 优先检查显式库路径和系统 TLS 库，首个库的完整探针挂载成功后发送 ready，其余安装文件、进程映射及调试符号检查在独立工作协程继续，新增挂载通过 status 更新数量。`scanning` 表示仍在准备其他库，界面在准备完成后提示目标应用重新连接。最多保留三条有界库识别/挂载诊断，经 ready/status 传递，不将诊断当成全局丢数据或清零挂载数。事件读取和完整性检查不等待整个扫描结束，ready 始终先于采集数据。启动进度覆盖 BPF 加载、perf 缓冲及库检查/挂载，Android 的超时与协议处理见 [app.md](app.md#请求抓取与-rootebpf)。owner EOF 取消库扫描及后续文件读取，先释放探针并等待扫描退出，再关闭共享 BPF 程序和 map；扫描最多保留 4096 条候选路径、2048 个文件身份及 64 个挂载库。
 
+[诊断日志](libbox/httpdebug/logs.go) 独立于上述三条状态摘要，按时间记录启动环境及阶段、库路径/条目、识别方式、文件身份、APK 数据偏移、实际挂载函数的文件偏移、后续库检查及全部识别/挂载失败。连接日志包含代次 ID、PID/UID、应用、读写字节数、丢失/解析错误和停止原因，不逐明文分片写日志。采集器就绪后用 `log` 事件发送后续诊断，libbox 与 Android 桥接记录启动失败及服务停止；页面不可见仍持续记录。内存环形缓冲最多 1000 条、512 KiB 消息，每条最多 4 KiB，截断保留有效 UTF-8；停抓和重新开始保留历史，应用进程退出后清除。`ReadUICaptureLogs`、`AppendUICaptureLog` 和 `ClearUICaptureLogs` 提供独立的读取、应用侧补记及清日志绑定，清日志不清请求。界面入口及查询方式见 [flclash.md](flclash.md#导航与交互约定)。
+
 启动参数的路径校验区分补充 TLS 库与自动安装目标，错误包含对应列表的索引和有界、转义后的路径；[配置回归](tools/ebpf/config_test.go) 检查来源及错误消息边界。Android 自动候选过滤见 [应用侧发现规则](app.md#请求抓取与-rootebpf)，手动填写的库路径继续严格校验。
 
 采集器在确认 Root 后直接尝试提高自身的 `RLIMIT_MEMLOCK`，支持仍受该限额约束的内核；提高失败后由实际 BPF 加载报告分配错误，使用 memcg 计费的内核不依赖提高此限额。不导入会在 Go 初始化阶段探测 BPF map 的 rlimit 包，避免 Android 应用 seccomp 在权限错误返回前以 `SIGSYS` 终止进程。
@@ -123,7 +125,7 @@ HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF upr
 - [UI 验证工作流](.github/workflows/newui.yml) 使用共享准备 Action，运行 `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1` 及 `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`。所有生产扩展均参与编译，所有 `TestUI` 测试自动纳入，不再维护具体扩展名的筛选清单；它不构建核心 AAR。另执行 `go test -race ./experimental/httpdebug -count=1` 和 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1`，覆盖 HTTP/eBPF 抓取引擎、数据竞争及原出站和嗅探字节保留。
 - 对应回归文件为 [ui_http_test.go](libbox/ui_http_test.go)、[ui_egress_test.go](libbox/ui_egress_test.go)、[ui_lan_test.go](libbox/ui_lan_test.go)，覆盖请求限制/重定向、源回退/公网 IP 校验/解析失败后继续竞速/取消/服务替换、监听转换和端点生成。
 
-[httpdebug_test.go](libbox/httpdebug/httpdebug_test.go) 保留 HTTP 路由、SSE/WebSocket、存储上限和导出回归；[plaintext_test.go](libbox/httpdebug/plaintext_test.go) 覆盖分片、HTTP/2 并发/跨域筛选、有界缺口说明、半截正文、准备状态/库诊断、采集器退出与源关闭。[ui_capture_test.go](libbox/ui_capture_test.go) 检查本地设置、退役字段清理和 schema；[路由测试](libbox/route/httpdebug_test.go) 检查原出站和字节回放。获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py)，它不构建 Android 绑定。
+[httpdebug_test.go](libbox/httpdebug/httpdebug_test.go) 保留 HTTP 路由、SSE/WebSocket、存储上限和导出回归；[plaintext_test.go](libbox/httpdebug/plaintext_test.go) 覆盖分片、HTTP/2 并发/跨域筛选、有界缺口说明、半截正文、准备状态/库诊断、采集器退出与源关闭，以及诊断事件不干扰抓取、超过三条的失败历史、停抓保留和清日志不清请求。[logs_test.go](libbox/httpdebug/logs_test.go) 检查日志条数/字节限额、UTF-8 截断、独立快照和并发记录/读取/清空。[ui_capture_test.go](libbox/ui_capture_test.go) 检查本地设置、退役字段清理、schema 及未开抓包时的诊断绑定；[路由测试](libbox/route/httpdebug_test.go) 检查原出站和字节回放。获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py)，它不构建 Android 绑定。
 
 UI 验证编译 Linux BPF/采集器，运行 [事件测试](tools/ebpf/events_test.go)、[库发现测试](tools/ebpf/discovery_test.go)、[偏移解析测试](tools/ebpf/libraries_test.go)、[挂载回滚测试](tools/ebpf/attach_test.go)、[映射 inode 测试](tools/ebpf/targets_test.go) 和 [平台回归](tools/ebpf/platformtest/platform_test.go)。[真实 OpenSSL smoke](tools/ebpf/smoke.py) 检查两方向 TLS 明文；[APK smoke](tools/ebpf/apk_smoke.py) 执行直接映射在未压缩 APK 中的独立测试库，检查自动偏移、原始 inode、跨 CPU、UID 过滤、嵌套/early-data 去重、SSL_clear、超长/重叠/跳过返回/进程退出的局部缺口及 owner EOF 清理。
 

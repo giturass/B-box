@@ -7,6 +7,7 @@ import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/pages/requests.dart';
 import 'package:b_box_ui/pages/request_settings.dart';
 import 'package:b_box_ui/pages/capture_domains.dart';
+import 'package:b_box_ui/pages/capture_logs.dart';
 import 'package:b_box_ui/components/captured_body.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
@@ -67,6 +68,8 @@ void main() {
       };
       if (extra != null) return extra!(call);
       if (call.method == 'capture.snapshot') return snapshot;
+      if (call.method == 'capture.logs') return {'state': snapshot['state'], 'logs': snapshot['logs'] ?? []};
+      if (call.method == 'capture.logs.clear') { snapshot['logs'] = []; return null; }
       if (call.method == 'capture.settings') return {'revision': 'saved-revision', 'config': snapshot['config']};
       if (call.method == 'capture.domains') return ['api.test', 'pinned.test'];
       if (call.method == 'capture.start') { snapshot['state'] = {'active': true}; return snapshot['state']; }
@@ -208,16 +211,29 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('automatic TLS discovery reports preparation and keeps library diagnostics', (tester) async {
+  testWidgets('TLS state and errors appear only in the eBPF logs menu destination', (tester) async {
     await mount(tester, size: const Size(320, 900), scale: 1.3);
     const preparing = 'Preparing capture for more applications. Reconnect the target app when preparation finishes.';
     const finished = 'Capture preparation finished. Reconnect the target app to capture new HTTPS connections.';
     const warning = 'libprivate.so: automatic SSL function resolution is incomplete';
-    snapshot['state'] = {'active': true, 'backend': 'eBPF', 'libraries': 2, 'scanning': true, 'error': warning};
+    snapshot['state'] = {'active': true, 'backend': 'eBPF', 'libraries': 2, 'scanning': true, 'error': warning, 'skipped': 4};
     await open(tester, const RequestsPage());
-    expect(find.text(preparing), findsOneWidget);
+    expect(find.text(preparing), findsNothing);
     expect(find.text(finished), findsNothing);
+    expect(find.text(warning), findsNothing);
+    expect(find.textContaining('TLS libraries attached'), findsNothing);
+    expect(find.text('Connections skipped or interrupted'), findsNothing);
+    expect(calls.where((call) => call.method == 'capture.logs'), isEmpty);
+    await capture(tester, 'requests-without-tls-diagnostics');
+    await tester.tap(find.byTooltip('More').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Extract domains'), findsNothing);
+    await tester.tap(find.text('eBPF logs').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(CaptureLogsPage), findsOneWidget);
+    expect(find.text(preparing), findsOneWidget);
     expect(find.text(warning), findsOneWidget);
+    expect(find.text('Connections skipped or interrupted'), findsOneWidget);
     await capture(tester, 'tls-preparing-narrow-large-text');
     snapshot['state'] = {'active': true, 'backend': 'eBPF', 'libraries': 3, 'scanning': false, 'error': warning};
     await tester.pump(const Duration(seconds: 2));
@@ -228,6 +244,73 @@ void main() {
     expect(find.text(warning), findsOneWidget);
     expect(find.text('Capturing new connections'), findsOneWidget);
     await capture(tester, 'tls-prepared-narrow-large-text');
+    Navigator.pop(tester.element(find.byType(CaptureLogsPage)));
+    await tester.pumpAndSettle();
+    expect(find.text(finished), findsNothing);
+    expect(find.text(warning), findsNothing);
+    expect(find.textContaining('TLS libraries attached'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('eBPF history survives stopped capture and supports filtered copy export and clear', (tester) async {
+    await mount(tester);
+    snapshot['state'] = {'active': false, 'error': 'collector disconnected'};
+    snapshot['logs'] = [
+      {'id': 1, 'receivedAt': 1700000000100, 'level': 'info', 'message': 'collector ready'},
+      // Startup diagnostics arrive after ready but retain their earlier time.
+      {'id': 2, 'receivedAt': 1700000000000, 'level': 'debug', 'message': 'libssl.so SSL_read=0x1020'},
+      {'id': 3, 'receivedAt': 1700000000200, 'level': 'error', 'message': 'TLS gap PID=42 UID=10001'},
+    ];
+    await open(tester, const CaptureLogsPage());
+    expect(find.text('Capture stopped'), findsOneWidget);
+    expect(find.text('collector disconnected'), findsOneWidget);
+    await tester.tap(find.byTooltip('More').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Copy logs'));
+    await tester.pumpAndSettle();
+    expect(copied.last, contains('[debug] libssl.so SSL_read=0x1020'));
+    expect(copied.last.indexOf('libssl.so'), lessThan(copied.last.indexOf('collector ready')));
+    expect(copied.last, contains('[error] TLS gap PID=42 UID=10001'));
+    final scaffold = tester.widget<CommonScaffold>(find.descendant(of: find.byType(CaptureLogsPage), matching: find.byType(CommonScaffold)).first);
+    scaffold.onKeywordsUpdate!(['PID=42']);
+    await tester.pumpAndSettle();
+    expect(find.text('TLS gap PID=42 UID=10001'), findsOneWidget);
+    expect(find.text('libssl.so SSL_read=0x1020'), findsNothing);
+    await tester.tap(find.byTooltip('More').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Export').last);
+    await tester.pumpAndSettle();
+    final exported = json(calls.singleWhere((call) => call.method == 'document.save').arguments);
+    expect(exported['name'], 'B-box-ebpf.log');
+    expect(exported['content'], contains('[error] TLS gap PID=42 UID=10001'));
+    expect(exported['content'], isNot(contains('libssl.so')));
+    await tester.tap(find.byTooltip('More').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Clear').last);
+    await tester.pumpAndSettle();
+    expect(calls.where((call) => call.method == 'capture.logs.clear'), hasLength(1));
+    expect(calls.where((call) => call.method == 'capture.clear'), isEmpty);
+    expect(find.text('TLS gap PID=42 UID=10001'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('eBPF log polling follows page visibility and refuses remote records', (tester) async {
+    await mount(tester);
+    await open(tester, const CaptureLogsPage());
+    final count = calls.where((call) => call.method == 'capture.logs').length;
+    openPage(tester.element(find.byType(CaptureLogsPage)), const BoxPage(title: 'Covered', children: []));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 8));
+    expect(calls.where((call) => call.method == 'capture.logs'), hasLength(count));
+    Navigator.pop(tester.element(find.text('Covered')));
+    await tester.pumpAndSettle();
+    expect(calls.where((call) => call.method == 'capture.logs').length, greaterThan(count));
+    events.add({'type': 'dashboard', 'value': {'status': 'Started', 'remote': 'Server', 'remoteConnected': true}});
+    await tester.pumpAndSettle();
+    final beforeRemoteWait = calls.where((call) => call.method == 'capture.logs').length;
+    await tester.pump(const Duration(seconds: 8));
+    expect(calls.where((call) => call.method == 'capture.logs'), hasLength(beforeRemoteWait));
+    expect(find.text('HTTP debugging is only available for the local service'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -397,6 +480,20 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.textContaining('https://example.test/'), findsOneWidget);
       await capture(tester, '$label-list');
+      snapshot['state'] = {'active': true, 'backend': 'eBPF', 'libraries': 3, 'scanning': false};
+      final diagnostic = 'TLS probes attached: path=/data/app/${'installed-library/' * 12}base.apk entry=lib/arm64-v8a/libssl.so method=symbols; SSL_read=0x1020 SSL_write=0x2040';
+      snapshot['logs'] = [{'id': 1, 'receivedAt': 1700000000000, 'level': 'info', 'message': diagnostic}];
+      await tester.tap(find.byTooltip('More').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('eBPF logs').last);
+      await tester.pumpAndSettle();
+      await capture(tester, '$label-ebpf-logs');
+      await tester.scrollUntilVisible(find.text(diagnostic), 250,
+        scrollable: find.descendant(of: find.byType(CaptureLogsPage), matching: find.byType(Scrollable)).first);
+      await capture(tester, '$label-ebpf-log-details');
+      expect(tester.takeException(), isNull);
+      Navigator.pop(tester.element(find.byType(CaptureLogsPage)));
+      await tester.pumpAndSettle();
       extra = (call) async => call.method == 'capture.detail' ? {
         'id': 'long', 'startedAt': 1700000000000, 'durationMs': 120,
         'request': {'url': 'https://example.test/', 'method': 'POST', 'protocol': 'HTTP/2.0', 'bodyComplete': true, 'bodyTruncated': true,

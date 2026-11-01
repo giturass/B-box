@@ -10,6 +10,7 @@ import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.CommandTarget
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -44,7 +45,7 @@ internal class BoxCapture(private val activity: BoxActivity) {
         if (method == "capture.export") return export(args)
         return mutex.withLock { withContext(Dispatchers.IO) {
             requireLocal()
-            Libbox.openUICapture(captures.absolutePath)
+            if (method != "capture.logs" && method != "capture.logs.clear") Libbox.openUICapture(captures.absolutePath)
             when (method) {
                 "capture.snapshot" -> mapOf(
                     "state" to jsonObject(status()),
@@ -54,6 +55,8 @@ internal class BoxCapture(private val activity: BoxActivity) {
                     ))),
                 )
                 "capture.settings" -> settings.snapshot()
+                "capture.logs" -> jsonObject(JSONObject(Libbox.readUICaptureLogs()))
+                "capture.logs.clear" -> { Libbox.clearUICaptureLogs(); null }
                 "capture.configure" -> {
                     require(!status().optBoolean("active")) { "Stop capture before changing its settings" }
                     @Suppress("UNCHECKED_CAST")
@@ -80,7 +83,10 @@ internal class BoxCapture(private val activity: BoxActivity) {
         val value = settings.config()
         val source = if (JSONObject(value).optBoolean("https")) CaptureSource() else null
         try {
-            if (source != null) source.session = RootClient.startCapture(value, source.owner)
+            if (source != null) {
+                Libbox.appendUICaptureLog("info", "Starting eBPF capture; requesting the Root collector")
+                source.session = RootClient.startCapture(value, source.owner)
+            }
             return ProfileContent.mutex.withLock {
                 requireLocal()
                 require(activity.serviceStatus.value == Status.Started &&
@@ -102,6 +108,17 @@ internal class BoxCapture(private val activity: BoxActivity) {
             }
         } catch (error: Exception) {
             source?.close()
+            if (source != null) {
+                if (error is CancellationException) {
+                    Libbox.appendUICaptureLog("warn", "eBPF capture startup cancelled")
+                    throw error
+                }
+                (error.message ?: error.javaClass.simpleName).lineSequence().forEach { line ->
+                    val level = listOf("debug", "info", "warn", "error").firstOrNull { line.startsWith("[$it] ") }
+                    Libbox.appendUICaptureLog(level ?: "error", if (level == null) line else line.removePrefix("[$level] "))
+                }
+                throw IllegalStateException("Unable to start HTTPS capture. See eBPF logs for details.", error)
+            }
             throw error
         }
     }

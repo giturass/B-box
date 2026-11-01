@@ -55,6 +55,16 @@ func StopUICapture() { httpdebug.Stop() }
 
 func ReadUICaptureStatus() (string, error) { return captureJSON(httpdebug.Status()) }
 
+func ReadUICaptureLogs() (string, error) {
+	return captureJSON(struct {
+		State httpdebug.State        `json:"state"`
+		Logs  []httpdebug.CaptureLog `json:"logs"`
+	}{httpdebug.Status(), httpdebug.CaptureLogs()})
+}
+
+func AppendUICaptureLog(level, message string) { httpdebug.AppendCaptureLog(level, message) }
+func ClearUICaptureLogs()                      { httpdebug.ClearCaptureLogs() }
+
 func ListUICapture(limit int32, query string) (string, error) {
 	store, err := httpdebug.Saved()
 	if err != nil {

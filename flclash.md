@@ -33,7 +33,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 | 系统 HTTP 代理 | [system_proxy_panel.dart](flutter/lib/components/system_proxy_panel.dart) | 采用参考版 VPN 卡片的布局、状态徽章和紧凑开关，使用 B-box 自有的大陆轮廓地球字形；开关接入内核上报状态及既有 Android 桥接 |
 | 外观与关于 | [appearance.dart](flutter/lib/pages/appearance.dart)、[about.dart](flutter/lib/pages/about.dart) | 复用主题预览、调色和版本/许可布局，保持 B-box 品牌及其 Release 来源 |
 | 备份 | [backup.dart](flutter/lib/pages/backup.dart)、[form.dart](flutter/lib/components/form.dart) | 复用本地/远程分区、WebDAV 表单、连通状态、恢复范围及策略，后端使用 `bbox-1` 格式 |
-| 请求调试 | [requests.dart](flutter/lib/pages/requests.dart)、[request_settings.dart](flutter/lib/pages/request_settings.dart)、[capture_domains.dart](flutter/lib/pages/capture_domains.dart) | 请求列表/详情、本机筛选、Root/eBPF HTTPS 开关、域名提取和导出；复用共享列表、表单和导航 |
+| 请求调试 | [requests.dart](flutter/lib/pages/requests.dart)、[request_settings.dart](flutter/lib/pages/request_settings.dart)、[capture_logs.dart](flutter/lib/pages/capture_logs.dart)、[capture_domains.dart](flutter/lib/pages/capture_domains.dart) | 请求列表/详情、本机筛选、Root/eBPF HTTPS 开关、诊断日志、域名选择和请求导出；复用共享列表、表单和导航 |
 
 ### 导航与交互约定
 
@@ -43,7 +43,8 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 - 工具页远程控制紧跟终端；终端设置在终端内，仪表盘编辑在首页工具栏。设置依次为外观、常规、访问控制、备份与恢复；高级配置从配置的“编辑”页进入，不保留重复资源入口。
 - “请求”紧挨在工具页“连接”上方；列表沿用连接页的卡片、左右边距、行间距和字形，支持搜索和分批加载。详情使用同一点击复制行及反馈，长 URL、头部与 Cookie 分行显示；右上角菜单切换请求、响应和 Cookies，请求与响应 Cookie 分组展示，保留重复 `Set-Cookie`、空值、值中的等号及属性，点击 Cookie 复制该条原文。抓取开关等待原生确认，停服时保留历史记录；远程会话显示不可用。
 - 抓包设置的域名、端口及可选 TLS 库/APK 路径置于共享分组表单中，HTTPS 开关说明 Root/eBPF 要求和重新连接的时机，路径说明提示自动查找安装文件、共享库及函数偏移；筛选规则与 [核心支持范围](libbox.md#httphttps-请求调试) 一致。设置保存在本机，可从记录选择 HTTPS 包含/排除域名，保存校验失败保留草稿。没有证书、改写或脚本页面。
-- 请求列表展示 eBPF 挂载库数、其他应用的准备状态及采集错误；准备完成后提示重新连接目标应用，保留部分库的兼容性诊断。详情保留重复头部/正文状态，并显示真实采集来源和 PID/UID。eBPF 未获取的 socket/出站/路由字段不填演示值。域名观察标为“仅域名”，不能导出 cURL；域名页可按当前搜索复制/导出完整去重列表。页面均为 B-box 业务代码，没有修改 FlClash 直接导入文件。
+- 请求主界面不展示 eBPF 挂载数量、准备状态、跳过计数或最新采集错误；右上角折叠菜单提供“eBPF 日志”，移除“提取域名”项。日志页集中展示这些状态及带时间、级别的历史记录，支持搜索、复制、导出和单独清空日志；按记录时间排列，保留延迟转发的启动阶段顺序。准备完成后的重新连接提示也只出现在日志页。日志由后端持续记录，范围与保留限额见 [libbox.md](libbox.md#httphttps-请求调试)。
+- 请求详情保留重复头部/正文状态，并显示真实采集来源和 PID/UID。eBPF 未获取的 socket/出站/路由字段不填演示值。域名观察标为“仅域名”，不能导出 cURL；抓包设置继续通过域名选择页添加筛选条件。页面均为 B-box 业务代码，没有修改 FlClash 直接导入文件。
 - 常规服务页使用即时应用的开关，保存和重启期间显示进度并禁用开关，底部没有“应用服务设置”按钮；启动确认及失败恢复见 [app.md](app.md#配置服务应用与备份)。
 - 日志页默认选择“跟随配置”，显示内核上报的日志级别及更严重的记录；菜单同时显示当前级别，仍可手动选择“全部”或单一级别，手动筛选不会被后续状态更新覆盖。搜索、暂停和导出沿用同一筛选结果；默认级别尚未收到时保留已接收记录。日志来源及本地重载同步见 [app.md](app.md#配置服务应用与备份)。
 - 应用始终跟随系统语言并响应运行时变化。旧设置及备份中的语言选项丢弃，其他偏好保留。
@@ -56,7 +57,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [data_subscription.dart](flutter/lib/components/data_subscription.dart) 按页面活动状态、TickerMode 和应用生命周期合并内存/日志订阅；卡片与详情页共享一个原生采样请求，最后一个可见消费者退出时停止。日志增量保留既有记录对象，暂停快照独立于后续追加和淘汰，恢复可见时重新同步原生缓冲。原生采样与消息边界见 [app.md](app.md#配置服务应用与备份)。
 
-[capture_poll.dart](flutter/lib/components/capture_poll.dart) 仅在本地请求列表/详情页活动、TickerMode 开启且应用前台时每两秒查询；调用不重叠，筛选变化合并刷新，并忽略旧筛选或会话的迟到结果。隐藏页面停止轮询，抓取引擎继续运行至用户或服务停止。页面为 B-box 业务代码，没有直接修改 FlClash 导入文件。
+[capture_poll.dart](flutter/lib/components/capture_poll.dart) 仅在本地请求列表/详情或 eBPF 日志页活动、TickerMode 开启且应用前台时每两秒查询；调用不重叠，筛选变化合并刷新，并忽略旧筛选或会话的迟到结果。日志使用独立的 `capture.logs` 查询，请求列表不拉取日志历史。隐藏页面停止轮询，抓取引擎与日志记录继续运行至用户或服务停止。页面为 B-box 业务代码，没有直接修改 FlClash 导入文件。
 
 [captured_body.dart](flutter/lib/components/captured_body.dart) 将正文预览放在等宽、自动折行、有界滚动的卡片中，展示内容类型、保存/总字节数及 Base64、截断、未完成状态。完整 JSON 可切换格式化与原文；[http_message.dart](flutter/lib/common/http_message.dart) 仅调整 JSON 字符串外的空白，保留数值字面量、重复键及转义，无法解析或超过格式化限额时显示原文。长预览分批展开，边界不拆开 UTF-16 代理对；复制始终使用内核返回的原始预览，不受当前格式或已展开长度影响，也不代表未保存的完整正文。
 
@@ -119,7 +120,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [access_test.dart](flutter/test/access_test.dart) 覆盖进入托管页面不扫描、加载期间接收最新托管选择、显示范围与隐藏选择保留、保存失败后重试、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。它验证交互和调用行为，不代替实机加载耗时或视觉验收。
 
-[requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口、远程隔离、本机设置修订/字段、HTTPS 域名选择、端口保存、启动确认、自动准备完成/挂载数/库诊断、后台轮询及迟到搜索结果，以及报文菜单、字段/Cookie 复制、正文格式切换和 Unicode 分批展开。窄屏/大字号深色/宽屏截图保存在 `build/screenshots/requests/`，包含设置、准备中/完成、列表、详情、头部、正文、菜单及 Cookies；显式加载 Roboto 和 JetBrains Mono。这些桥接替身测试不等于 eBPF/实机 TLS 验收，相关验证见 [libbox.md](libbox.md#构建同步和验证) 和 [app.md](app.md#验证与历史记录)。
+[requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口、远程隔离、本机设置修订/字段、HTTPS 域名选择、端口保存和启动确认，检查请求主界面不显示 eBPF 状态/错误、菜单移除域名提取、日志页展示准备完成/挂载数/库诊断，以及停抓后的历史、时间顺序、搜索/复制/导出、清日志与清请求隔离、后台/遮挡轮询和迟到搜索结果。另覆盖报文菜单、字段/Cookie 复制、正文格式切换和 Unicode 分批展开。窄屏/大字号深色/宽屏截图保存在 `build/screenshots/requests/`，包含设置、日志页准备中/完成、列表、详情、头部、正文、菜单及 Cookies；显式加载 Roboto 和 JetBrains Mono。这些桥接替身测试不等于 eBPF/实机 TLS 验收，相关验证见 [libbox.md](libbox.md#构建同步和验证) 和 [app.md](app.md#验证与历史记录)。
 
 [http_message_test.dart](flutter/test/http_message_test.dart) 检查 JSON 数值/重复键/转义保真、无效或过大内容回退，以及重复 Cookie、空值、等号和 Expires 逗号。请求正文不完整或截断时不提供 cURL 导出。
 

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -148,7 +149,11 @@ func run(encode func(any) error) error {
 	// The owner keeps stdin open; process death closes it and removes all probes.
 	go func() { _, _ = io.Copy(io.Discard, reader); cancel() }()
 	progress := func(stage string) error {
-		return encode(pipeEvent{Type: "progress", Version: 1, Stage: stage})
+		return encode(diagnosticEvent("info", stage, true))
+	}
+	if err = progress(fmt.Sprintf("collector environment: kernel=%s ABI=%s PID=%d; Android user=%d excluded UID=%d; selected UIDs=%v; installed targets=%d additional libraries=%d",
+		strings.TrimRight(string(uname.Release[:]), "\x00"), runtime.GOARCH, os.Getpid(), config.UserID, config.ExcludeUID, config.UIDs, len(config.Targets), len(config.Libraries))); err != nil {
+		return err
 	}
 	if err = progress("preparing the eBPF memory limit"); err != nil {
 		return err
@@ -158,7 +163,11 @@ func run(encode func(any) error) error {
 	// limit here instead; kernels with memcg accounting need no limit change.
 	// Best effort: the actual BPF load below still reports allocation failures.
 	limit := unix.Rlimit{Cur: unix.RLIM_INFINITY, Max: unix.RLIM_INFINITY}
-	_ = unix.Prlimit(0, unix.RLIMIT_MEMLOCK, &limit, nil)
+	if limitErr := unix.Prlimit(0, unix.RLIMIT_MEMLOCK, &limit, nil); limitErr != nil {
+		if err = encode(diagnosticEvent("warn", fmt.Sprintf("unable to raise RLIMIT_MEMLOCK; continuing with the actual BPF load: %v", limitErr), true)); err != nil {
+			return err
+		}
+	}
 	if err = progress("reading the capture BPF object"); err != nil {
 		return err
 	}
@@ -196,7 +205,7 @@ func run(encode func(any) error) error {
 			return err
 		}
 	}
-	if err = progress("opening the eBPF perf event buffers"); err != nil {
+	if err = progress(fmt.Sprintf("opening the eBPF perf event buffers: %d bytes per CPU", 64*os.Getpagesize())); err != nil {
 		return err
 	}
 	events, err := perf.NewReader(collection.Maps["events"], 64*os.Getpagesize())
@@ -263,8 +272,12 @@ func run(encode func(any) error) error {
 			if update.err != nil {
 				return update.err
 			}
-			if update.stage != "" && activeResults == nil {
-				if err = progress(update.stage); err != nil {
+			if update.stage != "" {
+				level := update.level
+				if level == "" {
+					level = "debug"
+				}
+				if err = emit(diagnosticEvent(level, update.stage, activeResults == nil)); err != nil {
 					return err
 				}
 			}
