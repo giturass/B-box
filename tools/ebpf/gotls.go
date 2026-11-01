@@ -84,7 +84,13 @@ func resolveGoTLS(ctx context.Context, file *elf.File, info *debug.BuildInfo) (r
 			}
 			at += index
 			if len(data)-at >= 72 && binary.LittleEndian.Uint64(data[at+8:]) <= 200000 {
-				candidate, parseErr := gosym.NewTable(nil, gosym.NewLineTable(data[at:], text.Addr))
+				// gosym requires runtime.text, which can follow C startup code
+				// inside .text in externally linked PIE/c-shared binaries.
+				textStart, addressErr := goTextAddress(ctx, file, section, data, at)
+				if addressErr != nil {
+					return nil, "", addressErr
+				}
+				candidate, parseErr := gosym.NewTable(nil, gosym.NewLineTable(data[at:], textStart))
 				if parseErr == nil && candidate.LookupFunc(goRead) != nil {
 					table = candidate
 					break
@@ -133,6 +139,75 @@ func resolveGoTLS(ctx context.Context, file *elf.File, info *debug.BuildInfo) (r
 		return nil, "", err
 	}
 	return result, "Go TLS " + info.GoVersion + " ABIInternal / pclntab", nil
+}
+
+// pcHeader.textStart is an address, unlike the table's relative offsets. ELF
+// RELA may leave the word zero and carry its address in the relocation addend.
+// See debug/gosym.NewLineTable: passing the ELF section start is wrong for cgo.
+func goTextAddress(ctx context.Context, file *elf.File, section *elf.Section, data []byte, at int) (uint64, error) {
+	if at < 0 || at > len(data)-32 || section.Addr > ^uint64(0)-uint64(at)-24 {
+		return 0, errors.New("invalid Go text address field")
+	}
+	field := section.Addr + uint64(at) + 24
+	value := binary.LittleEndian.Uint64(data[at+24:])
+	var relocated bool
+	for _, relocation := range file.Sections {
+		if relocation.Flags&elf.SHF_ALLOC == 0 || (relocation.Type != elf.SHT_RELA && relocation.Type != elf.SHT_REL) {
+			continue
+		}
+		size := uint64(16)
+		if relocation.Type == elf.SHT_RELA {
+			size = 24
+		}
+		if relocation.Size > 32*1024*1024 || relocation.Entsize != size || relocation.Size%size != 0 {
+			return 0, errors.New("unsupported ELF relocation table for Go text")
+		}
+		entries, err := relocation.Data()
+		if err != nil {
+			return 0, err
+		}
+		for offset := 0; offset < len(entries); offset += int(size) {
+			if offset%4096 == 0 {
+				if err := ctx.Err(); err != nil {
+					return 0, err
+				}
+			}
+			entry := entries[offset : offset+int(size)]
+			if binary.LittleEndian.Uint64(entry) != field {
+				continue
+			}
+			if relocated {
+				return 0, errors.New("conflicting Go text relocations")
+			}
+			relocated = true
+			info := binary.LittleEndian.Uint64(entry[8:])
+			kind, symbol := uint32(info), uint32(info>>32)
+			addend := value
+			if size == 24 {
+				addend = binary.LittleEndian.Uint64(entry[16:])
+			}
+			relative := file.Machine == elf.EM_X86_64 && kind == uint32(elf.R_X86_64_RELATIVE) ||
+				file.Machine == elf.EM_AARCH64 && kind == uint32(elf.R_AARCH64_RELATIVE)
+			absolute := file.Machine == elf.EM_X86_64 && kind == uint32(elf.R_X86_64_64) ||
+				file.Machine == elf.EM_AARCH64 && kind == uint32(elf.R_AARCH64_ABS64)
+			if relative && symbol == 0 {
+				value = addend
+			} else if absolute && symbol > 0 {
+				symbols, err := file.DynamicSymbols()
+				if err != nil || uint64(symbol) > uint64(len(symbols)) || symbols[symbol-1].Section == elf.SHN_UNDEF {
+					return 0, errors.New("unresolved Go runtime.text symbol")
+				}
+				value = symbols[symbol-1].Value + addend
+			} else {
+				return 0, errors.New("unsupported Go runtime.text relocation")
+			}
+		}
+	}
+	text := file.Section(".text")
+	if text == nil || value == 0 || value < text.Addr || value-text.Addr >= text.Size {
+		return 0, errors.New("Go runtime.text address is unresolved or outside executable text")
+	}
+	return value, nil
 }
 
 func goReturnOffsets(code []byte, machine elf.Machine) ([]uint64, error) {

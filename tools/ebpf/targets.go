@@ -85,7 +85,8 @@ func discoverPaths(ctx context.Context, config collectorConfig) ([]string, error
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if _, err := strconv.ParseUint(process.Name(), 10, 32); err != nil {
+		if pid, err := strconv.ParseUint(process.Name(), 10, 32); err != nil || pid == uint64(os.Getpid()) {
+			// The Root collector is a Go executable but is not a target app.
 			continue
 		}
 		directory := filepath.Join("/proc", process.Name())

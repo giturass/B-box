@@ -79,9 +79,12 @@ jobs:
         run: |
           mkdir -p "$HOME/tmp/bbox-go-tls"
           for fixture_go in go1.24.0 go1.25.0 go1.26.10; do
-            GOTOOLCHAIN="$fixture_go" go build -trimpath -buildmode=pie -ldflags='-s -w' \
-              -o "$HOME/tmp/bbox-go-tls/$fixture_go" tools/ebpf/testdata/go_tls_client.go
-            sudo python3 tools/ebpf/gotls_smoke.py "$HOME/tmp/bbox-go-tls/$fixture_go"
+            for fixture_link in internal external; do
+              GOTOOLCHAIN="$fixture_go" CGO_ENABLED=1 go build -trimpath -buildmode=pie \
+                -ldflags="-s -w -linkmode=$fixture_link" \
+                -o "$HOME/tmp/bbox-go-tls/$fixture_go-$fixture_link" tools/ebpf/testdata/go_tls_client.go
+              sudo python3 tools/ebpf/gotls_smoke.py "$HOME/tmp/bbox-go-tls/$fixture_go-$fixture_link"
+            done
           done
       - uses: actions/upload-artifact@v4
         if: always()
