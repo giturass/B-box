@@ -11,6 +11,7 @@ class CaptureLogsPage extends StatefulWidget {
 class _CaptureLogsPageState extends State<CaptureLogsPage> {
   String _query = '';
   bool _busy = false;
+  bool _statistics = false;
   int _revision = 0;
 
   String _line(Json log) {
@@ -28,6 +29,7 @@ class _CaptureLogsPageState extends State<CaptureLogsPage> {
     return CapturePoll(method: 'capture.logs', arguments: const {}, revision: _revision,
       builder: (context, snapshot, error, refresh) {
         final state = json(snapshot?['state']);
+        final wire = json(state['wire']);
         final active = state['active'] == true && state['backend'] == 'eBPF';
         final words = _query.toLowerCase().trim().split(RegExp(r'\s+'));
         final logs = rows(snapshot?['logs']).where((log) => words.every(
@@ -66,6 +68,22 @@ class _CaptureLogsPageState extends State<CaptureLogsPage> {
                         ? 'Preparing capture for more applications. Reconnect the target app when preparation finishes.'
                         : 'Capture preparation finished. Reconnect the target app to capture new HTTPS connections.'))),
                     if ((state['skipped'] as num? ?? 0) > 0) DetailRow.text(title: context.tr('Connections skipped or interrupted'), value: state['skipped'].toString()),
+                    if (state['backend'] == 'eBPF' || (wire['packets'] as num? ?? 0) > 0 || (wire['secrets'] as num? ?? 0) > 0)
+                      ListItem(title: Text(context.tr('Capture statistics')),
+                        subtitle: Text('TLS ${state['tlsOpened'] ?? 0} · ${context.tr('Plaintext')} ${state['plaintextConnections'] ?? 0} · ${context.tr('Parsed')} ${state['parsedRequests'] ?? 0}'),
+                        onTap: () => setState(() => _statistics = !_statistics)),
+                    if (_statistics) ...[
+                      DetailRow.text(title: context.tr('TLS connections observed'), value: '${state['tlsOpened'] ?? 0}'),
+                      DetailRow.text(title: context.tr('Go TLS connections observed'), value: '${state['goTlsOpened'] ?? 0}'),
+                      DetailRow.text(title: context.tr('Connections with plaintext'), value: '${state['plaintextConnections'] ?? 0} · ${bytes(state['plaintextBytes'] as num? ?? 0)}'),
+                      DetailRow.text(title: context.tr('Parsed HTTPS requests'), value: '${state['parsedRequests'] ?? 0}'),
+                      DetailRow.text(title: context.tr('Requests excluded by filters'), value: '${state['filteredRequests'] ?? 0}'),
+                      DetailRow.text(title: context.tr('HTTPS requests saved'), value: '${state['recordedRequests'] ?? 0}'),
+                      DetailRow.text(title: context.tr('Connections with socket addresses'), value: '${state['socketConnections'] ?? 0}'),
+                      DetailRow.text(title: context.tr('Saved network packets'), value: '${wire['packets'] ?? 0} · ${bytes(wire['bytes'] as num? ?? 0)} / 32 MiB'),
+                      DetailRow.text(title: context.tr('Saved TLS keys'), value: '${wire['secrets'] ?? 0}'),
+                    ],
+                    if ((wire['error'] as String? ?? '').isNotEmpty) DetailRow.text(title: context.tr('Raw capture status'), value: wire['error'].toString(), stacked: true),
                     if ((state['error'] as String? ?? '').isNotEmpty) DetailRow.text(title: context.tr('Latest error'), value: state['error'].toString(), stacked: true),
                   ]),
                   ListFooter(text: context.tr('Recent logs are kept until the app process exits. Export logs to keep them.')),

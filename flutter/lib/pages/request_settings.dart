@@ -17,6 +17,8 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
   late final _decryptBypass = TextEditingController(text: (widget.initial['decryptBypassHosts'] as List? ?? []).join('\n'));
   late final _ports = TextEditingController(text: (widget.initial['ports'] as List? ?? [80, 443, 8080, 8443]).join(', '));
   late bool _https = widget.initial['https'] == true;
+  late bool _network = widget.initial['captureNetwork'] == true;
+  late bool _keys = widget.initial['captureTlsKeys'] == true;
   late int _bodyKiB = ((widget.initial['bodyLimit'] as num? ?? 65536) / 1024).round();
   late List<String> _packages = (widget.initial['packages'] as List? ?? []).cast<String>().toList();
   late bool _extract = widget.initial['extractHosts'] == true;
@@ -36,6 +38,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
         'https': _https, 'decryptHosts': _lines(_decrypt.text), 'includeHosts': _lines(_include.text),
         'excludeHosts': _lines(_exclude.text), 'packages': _packages, 'ports': ports,
         'bodyLimit': _bodyKiB * 1024,
+        'captureNetwork': _network, 'captureTlsKeys': _keys,
         'decryptBypassHosts': _lines(_decryptBypass.text), 'extractHosts': _extract,
         'tlsLibraries': _libraries.text.split('\n').map((line) => line.trim()).where((line) => line.isNotEmpty).toSet().toList(),
       }});
@@ -81,9 +84,17 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
         ListItem(key: const ValueKey('add-https-hosts'), title: Text(context.tr('Add captured HTTPS domains')), onTap: () => _addDomains(_decrypt)),
         _field(_decryptBypass, 'HTTPS excluded domains', hint: 'pinned.example.com', footer: 'Skip plaintext capture for these HTTPS domains. Visible hostnames can still be extracted.'),
         ListItem(key: const ValueKey('add-bypass-hosts'), title: Text(context.tr('Add captured HTTPS exclusions')), onTap: () => _addDomains(_decryptBypass)),
-        ListFooter(text: context.tr('Requires Root, Linux 5.10 or newer, permitted eBPF uprobes and a compatible 64-bit OpenSSL or BoringSSL library. Reconnect the target app after starting. QUIC and unsupported TLS stacks are not captured.')),
+        ListFooter(text: context.tr('Requires Root, Linux 5.10 or newer and permitted eBPF uprobes. Supports compatible 64-bit OpenSSL/BoringSSL and Go 1.24–1.26 TLS clients. Reconnect after preparation finishes. QUIC is not captured.')),
         _field(_libraries, 'Additional TLS libraries', hint: '/data/app/.../lib/arm64/libssl.so',
-          footer: 'Optional absolute library or APK paths, one per line. Installed apps, shared libraries and function offsets are discovered automatically.'),
+          footer: 'Optional absolute library, APK or Go executable paths, one per line. Installed apps, shared libraries and function offsets are discovered automatically.'),
+        generateSection(title: context.tr('Raw TLS capture'), items: [
+          ListItem.toggle(key: const ValueKey('capture-network'), title: Text(context.tr('Save network packets')), value: _network,
+            subtitle: Text(context.tr('Export original TCP/IP packets as pcapng. Requires kernel BTF and packet capture permission.')),
+            onChanged: (value) => setState(() { _network = value; _dirty = true; })),
+          ListItem.toggle(key: const ValueKey('capture-tls-keys'), title: Text(context.tr('Save TLS keys')), value: _keys,
+            subtitle: Text(context.tr('Supported Go TLS clients provide keys for Wireshark. Keys are included in pcapng and can also be exported separately.')),
+            onChanged: (value) => setState(() { _keys = value; _dirty = true; })),
+        ], footer: context.tr('Raw capture saves whole TLS connections of selected apps, including multiplexed requests. Domain and port filters apply to HTTP records. Raw data has a separate 32 MiB limit and is cleared with requests.')),
       ],
       generateSection(items: [ListItem.toggle(title: Text(context.tr('Extract TLS/QUIC domains')), value: _extract,
         subtitle: Text(context.tr('Collect visible TLS/QUIC hostnames through the local service. These records contain names only.')),
@@ -101,7 +112,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
           textBuilder: (value) => '$value KiB', onChanged: (value) => setState(() { _bodyKiB = value; _dirty = true; })),
       ]),
       _field(_ports, 'Capture ports', hint: '80, 443, 8080, 8443', multiline: false,
-        footer: 'Keeps up to 300 requests and 32 MiB. Large bodies keep a prefix. HTTPS ports use the HTTP authority when socket metadata is unavailable.'),
+        footer: 'Keeps up to 300 requests and 32 MiB. Large bodies keep a prefix. HTTPS port filters use the HTTP authority; observed socket endpoints are shown separately.'),
     ]));
   }
 }

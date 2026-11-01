@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
-capture_platform="${1:?Expected android/arm64, android/amd64 or linux/amd64}"
+capture_platform="${1:?Expected android/arm64, android/amd64, linux/arm64 or linux/amd64}"
 case "$capture_platform" in
   android/arm64) capture_arch=arm64; capture_bpf_arch=arm64; capture_abi=arm64-v8a; capture_cc=aarch64-linux-android24-clang ;;
   android/amd64) capture_arch=amd64; capture_bpf_arch=x86; capture_abi=x86_64; capture_cc=x86_64-linux-android24-clang ;;
   linux/amd64) capture_arch=amd64; capture_bpf_arch=x86 ;;
+  linux/arm64) capture_arch=arm64; capture_bpf_arch=arm64 ;;
   *) echo "Unsupported capture platform: $capture_platform" >&2; exit 1 ;;
 esac
 mkdir -p build

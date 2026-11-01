@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"debug/buildinfo"
 	"debug/elf"
 	"errors"
 	"fmt"
@@ -35,6 +36,7 @@ var wantedSymbols = map[string]bool{
 	"SSL_new": true, "SSL_free": true, "SSL_clear": true,
 	"SSL_read": true, "SSL_write": true, "SSL_read_ex": true, "SSL_write_ex": true,
 	"SSL_read_early_data": true, "SSL_write_early_data": true,
+	"SSL_connect": true, "SSL_do_handshake": true,
 }
 
 var requiredSymbols = []string{"SSL_new", "SSL_free", "SSL_read", "SSL_write"}
@@ -94,6 +96,29 @@ func resolveSymbolsForMachine(ctx context.Context, reader io.ReaderAt, name stri
 		(file.Type != elf.ET_DYN && file.Type != elf.ET_EXEC) {
 		return nil, "", errors.New("TLS library does not match the collector's executable 64-bit ABI")
 	}
+	sslSymbols, sslMethod, sslErr := resolveSSLSymbols(ctx, file, name, machine)
+	if info, err := buildinfo.Read(contextReaderAt{ctx, reader}); err == nil {
+		goSymbols, goMethod, goErr := resolveGoTLS(ctx, file, info)
+		if goErr != nil {
+			if sslErr == nil {
+				return sslSymbols, sslMethod + "; Go TLS unavailable: " + goErr.Error(), nil
+			}
+			return nil, "", &unsupportedGoTLSError{filepath.Base(name), goErr.Error()}
+		}
+		if sslErr == nil {
+			// A c-shared executable can expose both Go TLS and public SSL
+			// interfaces. Its build-info must not hide the SSL adapter.
+			for name, offset := range sslSymbols {
+				goSymbols[name] = offset
+			}
+			goMethod += " + " + sslMethod
+		}
+		return goSymbols, goMethod, nil
+	}
+	return sslSymbols, sslMethod, sslErr
+}
+
+func resolveSSLSymbols(ctx context.Context, file *elf.File, name string, machine elf.Machine) (map[string]uint64, string, error) {
 	result := make(map[string]uint64)
 	collect := func(symbols []elf.Symbol) error {
 		for _, symbol := range symbols {
@@ -283,7 +308,8 @@ func walkLibraries(ctx context.Context, path string, visit func(library) error) 
 					return ctx.Err()
 				}
 				var unsupported *unsupportedChromiumError
-				if errors.As(err, &unsupported) && len(warnings) < 3 {
+				var unsupportedGo *unsupportedGoTLSError
+				if (errors.As(err, &unsupported) || errors.As(err, &unsupportedGo)) && len(warnings) < 3 {
 					warnings = append(warnings, err)
 				}
 				var visitorError *libraryVisitError

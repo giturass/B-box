@@ -94,6 +94,21 @@ type probeSpec struct {
 }
 
 func planProbes(library library) ([]probeSpec, error) {
+	if library.symbols[goRead] != 0 && library.symbols["SSL_new"] == 0 {
+		return planGoProbes(library)
+	}
+	probes, err := planSSLProbes(library)
+	if err != nil || library.symbols[goRead] == 0 {
+		return probes, err
+	}
+	goProbes, err := planGoProbes(library)
+	if err != nil {
+		return nil, err
+	}
+	return append(probes, goProbes...), nil
+}
+
+func planSSLProbes(library library) ([]probeSpec, error) {
 	type hook struct {
 		symbol, program string
 		ret, optional   bool
@@ -105,6 +120,8 @@ func planProbes(library library) ([]probeSpec, error) {
 		{"SSL_read_ex", "ssl_read_ex_enter", false, true}, {"SSL_read_ex", "ssl_read_leave", true, true},
 		{"SSL_write_early_data", "ssl_write_ex_enter", false, true}, {"SSL_write_early_data", "ssl_write_leave", true, true},
 		{"SSL_read_early_data", "ssl_read_early_enter", false, true}, {"SSL_read_early_data", "ssl_read_leave", true, true},
+		{"SSL_connect", "ssl_handshake_enter", false, true}, {"SSL_connect", "ssl_handshake_leave", true, true},
+		{"SSL_do_handshake", "ssl_handshake_enter", false, true}, {"SSL_do_handshake", "ssl_handshake_leave", true, true},
 		{"SSL_clear", "ssl_clear_enter", false, true}, {"SSL_clear", "ssl_clear_leave", true, true},
 		{"SSL_free", "ssl_free", false, false},
 		// Allocations are observed only after the complete I/O/lifetime set is

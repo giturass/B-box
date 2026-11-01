@@ -3,6 +3,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import platform
 import selectors
 import socket
 import subprocess
@@ -55,7 +56,8 @@ def main():
                 except OSError:
                     assert time.monotonic() < deadline, "TLS fixture did not start"
                     time.sleep(.05)
-            library = next(path for path in ["/usr/lib/x86_64-linux-gnu/libssl.so.3", "/lib/x86_64-linux-gnu/libssl.so.3"]
+            triplet = "aarch64-linux-gnu" if platform.machine() == "aarch64" else "x86_64-linux-gnu"
+            library = next(path for path in [f"/usr/lib/{triplet}/libssl.so.3", f"/lib/{triplet}/libssl.so.3"]
                            if Path(path).is_file())
             collector = subprocess.Popen([str(ROOT / "capture")], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                          stderr=subprocess.PIPE, bufsize=0)

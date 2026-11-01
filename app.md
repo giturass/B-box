@@ -76,9 +76,9 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 ## 请求抓取与 Root/eBPF
 
-[BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 提供本地抓包启停、筛选、列表/详情、域名及 HAR/cURL 导出。启动先确认本地服务 Started，HTTPS 等待 Root 采集器挂载成功，再核对服务实例和选中配置未变化；失败释放源和管道。切到远程会话时停止本地抓包，远程会话拒绝读取本机记录。普通 Root/Shizuku、VPN 权限及服务确认流程保留。
+[BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 提供本地抓包启停、筛选、列表/详情、域名及 HAR/cURL、pcapng、TLS key-log 导出。启动先确认本地服务 Started，HTTPS 等待 Root 采集器挂载成功，再核对服务实例和选中配置未变化；失败释放源和管道。切到远程会话时停止本地抓包，远程会话拒绝读取本机记录。普通 Root/Shizuku、VPN 权限及服务确认流程保留。
 
-[CaptureSettings.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureSettings.kt) 将筛选、HTTPS 开关和正文限额保存到私有 `noBackupFilesDir/http-debug/settings.json`，最大 64 KiB。多个 Activity 共用操作互斥锁，保存检查内容修订并使用 AtomicFile；读取先恢复中断写入的备份，再检查实际文件大小和修订。抓包期间禁止改设置，保存不会开启抓包或重载配置。这些设置和记录不随配置导出/备份。旧本机设置中的改写/脚本字段删除，同时清理本应用旧 CA 文件及专用 Keystore alias；旧配置扩展的解析/保存兼容由 [核心清理](libbox.md#旧抓包配置清理) 维护。
+[CaptureSettings.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureSettings.kt) 将筛选、HTTPS、独立的网络包/TLS 密钥开关和正文限额保存到私有 `noBackupFilesDir/http-debug/settings.json`，最大 64 KiB。两个原始数据开关默认关闭，`RootServer` 将已校验值传入固定采集器。多个 Activity 共用操作互斥锁，保存检查内容修订并使用 AtomicFile；读取先恢复中断写入的备份，再检查实际文件大小和修订。抓包期间禁止改设置，保存不会开启抓包或重载配置。这些设置和记录不随配置导出/备份。旧本机设置中的改写/脚本字段删除，同时清理本应用旧 CA 文件及专用 Keystore alias；旧配置扩展的解析/保存兼容由 [核心清理](libbox.md#旧抓包配置清理) 维护。
 
 [RootCaptureSession.kt](app/src/main/java/io/nekohasekai/sfa/bg/RootCaptureSession.kt) 只启动 APK 原生库目录中的固定采集器，通过 stdin 传递 UID/库设置，读取有界启动进度及 ready 消息。等待总时限为 25 秒，进度不延长时限；超时报告最后的内核加载、perf 缓冲或 TLS 库检查/挂载阶段，失败清理会话。进度不能代替包含有效版本及挂载库数的 ready。启动历史最多保留 64 条、64 KiB，保留时间及级别，在 ready 之后转换为日志事件交给 libbox；启动失败将阶段历史及原错误一并交回应用记录。标准错误独立排空并最多保留 4 KiB 诊断，就绪后及退出前转换为日志，链接器警告不作为采集数据解析。输出由私有 pipe 交给 libbox，没有网络监听或外部可执行文件下载。[IRootService](app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl) 使用事务 10，旧事务 2/3 保持空缺；独立 `ICaptureSession` 提供 FD 和关闭方法。会话在启动前登记，Binder owner 死亡、Root 服务销毁、核心重载/停止均关闭 stdin 和探针，避免遗留采集进程。
 
@@ -88,7 +88,7 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 采集器 ABI、内核/TLS 支持范围、无版本表自动识别、HTTP 解析、详细诊断日志及资源限额统一见 [libbox.md](libbox.md#httphttps-请求调试)。`BoxCapture` 通过独立的 `capture.logs` / `capture.logs.clear` 桥接读取和清空日志；启动 Root 失败也写入日志，操作失败提示引导用户查看详情。读取日志不依赖请求存储能否打开，清日志不删除请求。状态和日志的界面入口见 [flclash.md](flclash.md#导航与交互约定)。部分库的兼容性诊断保留活动状态与已挂载数量，不把库挂载成功视为所有应用均可抓取。CA 管理、证书模块生成、信任检查、HTTP 改写、脚本导入及相应页面/桥接均已移除。此前自行刷入的系统证书模块仍需在对应 Root 管理器中卸载。
 
-HAR/cURL 导出使用 Android 文档选择器；取消或写入失败不报告成功，临时文件用后删除。eBPF 日志通过已有的 `document.save` 导出当前筛选结果。域名查询继续用于抓包设置的筛选选择；页面与视觉验证见 [flclash.md](flclash.md#导航与交互约定)。
+HAR/cURL、pcapng 和 TLS key-log 导出使用 Android 文档选择器；取消或写入失败不报告成功，私有临时文件用后删除。pcapng 的实际网络包、密钥支持范围、按整条 TLS 连接导出及独立存储限额见 [核心实现](libbox.md#httphttps-请求调试)。清请求同时清除原始包和密钥；eBPF 日志通过已有的 `document.save` 导出当前筛选结果，清日志保持独立。域名查询继续用于抓包设置的筛选选择；页面与视觉验证见 [flclash.md](flclash.md#导航与交互约定)。
 
 ## 已移除能力与兼容入口
 
@@ -128,7 +128,7 @@ Release 调用 [newui.yml](.github/workflows/newui.yml) 完成核心、eBPF 采�
 | 入口 | 配置的验证范围 |
 | --- | --- |
 | [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入、Android 入口、旧 UI/更新依赖及退役抓包实现残留的静态检查 |
-| [newui.yml](.github/workflows/newui.yml) | `dev` / `newui` push、目标为这两个分支的 PR、手动触发或 Release 复用；仅 Markdown 的 push/PR 跳过。检查 Go 扩展、HTTP/eBPF 抓取及自动重定向布局，执行 Linux Root TLS/APK uprobe smoke，运行 Flutter 分析/交互/布局测试并构建 ARM64 Flutter AAR |
+| [newui.yml](.github/workflows/newui.yml) | `dev` / `newui` push、目标为这两个分支的 PR、手动触发或 Release 复用；仅 Markdown 的 push/PR 跳过。检查 Go 扩展、HTTP/eBPF 抓取及自动重定向布局，执行 Linux ARM64/x86_64 Root SSL/Go TLS 与 x86_64 APK smoke，独立解密同次样本的正式 pcapng 导出，运行 Flutter 分析/交互/布局测试并构建 ARM64 Flutter AAR |
 | [newui-android.yml](.github/workflows/newui-android.yml) | 手动触发；JVM 回归、`play` Kotlin 编译、`other` APK/仪器测试构建及 API 24/31/35 模拟器 smoke |
 | [build-release.yml](.github/workflows/build-release.yml) | 手动触发；复用完整核心/Flutter 验证，运行 JVM 测试、签名 ARM64 Release、安装身份/产物校验及可选发布 |
 

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/perf"
 	"golang.org/x/sys/unix"
 )
@@ -36,6 +37,8 @@ type collectorConfig struct {
 	Packages   map[string][]string `json:"packages"`
 	Libraries  []string            `json:"libraries"`
 	Targets    []string            `json:"targets"`
+	Packets    bool                `json:"captureNetwork"`
+	TLSKeys    bool                `json:"captureTlsKeys"`
 }
 
 func readConfig(reader *bufio.Reader) (collectorConfig, error) {
@@ -175,6 +178,13 @@ func run(encode func(any) error) error {
 	if err != nil {
 		return fmt.Errorf("load capture BPF object: %w", err)
 	}
+	socketSpec := spec.Copy()
+	for name := range socketSpec.Programs {
+		if name != "socket_enter" {
+			delete(socketSpec.Programs, name)
+		}
+	}
+	delete(spec.Programs, "socket_enter")
 	if err = progress("loading BPF programs and maps into the kernel"); err != nil {
 		return err
 	}
@@ -200,6 +210,13 @@ func run(encode func(any) error) error {
 	if err = collection.Maps["config"].Put(uint32(2), config.UserID); err != nil {
 		return err
 	}
+	keysEnabled := uint32(0)
+	if config.TLSKeys {
+		keysEnabled = 1
+	}
+	if err = collection.Maps["config"].Put(uint32(3), keysEnabled); err != nil {
+		return err
+	}
 	for _, uid := range config.UIDs {
 		if err = collection.Maps["uids"].Put(uid, uint8(1)); err != nil {
 			return err
@@ -213,6 +230,25 @@ func run(encode func(any) error) error {
 		return fmt.Errorf("open eBPF perf buffer: %w", err)
 	}
 	defer events.Close()
+	// Kernel BTF is optional. The ordinary SSL/Go probes above never depend
+	// on guessed task/file/socket offsets or this device's CO-RE support.
+	socketCollection, socketErr := ebpf.NewCollectionWithOptions(socketSpec, ebpf.CollectionOptions{MapReplacements: collection.Maps})
+	if socketErr == nil {
+		defer socketCollection.Close()
+		socketLink, attachErr := link.AttachRawTracepoint(link.RawTracepointOptions{Name: "sys_enter", Program: socketCollection.Programs["socket_enter"]})
+		socketErr = attachErr
+		if socketErr == nil {
+			defer socketLink.Close()
+			if err = progress("socket correlation attached using kernel BTF and TLS syscall context"); err != nil {
+				return err
+			}
+		}
+	}
+	if socketErr != nil {
+		if err = encode(diagnosticEvent("warn", fmt.Sprintf("socket correlation unavailable; endpoints remain unknown: %v", socketErr), true)); err != nil {
+			return err
+		}
+	}
 	type readResult struct {
 		record perf.Record
 		err    error
@@ -232,7 +268,46 @@ func run(encode func(any) error) error {
 		}
 	}()
 	go func() { <-ctx.Done(); events.Close() }()
-	emit := func(event pipeEvent) error { return encode(event) }
+	var packets *packetCapture
+	var packetReader *packetSource
+	var packetResults <-chan networkPacket
+	if config.Packets {
+		if socketErr != nil {
+			if err = encode(diagnosticEvent("warn", "Network packet capture unavailable without verified socket correlation", true)); err != nil {
+				return err
+			}
+		} else {
+			packets, err = newPacketCapture(func(event pipeEvent) error { return encode(event) })
+			if err == nil {
+				packetReader, err = openPacketSource()
+			}
+			if err != nil {
+				packets = nil
+				if err = encode(diagnosticEvent("warn", fmt.Sprintf("Network packet capture unavailable: %v", err), true)); err != nil {
+					return err
+				}
+			} else {
+				packetContext, stopPackets := context.WithCancel(ctx)
+				packetDone := make(chan struct{})
+				queue := make(chan networkPacket, 256)
+				packetResults = queue
+				go func() { defer close(packetDone); packetReader.read(packetContext, queue) }()
+				defer func() { stopPackets(); <-packetDone; unix.Close(packetReader.fd) }()
+				if err = progress("network packet capture ready; only verified target TLS sockets will be saved"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	emit := func(event pipeEvent) error {
+		if err := encode(event); err != nil {
+			return err
+		}
+		if packets != nil {
+			return packets.observe(event)
+		}
+		return nil
+	}
 	assembler := newAssembler(config, emit)
 
 	// Discovery owns its links and can inspect slow APK/debug-data files without
@@ -260,6 +335,7 @@ func run(encode func(any) error) error {
 		<-discoveryDone
 	}()
 	var activeResults <-chan readResult
+	var activePackets <-chan networkPacket
 	cleanup := time.NewTicker(3 * time.Second)
 	defer cleanup.Stop()
 	health := time.NewTicker(250 * time.Millisecond)
@@ -292,6 +368,7 @@ func run(encode func(any) error) error {
 				// A probe may already have produced data. Keep it buffered until
 				// ready has been written as the first capture event.
 				activeResults = results
+				activePackets = packetResults
 			}
 		case result := <-activeResults:
 			if result.err != nil {
@@ -310,6 +387,17 @@ func run(encode func(any) error) error {
 			if err = assembler.accept(event); err != nil {
 				return err
 			}
+		case packet := <-activePackets:
+			if packet.err != nil {
+				activePackets = nil
+				if err = emit(pipeEvent{Type: "packet_loss", Error: fmt.Sprintf("Network packet reader stopped: %v", packet.err)}); err != nil {
+					return err
+				}
+				continue
+			}
+			if err = packets.accept(packet); err != nil {
+				return err
+			}
 		case now := <-health.C:
 			if activeResults == nil {
 				continue
@@ -326,6 +414,20 @@ func run(encode func(any) error) error {
 			if err = assembler.checkLoss(now); err != nil {
 				return err
 			}
+			if activePackets != nil {
+				dropped, lossErr := packetReader.losses()
+				if lossErr != nil || dropped > 0 {
+					reason := fmt.Sprintf("Network packet capture lost %d packets; pcapng is incomplete", dropped)
+					if lossErr != nil {
+						reason = lossErr.Error()
+						activePackets = nil
+					}
+					if err = emit(pipeEvent{Type: "packet_loss", PacketLength: int(dropped), Error: reason}); err != nil {
+						return err
+					}
+				}
+				packets.expire(now)
+			}
 		case <-cleanup.C:
 			if activeResults == nil {
 				continue
@@ -341,7 +443,10 @@ type connectionKey struct {
 	SSL      uint64
 	PID, Pad uint32
 }
-type connectionValue struct{ Generation, WriteSequence, ReadSequence uint64 }
+type connectionValue struct {
+	Generation, WriteSequence, ReadSequence uint64
+	Adapter, Pad                            uint32
+}
 type ownerKey struct {
 	SSL, Generation uint64
 	PID, Direction  uint32
@@ -358,6 +463,19 @@ type callKey struct {
 type callValue struct {
 	SSL, Generation, Buffer, Requested, CountPointer, Stack uint64
 	Depth, Extended                                         uint32
+}
+type goCallKey struct {
+	G              uint64
+	PID, Direction uint32
+}
+type goCallValue struct {
+	Call                callValue
+	StackLow, StackHigh uint64
+}
+type goHandshakeValue struct{ SSL, Generation, Stack, StackLow, StackHigh uint64 }
+type socketIdentity struct {
+	Inode, Socket   uint64
+	NetNS, Conflict uint32
 }
 
 func cleanupExited(collection *ebpf.Collection, assembler *eventAssembler) error {
@@ -403,6 +521,44 @@ func cleanupExited(collection *ebpf.Collection, assembler *eventAssembler) error
 	}
 	var key connectionKey
 	var value connectionValue
+	var goKey goCallKey
+	var goCall goCallValue
+	iterator = collection.Maps["go_calls"].Iterate()
+	for iterator.Next(&goKey, &goCall) {
+		err := collection.Maps["connections"].Lookup(connectionKey{SSL: goCall.Call.SSL, PID: goKey.PID}, &value)
+		if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+			return err
+		}
+		if !exists(goKey.PID) {
+			if err == nil && value.Generation == goCall.Call.Generation {
+				if err := assembler.accept(rawEvent{ssl: goCall.Call.SSL, generation: goCall.Call.Generation, pid: goKey.PID, kind: 5, flags: 4}); err != nil {
+					return err
+				}
+			}
+		} else if goCall.Call.Generation == 0 || err == nil && value.Generation == goCall.Call.Generation {
+			continue
+		}
+		_ = collection.Maps["go_calls"].Delete(goKey)
+		_ = collection.Maps["owners"].Delete(ownerKey{SSL: goCall.Call.SSL, Generation: goCall.Call.Generation, PID: goKey.PID, Direction: goKey.Direction})
+	}
+	if err := iterator.Err(); err != nil {
+		return err
+	}
+	var handshake goHandshakeValue
+	iterator = collection.Maps["go_handshakes"].Iterate()
+	for iterator.Next(&goKey, &handshake) {
+		err := collection.Maps["connections"].Lookup(connectionKey{SSL: handshake.SSL, PID: goKey.PID}, &value)
+		if err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+			return err
+		}
+		if !exists(goKey.PID) || err != nil || value.Generation != handshake.Generation {
+			_ = collection.Maps["go_handshakes"].Delete(goKey)
+			_ = collection.Maps["owners"].Delete(ownerKey{SSL: handshake.SSL, Generation: handshake.Generation, PID: goKey.PID})
+		}
+	}
+	if err := iterator.Err(); err != nil {
+		return err
+	}
 	iterator = collection.Maps["connections"].Iterate()
 	for iterator.Next(&key, &value) {
 		if exists(key.PID) {
@@ -423,6 +579,19 @@ func cleanupExited(collection *ebpf.Collection, assembler *eventAssembler) error
 	// SSL_free may race the interrupted-call update above. Retain failure
 	// markers only while the corresponding generation still exists.
 	var session sessionKey
+	var socket socketIdentity
+	iterator = collection.Maps["socket_seen"].Iterate()
+	for iterator.Next(&session, &socket) {
+		err := collection.Maps["connections"].Lookup(connectionKey{SSL: session.SSL, PID: session.PID}, &value)
+		if errors.Is(err, ebpf.ErrKeyNotExist) || err == nil && value.Generation != session.Generation {
+			_ = collection.Maps["socket_seen"].Delete(session)
+		} else if err != nil {
+			return err
+		}
+	}
+	if err := iterator.Err(); err != nil {
+		return err
+	}
 	var reason uint32
 	iterator = collection.Maps["broken"].Iterate()
 	for iterator.Next(&session, &reason) {

@@ -129,6 +129,23 @@ func ExportUICaptureCurl(id string) (string, error) {
 	return store.Curl(id)
 }
 
+func ExportUICaptureWire(path, format, query string) error {
+	store, err := httpdebug.Saved()
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	err = store.WriteWire(file, format, query)
+	closeErr := file.Close()
+	if err != nil {
+		return err
+	}
+	return closeErr
+}
+
 func captureJSON(value any) (string, error) {
 	data, err := json.Marshal(value)
 	return string(data), err

@@ -14,6 +14,7 @@ var (
 	store            *Store
 	active           atomic.Pointer[Engine]
 	lastCaptureError string
+	lastCaptureState State
 )
 
 // Open initializes the private store even when capture is disabled, so saved
@@ -55,6 +56,7 @@ func Start(directory, configJSON string, reader io.ReadCloser, closeSource func(
 	engine := newEngine(config, store)
 	engine.reader, engine.closeSource = reader, closeSource
 	lastCaptureError = ""
+	lastCaptureState = State{}
 	active.Store(engine)
 	if reader != nil {
 		AppendCaptureLog("info", fmt.Sprintf("eBPF capture connected to the local service; ports=%v; body limit=%d bytes", config.Ports, config.BodyLimit))
@@ -81,6 +83,7 @@ func Stop() {
 			AppendCaptureLog("info", "Stopping eBPF capture and releasing the collector")
 		}
 		engine.Close()
+		lastCaptureState = engine.captureState()
 		if engine.config.HTTPS {
 			AppendCaptureLog("info", "eBPF capture stopped")
 		}
@@ -99,13 +102,22 @@ func Saved() (*Store, error) {
 }
 
 type State struct {
-	Backend     string `json:"backend"`
-	Error       string `json:"error,omitempty"`
-	Libraries   int64  `json:"libraries"`
-	Scanning    bool   `json:"scanning"`
-	Active      bool   `json:"active"`
-	Connections int    `json:"connections"`
-	Skipped     int64  `json:"skipped"`
+	Backend              string    `json:"backend"`
+	Error                string    `json:"error,omitempty"`
+	Libraries            int64     `json:"libraries"`
+	Scanning             bool      `json:"scanning"`
+	Active               bool      `json:"active"`
+	Connections          int       `json:"connections"`
+	Skipped              int64     `json:"skipped"`
+	TLSOpened            int64     `json:"tlsOpened"`
+	GoTLSOpened          int64     `json:"goTlsOpened"`
+	SocketConnections    int64     `json:"socketConnections"`
+	PlaintextConnections int64     `json:"plaintextConnections"`
+	PlaintextBytes       int64     `json:"plaintextBytes"`
+	ParsedRequests       int64     `json:"parsedRequests"`
+	FilteredRequests     int64     `json:"filteredRequests"`
+	RecordedRequests     int64     `json:"recordedRequests"`
+	Wire                 wireState `json:"wire"`
 }
 
 func Status() State {
@@ -113,8 +125,19 @@ func Status() State {
 	defer managerMu.Unlock()
 	engine := Current()
 	if engine == nil {
-		return State{Error: lastCaptureError}
+		state := lastCaptureState
+		if lastCaptureError != "" {
+			state.Error = lastCaptureError
+		}
+		if store != nil {
+			state.Wire = store.wire.state()
+		}
+		return state
 	}
+	return engine.captureState()
+}
+
+func (engine *Engine) captureState() State {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 	backend := "HTTP"
@@ -129,7 +152,11 @@ func Status() State {
 	}
 	return State{Active: !engine.closed, Backend: backend, Error: warning,
 		Connections: len(engine.connections) + engine.passive.count(),
-		Skipped:     engine.skipped.Load(), Libraries: engine.libraries.Load(), Scanning: engine.scanning.Load()}
+		Skipped:     engine.skipped.Load(), Libraries: engine.libraries.Load(), Scanning: engine.scanning.Load(),
+		TLSOpened: engine.tlsOpened.Load(), GoTLSOpened: engine.goOpened.Load(), SocketConnections: engine.socketConnections.Load(),
+		PlaintextConnections: engine.plaintextConnections.Load(), PlaintextBytes: engine.plaintextBytes.Load(),
+		ParsedRequests: engine.parsedRequests.Load(), FilteredRequests: engine.filteredRequests.Load(), RecordedRequests: engine.recordedRequests.Load(),
+		Wire: engine.store.wire.state()}
 }
 
 func failCapture(engine *Engine, err error) {
@@ -139,5 +166,6 @@ func failCapture(engine *Engine, err error) {
 		lastCaptureError = err.Error()
 		AppendCaptureLog("error", lastCaptureError)
 		engine.Close()
+		lastCaptureState = engine.captureState()
 	}
 }

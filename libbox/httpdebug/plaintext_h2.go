@@ -27,6 +27,7 @@ type plaintextH2Stream struct {
 	id           string
 	requestReady chan struct{}
 	method       string
+	closed       bool
 	headers      [2]bool
 	ended        [2]bool
 	length       [2]int64
@@ -71,8 +72,10 @@ func (h *plaintextH2) stream(id uint32, response bool) (*plaintextH2Stream, erro
 	if stream := h.streams[id]; stream != nil {
 		return stream, nil
 	}
-	if !response && id <= h.lastRequest {
-		return nil, errors.New("HTTP/2 stream reused after completion")
+	if id <= h.lastRequest {
+		// Closed streams need no tombstones: the client opens streams in order.
+		// Their HEADERS have already passed through the shared HPACK decoder.
+		return nil, nil
 	}
 	if len(h.streams) >= 32 {
 		return nil, errors.New("HTTP/2 capture exceeds 32 concurrent streams")
@@ -107,15 +110,12 @@ func (h *plaintextH2) read(input io.Reader, response bool) error {
 			if err != nil {
 				return err
 			}
+			if stream == nil {
+				continue
+			}
 			if response {
-				select {
-				case <-stream.requestReady:
-				case <-h.requestDone:
-					select {
-					case <-stream.requestReady:
-					default:
-						return errors.New("HTTP/2 response has no captured request")
-					}
+				if err := h.waitRequest(stream); err != nil {
+					return err
 				}
 			}
 			if err = h.headers(stream, frame, response); err != nil {
@@ -124,6 +124,10 @@ func (h *plaintextH2) read(input io.Reader, response bool) error {
 		case *http2.DataFrame:
 			h.mu.Lock()
 			stream := h.streams[frame.StreamID]
+			if stream == nil && frame.StreamID != 0 && frame.StreamID%2 == 1 && frame.StreamID <= h.lastRequest {
+				h.mu.Unlock()
+				continue // In-flight data may arrive after the other side reset.
+			}
 			index := 0
 			if response {
 				index = 1
@@ -142,7 +146,9 @@ func (h *plaintextH2) read(input io.Reader, response bool) error {
 				return err
 			}
 		case *http2.RSTStreamFrame:
-			return fmt.Errorf("HTTP/2 stream %d reset (%s); reconnect to capture subsequent streams", frame.StreamID, frame.ErrCode)
+			if err := h.reset(frame, response); err != nil {
+				return err
+			}
 		case *http2.GoAwayFrame:
 			if frame.ErrCode != http2.ErrCodeNo {
 				return fmt.Errorf("HTTP/2 GOAWAY: %s", frame.ErrCode)
@@ -151,9 +157,54 @@ func (h *plaintextH2) read(input io.Reader, response bool) error {
 	}
 }
 
+func (h *plaintextH2) waitRequest(stream *plaintextH2Stream) error {
+	select {
+	case <-stream.requestReady:
+		return nil
+	case <-h.requestDone:
+		select {
+		case <-stream.requestReady:
+			return nil
+		default:
+			return errors.New("HTTP/2 response has no captured request")
+		}
+	}
+}
+
+func (h *plaintextH2) reset(frame *http2.RSTStreamFrame, response bool) error {
+	stream, err := h.stream(frame.StreamID, response)
+	if err != nil || stream == nil {
+		return err
+	}
+	if response {
+		// Perf and the two parsers can deliver the server reset before the
+		// client's HEADERS. Retain that request and mark only it incomplete.
+		if err := h.waitRequest(stream); err != nil {
+			return err
+		}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if stream.closed {
+		return nil
+	}
+	if !stream.headers[0] {
+		return errors.New("HTTP/2 reset of an idle stream")
+	}
+	stream.closed = true
+	delete(h.streams, frame.StreamID)
+	reason := fmt.Errorf("HTTP/2 stream %d reset (%s)", frame.StreamID, frame.ErrCode)
+	h.flow.cancel(stream.id, reason)
+	AppendCaptureLog("debug", fmt.Sprintf("TLS connection %s: %s; other streams remain active", h.flow.id, reason))
+	return nil
+}
+
 func (h *plaintextH2) headers(stream *plaintextH2Stream, frame *http2.MetaHeadersFrame, response bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if stream.closed {
+		return nil
+	}
 	index := 0
 	if response {
 		index = 1
@@ -242,6 +293,7 @@ func (h *plaintextH2) endLocked(stream *plaintextH2Stream, streamID uint32, resp
 	stream.ended[index] = true
 	h.flow.complete(stream.id, response)
 	if stream.ended[0] && stream.ended[1] {
+		stream.closed = true
 		delete(h.streams, streamID)
 	}
 	return nil

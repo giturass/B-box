@@ -34,6 +34,8 @@ type Config struct {
 	DecryptBypassHosts []string `json:"decryptBypassHosts,omitempty"`
 	ExtractHosts       bool     `json:"extractHosts,omitempty"`
 	TLSLibraries       []string `json:"tlsLibraries,omitempty"`
+	CaptureNetwork     bool     `json:"captureNetwork,omitempty"`
+	CaptureTLSKeys     bool     `json:"captureTlsKeys,omitempty"`
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
@@ -122,19 +124,30 @@ func validHost(host string) bool {
 }
 
 type Metadata struct {
-	Host                string   `json:"host"`
-	Port                uint16   `json:"port"`
-	Protocol            string   `json:"protocol"`
-	Source              string   `json:"source"`
-	Destination         string   `json:"destination"`
-	OriginalDestination string   `json:"originalDestination,omitempty"`
-	Inbound             string   `json:"inbound"`
-	Outbound            string   `json:"outbound"`
-	Rule                string   `json:"rule"`
-	UID                 int32    `json:"uid"`
-	Packages            []string `json:"packages"`
-	CaptureSource       string   `json:"captureSource,omitempty"`
-	PID                 uint32   `json:"pid,omitempty"`
+	Host                string          `json:"host"`
+	Port                uint16          `json:"port"`
+	Protocol            string          `json:"protocol"`
+	Source              string          `json:"source"`
+	Destination         string          `json:"destination"`
+	OriginalDestination string          `json:"originalDestination,omitempty"`
+	Inbound             string          `json:"inbound"`
+	Outbound            string          `json:"outbound"`
+	Rule                string          `json:"rule"`
+	UID                 int32           `json:"uid"`
+	Packages            []string        `json:"packages"`
+	CaptureSource       string          `json:"captureSource,omitempty"`
+	PID                 uint32          `json:"pid,omitempty"`
+	CaptureID           string          `json:"captureId,omitempty"`
+	TLSAdapter          string          `json:"tlsAdapter,omitempty"`
+	Socket              *SocketMetadata `json:"socket,omitempty"`
+}
+
+type SocketMetadata struct {
+	FD          int32  `json:"fd"`
+	Inode       string `json:"inode"`
+	NetNS       uint32 `json:"netns"`
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
 }
 
 func (c Config) candidate(m Metadata) bool {

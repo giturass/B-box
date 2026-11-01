@@ -87,6 +87,7 @@ type Store struct {
 	order      []string
 	totalBytes int64
 	lastError  string
+	wire       *wireStore
 }
 
 func OpenStore(directory string) (*Store, error) {
@@ -101,6 +102,10 @@ func OpenStore(directory string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{directory: directory, records: make(map[string]*Exchange)}
+	s.wire, err = openWireStore(filepath.Join(directory, "wire"))
+	if err != nil {
+		return nil, err
+	}
 	for _, entry := range entries {
 		name := entry.Name()
 		id := strings.TrimSuffix(name, ".json")
@@ -227,6 +232,21 @@ func (s *Store) addNote(id, note string) {
 		}
 		record.Note += note
 	}
+}
+
+func (s *Store) updateSocket(captureID string, socket *SocketMetadata) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, record := range s.records {
+		if record.Metadata.CaptureID != captureID {
+			continue
+		}
+		oldNote := tlsCaptureNote(record.Metadata.Socket)
+		record.Metadata.setSocket(socket)
+		record.Note = strings.Replace(record.Note, oldNote, tlsCaptureNote(socket), 1)
+		s.persistLocked(record)
+	}
+	s.trimLocked()
 }
 
 func (s *Store) domainOnly(id string) {
@@ -388,6 +408,7 @@ func (s *Store) Clear() {
 		s.removeLocked(id)
 	}
 	s.order = nil
+	s.wire.clear()
 }
 
 func (s *Store) Page(limit int, query string) Page {

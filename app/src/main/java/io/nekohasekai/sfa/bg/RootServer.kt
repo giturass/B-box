@@ -78,6 +78,8 @@ class RootServer : RootService() {
                 .put("packages", JSONObject(byUID.mapKeys { it.key.toString() }))
                 .put("libraries", options.optJSONArray("tlsLibraries") ?: JSONArray())
                 .put("targets", JSONArray(targets))
+                .put("captureNetwork", options.optBoolean("captureNetwork"))
+                .put("captureTlsKeys", options.optBoolean("captureTlsKeys"))
             val session = synchronized(autoRedirectLifecycle) {
                 check(!destroyed) { "Root service is stopping" }
                 check(captureSessions.isEmpty()) { "An eBPF capture session is already running" }

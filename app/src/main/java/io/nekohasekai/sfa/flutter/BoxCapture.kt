@@ -128,6 +128,8 @@ internal class BoxCapture(private val activity: BoxActivity) {
             "curl" -> "B-box-request.sh"
             "har" -> "B-box-requests.har"
             "domains" -> "B-box-domains.txt"
+            "pcapng" -> "B-box-packets.pcapng"
+            "keys" -> "B-box-tls-keys.log"
             else -> error("Unknown capture export format")
         }
         val destination = activity.pickDocument(name) ?: return false
@@ -144,6 +146,9 @@ internal class BoxCapture(private val activity: BoxActivity) {
                         val domains = JSONArray(Libbox.extractUICaptureHosts((args["query"] as? String).orEmpty().take(1024)))
                         file.writeText(List(domains.length()) { domains.getString(it) }.joinToString("\n", postfix = "\n"))
                     }
+                    args["format"] == "pcapng" || args["format"] == "keys" -> Libbox.exportUICaptureWire(
+                        file.absolutePath, args["format"] as String, (args["query"] as? String).orEmpty().take(1024),
+                    )
                     else -> Libbox.exportUICaptureHAR(file.absolutePath, (args["query"] as? String).orEmpty().take(1024))
                 }
                 activity.contentResolver.openOutputStream(destination, "wt")?.use { output ->

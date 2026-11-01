@@ -21,19 +21,27 @@ import (
 type DialFunc func(context.Context) (net.Conn, error)
 
 type Engine struct {
-	config      Config
-	store       *Store
-	mu          sync.Mutex
-	wg          sync.WaitGroup
-	closed      bool
-	connections map[net.Conn]context.CancelFunc
-	skipped     atomic.Int64
-	passive     *plaintextCapture
-	reader      io.ReadCloser
-	closeSource func()
-	libraries   atomic.Int64
-	scanning    atomic.Bool
-	warning     atomic.Pointer[string]
+	config               Config
+	store                *Store
+	mu                   sync.Mutex
+	wg                   sync.WaitGroup
+	closed               bool
+	connections          map[net.Conn]context.CancelFunc
+	skipped              atomic.Int64
+	passive              *plaintextCapture
+	reader               io.ReadCloser
+	closeSource          func()
+	libraries            atomic.Int64
+	scanning             atomic.Bool
+	warning              atomic.Pointer[string]
+	tlsOpened            atomic.Int64
+	goOpened             atomic.Int64
+	socketConnections    atomic.Int64
+	plaintextConnections atomic.Int64
+	plaintextBytes       atomic.Int64
+	parsedRequests       atomic.Int64
+	filteredRequests     atomic.Int64
+	recordedRequests     atomic.Int64
 }
 
 func newEngine(config Config, store *Store) *Engine {

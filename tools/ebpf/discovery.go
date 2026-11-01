@@ -243,8 +243,9 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 		}
 		if err != nil && !errors.Is(err, errStopDiscovery) {
 			var unsupported *unsupportedChromiumError
+			var unsupportedGo *unsupportedGoTLSError
 			level := "debug"
-			if d.explicit[path] || errors.As(err, &unsupported) {
+			if d.explicit[path] || errors.As(err, &unsupported) || errors.As(err, &unsupportedGo) {
 				d.warn(filepath.Base(path) + ": " + err.Error())
 				level = "warn"
 			}

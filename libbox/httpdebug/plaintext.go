@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"sync"
@@ -15,23 +16,32 @@ import (
 )
 
 // This is a private, versioned pipe protocol, not a sing-box configuration or
-// network service. A flow starts only after an observed SSL_new.
+// network service. A flow starts only after an observed SSL_new or Go client
+// handshake, never from bytes belonging to an already established TLS session.
 type plaintextEvent struct {
-	Type      string   `json:"type"`
-	Version   int      `json:"version,omitempty"`
-	ID        string   `json:"id,omitempty"`
-	PID       uint32   `json:"pid,omitempty"`
-	UID       int32    `json:"uid,omitempty"`
-	Packages  []string `json:"packages,omitempty"`
-	Direction string   `json:"direction,omitempty"`
-	Data      []byte   `json:"data,omitempty"`
-	Gap       bool     `json:"gap,omitempty"`
-	Libraries int64    `json:"libraries,omitempty"`
-	Scanning  bool     `json:"scanning,omitempty"`
-	Error     string   `json:"error,omitempty"`
-	Time      int64    `json:"time,omitempty"`
-	Level     string   `json:"level,omitempty"`
-	Message   string   `json:"message,omitempty"`
+	Type           string          `json:"type"`
+	Version        int             `json:"version,omitempty"`
+	ID             string          `json:"id,omitempty"`
+	PID            uint32          `json:"pid,omitempty"`
+	UID            int32           `json:"uid,omitempty"`
+	Packages       []string        `json:"packages,omitempty"`
+	Direction      string          `json:"direction,omitempty"`
+	Data           []byte          `json:"data,omitempty"`
+	Gap            bool            `json:"gap,omitempty"`
+	Libraries      int64           `json:"libraries,omitempty"`
+	Scanning       bool            `json:"scanning,omitempty"`
+	Error          string          `json:"error,omitempty"`
+	Time           int64           `json:"time,omitempty"`
+	Level          string          `json:"level,omitempty"`
+	Message        string          `json:"message,omitempty"`
+	Adapter        string          `json:"adapter,omitempty"`
+	Socket         *SocketMetadata `json:"socket,omitempty"`
+	SocketConflict bool            `json:"socketConflict,omitempty"`
+	TimestampNS    int64           `json:"timestampNs,omitempty"`
+	PacketLength   int             `json:"packetLength,omitempty"`
+	Label          string          `json:"label,omitempty"`
+	ClientRandom   []byte          `json:"clientRandom,omitempty"`
+	Secret         []byte          `json:"secret,omitempty"`
 }
 
 func (e *Engine) readPlaintext(reader io.Reader) {
@@ -105,6 +115,13 @@ func (e *Engine) readPlaintext(reader io.Reader) {
 			}
 			continue
 		}
+		if event.Type == "packet" || event.Type == "secret" || event.Type == "packet_loss" {
+			if err := e.acceptWire(event); err != nil {
+				failCapture(e, err)
+				return
+			}
+			continue
+		}
 		if err := e.passive.accept(event); err != nil {
 			failCapture(e, err)
 			return
@@ -115,6 +132,37 @@ func (e *Engine) readPlaintext(reader io.Reader) {
 		err = errors.New("eBPF collector disconnected")
 	}
 	failCapture(e, err)
+}
+
+func (e *Engine) acceptWire(event plaintextEvent) error {
+	if event.Type == "packet_loss" {
+		if !e.config.CaptureNetwork || event.PacketLength < 0 {
+			return errors.New("unexpected packet loss event")
+		}
+		reason := fmt.Sprintf("%.1024s", event.Error)
+		if reason == "" {
+			reason = "Network packet capture is incomplete"
+		}
+		e.store.wire.warn(reason)
+		AppendCaptureLog("warn", reason)
+		return nil
+	}
+	record := wireRecord{Type: event.Type}
+	if event.Type == "packet" {
+		if !e.config.CaptureNetwork {
+			return errors.New("unexpected network packet event")
+		}
+		record.Time, record.Length, record.Data = event.TimestampNS, event.PacketLength, event.Data
+	} else {
+		if !e.config.CaptureTLSKeys {
+			return errors.New("unexpected TLS key event")
+		}
+		record.Label, record.Random, record.Secret = event.Label, event.ClientRandom, event.Secret
+	}
+	if err := e.store.wire.append(event.ID, record); err != nil {
+		return fmt.Errorf("save raw TLS capture: %w", err)
+	}
+	return nil
 }
 
 type pendingFlow struct {
@@ -166,9 +214,45 @@ func (p *plaintextCapture) accept(event plaintextEvent) error {
 			AppendCaptureLog("warn", fmt.Sprintf("TLS connection %s skipped: pending connection limit reached; PID=%d UID=%d", event.ID, event.PID, event.UID))
 			return nil
 		}
+		if event.Adapter != "" && event.Adapter != "Go TLS" && event.Adapter != "OpenSSL/BoringSSL" {
+			return errors.New("unknown TLS capture adapter")
+		}
+		p.engine.tlsOpened.Add(1)
+		if event.Adapter == "Go TLS" {
+			p.engine.goOpened.Add(1)
+		}
 		p.known[event.ID] = pendingFlow{Metadata{Protocol: "tls", UID: event.UID, PID: event.PID,
-			Packages: event.Packages, CaptureSource: "eBPF"}, now}
+			Packages: event.Packages, CaptureSource: "eBPF", CaptureID: event.ID, TLSAdapter: event.Adapter}, now}
 		AppendCaptureLog("debug", fmt.Sprintf("TLS connection opened: id=%s PID=%d UID=%d packages=%v", event.ID, event.PID, event.UID, event.Packages))
+	case "socket":
+		if !event.SocketConflict {
+			if event.Socket == nil || event.Socket.validate() != nil {
+				return errors.New("invalid TLS socket metadata")
+			}
+		} else {
+			event.Socket = nil
+		}
+		if pending, ok := p.known[event.ID]; ok {
+			if pending.metadata.Socket == nil && event.Socket != nil {
+				p.engine.socketConnections.Add(1)
+			}
+			pending.metadata.setSocket(event.Socket)
+			p.known[event.ID] = pending
+		}
+		if flow := p.flows[event.ID]; flow != nil {
+			flow.mu.Lock()
+			if flow.metadata.Socket == nil && event.Socket != nil {
+				p.engine.socketConnections.Add(1)
+			}
+			flow.metadata.setSocket(event.Socket)
+			flow.mu.Unlock()
+		}
+		p.engine.store.updateSocket(event.ID, event.Socket)
+		if event.SocketConflict {
+			AppendCaptureLog("warn", fmt.Sprintf("TLS socket association cleared: id=%s used more than one socket", event.ID))
+		} else {
+			AppendCaptureLog("debug", fmt.Sprintf("TLS socket observed: id=%s fd=%d inode=%s %s -> %s", event.ID, event.Socket.FD, event.Socket.Inode, event.Socket.Source, event.Socket.Destination))
+		}
 	case "data":
 		if event.Direction != "read" && event.Direction != "write" {
 			return errors.New("invalid eBPF direction")
@@ -204,6 +288,11 @@ func (p *plaintextCapture) accept(event plaintextEvent) error {
 			}
 			flow.stop(errors.New(reason))
 		} else if len(event.Data) > 0 {
+			if flow.readBytes.Load()+flow.writeBytes.Load() == 0 {
+				p.engine.plaintextConnections.Add(1)
+				AppendCaptureLog("info", fmt.Sprintf("TLS plaintext received: id=%s; HTTP parsing started", event.ID))
+			}
+			p.engine.plaintextBytes.Add(int64(len(event.Data)))
 			flow.lastActivity.Store(now.Unix())
 			input := flow.request
 			if event.Direction == "read" {
@@ -374,6 +463,12 @@ func (f *plaintextFlow) run() {
 }
 
 func (f *plaintextFlow) begin(request *http.Request) string {
+	f.engine.parsedRequests.Add(1)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// Keep the metadata snapshot and record creation in the same critical
+	// section. A concurrent socket event must update either this snapshot or
+	// the stored record, including its capture note.
 	metadata := f.metadata
 	metadata.Host = normalizeHost(request.URL.Hostname())
 	port := 443
@@ -386,16 +481,47 @@ func (f *plaintextFlow) begin(request *http.Request) string {
 	}
 	metadata.Port = uint16(port)
 	if !validHost(metadata.Host) || !f.engine.config.matches(metadata) {
+		f.engine.filteredRequests.Add(1)
 		return ""
 	}
 	id := f.engine.store.begin(metadata, request, f.engine.config.BodyLimit)
-	f.engine.store.addNote(id, "TLS plaintext observed with eBPF. Port is the HTTP authority port; socket endpoints and sing-box route are unavailable.")
+	f.engine.store.addNote(id, tlsCaptureNote(metadata.Socket))
 	if id != "" {
-		f.mu.Lock()
+		if f.engine.recordedRequests.Add(1) == 1 {
+			AppendCaptureLog("info", "First TLS HTTP request parsed and saved")
+		}
 		f.records[id] = [2]bool{}
-		f.mu.Unlock()
 	}
 	return id
+}
+
+func (s *SocketMetadata) validate() error {
+	if s == nil || s.FD < 0 || s.NetNS == 0 || len(s.Inode) > 16 {
+		return errors.New("invalid socket identity")
+	}
+	if inode, err := strconv.ParseUint(s.Inode, 16, 64); err != nil || inode == 0 {
+		return errors.New("invalid socket inode")
+	}
+	for _, value := range []string{s.Source, s.Destination} {
+		address, err := netip.ParseAddrPort(value)
+		if err != nil || address.Port() == 0 || address.Addr().IsUnspecified() {
+			return errors.New("invalid socket endpoint")
+		}
+	}
+	return nil
+}
+func (m *Metadata) setSocket(socket *SocketMetadata) {
+	m.Socket = socket
+	m.Source, m.Destination = "", ""
+	if socket != nil {
+		m.Source, m.Destination = socket.Source, socket.Destination
+	}
+}
+func tlsCaptureNote(socket *SocketMetadata) string {
+	if socket != nil {
+		return "TLS plaintext observed with eBPF. Socket endpoints were observed during TLS I/O. Port is the HTTP authority port; sing-box route is unavailable."
+	}
+	return "TLS plaintext observed with eBPF. Port is the HTTP authority port; socket endpoints and sing-box route are unavailable."
 }
 func (f *plaintextFlow) complete(id string, response bool) {
 	if id == "" {
@@ -419,6 +545,17 @@ func (f *plaintextFlow) complete(id string, response bool) {
 	} else {
 		f.records[id] = done
 	}
+}
+
+func (f *plaintextFlow) cancel(id string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, pending := f.records[id]; !pending {
+		return
+	}
+	f.engine.store.setError(id, err)
+	f.engine.store.finish(id)
+	delete(f.records, id)
 }
 
 func (f *plaintextFlow) requestURL(r *http.Request) error {

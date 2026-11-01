@@ -22,10 +22,18 @@ stackplz 的模块文件使用相邻目录替换依赖，未固定该 fork 的 S
 
 TLS 生命周期还依据 [OpenSSL 3.0 的 state_machine](https://github.com/openssl/openssl/blob/openssl-3.0.13/ssl/statem/statem.c)：首次 `SSL_read`/`SSL_write` 可能在内部调用 `SSL_clear` 初始化握手。采集器区分尚无明文字节的同线程初始化与已有流的重置，避免把正常首个 I/O 当作缺口；该行为由真实 OpenSSL 和 APK 测试库共同覆盖。
 
+[eCapture](https://github.com/gojue/ecapture/tree/331d546405b79731e1ea6189fe17e479f3bdb2d3) 固定参考提交为 `331d546405b79731e1ea6189fe17e479f3bdb2d3`（Apache-2.0）：[Go TLS 模块](https://github.com/gojue/ecapture/blob/331d546405b79731e1ea6189fe17e479f3bdb2d3/internal/probe/gotls/gotls_probe.go)、[Go 内核探针](https://github.com/gojue/ecapture/blob/331d546405b79731e1ea6189fe17e479f3bdb2d3/kern/gotls_kern.c) 和 [连接缓存](https://github.com/gojue/ecapture/blob/331d546405b79731e1ea6189fe17e479f3bdb2d3/internal/probe/openssl/connection_cache.go) 提供函数定位、寄存器 ABI、连接代次和 pcapng 独立解密的参考。B-box 自行实现对应适配，未引入其可执行文件或 TLS 私有结构版本表。
+
+Go 实现依据 [ABIInternal](https://github.com/golang/go/blob/go1.26.10/src/cmd/compile/abi-internal.md)、[runtime.g/stack](https://github.com/golang/go/blob/go1.26.10/src/runtime/runtime2.go) 和 [crypto/tls.writeKeyLog](https://github.com/golang/go/blob/go1.26.10/src/crypto/tls/common.go)：以 g 而非系统线程配对 I/O，处理栈搬移，在函数入口被动读取已生成密钥，不要求应用启用 `KeyLogWriter`。x86 返回指令使用 `golang.org/x/arch/x86/x86asm` v0.32.0 解码，依赖固定在 [go.mod](go.mod)，BSD 许可保存在 [golang-x-arch-LICENSE](../../flutter/assets/licenses/golang-x-arch-LICENSE)。Go 版本/编译器门限和功能边界由 [libbox.md](../../libbox.md#httphttps-请求调试) 维护。
+
+可选 socket 探针用设备 BTF 的 CO-RE 重定位读取实际 FD/file/socket，不使用固定内核字段偏移；库加载与字段重定位依据上述 ebpf fork。原始网络包遵循 [packet(7)](https://man7.org/linux/man-pages/man7/packet.7.html) 的 AF_PACKET `SOCK_DGRAM` 语义，输出真实 IP 包；pcapng 使用 [pcapng 格式说明](https://www.ietf.org/archive/id/draft-ietf-opsawg-pcapng-05.html) 中的 RAW IP、EPB 和 TLS DSB。遇到不明确的 socket/tuple 归属停止该关联并报告，不把 FD 复用或加密包当作单条 HTTP 请求的可靠标识。
+
 ## 检查入口
 
 `capture --inspect-library <ELF 或 APK 路径>` 使用生产识别器输出 `entry`、`method`、`archiveOffset` 和 `symbols`。其中 `symbols` 是 ELF 函数文件偏移，实际挂载偏移为 `archiveOffset + symbols[函数名]`。此命令只读安装文件，不加载 BPF；静态识别成功不代表设备允许挂载或目标应用实际调用了这些接口。
 
-[newui.yml](../../.github/workflows/newui.yml) 编译并测试 Linux 采集器，运行真实 OpenSSL TLS 和 [APK 映射执行 smoke](apk_smoke.py)。后者独立加载未压缩 APK 中的 [公开 SSL ABI 测试程序](testdata/tls_fixture.c)，仅把 APK 路径交给采集器，验证挂载到原始 inode、跨 CPU 事件、UID 筛选、嵌套调用去重和异常生命周期。测试程序不实现加密，真实 TLS 由 [smoke.py](smoke.py) 覆盖。
+[newui.yml](../../.github/workflows/newui.yml) 在 Linux ARM64/x86_64 编译并测试采集器，运行真实 OpenSSL TLS 和 [Go TLS/独立解密 smoke](gotls_smoke.py)，在 x86_64 另运行 [APK 映射执行 smoke](apk_smoke.py)。APK 测试独立加载未压缩 APK 中的 [公开 SSL ABI 测试程序](testdata/tls_fixture.c)，仅把 APK 路径交给采集器，验证挂载到原始 inode、跨 CPU 事件、UID 筛选、嵌套调用去重和异常生命周期。该程序不实现加密，真实 TLS 由 [smoke.py](smoke.py) 及三个 Go 工具链构建的 [Go fixture](testdata/go_tls_client.go) 覆盖。
+
+Go smoke 为两种 TLS 版本保存临时测试会话的采集样本、pcapng、诊断和开抓前后同协议的延迟/CPU/RSS 数据。核心 job 消费同次运行的样本，使用正式存储/导出器再生成 pcapng，并让 tshark 验证解密；测试身份和密钥只来自本次 CI fixture。产物名和覆盖范围见 [核心验证说明](../../libbox.md#构建同步和验证)。这些小样本用于回归诊断，不能据此宣称目标应用的性能收益。
 
 Android 采集器和平台测试由共享构建 Action 生成，并在 [Android smoke](../../.github/workflows/newui-android.yml) 验证。构建与动态测试遵守仓库 [AGENTS.md](../../AGENTS.md)，本机默认只做静态检查。依赖下载、编译成功、Linux smoke 和无 Root 模拟器均不能替代 Root Android 目标应用验收。

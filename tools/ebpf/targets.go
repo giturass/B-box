@@ -132,7 +132,9 @@ func mappedLibraryPath(directory, line string) string {
 	name := strings.Join(fields[5:], " ")
 	deleted := strings.HasSuffix(name, " (deleted)")
 	name = strings.TrimSuffix(name, " (deleted)")
-	if !filepath.IsAbs(name) || !(strings.HasSuffix(name, ".so") || strings.HasSuffix(name, ".apk")) {
+	// Go clients can be standalone executables with no .so suffix. All
+	// candidates still undergo bounded ELF/build-info/function validation.
+	if !filepath.IsAbs(name) {
 		return ""
 	}
 	path := directory + "/root" + strings.ReplaceAll(name, `\040`, " ")

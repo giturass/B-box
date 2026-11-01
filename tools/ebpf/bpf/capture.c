@@ -2,6 +2,7 @@
 // Passive public SSL ABI probes. File/offset attachment follows stackplz; the TLS
 // state machine never pauses the application or changes its memory.
 typedef unsigned char u8;
+typedef unsigned short u16;
 typedef unsigned int u32;
 typedef int s32;
 typedef unsigned long long u64;
@@ -26,6 +27,14 @@ struct regs { u64 x[31], sp, pc, pstate; };
 #define ARG3(r) ((r)->x[2])
 #define ARG4(r) ((r)->x[3])
 #define RESULT(r) ((r)->x[0])
+#define GO_G(r) ((r)->x[28])
+#define GO_ARG1(r) ((r)->x[0])
+#define GO_ARG2(r) ((r)->x[1])
+#define GO_ARG3(r) ((r)->x[2])
+#define GO_ARG4(r) ((r)->x[3])
+#define GO_ARG5(r) ((r)->x[4])
+#define GO_ARG7(r) ((r)->x[6])
+#define GO_ARG8(r) ((r)->x[7])
 #elif defined(__TARGET_ARCH_x86)
 struct regs { u64 r15,r14,r13,r12,bp,bx,r11,r10,r9,r8,ax,cx,dx,si,di,orig_ax,ip,cs,flags,sp,ss; };
 #define ARG1(r) ((r)->di)
@@ -33,6 +42,14 @@ struct regs { u64 r15,r14,r13,r12,bp,bx,r11,r10,r9,r8,ax,cx,dx,si,di,orig_ax,ip,
 #define ARG3(r) ((r)->dx)
 #define ARG4(r) ((r)->cx)
 #define RESULT(r) ((r)->ax)
+#define GO_G(r) ((r)->r14)
+#define GO_ARG1(r) ((r)->ax)
+#define GO_ARG2(r) ((r)->bx)
+#define GO_ARG3(r) ((r)->cx)
+#define GO_ARG4(r) ((r)->di)
+#define GO_ARG5(r) ((r)->si)
+#define GO_ARG7(r) ((r)->r9)
+#define GO_ARG8(r) ((r)->r10)
 #else
 #error Unsupported capture architecture
 #endif
@@ -45,13 +62,16 @@ static u64 (*pid_tid)(void) = (void *)14;
 static u64 (*uid_gid)(void) = (void *)15;
 static long (*output)(void *, void *, u64, void *, u64) = (void *)25;
 static long (*read_user)(void *, u32, const void *) = (void *)112;
+static long (*read_kernel)(void *, u32, const void *) = (void *)113;
+static void *(*current_task)(void) = (void *)35;
 
 struct connection_key { u64 ssl; u32 pid, pad; };
-struct connection { u64 generation, write_sequence, read_sequence; };
+struct connection { u64 generation, write_sequence, read_sequence; u32 adapter, pad; };
 struct session_key { u64 ssl, generation; u32 pid, pad; };
 struct owner_key { u64 ssl, generation; u32 pid, direction; };
 struct call_key { u64 thread; u32 direction, pad; };
 struct call { u64 ssl, generation, buffer, requested, count_pointer, stack; u32 depth, extended; };
+struct socket_identity { u64 inode, socket; u32 netns, conflict; };
 struct event {
     u64 timestamp, ssl, generation, sequence;
     u32 pid, tid, uid, kind;
@@ -69,8 +89,9 @@ HASH_MAP(owners, struct owner_key, u64, 8192);
 HASH_MAP(calls, struct call_key, struct call, 8192);
 HASH_MAP(broken, struct session_key, u32, 8192);
 HASH_MAP(clears, u64, u64, 8192);
+HASH_MAP(socket_seen, struct session_key, struct socket_identity, 8192);
 HASH_MAP(uids, u32, u8, 256);
-struct { __uint(type, ARRAY); __uint(max_entries, 3);
+struct { __uint(type, ARRAY); __uint(max_entries, 4);
     __type(key, u32); __type(value, u32); } config SEC(".maps");
 struct { __uint(type, PERCPU_ARRAY); __uint(max_entries, 1);
     __type(key, u32); __type(value, struct event); } scratch SEC(".maps");
@@ -119,6 +140,7 @@ INLINE struct event *prepare(u64 ssl, struct connection *connection, u32 kind) {
     event->uid = (u32)uid_gid(); event->kind = kind;
     event->fd = -1; event->original_len = 0; event->offset = 0;
     event->captured_len = 0; event->flags = 0; event->reserved = 0;
+    if (kind == 1) event->flags = connection->adapter;
     return event;
 }
 INLINE void emit(void *ctx, struct event *event, u32 length) {
@@ -147,25 +169,29 @@ INLINE void retire(void *ctx, u64 ssl) {
     if (lookup(&owners, &owner)) gap(ctx, ssl, connection, 6);
     owner.direction = 3;
     if (lookup(&owners, &owner)) gap(ctx, ssl, connection, 6);
+    owner.direction = 0;
+    if (lookup(&owners, &owner)) gap(ctx, ssl, connection, 6);
     struct session_key session = session_for(ssl, connection->generation);
     struct event *event = prepare(ssl, connection, 4);
     u32 *reason = lookup(&broken, &session);
     if (event) { if (reason) event->flags = *reason; emit(ctx, event, 0); }
     remove_key(&connections, &key);
     remove_key(&broken, &session);
+    remove_key(&socket_seen, &session);
 }
-INLINE void create(void *ctx, u64 ssl) {
+INLINE void create_connection(void *ctx, u64 ssl, u32 adapter) {
     if (!ssl || !selected()) return;
     struct connection_key key = key_for(ssl);
     struct connection *previous = lookup(&connections, &key);
     if (previous) { gap(ctx, ssl, previous, 7); retire(ctx, ssl); }
-    struct connection value = { .generation = ktime() };
+    struct connection value = { .generation = ktime(), .adapter = adapter };
     if (update(&connections, &key, &value, NOEXIST)) { loss(); return; }
     struct connection *connection = lookup(&connections, &key);
     if (!connection) { loss(); return; }
     struct event *event = prepare(ssl, connection, 1);
     if (event) emit(ctx, event, 0);
 }
+INLINE void create(void *ctx, u64 ssl) { create_connection(ctx, ssl, 0); }
 
 SEC("uretprobe/ssl_new") int ssl_new(struct regs *ctx) { create(ctx, RESULT(ctx)); return 0; }
 SEC("uprobe/ssl_free") int ssl_free(struct regs *ctx) { retire(ctx, ARG1(ctx)); return 0; }
@@ -181,15 +207,20 @@ SEC("uprobe/ssl_clear_enter") int ssl_clear_enter(struct regs *ctx) {
     owner.direction = 3;
     u64 *reader = lookup(&owners, &owner);
     u64 read_owner = reader ? *reader : 0;
+    owner.direction = 0;
+    u64 *handshake = lookup(&owners, &owner);
+    u64 handshake_owner = handshake ? *handshake : 0;
     // OpenSSL's state_machine calls SSL_clear while the first SSL_read/write
     // lazily initializes its handshake. No application bytes exist yet and
     // this thread owns the only active direction: retain that fresh lifetime.
     if (!connection->write_sequence && !connection->read_sequence &&
-        ((write_owner == thread && !read_owner) || (read_owner == thread && !write_owner))) return 0;
+        (!handshake_owner || handshake_owner == thread) &&
+        ((write_owner == thread && !read_owner) || (read_owner == thread && !write_owner) ||
+         (handshake_owner == thread && !write_owner && !read_owner))) return 0;
     // A reset after data, or from another thread, cannot migrate an in-flight
     // call into a fresh generation without losing its returned bytes. Retire
     // it and require a later idle clear/new before observing another stream.
-    if (!write_owner && !read_owner && update(&clears, &thread, &ssl, ANY)) loss();
+    if (!write_owner && !read_owner && !handshake_owner && update(&clears, &thread, &ssl, ANY)) loss();
     retire(ctx, ssl);
     return 0;
 }
@@ -315,4 +346,19 @@ SEC("uretprobe/ssl_read_leave") int ssl_read_leave(struct regs *ctx) { return le
 SEC("uprobe/ssl_write_ex_enter") int ssl_write_ex_enter(struct regs *ctx) { return enter(ctx, 2, 1); }
 SEC("uprobe/ssl_read_ex_enter") int ssl_read_ex_enter(struct regs *ctx) { return enter(ctx, 3, 1); }
 SEC("uprobe/ssl_read_early_enter") int ssl_read_early_enter(struct regs *ctx) { return enter(ctx, 3, 2); }
+SEC("uprobe/ssl_handshake_enter") int ssl_handshake_enter(struct regs *ctx) { return enter(ctx, 0, 0); }
+SEC("uretprobe/ssl_handshake_leave") int ssl_handshake_leave(struct regs *ctx) {
+    struct call_key key = { .thread = pid_tid(), .direction = 0 };
+    struct call *active = lookup(&calls, &key);
+    if (!active) return 0;
+    if (active->depth > 1) { active->depth--; return 0; }
+    struct owner_key owner = { .ssl = active->ssl, .generation = active->generation,
+        .pid = key.thread >> 32, .direction = 0 };
+    remove_key(&calls, &key);
+    remove_key(&owners, &owner);
+    return 0;
+}
+
+#include "gotls.h"
+#include "sockets.h"
 char bbox_license[] SEC("license") = "GPL";

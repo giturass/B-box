@@ -30,6 +30,7 @@ class _RequestsPageState extends State<RequestsPage> {
     return CapturePoll(method: 'capture.snapshot', arguments: {'query': _query, 'limit': _limit}, revision: _revision,
       builder: (context, snapshot, error, refresh) {
         final state = json(snapshot?['state']), page = json(snapshot?['page']);
+        final wire = json(state['wire']);
         final active = state['active'] == true, entries = rows(page['items']);
         return CommonScaffold(
           title: context.tr('Requests'), isLoading: _busy,
@@ -47,8 +48,10 @@ class _RequestsPageState extends State<RequestsPage> {
             }),
             CommonPopupMenuItem(glyph: AppGlyphs.logs, label: context.tr('eBPF logs'), onPressed: () => openPage(context, const CaptureLogsPage())),
             CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'), onPressed: _busy || entries.isEmpty ? null : () => _act('capture.export', {'format': 'har', 'query': _query})),
+            CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export pcapng'), onPressed: _busy || (wire['packets'] as num? ?? 0) == 0 ? null : () => _act('capture.export', {'format': 'pcapng', 'query': _query})),
+            CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export TLS keys'), onPressed: _busy || (wire['secrets'] as num? ?? 0) == 0 ? null : () => _act('capture.export', {'format': 'keys', 'query': _query})),
             CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear requests'), onPressed: _busy ? null : () async {
-              if (await confirm(context, 'Clear captured requests?') && mounted) await _act('capture.clear');
+              if (await confirm(context, 'Clear captured requests and raw TLS data?') && mounted) await _act('capture.clear');
             }),
           ],
           body: ListView.builder(
@@ -144,6 +147,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
     if (context.box.remote) return const BoxPage(title: 'Requests', children: [EmptyState('HTTP debugging is only available for the local service')]);
     return CapturePoll(method: 'capture.detail', arguments: {'id': widget.id}, builder: (context, detail, error, refresh) {
       final metadata = json(detail?['metadata']), request = json(detail?['request']);
+      final socket = json(metadata['socket']);
       final response = _part == 'Response';
       final message = json(detail?[response ? 'response' : 'request']);
       final preview = json(detail?[response ? 'responsePreview' : 'requestPreview']);
@@ -155,6 +159,9 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
         'App': (metadata['packages'] as List? ?? []).join(', '), 'UID': metadata['uid'],
         if (metadata['captureSource'] != null) 'Capture source': metadata['captureSource'],
         if (metadata['pid'] != null) 'PID': metadata['pid'],
+        if ((metadata['tlsAdapter'] as String? ?? '').isNotEmpty) 'TLS implementation': metadata['tlsAdapter'],
+        if (socket.isNotEmpty) 'Socket FD': socket['fd'],
+        if (socket.isNotEmpty) 'Socket inode': socket['inode'],
         'Source': metadata['source'], 'Destination': metadata['destination'],
         if (metadata['originalDestination'] != null) 'Original destination': metadata['originalDestination'],
         if ((detail?['error'] as String? ?? '').isNotEmpty) 'Error': detail?['error'],

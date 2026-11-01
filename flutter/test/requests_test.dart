@@ -158,7 +158,78 @@ void main() {
     expect(saved['tlsLibraries'], ['/data/app/test/libssl.so']);
     expect(saved['extractHosts'], isTrue);
     expect(saved.keys.toSet(), {'https', 'decryptHosts', 'includeHosts', 'excludeHosts', 'packages',
-      'ports', 'bodyLimit', 'decryptBypassHosts', 'extractHosts', 'tlsLibraries'});
+      'ports', 'bodyLimit', 'decryptBypassHosts', 'extractHosts', 'tlsLibraries', 'captureNetwork', 'captureTlsKeys'});
+    expect(saved['captureNetwork'], isFalse);
+    expect(saved['captureTlsKeys'], isFalse);
+  });
+
+  testWidgets('raw packets and TLS keys are explicit local settings', (tester) async {
+    await mount(tester);
+    await open(tester, const RequestSettingsPage(initial: {'https': true}, source: {'revision': 'raw-revision'}));
+    final scrollable = find.descendant(of: find.byType(RequestSettingsPage), matching: find.byType(Scrollable)).first;
+    for (final key in ['capture-network', 'capture-tls-keys']) {
+      final toggle = find.byKey(ValueKey(key));
+      await tester.scrollUntilVisible(toggle, 240, scrollable: scrollable);
+      await tester.tap(toggle); await tester.pumpAndSettle();
+    }
+    await capture(tester, 'raw-capture-settings');
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    final args = json(calls.singleWhere((call) => call.method == 'capture.configure').arguments);
+    expect(args['revision'], 'raw-revision');
+    expect(json(args['config'])['captureNetwork'], isTrue);
+    expect(json(args['config'])['captureTlsKeys'], isTrue);
+    expect(calls.where((call) => call.method == 'capture.start'), isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('pcapng and key exports use the current filter and retained data', (tester) async {
+    await mount(tester);
+    snapshot['state'] = {'active': false, 'wire': {'packets': 12, 'secrets': 4}};
+    await open(tester, const RequestsPage());
+    final scaffold = tester.widget<CommonScaffold>(find.descendant(of: find.byType(RequestsPage), matching: find.byType(CommonScaffold)).first);
+    scaffold.onKeywordsUpdate!(['api.test']); await tester.pumpAndSettle();
+    for (final label in ['Export pcapng', 'Export TLS keys']) {
+      await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
+      await tester.tap(find.text(label).last); await tester.pumpAndSettle();
+    }
+    final exports = calls.where((call) => call.method == 'capture.export').map((call) => json(call.arguments)).toList();
+    expect(exports.map((value) => value['format']), ['pcapng', 'keys']);
+    expect(exports.every((value) => value['query'] == 'api.test'), isTrue);
+    expect(find.text('Capture statistics'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('diagnostics distinguish observed plaintext parsed and filtered requests', (tester) async {
+    await mount(tester);
+    snapshot['state'] = {'active': false, 'backend': 'eBPF', 'tlsOpened': 8, 'goTlsOpened': 2,
+      'plaintextConnections': 5, 'plaintextBytes': 4096, 'parsedRequests': 12, 'filteredRequests': 3,
+      'recordedRequests': 9, 'socketConnections': 4, 'wire': {'packets': 30, 'secrets': 4, 'bytes': 1024}};
+    await open(tester, const CaptureLogsPage());
+    expect(find.text('TLS 8 · Plaintext 5 · Parsed 12'), findsOneWidget);
+    expect(find.text('Capture stopped'), findsOneWidget);
+    await tester.tap(find.text('Capture statistics')); await tester.pumpAndSettle();
+    expect(find.text('Requests excluded by filters'), findsOneWidget);
+    expect(find.text('HTTPS requests saved'), findsOneWidget);
+    await capture(tester, 'capture-statistics');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('request detail copies observed socket endpoints and retains FD zero', (tester) async {
+    await mount(tester);
+    extra = (call) async => call.method == 'capture.detail' ? {
+      'id': 'socket', 'request': {'url': 'https://api.test/', 'method': 'GET', 'protocol': 'HTTP/2.0'},
+      'metadata': {'captureSource': 'eBPF', 'tlsAdapter': 'Go TLS', 'pid': 42, 'uid': 10001,
+        'source': '[::1]:1234', 'destination': '[::1]:443', 'outbound': '', 'rule': '',
+        'socket': {'fd': 0, 'inode': 'abc', 'netns': 1}},
+    } : snapshot;
+    await open(tester, const RequestDetailPage(id: 'socket'));
+    await showDetailItem(tester, find.text('Socket FD'));
+    expect(find.text('Go TLS'), findsOneWidget);
+    await showDetailItem(tester, find.text('[::1]:443'));
+    await tester.tap(find.text('[::1]:443')); await tester.pumpAndSettle();
+    expect(copied.last, '[::1]:443');
+    await capture(tester, 'socket-metadata');
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('HTTPS exclusions can be selected from captured hostnames', (tester) async {

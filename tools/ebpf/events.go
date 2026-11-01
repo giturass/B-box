@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"net/netip"
 	"time"
 
 	"github.com/cilium/ebpf/perf"
@@ -13,6 +14,7 @@ import (
 type rawEvent struct {
 	ssl, generation, sequence, otherSequence uint64
 	pid, uid, kind, length, offset, flags    uint32
+	fd                                       int32
 	data                                     []byte
 }
 
@@ -37,10 +39,10 @@ func decodeEvent(data []byte) (rawEvent, error) {
 	}
 	b := binary.LittleEndian
 	event := rawEvent{otherSequence: b.Uint64(data[0:]), ssl: b.Uint64(data[8:]), generation: b.Uint64(data[16:]), sequence: b.Uint64(data[24:]),
-		pid: b.Uint32(data[32:]), uid: b.Uint32(data[40:]), kind: b.Uint32(data[44:]), length: b.Uint32(data[52:]),
+		pid: b.Uint32(data[32:]), uid: b.Uint32(data[40:]), kind: b.Uint32(data[44:]), fd: int32(b.Uint32(data[48:])), length: b.Uint32(data[52:]),
 		offset: b.Uint32(data[56:]), flags: b.Uint32(data[64:])}
 	length := b.Uint32(data[60:])
-	if length > 4096 || int(length)+72 > len(data) || event.kind < 1 || event.kind > 5 ||
+	if length > 4096 || int(length)+72 > len(data) || event.kind < 1 || event.kind > 7 ||
 		event.length > 128*1024 || event.offset > event.length || length > event.length-event.offset {
 		return rawEvent{}, fmt.Errorf("invalid eBPF event bounds: kind=%d total=%d offset=%d captured=%d sample=%d",
 			event.kind, event.length, event.offset, length, len(data))
@@ -48,28 +50,75 @@ func decodeEvent(data []byte) (rawEvent, error) {
 	if event.kind == 5 && (event.flags < 1 || event.flags > 8 || event.length != 0 || length != 0 || event.sequence != 0) {
 		return rawEvent{}, errors.New("invalid eBPF gap event")
 	}
+	if event.kind >= 6 && (event.offset != 0 || event.sequence != 0 || event.length != length ||
+		event.kind == 6 && (length != 56 || event.flags > 1 || event.fd < 0) ||
+		event.kind == 7 && (length != 164 || event.flags != 0)) {
+		return rawEvent{}, errors.New("invalid eBPF socket or key event")
+	}
 	event.data = append([]byte(nil), data[72:72+length]...)
 	return event, nil
 }
 func (e rawEvent) id() string { return fmt.Sprintf("%d-%x-%x", e.pid, e.ssl, e.generation) }
 
 type pipeEvent struct {
-	Type      string   `json:"type"`
-	Version   int      `json:"version,omitempty"`
-	Stage     string   `json:"stage,omitempty"`
-	ID        string   `json:"id,omitempty"`
-	PID       uint32   `json:"pid,omitempty"`
-	UID       uint32   `json:"uid,omitempty"`
-	Packages  []string `json:"packages,omitempty"`
-	Direction string   `json:"direction,omitempty"`
-	Data      []byte   `json:"data,omitempty"`
-	Gap       bool     `json:"gap,omitempty"`
-	Libraries int      `json:"libraries,omitempty"`
-	Scanning  bool     `json:"scanning,omitempty"`
-	Error     string   `json:"error,omitempty"`
-	Time      int64    `json:"time,omitempty"`
-	Level     string   `json:"level,omitempty"`
-	Message   string   `json:"message,omitempty"`
+	Type           string      `json:"type"`
+	Version        int         `json:"version,omitempty"`
+	Stage          string      `json:"stage,omitempty"`
+	ID             string      `json:"id,omitempty"`
+	PID            uint32      `json:"pid,omitempty"`
+	UID            uint32      `json:"uid,omitempty"`
+	Packages       []string    `json:"packages,omitempty"`
+	Direction      string      `json:"direction,omitempty"`
+	Data           []byte      `json:"data,omitempty"`
+	Gap            bool        `json:"gap,omitempty"`
+	Libraries      int         `json:"libraries,omitempty"`
+	Scanning       bool        `json:"scanning,omitempty"`
+	Error          string      `json:"error,omitempty"`
+	Time           int64       `json:"time,omitempty"`
+	Level          string      `json:"level,omitempty"`
+	Message        string      `json:"message,omitempty"`
+	Adapter        string      `json:"adapter,omitempty"`
+	Socket         *socketInfo `json:"socket,omitempty"`
+	SocketConflict bool        `json:"socketConflict,omitempty"`
+	Label          string      `json:"label,omitempty"`
+	ClientRandom   []byte      `json:"clientRandom,omitempty"`
+	Secret         []byte      `json:"secret,omitempty"`
+	TimestampNS    int64       `json:"timestampNs,omitempty"`
+	PacketLength   int         `json:"packetLength,omitempty"`
+}
+
+type socketInfo struct {
+	FD          int32  `json:"fd"`
+	Inode       string `json:"inode"`
+	NetNS       uint32 `json:"netns"`
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+}
+
+func decodeSocket(event rawEvent) (*socketInfo, error) {
+	if len(event.data) != 56 || event.fd < 0 {
+		return nil, errors.New("invalid socket metadata")
+	}
+	b := binary.LittleEndian
+	family := b.Uint16(event.data[44:])
+	var source, destination netip.Addr
+	switch family {
+	case unix.AF_INET:
+		source = netip.AddrFrom4([4]byte(event.data[8:12]))
+		destination = netip.AddrFrom4([4]byte(event.data[24:28]))
+	case unix.AF_INET6:
+		source = netip.AddrFrom16([16]byte(event.data[8:24])).Unmap()
+		destination = netip.AddrFrom16([16]byte(event.data[24:40])).Unmap()
+	default:
+		return nil, errors.New("unsupported socket address family")
+	}
+	inode, netns := b.Uint64(event.data), b.Uint32(event.data[48:])
+	sourcePort, destinationPort := b.Uint16(event.data[40:]), b.Uint16(event.data[42:])
+	if inode == 0 || netns == 0 || sourcePort == 0 || destinationPort == 0 || source.IsUnspecified() || destination.IsUnspecified() {
+		return nil, errors.New("incomplete socket metadata")
+	}
+	return &socketInfo{FD: event.fd, Inode: fmt.Sprintf("%x", inode), NetNS: netns,
+		Source: netip.AddrPortFrom(source, sourcePort).String(), Destination: netip.AddrPortFrom(destination, destinationPort).String()}, nil
 }
 
 func diagnosticEvent(level, message string, startup bool) pipeEvent {
@@ -91,29 +140,38 @@ type eventKey struct {
 	sequence  uint64
 }
 type eventFlow struct {
-	open    bool
-	next    [2]uint64
-	pending map[eventKey]*eventGroup
-	closing *rawEvent
-	closeAt time.Time
-	broken  *rawEvent
-	gapSent bool
-	created time.Time
+	open           bool
+	next           [2]uint64
+	pending        map[eventKey]*eventGroup
+	closing        *rawEvent
+	closeAt        time.Time
+	broken         *rawEvent
+	gapSent        bool
+	created        time.Time
+	auxiliary      []rawEvent
+	socketConflict bool
+}
+type retiredFlow struct {
+	at             time.Time
+	socketConflict bool
 }
 type eventAssembler struct {
 	config  collectorConfig
 	flows   map[string]*eventFlow
-	retired map[string]time.Time
+	retired map[string]retiredFlow
 	bytes   int
 	emit    func(pipeEvent) error
 }
 
 func newAssembler(config collectorConfig, emit func(pipeEvent) error) *eventAssembler {
-	return &eventAssembler{config: config, flows: make(map[string]*eventFlow), retired: make(map[string]time.Time), emit: emit}
+	return &eventAssembler{config: config, flows: make(map[string]*eventFlow), retired: make(map[string]retiredFlow), emit: emit}
 }
 func (a *eventAssembler) accept(event rawEvent) error {
 	id := event.id()
 	if _, done := a.retired[id]; done {
+		if event.kind == 6 || event.kind == 7 {
+			return a.emitAuxiliary(event)
+		}
 		return nil
 	}
 	flow := a.flows[id]
@@ -130,8 +188,12 @@ func (a *eventAssembler) accept(event rawEvent) error {
 			return errors.New("duplicate eBPF connection open")
 		}
 		flow.open = true
+		adapter := "OpenSSL/BoringSSL"
+		if event.flags == 1 {
+			adapter = "Go TLS"
+		}
 		if err := a.emit(pipeEvent{Type: "open", ID: id, PID: event.pid, UID: event.uid,
-			Packages: a.config.Packages[fmt.Sprint(event.uid)]}); err != nil {
+			Adapter: adapter, Packages: a.config.Packages[fmt.Sprint(event.uid)]}); err != nil {
 			return err
 		}
 	case 4:
@@ -146,6 +208,11 @@ func (a *eventAssembler) accept(event rawEvent) error {
 		}
 	case 5:
 		a.breakFlow(flow, event)
+	case 6, 7:
+		if len(flow.auxiliary) >= 32 {
+			return errors.New("eBPF socket/key reorder limit reached")
+		}
+		flow.auxiliary = append(flow.auxiliary, event)
 	case 2, 3:
 		if flow.broken != nil {
 			return nil
@@ -189,6 +256,12 @@ func (a *eventAssembler) accept(event rawEvent) error {
 	if !flow.open {
 		return nil
 	}
+	for _, auxiliary := range flow.auxiliary {
+		if err := a.emitAuxiliary(auxiliary); err != nil {
+			return err
+		}
+	}
+	flow.auxiliary = nil
 	if flow.broken != nil {
 		if !flow.gapSent {
 			if err := a.emit(pipeEvent{Type: "data", ID: id, PID: event.pid, UID: event.uid,
@@ -249,6 +322,57 @@ func (a *eventAssembler) accept(event rawEvent) error {
 	return nil
 }
 
+func (a *eventAssembler) emitAuxiliary(event rawEvent) error {
+	message := pipeEvent{ID: event.id(), PID: event.pid, UID: event.uid}
+	if event.kind == 6 {
+		if flow := a.flows[event.id()]; flow != nil {
+			if flow.socketConflict {
+				return nil
+			}
+			flow.socketConflict = event.flags != 0
+		} else if retired, ok := a.retired[event.id()]; ok {
+			if retired.socketConflict {
+				return nil
+			}
+			retired.socketConflict = event.flags != 0
+			a.retired[event.id()] = retired
+		}
+		message.Type = "socket"
+		// Packet timestamps use CLOCK_REALTIME; generations use BPF's
+		// CLOCK_MONOTONIC. Translate at delivery so a recent suspend does not
+		// leave a stale boot-time offset. Never include bytes before this TLS
+		// lifetime merely because an earlier socket used the same endpoints.
+		var now unix.Timespec
+		if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &now); err != nil {
+			return err
+		}
+		message.TimestampNS = time.Now().UnixNano() - now.Nano() + int64(event.generation)
+		if event.flags != 0 {
+			message.SocketConflict = true
+		} else {
+			var err error
+			message.Socket, err = decodeSocket(event)
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		if !a.config.TLSKeys {
+			return nil
+		}
+		if len(event.data) != 164 {
+			return errors.New("invalid TLS key event length")
+		}
+		label, secret := int(event.data[0]), int(event.data[1])
+		if label < 1 || label > 64 || secret < 16 || secret > 64 {
+			return errors.New("invalid TLS key event bounds")
+		}
+		message.Type, message.Label = "secret", string(event.data[4:4+label])
+		message.ClientRandom, message.Secret = event.data[68:100], event.data[100:100+secret]
+	}
+	return a.emit(message)
+}
+
 func (a *eventAssembler) breakFlow(flow *eventFlow, event rawEvent) {
 	if flow.broken != nil {
 		return
@@ -271,9 +395,9 @@ func gapReason(reason uint32) string {
 	case 5:
 		return "A TLS call return was not observed; its SSL generation is incomplete"
 	case 6:
-		return "SSL_free or SSL_clear ran while TLS I/O was still active"
+		return "A TLS connection was closed or reset while I/O was still active"
 	case 7:
-		return "SSL_new reused an address before the previous SSL lifetime ended"
+		return "A new TLS connection reused an address before the previous lifetime ended"
 	case 8:
 		return "TLS wrapper nesting exceeded the capture limit"
 	default:
@@ -285,19 +409,23 @@ func (a *eventAssembler) closeFlow(id string, pid, uid uint32) error {
 	if err := a.emit(pipeEvent{Type: "close", ID: id, PID: pid, UID: uid}); err != nil {
 		return err
 	}
+	retired := retiredFlow{at: time.Now()}
+	if flow := a.flows[id]; flow != nil {
+		retired.socketConflict = flow.socketConflict
+	}
 	delete(a.flows, id)
 	if len(a.retired) >= 16384 {
 		return errors.New("eBPF retired connection limit reached")
 	}
 	// A close may overtake another CPU's gap event. Remember retired
 	// generations so that late events cannot recreate a completed stream.
-	a.retired[id] = time.Now()
+	a.retired[id] = retired
 	return nil
 }
 
 func (a *eventAssembler) checkLoss(now time.Time) error {
-	for id, at := range a.retired {
-		if now.Sub(at) > 10*time.Second {
+	for id, retired := range a.retired {
+		if now.Sub(retired.at) > 10*time.Second {
 			delete(a.retired, id)
 		}
 	}
