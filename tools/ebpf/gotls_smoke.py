@@ -51,6 +51,34 @@ def process_sample(pid):
     return {"cpuSeconds": ticks / os.sysconf("SC_CLK_TCK"), "rssBytes": rss}
 
 
+def capture_complete(events, count, version, port):
+    opened = {value["id"] for value in events if value["type"] == "open"}
+    closed = {value["id"] for value in events if value["type"] == "close"}
+    if len(opened) != count or not opened <= closed:
+        return False
+    labels = {"CLIENT_RANDOM"} if version == 12 else {
+        "CLIENT_HANDSHAKE_TRAFFIC_SECRET", "SERVER_HANDSHAKE_TRAFFIC_SECRET",
+        "CLIENT_TRAFFIC_SECRET_0", "SERVER_TRAFFIC_SECRET_0",
+    }
+    for identity in opened:
+        if not labels <= {value["label"] for value in events if value["type"] == "secret" and value["id"] == identity}:
+            return False
+    finished = set()
+    for value in events:
+        if value["type"] != "packet":
+            continue
+        packet = base64.b64decode(value["data"])
+        # This fixture binds IPv4 loopback. A server FIN/RST follows its
+        # response and proves that the independent AF_PACKET reader has
+        # reached this connection's end, beyond the TLS uprobe close event.
+        if len(packet) < 40 or packet[0] >> 4 != 4:
+            continue
+        tcp = (packet[0] & 15) * 4
+        if tcp >= 20 and len(packet) >= tcp + 20 and struct.unpack_from(">H", packet, tcp)[0] == port and packet[tcp + 13] & 5:
+            finished.add(value["id"])
+    return opened <= finished
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("fixture", type=Path)
@@ -74,6 +102,7 @@ def main():
         try:
             address = server.stdout.readline().decode().strip()
             assert address.startswith("127.0.0.1:"), "fixture did not listen on loopback"
+            port = int(address.rsplit(":", 1)[1])
             for version in (12, 13):
                 baseline = json.loads(subprocess.check_output([str(fixture), "-address", address, "-cert", str(cert), "-version", str(version), "-count", str(args.requests)], timeout=25))
                 measurements[f"tls{version}BaselineMedianRequestMs"] = statistics.median(item["ElapsedNS"] for item in baseline) / 1e6
@@ -115,12 +144,20 @@ def main():
                 transactions = json.loads(stdout)
                 measurements[f"tls{version}CaptureMedianRequestMs"] = statistics.median(item["ElapsedNS"] for item in transactions) / 1e6
                 deadline = time.monotonic() + 10
+                complete = False
                 while time.monotonic() < deadline:
-                    closed = [value for value in messages if value["type"] == "close" and value.get("pid") == client.pid]
-                    if len(closed) >= args.requests or failures:
+                    client_events = [value for value in messages if value.get("id", "").startswith(f"{client.pid}-")]
+                    complete = capture_complete(client_events, args.requests, version, port)
+                    if complete or failures:
                         break
                     time.sleep(.05)
-                client_events = [value for value in messages if value.get("id", "").startswith(f"{client.pid}-")]
+                # Preserve partial wire evidence too, if any later assertion
+                # fails. Never interpret TLS close as an AF_PACKET barrier.
+                (output / f"tls-{version}.capture.json").write_text(json.dumps({
+                    "port": port,
+                    "uris": [f"/go-tls-{version}-{index}" for index in range(args.requests)],
+                    "events": [value for value in client_events if value["type"] in ("packet", "secret")],
+                }) + "\n")
                 opens = [value for value in client_events if value["type"] == "open"]
                 assert len(opens) == args.requests and all(value.get("adapter") == "Go TLS" for value in opens), "Go handshakes were not captured"
                 flows = {value["id"]: {"write": bytearray(), "read": bytearray()} for value in opens}
@@ -137,14 +174,10 @@ def main():
                 assert len(sockets) == args.requests and all(value["destination"] == address and value["fd"] >= 0 for value in sockets), "socket endpoint/generation mismatch"
                 assert any(value["type"] == "secret" for value in client_events), "no TLS keys with KeyLogWriter unset"
                 assert any(value["type"] == "packet" for value in client_events), "no original network packets"
-                (output / f"tls-{version}.capture.json").write_text(json.dumps({
-                    "port": int(address.rsplit(":", 1)[1]),
-                    "uris": [f"/go-tls-{version}-{index}" for index in range(args.requests)],
-                    "events": [value for value in client_events if value["type"] in ("packet", "secret")],
-                }) + "\n")
+                assert complete, "TLS events, keys and network packets did not all finish within the capture deadline"
                 pcap = output / f"tls-{version}.pcapng"
                 write_pcapng(pcap, client_events)
-                decoded = subprocess.check_output(["tshark", "-r", str(pcap), "-d", f"tcp.port=={address.rsplit(':', 1)[1]},tls",
+                decoded = subprocess.check_output(["tshark", "-r", str(pcap), "-d", f"tcp.port=={port},tls",
                                                    "-Y", "http.request", "-T", "fields", "-e", "http.request.uri"], stderr=subprocess.PIPE, timeout=20).decode()
                 for index in range(args.requests):
                     assert f"/go-tls-{version}-{index}" in decoded, "Wireshark could not independently decrypt captured packets and DSB keys"
