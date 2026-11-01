@@ -92,9 +92,10 @@ class ProfileRecoveryTest {
             // A small base must not bypass the limit on the recovered backup.
             base.writeText("{}")
             backup.writeText(" ".repeat(4 * 1024 * 1024 + 1))
-            assertThrows(IllegalArgumentException::class.java) {
+            val error = assertThrows(IllegalArgumentException::class.java) {
                 CaptureSettings(directory, retiredKeyAlias = null).snapshot()
             }
+            assertTrue(error.message.orEmpty().contains("exceed"))
         } finally { directory.deleteRecursively() }
     }
 
