@@ -84,6 +84,8 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 [RootServer.kt](app/src/main/java/io/nekohasekai/sfa/bg/RootServer.kt) 查询当前用户的安装包和 `GET_SHARED_LIBRARY_FILES`，通过 [CaptureTargets.kt](app/src/main/java/io/nekohasekai/sfa/bg/CaptureTargets.kt) 按所选 UID 收集 `nativeLibraryDir`、base/split APK 及共享 APK/原生库路径，包含 Trichrome 共享库。共享 UID 的包使用同一选择，排除 B-box 自身和其他 Android 用户；目标应用尚未运行也能准备探针。候选路径经私有启动消息传给采集器，由后者自动解析函数偏移并补充运行中进程的实际映射，不保存每版本偏移表。
 
+自动候选只传递不含 NUL/换行且 UTF-8 长度不超过 4096 字节的绝对路径。Android 的共享库列表也可能返回 `libOpenCL.so` 等原生库名称：依据 [AOSP SystemConfig](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-15.0.0_r1/services/core/java/com/android/server/SystemConfig.java#2017) 和 [SharedLibrariesImpl](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-15.0.0_r1/services/core/java/com/android/server/pm/SharedLibrariesImpl.java#503)，这类条目使用 soname 而非绝对路径。发现阶段跳过这些条目，保留有效的 APK/库路径，并继续由进程映射补充实际加载位置，避免一个非路径条目使整个抓取启动失败。
+
 采集器 ABI、内核/TLS 支持范围、无版本表自动识别、HTTP 解析及资源限额统一见 [libbox.md](libbox.md#httphttps-请求调试)。应用 UI 展示采集来源、准备进度、挂载库数、错误及不完整记录；部分库的兼容性诊断保留活动状态与已挂载数量，不把库挂载成功视为所有应用均可抓取。CA 管理、证书模块生成、信任检查、HTTP 改写、脚本导入及相应页面/桥接均已移除。此前自行刷入的系统证书模块仍需在对应 Root 管理器中卸载。
 
 HAR/cURL 和域名导出使用 Android 文档选择器；取消或写入失败不报告成功，临时文件用后删除。域名列表依据当前搜索条件提取所有保留记录；页面与视觉验证见 [flclash.md](flclash.md#导航与交互约定)。
@@ -142,7 +144,7 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 `ProfileRecoveryTest.captureSettingsAreLocalAndCheckRevisions` 使用实际 libbox 和 AtomicFile，覆盖本机设置迁移/保存/重新打开、修订冲突、退役选项拒绝及旧配置清理。[CaptureProtocolTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/CaptureProtocolTest.kt) 检查启动消息边界；[CaptureSessionTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/bg/CaptureSessionTest.kt) 用确定性的子进程检查进度过滤、ready/错误、超时阶段及清理、原始操作错误保留、FD 单次领取、owner 死亡及重复关闭，并运行实际打包的 Android 采集器检查加载及无 Root 错误。模拟器没有代表真实 Root eBPF 设备的权限环境，采集效果仍需实机验证。
 
-[CaptureTargetsTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/bg/CaptureTargetsTest.kt) 检查安装文件发现包含原生库目录、split 和共享 APK、共享 UID 选择及去重，并排除自身/其他 Android 用户；无需启动目标进程。实际 ELF/APK 偏移和挂载验证入口见 [libbox.md](libbox.md#构建同步和验证)。
+[CaptureTargetsTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/bg/CaptureTargetsTest.kt) 检查安装文件发现包含原生库目录、split 和共享 APK、共享 UID 选择及去重，并排除自身/其他 Android 用户；另覆盖全部/选定应用中的原生 soname 过滤、非法候选跳过及 UTF-8 路径长度边界，无需启动目标进程。实际 ELF/APK 偏移和挂载验证入口见 [libbox.md](libbox.md#构建同步和验证)。
 
 [DashboardConfigCacheTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/DashboardConfigCacheTest.kt) 通过调用计数覆盖重复轮询不再读取/哈希/解析、地址变化、配置切换、写入/回滚、运行快照更新及错误/取消重试；`ProfileRecoveryTest.lanCacheTracksEqualSizeWritesSuccessfulReloadsAndRecovery` 使用实际文件和 libbox，覆盖同大小同时间戳写入、保存与运行配置分离、成功重载、失败恢复和停服后的 LAN 状态。它们由 Android smoke 的 JVM/仪器测试步骤运行，Release 运行其中的 JVM 测试。
 

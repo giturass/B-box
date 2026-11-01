@@ -54,9 +54,17 @@ func readConfig(reader *bufio.Reader) (collectorConfig, error) {
 	if len(config.UIDs) > 256 || len(config.Libraries) > 16 || len(config.Packages) > 8192 || len(config.Targets) > 4096 {
 		return config, errors.New("too many eBPF capture filters")
 	}
-	for _, path := range append(append([]string(nil), config.Libraries...), config.Targets...) {
-		if !filepath.IsAbs(path) || len(path) > 4096 || strings.ContainsAny(path, "\x00\r\n") {
-			return config, errors.New("invalid TLS library path")
+	for _, group := range []struct {
+		name  string
+		paths []string
+	}{
+		{"TLS library", config.Libraries},
+		{"installed capture target", config.Targets},
+	} {
+		for index, path := range group.paths {
+			if !filepath.IsAbs(path) || len(path) > 4096 || strings.ContainsAny(path, "\x00\r\n") {
+				return config, fmt.Errorf("invalid %s path at index %d: %.256q", group.name, index, path)
+			}
 		}
 	}
 	for _, names := range config.Packages {

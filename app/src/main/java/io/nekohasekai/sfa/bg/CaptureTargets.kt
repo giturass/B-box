@@ -7,7 +7,13 @@ import android.content.pm.PackageInfo
 internal fun captureTargetPaths(packages: List<PackageInfo>, caller: Int, selectedUIDs: Set<Int>): List<String> {
     val paths = linkedSetOf<String>()
     fun add(path: String?) {
-        if (!path.isNullOrBlank()) paths.add(path)
+        // sharedLibraryFiles can contain native sonames such as libOpenCL.so.
+        // Send only filesystem paths accepted by the collector; process maps
+        // can still locate libraries loaded by soname in their linker namespace.
+        if (path == null || !path.startsWith('/') ||
+            path.any { it == '\u0000' || it == '\r' || it == '\n' } ||
+            path.toByteArray(Charsets.UTF_8).size > 4096) return
+        paths.add(path)
     }
     for (pkg in packages) {
         val app = pkg.applicationInfo ?: continue

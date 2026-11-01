@@ -72,6 +72,8 @@ HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF upr
 
 [库发现](tools/ebpf/discovery.go) 优先检查显式库路径和系统 TLS 库，首个库的完整探针挂载成功后发送 ready，其余安装文件、进程映射及调试符号检查在独立工作协程继续，新增挂载通过 status 更新数量。`scanning` 表示仍在准备其他库，界面在准备完成后提示目标应用重新连接。最多保留三条有界库识别/挂载诊断，经 ready/status 传递，不将诊断当成全局丢数据或清零挂载数。事件读取和完整性检查不等待整个扫描结束，ready 始终先于采集数据。启动进度覆盖 BPF 加载、perf 缓冲及库检查/挂载，Android 的超时与协议处理见 [app.md](app.md#请求抓取与-rootebpf)。owner EOF 取消库扫描及后续文件读取，先释放探针并等待扫描退出，再关闭共享 BPF 程序和 map；扫描最多保留 4096 条候选路径、2048 个文件身份及 64 个挂载库。
 
+启动参数的路径校验区分补充 TLS 库与自动安装目标，错误包含对应列表的索引和有界、转义后的路径；[配置回归](tools/ebpf/config_test.go) 检查来源及错误消息边界。Android 自动候选过滤见 [应用侧发现规则](app.md#请求抓取与-rootebpf)，手动填写的库路径继续严格校验。
+
 采集器在确认 Root 后直接尝试提高自身的 `RLIMIT_MEMLOCK`，支持仍受该限额约束的内核；提高失败后由实际 BPF 加载报告分配错误，使用 memcg 计费的内核不依赖提高此限额。不导入会在 Go 初始化阶段探测 BPF map 的 rlimit 包，避免 Android 应用 seccomp 在权限错误返回前以 `SIGSYS` 终止进程。
 
 加载依赖由 [go.mod](tools/ebpf/go.mod) / [go.sum](tools/ebpf/go.sum) 固定，Linux 与 Android 由 [build.sh](tools/ebpf/build.sh) 直接构建同一份模块源码。探针采用 `perf_event_open` 和 `PERF_EVENT_IOC_SET_BPF`，无需 BPF token、attach cookie 或 Linux 5.15 的 BPF link。内核/权限错误保留在启动诊断中；[平台测试](tools/ebpf/platformtest/platform_test.go) 检查 Android 能进入实际 Linux 系统调用路径。

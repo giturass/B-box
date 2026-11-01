@@ -36,4 +36,44 @@ class CaptureTargetsTest {
         assertTrue(all.contains("/data/app/other/base.apk"))
         assertFalse(all.any { it.contains("/bbox/") || it.contains("/work/") })
     }
+
+    @Test
+    fun nativeSonamesDoNotInvalidateInstalledCaptureTargets() {
+        val target = app("one", 10001).apply {
+            applicationInfo!!.sharedLibraryFiles = arrayOf(
+                "libOpenCL.so", "libGLESv2_adreno.so", "relative/libtls.so",
+                "/vendor/lib64/libtls.so", "/data/app/trichrome/base.apk",
+                "/system/framework/framework.jar",
+            )
+        }
+        val expected = listOf(
+            "/data/app/one/lib/arm64", "/data/app/one/base.apk",
+            "/data/app/one/split_config.arm64_v8a.apk",
+            "/vendor/lib64/libtls.so", "/data/app/trichrome/base.apk",
+        )
+        for (selected in listOf(emptySet(), setOf(10001))) {
+            assertEquals(expected, captureTargetPaths(listOf(target), 10003, selected))
+        }
+    }
+
+    @Test
+    fun automaticCandidatesRespectCollectorPathBoundaries() {
+        val asciiLimit = "/" + "a".repeat(4092) + ".so"
+        val utf8Limit = "/" + "é".repeat(2046) + ".so"
+        val target = app("one", 10001).apply {
+            applicationInfo!!.apply {
+                nativeLibraryDir = "lib/arm64"
+                splitSourceDirs = arrayOf("", "relative.apk", "/data/app/line\nbreak.apk")
+                sharedLibraryFiles = arrayOf(
+                    "/vendor/lib64/null\u0000.so", "/vendor/lib64/line\rbreak.so",
+                    "/" + "a".repeat(4093) + ".so", "/" + "é".repeat(2047) + ".so",
+                    asciiLimit, utf8Limit, "/vendor/lib64/libtls.so",
+                )
+            }
+        }
+        assertEquals(
+            listOf("/data/app/one/base.apk", asciiLimit, utf8Limit, "/vendor/lib64/libtls.so"),
+            captureTargetPaths(listOf(target), 10003, emptySet()),
+        )
+    }
 }
