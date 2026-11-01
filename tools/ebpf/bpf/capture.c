@@ -144,9 +144,9 @@ INLINE void retire(void *ctx, u64 ssl) {
     if (!connection) return;
     struct owner_key owner = { .ssl = ssl, .generation = connection->generation,
         .pid = key.pid, .direction = 2 };
-    if (lookup(&owners, &owner)) gap(ctx, ssl, connection, 4);
+    if (lookup(&owners, &owner)) gap(ctx, ssl, connection, 6);
     owner.direction = 3;
-    if (lookup(&owners, &owner)) gap(ctx, ssl, connection, 4);
+    if (lookup(&owners, &owner)) gap(ctx, ssl, connection, 6);
     struct session_key session = session_for(ssl, connection->generation);
     struct event *event = prepare(ssl, connection, 4);
     u32 *reason = lookup(&broken, &session);
@@ -158,7 +158,7 @@ INLINE void create(void *ctx, u64 ssl) {
     if (!ssl || !selected()) return;
     struct connection_key key = key_for(ssl);
     struct connection *previous = lookup(&connections, &key);
-    if (previous) { gap(ctx, ssl, previous, 4); retire(ctx, ssl); }
+    if (previous) { gap(ctx, ssl, previous, 7); retire(ctx, ssl); }
     struct connection value = { .generation = ktime() };
     if (update(&connections, &key, &value, NOEXIST)) { loss(); return; }
     struct connection *connection = lookup(&connections, &key);
@@ -201,7 +201,7 @@ INLINE int enter(struct regs *ctx, u32 direction, u32 extended) {
         struct call stale = *active;
         struct connection_key outer_key = key_for(stale.ssl);
         struct connection *outer = lookup(&connections, &outer_key);
-        if (outer && outer->generation == stale.generation) gap(ctx, stale.ssl, outer, 4);
+        if (outer && outer->generation == stale.generation) gap(ctx, stale.ssl, outer, 5);
         struct owner_key owner = { .ssl = stale.ssl, .generation = stale.generation,
             .pid = conn_key.pid, .direction = direction };
         remove_key(&calls, &key);
@@ -220,7 +220,7 @@ INLINE int enter(struct regs *ctx, u32 direction, u32 extended) {
         } else {
             struct connection_key outer_key = key_for(active->ssl);
             struct connection *outer = lookup(&connections, &outer_key);
-            if (outer && outer->generation == active->generation) gap(ctx, active->ssl, outer, 4);
+            if (outer && outer->generation == active->generation) gap(ctx, active->ssl, outer, 8);
         }
         return 0; // Public _ex/normal wrappers are captured exactly once.
     }

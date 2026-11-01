@@ -88,7 +88,7 @@ def main():
                 if value.get("pid") != client.pid:
                     continue
                 if value["type"] == "data":
-                    assert not value.get("gap"), value
+                    assert not value.get("gap"), {"event": value, "capturedBytes": {key: len(data) for key, data in output.items()}}
                     output[value["direction"]].extend(base64.b64decode(value.get("data", "")))
                 if value["type"] == "close" and output["read"]:
                     break

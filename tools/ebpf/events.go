@@ -45,7 +45,7 @@ func decodeEvent(data []byte) (rawEvent, error) {
 		return rawEvent{}, fmt.Errorf("invalid eBPF event bounds: kind=%d total=%d offset=%d captured=%d sample=%d",
 			event.kind, event.length, event.offset, length, len(data))
 	}
-	if event.kind == 5 && (event.flags < 1 || event.flags > 4 || event.length != 0 || length != 0 || event.sequence != 0) {
+	if event.kind == 5 && (event.flags < 1 || event.flags > 8 || event.length != 0 || length != 0 || event.sequence != 0) {
 		return rawEvent{}, errors.New("invalid eBPF gap event")
 	}
 	event.data = append([]byte(nil), data[72:72+length]...)
@@ -256,6 +256,14 @@ func gapReason(reason uint32) string {
 		return "TLS calls overlapped in the same direction; their byte order is unknown"
 	case 3:
 		return "TLS plaintext could not be read from the application"
+	case 5:
+		return "A TLS call return was not observed; its SSL generation is incomplete"
+	case 6:
+		return "SSL_free or SSL_clear ran while TLS I/O was still active"
+	case 7:
+		return "SSL_new reused an address before the previous SSL lifetime ended"
+	case 8:
+		return "TLS wrapper nesting exceeded the capture limit"
 	default:
 		return "TLS object lifetime or call tracking was lost"
 	}
