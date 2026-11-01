@@ -47,13 +47,15 @@ jobs:
           go-version: ${{ steps.go.outputs.version }}
           cache-dependency-path: tools/ebpf/go.sum
       - run: sudo apt-get update -qq && sudo apt-get install -y clang llvm libssl-dev
-      - run: bash tools/ebpf/build.sh linux/amd64
+      - id: collector_build
+        run: bash tools/ebpf/build.sh linux/amd64
       - name: Collector framing, ordering, symbol and platform tests
         working-directory: tools/ebpf
         run: go test -mod=readonly -race -count=1 ./...
       - name: Root uprobe TLS smoke and owner shutdown
         run: sudo python3 tools/ebpf/smoke.py
       - name: Stored APK uprobes, automatic offsets and TLS lifetime smoke
+        if: ${{ !cancelled() && steps.collector_build.outcome == 'success' }}
         run: sudo python3 tools/ebpf/apk_smoke.py
   flutter:
     runs-on: ubuntu-24.04

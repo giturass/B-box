@@ -18,6 +18,8 @@ stackplz 的模块文件使用相邻目录替换依赖，未固定该 fork 的 S
 
 无符号 ARM64 BoringSSL 的静态识别是 B-box 的实现，源码依据及测试片段许可见 [Chromium 测试说明](testdata/chromium/README.md)。它根据当前 ELF 内容重新计算偏移，没有版本地址表；缺少足够证据的库保持未支持状态。
 
+该 fork 的 [perf/reader.go](https://github.com/SeeFlowerX/ebpf/blob/61cbc4a37e8264c3788494a74dcec992c636b918/perf/reader.go) 为堆栈/寄存器解析保留完整采样正文，`Record.RawSample` 包含开头的四字节 `PERF_SAMPLE_RAW` 长度。B-box 仅启用 RAW 采样，由 [events.go](events.go) 检查并移除这层封装，再处理自己的事件及内核对齐填充。升级依赖时必须核对该格式，不能把 fork 与原版 cilium 的同名 API 视为行为相同。
+
 ## 检查入口
 
 `capture --inspect-library <ELF 或 APK 路径>` 使用生产识别器输出 `entry`、`method`、`archiveOffset` 和 `symbols`。其中 `symbols` 是 ELF 函数文件偏移，实际挂载偏移为 `archiveOffset + symbols[函数名]`。此命令只读安装文件，不加载 BPF；静态识别成功不代表设备允许挂载或目标应用实际调用了这些接口。

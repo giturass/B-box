@@ -282,7 +282,7 @@ func run(encode func(any) error) error {
 			if result.record.LostSamples > 0 {
 				return fmt.Errorf("eBPF lost %d events; capture is incomplete", result.record.LostSamples)
 			}
-			event, err := decodeEvent(result.record.RawSample)
+			event, err := decodePerfRecord(result.record)
 			if err != nil {
 				return err
 			}

@@ -5,12 +5,30 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/cilium/ebpf/perf"
+	"golang.org/x/sys/unix"
 )
 
 type rawEvent struct {
 	ssl, generation, sequence, otherSequence uint64
 	pid, uid, kind, length, offset, flags    uint32
 	data                                     []byte
+}
+
+// SeeFlowerX/ebpf preserves the PERF_SAMPLE_RAW length word in RawSample so
+// stackplz can also decode registers/stacks. NewReader enables only RAW here.
+// Strip this envelope explicitly; it is not the upstream cilium slice format.
+func decodePerfRecord(record perf.Record) (rawEvent, error) {
+	if record.RecordType != unix.PERF_RECORD_SAMPLE || len(record.RawSample) < 4 {
+		return rawEvent{}, errors.New("unexpected eBPF perf record")
+	}
+	data := record.RawSample
+	size := int(binary.LittleEndian.Uint32(data))
+	if size < 72 || size > 72+4096+7 || size > len(data)-4 || len(data)-4-size > 7 {
+		return rawEvent{}, errors.New("invalid eBPF perf sample length")
+	}
+	return decodeEvent(data[4 : 4+size])
 }
 
 func decodeEvent(data []byte) (rawEvent, error) {
@@ -23,8 +41,9 @@ func decodeEvent(data []byte) (rawEvent, error) {
 		offset: b.Uint32(data[56:]), flags: b.Uint32(data[64:])}
 	length := b.Uint32(data[60:])
 	if length > 4096 || int(length)+72 > len(data) || event.kind < 1 || event.kind > 5 ||
-		event.length > 128*1024 || event.offset+length > event.length {
-		return rawEvent{}, errors.New("invalid eBPF event bounds")
+		event.length > 128*1024 || event.offset > event.length || length > event.length-event.offset {
+		return rawEvent{}, fmt.Errorf("invalid eBPF event bounds: kind=%d total=%d offset=%d captured=%d sample=%d",
+			event.kind, event.length, event.offset, length, len(data))
 	}
 	if event.kind == 5 && (event.flags < 1 || event.flags > 4 || event.length != 0 || length != 0 || event.sequence != 0) {
 		return rawEvent{}, errors.New("invalid eBPF gap event")

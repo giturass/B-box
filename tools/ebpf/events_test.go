@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cilium/ebpf/perf"
+	"golang.org/x/sys/unix"
 )
 
 func TestAssemblerOrdersCPUsAndChunks(t *testing.T) {
@@ -84,6 +87,38 @@ func TestDecodeEventBounds(t *testing.T) {
 	}
 	if _, err := decodeEvent(input[:10]); err == nil {
 		t.Fatal("short event accepted")
+	}
+}
+
+func TestAndroidForkPerfEnvelopeIsRemovedBeforeEventDecoding(t *testing.T) {
+	payload := make([]byte, 75)
+	binary.LittleEndian.PutUint32(payload[44:], 2)
+	binary.LittleEndian.PutUint32(payload[52:], 3)
+	binary.LittleEndian.PutUint32(payload[60:], 3)
+	copy(payload[72:], "abc")
+	for padding := 0; padding <= 7; padding++ {
+		for _, included := range []bool{false, true} {
+			data := make([]byte, 4+len(payload)+padding)
+			size := len(payload)
+			if included {
+				size += padding
+			}
+			binary.LittleEndian.PutUint32(data, uint32(size))
+			copy(data[4:], payload)
+			event, err := decodePerfRecord(perf.Record{RecordType: unix.PERF_RECORD_SAMPLE, RawSample: data})
+			if err != nil || string(event.data) != "abc" || event.kind != 2 {
+				t.Fatalf("perf length word was treated as event data: %+v, %v", event, err)
+			}
+		}
+	}
+	for _, record := range []perf.Record{
+		{RecordType: unix.PERF_RECORD_MMAP2, RawSample: payload},
+		{RecordType: unix.PERF_RECORD_SAMPLE, RawSample: payload[:3]},
+		{RecordType: unix.PERF_RECORD_SAMPLE, RawSample: []byte{255, 255, 255, 255}},
+	} {
+		if _, err := decodePerfRecord(record); err == nil {
+			t.Fatal("invalid perf envelope accepted")
+		}
 	}
 }
 func TestSelectionAndPrivateConfigValidation(t *testing.T) {
