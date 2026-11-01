@@ -72,10 +72,40 @@ func readConfig(reader *bufio.Reader) (collectorConfig, error) {
 func main() {
 	debug.SetMemoryLimit(256 * 1024 * 1024)
 	writer := json.NewEncoder(os.Stdout)
-	if err := run(writer.Encode); err != nil {
+	var err error
+	if len(os.Args) > 1 {
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		err = inspectCommand(ctx, os.Args[1:], writer.Encode)
+	} else {
+		err = run(writer.Encode)
+	}
+	if err != nil {
 		_ = writer.Encode(pipeEvent{Type: "error", Error: fmt.Sprintf("%.4096s", err.Error())})
 		os.Exit(1)
 	}
+}
+
+// Read-only diagnostics use exactly the production library resolver. This can
+// inspect an installed APK without Root, loading BPF, or observing a process.
+func inspectCommand(ctx context.Context, args []string, encode func(any) error) error {
+	if len(args) != 2 || args[0] != "--inspect-library" {
+		return errors.New("usage: --inspect-library <ELF or APK path>")
+	}
+	libraries, err := inspectLibraries(ctx, args[1])
+	for _, library := range libraries {
+		if writeErr := encode(struct {
+			Path          string            `json:"path"`
+			ArchiveOffset uint64            `json:"archiveOffset"`
+			Symbols       map[string]uint64 `json:"symbols"`
+		}{library.path, library.base, library.symbols}); writeErr != nil {
+			return writeErr
+		}
+	}
+	if err == nil && len(libraries) == 0 {
+		err = errors.New("no compatible TLS library found")
+	}
+	return err
 }
 
 func run(encode func(any) error) error {
@@ -226,7 +256,7 @@ func run(encode func(any) error) error {
 				if activeResults == nil {
 					kind = "ready"
 				}
-				if err = emit(pipeEvent{Type: kind, Version: 1, Libraries: update.libraries}); err != nil {
+				if err = emit(pipeEvent{Type: kind, Version: 1, Libraries: update.libraries, Error: update.warning}); err != nil {
 					return err
 				}
 				// A probe may already have produced data. Keep it buffered until

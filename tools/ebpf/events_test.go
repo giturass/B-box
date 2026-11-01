@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"strings"
 	"testing"
@@ -93,7 +94,7 @@ func TestSelectionAndPrivateConfigValidation(t *testing.T) {
 	if c.selected(110002) || !c.selected(110003) {
 		t.Fatal("UID allowlist ignored")
 	}
-	if _, err := readSymbols(strings.NewReader("not ELF")); err == nil {
+	if _, err := readSymbols(context.Background(), strings.NewReader("not ELF"), "libssl.so"); err == nil {
 		t.Fatal("non ELF library accepted")
 	}
 }

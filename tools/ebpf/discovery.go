@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 type discoveryUpdate struct {
 	stage     string
 	libraries int
+	warning   string
 	err       error
 }
 
@@ -70,7 +72,7 @@ func (d *libraryDiscovery) watch(ctx context.Context, config collectorConfig, up
 		if len(d.attached) == 0 {
 			reason := strings.Join(d.failures, "; ")
 			if reason == "" {
-				reason = "SSL_new/free/read/write symbols were not found. Open the target app or select its compatible TLS library."
+				reason = "SSL_new/free/read/write symbols or verified Chromium functions were not found. Open the target app or select its compatible TLS library."
 			}
 			return fmt.Errorf("no compatible TLS library could be attached: %s", reason)
 		}
@@ -115,11 +117,18 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 			return err
 		}
 		libraries, err := d.inspect(ctx, path)
+		warningChanged := false
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			continue
+			var unsupported *unsupportedChromiumError
+			if errors.As(err, &unsupported) && len(d.failures) < 3 {
+				d.failures = append(d.failures, fmt.Sprintf("%.1024s", err.Error()))
+				warningChanged = true
+			}
+			// A stored APK may contain both compatible and unsupported libraries.
+			// Keep the compatible results and report the diagnostic after ready.
 		}
 		for _, library := range libraries {
 			if err = ctx.Err(); err != nil {
@@ -140,12 +149,19 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 					return ctx.Err()
 				}
 				if len(d.failures) < 3 {
-					d.failures = append(d.failures, filepath.Base(path)+": "+err.Error())
+					d.failures = append(d.failures, fmt.Sprintf("%.1024s", filepath.Base(path)+": "+err.Error()))
+					warningChanged = true
 				}
 				continue
 			}
 			d.attached[library.identity] = links
-			if err = report(discoveryUpdate{libraries: len(d.attached)}); err != nil {
+			if err = report(discoveryUpdate{libraries: len(d.attached), warning: strings.Join(d.failures, "; ")}); err != nil {
+				return err
+			}
+			warningChanged = false
+		}
+		if warningChanged && len(d.attached) > 0 {
+			if err = report(discoveryUpdate{libraries: len(d.attached), warning: strings.Join(d.failures, "; ")}); err != nil {
 				return err
 			}
 		}

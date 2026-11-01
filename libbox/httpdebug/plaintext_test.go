@@ -217,6 +217,41 @@ func TestPlaintextCollectorExitStopsSessionAndClosesSource(t *testing.T) {
 	}
 }
 
+func TestPlaintextLibraryWarningsKeepCaptureAndCountsActive(t *testing.T) {
+	managerMu.Lock()
+	store = nil
+	lastCaptureError = ""
+	managerMu.Unlock()
+	t.Cleanup(func() { Stop(); managerMu.Lock(); store = nil; managerMu.Unlock() })
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	if err := Start(t.TempDir(), `{"https":true}`, reader, func() {}); err != nil {
+		t.Fatal(err)
+	}
+	encoder := json.NewEncoder(writer)
+	warning := "Chrome/Chromium HTTPS plaintext is unavailable: unverified function layout"
+	for _, event := range []plaintextEvent{
+		{Type: "ready", Version: 1, Libraries: 1, Error: warning},
+		{Type: "status", Version: 1, Libraries: 2, Error: warning},
+		{Type: "open", ID: "warning", PID: 42, UID: 10001},
+		{Type: "data", ID: "warning", Direction: "write", Data: []byte("GET / HTTP/1.1\r\nHost: supported.test\r\n\r\n")},
+		{Type: "data", ID: "warning", Direction: "read", Data: []byte("HTTP/1.1 204 No Content\r\n\r\n")},
+		{Type: "close", ID: "warning"},
+	} {
+		if err := encoder.Encode(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items := waitComplete(t, store, 1)
+	if state := Status(); !state.Active || state.Libraries != 2 || state.Error != warning {
+		t.Fatalf("library warning was lost or stopped capture: %+v", state)
+	}
+	detail, err := store.Detail(items[0].ID)
+	if err != nil || detail.Error != "" || detail.Response.Status != 204 {
+		t.Fatalf("warning interrupted a supported application: %+v, %v", detail, err)
+	}
+}
+
 func TestPlaintextCloseDelimitedBodyIsNotClaimedCompleteOnSSLFree(t *testing.T) {
 	engine, store := testEngine(t, Config{HTTPS: true})
 	openPlaintext(t, engine, "no-length")

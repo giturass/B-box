@@ -62,6 +62,10 @@ func (e *Engine) readPlaintext(reader io.Reader) {
 			}
 			ready = true
 			e.libraries.Store(event.Libraries)
+			if event.Error != "" {
+				warning := fmt.Sprintf("%.4096s", event.Error)
+				e.warning.Store(&warning)
+			}
 			continue
 		}
 		if event.Type == "error" {
@@ -69,7 +73,15 @@ func (e *Engine) readPlaintext(reader io.Reader) {
 			return
 		}
 		if event.Type == "status" {
+			if event.Libraries < 1 || event.Libraries > 64 {
+				failCapture(e, errors.New("invalid eBPF library status"))
+				return
+			}
 			e.libraries.Store(event.Libraries)
+			if event.Error != "" {
+				warning := fmt.Sprintf("%.4096s", event.Error)
+				e.warning.Store(&warning)
+			}
 			continue
 		}
 		if err := e.passive.accept(event); err != nil {

@@ -42,7 +42,7 @@ func executableOffset(file *elf.File, value uint64) (uint64, bool) {
 	return 0, false
 }
 
-func readSymbols(reader io.ReaderAt) (map[string]uint64, error) {
+func readSymbols(ctx context.Context, reader io.ReaderAt, name string) (map[string]uint64, error) {
 	file, err := elf.NewFile(reader)
 	if err != nil {
 		return nil, err
@@ -88,6 +88,23 @@ func readSymbols(reader io.ReaderAt) (map[string]uint64, error) {
 		}
 	}
 	if result["SSL_new"] == 0 || result["SSL_free"] == 0 || result["SSL_read"] == 0 || result["SSL_write"] == 0 {
+		if chromiumLibraryName(name) {
+			resolved, err := resolveChromium(ctx, file)
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if err != nil {
+				return nil, &unsupportedChromiumError{filepath.Base(name), err.Error()}
+			}
+			for symbol, offset := range resolved {
+				if known := result[symbol]; known != 0 && known != offset {
+					return nil, &unsupportedChromiumError{filepath.Base(name), "symbols disagree with the verified BoringSSL functions"}
+				}
+			}
+			// Keep only the verified instance's functions. Optional symbols in a
+			// partly stripped library may belong to another embedded TLS stack.
+			return resolved, nil
+		}
 		return nil, errors.New("SSL_new/free/read/write symbols are unavailable")
 	}
 	return result, nil
@@ -137,6 +154,7 @@ func inspectLibraries(ctx context.Context, path string) ([]library, error) {
 			prefix = "lib/x86_64/"
 		}
 		var result []library
+		var warnings []error
 		for _, entry := range archive.File {
 			if err := ctx.Err(); err != nil {
 				return nil, err
@@ -149,18 +167,25 @@ func inspectLibraries(ctx context.Context, path string) ([]library, error) {
 			if err != nil || offset < 0 || uint64(offset)+entry.UncompressedSize64 > uint64(info.Size()) {
 				continue
 			}
-			symbols, err := readSymbols(io.NewSectionReader(reader, offset, int64(entry.UncompressedSize64)))
+			symbols, err := readSymbols(ctx, io.NewSectionReader(reader, offset, int64(entry.UncompressedSize64)), entry.Name)
 			if err != nil {
+				var unsupported *unsupportedChromiumError
+				if errors.As(err, &unsupported) && len(warnings) < 3 {
+					warnings = append(warnings, err)
+				}
 				continue
 			}
 			result = append(result, library{path, fmt.Sprintf("%s:%d", identity, offset), uint64(offset), symbols})
 		}
-		return result, ctx.Err()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return result, errors.Join(warnings...)
 	}
 	if info.Size() > 256*1024*1024 {
 		return nil, errors.New("ELF exceeds 256 MiB")
 	}
-	symbols, err := readSymbols(reader)
+	symbols, err := readSymbols(ctx, reader, path)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}

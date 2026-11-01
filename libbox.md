@@ -60,9 +60,15 @@
 
 HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF uprobes 观察目标进程在 `SSL_read`/`SSL_write` 及 `_ex` 公共接口中读写的明文。它不从网络密文推导会话密钥，也不接管 TLS 握手；应用照常验证服务端证书。CA 生成、证书安装/模块、MITM、HTTP 改写和 JavaScript 已移除。
 
-采集器使用 [cilium/ebpf v0.22.0](https://github.com/cilium/ebpf/tree/v0.22.0)，依据 [Linux uprobes](https://www.kernel.org/doc/html/latest/trace/uprobetracer.html) 和公开 SSL 函数 ABI 工作，不读取 BoringSSL 私有结构偏移。支持 ARM64/x86_64 的 64 位库，需要 Root、Linux 5.10 或更新内核、BPF/uprobe/perf 支持及 SELinux 许可。自动检查系统 Conscrypt/libssl 和当前 Android 用户的进程映射，可补充最多 16 个绝对库路径；查找 ELF 动态/本地符号、有界 XZ mini-debugdata 及 APK 内未压缩的对应 ABI `.so`。没有兼容库或挂载失败时启动报错；挂载库数不表示所有目标应用均受支持。32 位进程、Go TLS、没有相应符号的自有/裁剪 TLS 库和 QUIC/HTTP/3 不在当前支持范围。
+采集器使用 [cilium/ebpf v0.22.0](https://github.com/cilium/ebpf/tree/v0.22.0)，依据 [Linux uprobes](https://www.kernel.org/doc/html/latest/trace/uprobetracer.html) 和公开 SSL 函数 ABI 工作，不读取 BoringSSL 私有结构偏移。支持 ARM64/x86_64 的 64 位库，需要 Root、Linux 5.10 或更新内核、BPF/uprobe/perf 支持及 SELinux 许可。自动检查系统 Conscrypt/libssl 和当前 Android 用户的进程映射，可补充最多 16 个绝对库路径；查找 ELF 动态/本地符号、有界 XZ mini-debugdata 及 APK 内未压缩的对应 ABI `.so`。没有兼容库或挂载失败时启动报错；挂载库数不表示所有目标应用均受支持。32 位进程、Go TLS、不能通过下述识别的无符号自有/裁剪 TLS 库和 QUIC/HTTP/3 不在当前支持范围。
 
-[库发现](tools/ebpf/discovery.go) 优先检查显式库路径和系统 TLS 库，首个库的完整探针挂载成功后发送 ready，其余进程、ELF/APK 及调试符号检查在独立工作协程继续，新增挂载通过 status 更新数量。事件读取和完整性检查不等待整个扫描结束，ready 始终先于采集数据。启动进度覆盖 BPF 加载、perf 缓冲及库检查/挂载，Android 的超时与协议处理见 [app.md](app.md#请求抓取与-rootebpf)。owner EOF 取消库扫描及后续文件读取，先释放探针并等待扫描退出，再关闭共享 BPF 程序和 map；扫描仍保留 2048 个文件身份及 64 个挂载库的上限。
+ARM64 Chrome/Chromium 的 `libchrome.so`、`libmonochrome*.so`、`libtrichrome.so` 和 `libwebviewchromium.so` 缺少 SSL 符号时，使用[静态识别器](tools/ebpf/chromium.go)检查当前文件，不绑定 Chrome 版本、build ID、代码哈希或固定地址。依据 BoringSSL/Chromium 源文件字符串、公共错误码、标准 unwind 函数范围及调用关系识别 `SSL_new/free/read/write`；必须确认分配/释放配对、Chrome socket 中同一 SSL 对象的调用、整数长度 ABI，以及 `SSL_read` 对 `SSL_peek` 结果的消耗和原值返回。源码行号、寄存器和结构字段的绝对偏移不作为版本签名。识别有歧义、符号冲突、缺少生命周期或不支持的编译布局时不挂载猜测地址，并在抓包状态中提示未支持的库；其他兼容库继续采集。普通更新移动代码/行号不需要维护地址表，修改函数实现、编译布局或删除识别信息仍可能需要更新识别器。
+
+[ELF 检查](tools/ebpf/chromium_elf.go)核对可执行加载段和 `.eh_frame_hdr`/FDE/CIE 范围，目前接受 Android clang 常用的 `pcrel/sdata4`、`datarel/sdata4` 表及 `zR` CIE。只缓存有界候选函数，分块扫描 `.text` 并保留取消检查；APK 探针地址为 ZIP 数据偏移加 ELF 文件偏移，不使用运行时虚拟地址。安装后的新 inode 会重新检查，旧结果不会按包名或版本号套用。
+
+采集器的 `--inspect-library <ELF 或 APK 路径>` 只读诊断入口使用同一识别器，输出 APK 数据偏移及实际识别出的函数文件偏移；它不需要 Root、不加载 BPF，也不读取目标进程或网络数据。可用 CI 构建的对应 ABI 采集器检查安装文件，结果仅证明静态识别，不能当作实机抓包通过。
+
+[库发现](tools/ebpf/discovery.go) 优先检查显式库路径和系统 TLS 库，首个库的完整探针挂载成功后发送 ready，其余进程、ELF/APK 及调试符号检查在独立工作协程继续，新增挂载通过 status 更新数量。最多保留三条有界库识别/挂载诊断，经 ready/status 传递，不将诊断当成全局丢数据或清零挂载数。事件读取和完整性检查不等待整个扫描结束，ready 始终先于采集数据。启动进度覆盖 BPF 加载、perf 缓冲及库检查/挂载，Android 的超时与协议处理见 [app.md](app.md#请求抓取与-rootebpf)。owner EOF 取消库扫描及后续文件读取，先释放探针并等待扫描退出，再关闭共享 BPF 程序和 map；扫描仍保留 2048 个文件身份及 64 个挂载库的上限。
 
 采集器在确认 Root 后直接尝试提高自身的 `RLIMIT_MEMLOCK`，支持仍受该限额约束的内核；提高失败后由实际 BPF 加载报告分配错误，使用 memcg 计费的内核不依赖提高此限额。不导入会在 Go 初始化阶段探测 BPF map 的 [rlimit 包](https://github.com/cilium/ebpf/blob/v0.22.0/rlimit/rlimit_linux.go)，避免 Android 应用 seccomp 在权限错误返回前以 `SIGSYS` 终止进程。
 
@@ -116,6 +122,8 @@ HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF upr
 [httpdebug_test.go](libbox/httpdebug/httpdebug_test.go) 保留 HTTP 路由、SSE/WebSocket、存储上限和导出回归；[plaintext_test.go](libbox/httpdebug/plaintext_test.go) 覆盖分片、HTTP/2 并发/跨域筛选、缺口、半截正文、采集器退出与源关闭。[ui_capture_test.go](libbox/ui_capture_test.go) 检查本地设置、退役字段清理和 schema；[路由测试](libbox/route/httpdebug_test.go) 检查原出站和字节回放。获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py)，它不构建 Android 绑定。
 
 UI 验证还编译 Linux BPF/采集器、运行 [事件测试](tools/ebpf/events_test.go)、[库发现测试](tools/ebpf/discovery_test.go)、[平台回归测试](tools/ebpf/testdata/platform_test.go) 和 [真实 OpenSSL smoke](tools/ebpf/smoke.py)，核对首个挂载不等待慢库、后续挂载计数/去重、取消与探针释放、失败不能报告 ready、两方向明文、分片/重复处理及 owner EOF 退出。平台测试复制到补丁依赖中，检查 Linux 内核版本匹配及 map/程序/BTF 加载，拒绝加载前的平台不支持错误；允许真实内核或权限限制，不将其通过视为抓取可用。共享 Android 构建 Action 使用同一补丁和 NDK 编译 PIE 采集器，链接 16 KiB page alignment，打包为 `libbbox_capture.so`；x86_64 构建额外生成 Android 平台回归二进制，由 Android smoke 在 API 24/31/35 的无特权 shell 中执行。生成的依赖副本、模块文件、BPF 对象和可执行文件不入库。Linux smoke 和无特权平台测试不代替 Android 实机内核、SELinux、Conscrypt 和目标应用验收。
+
+[Chromium 识别回归](tools/ebpf/chromium_test.go)纳入同一 Go 测试入口，以[带来源和许可的实际 ARM64 指令片段](tools/ebpf/testdata/chromium/README.md)构造无符号 ELF，改变函数排列、虚拟地址和错误行号，并检查 APK 文件偏移、取消、歧义/损坏 unwind、错误参数、非消耗读取和缺少释放配对。库发现及明文管道测试另检查兼容结果与未支持提示并存、ready 在前、挂载数保留及其他应用继续采集；这些静态指令/协议回归不能代替 Chrome 实机抓取结果。
 
 升级核心时先检查补丁是否仍准确排除 legacy 分支，核对 sing-tun 依赖版本及自动重定向补丁，检查 HTTP 调试路由/服务生命周期补丁及覆盖文件，再逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对共享准备 Action 的安装范围及三条工作流的调用。
 

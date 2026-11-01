@@ -82,7 +82,7 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 [RootCaptureSession.kt](app/src/main/java/io/nekohasekai/sfa/bg/RootCaptureSession.kt) 只启动 APK 原生库目录中的固定采集器，通过 stdin 传递 UID/库设置，读取有界启动进度及 ready 消息。等待总时限为 25 秒，进度不延长时限；超时报告最后的内核加载、perf 缓冲或 TLS 库检查/挂载阶段，失败清理会话。进度不能代替包含有效版本及挂载库数的 ready，也不会转发给 libbox。标准错误独立排空并最多保留 4 KiB 启动诊断，链接器警告不会混入事件协议。输出由私有 pipe 交给 libbox，没有网络监听或外部可执行文件下载。[IRootService](app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl) 新增事务 10，旧事务 2/3 保持空缺；独立 `ICaptureSession` 提供 FD 和关闭方法。会话在启动前登记，Binder owner 死亡、Root 服务销毁、核心重载/停止均关闭 stdin 和探针，避免遗留采集进程。
 
-采集器 ABI、内核/TLS 支持范围、HTTP 解析及资源限额统一见 [libbox.md](libbox.md#httphttps-请求调试)。应用 UI 展示采集来源、挂载库数、错误及不完整记录，不把库挂载成功视为所有应用均可抓取。CA 管理、证书模块生成、信任检查、HTTP 改写、脚本导入及相应页面/桥接均已移除。此前自行刷入的系统证书模块仍需在对应 Root 管理器中卸载。
+采集器 ABI、内核/TLS 支持范围、Chrome 无版本表识别、HTTP 解析及资源限额统一见 [libbox.md](libbox.md#httphttps-请求调试)。应用 UI 展示采集来源、挂载库数、错误及不完整记录；部分库的兼容性诊断保留活动状态与已挂载数量，不把库挂载成功视为所有应用均可抓取。CA 管理、证书模块生成、信任检查、HTTP 改写、脚本导入及相应页面/桥接均已移除。此前自行刷入的系统证书模块仍需在对应 Root 管理器中卸载。
 
 HAR/cURL 和域名导出使用 Android 文档选择器；取消或写入失败不报告成功，临时文件用后删除。域名列表依据当前搜索条件提取所有保留记录；页面与视觉验证见 [flclash.md](flclash.md#导航与交互约定)。
 

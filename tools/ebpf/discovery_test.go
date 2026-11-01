@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -163,5 +164,39 @@ func TestLibraryInspectionHonorsCancellation(t *testing.T) {
 	}
 	if _, err := discoverPaths(ctx, collectorConfig{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("process scan continued after cancellation: %v", err)
+	}
+}
+
+func TestDiscoveryReportsUnsupportedChromiumWithoutDroppingCompatibleLibraries(t *testing.T) {
+	paths := discoveryFiles(t, 3)
+	d := newLibraryDiscovery(nil)
+	d.inspect = func(_ context.Context, path string) ([]library, error) {
+		warning := &unsupportedChromiumError{"libchrome.so", "unverified function layout"}
+		if path == paths[0] || path == paths[2] {
+			return nil, warning
+		}
+		// An APK can contain a usable TLS library alongside an unsupported one.
+		return []library{{path: path, identity: path}}, errors.Join(warning)
+	}
+	var attachments int
+	d.attachLibrary = func(context.Context, library) ([]link.Link, error) {
+		attachments++
+		return nil, nil
+	}
+	var updates []discoveryUpdate
+	if err := d.scan(context.Background(), paths, func(update discoveryUpdate) error {
+		if update.warning != "" {
+			if update.libraries < 1 {
+				t.Fatal("warning would precede ready or reset the attached library count")
+			}
+			updates = append(updates, update)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if attachments != 1 || len(updates) != 2 || updates[0].libraries != 1 || updates[1].libraries != 1 ||
+		!strings.Contains(updates[0].warning, "libchrome.so") || !strings.Contains(updates[1].warning, "unverified function layout") {
+		t.Fatalf("attachments=%d updates=%+v", attachments, updates)
 	}
 }
