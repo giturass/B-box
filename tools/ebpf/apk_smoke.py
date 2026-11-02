@@ -263,7 +263,7 @@ def child_worker(apk, mode):
         library.close()
 
 
-def exercise(apk, directory, uid, manual=False):
+def exercise(apk, directory, uid, gid, manual=False):
     library = MappedLibrary(apk)
     collector = Collector(apk, directory, uid, library.manual_offsets if manual else None)
     fixture = SSLFixture(library)
@@ -276,7 +276,7 @@ def exercise(apk, directory, uid, manual=False):
         assert any("method=" + method in message for message in collector.logs), collector.logs
         child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--excluded", str(apk)])
         assert child.wait(timeout=10) == 0
-        credentials.enter_context(fixture_credentials(uid))
+        credentials.enter_context(fixture_credentials(uid, gid))
         # Existing mappings and probes must continue using this inode after an
         # installer replaces the public pathname with a different file.
         mapped_apk = apk.with_name("previous.apk")
@@ -407,7 +407,7 @@ def exercise(apk, directory, uid, manual=False):
 
 
 def main():
-    base, uid = fixture_environment()
+    base, uid, gid = fixture_environment()
     with tempfile.TemporaryDirectory(prefix="bbox-apk-uprobe-", dir=base) as temporary:
         directory = Path(temporary)
         directory.chmod(0o755)
@@ -421,7 +421,7 @@ def main():
             os.chown(case, uid, uid)
             apk = case / "base.apk"
             stored_apk(apk, shared.read_bytes())
-            exercise(apk, case, uid, manual)
+            exercise(apk, case, uid, gid, manual)
 
 
 if __name__ == "__main__":

@@ -64,6 +64,6 @@ Go 实现依据 [Go 1.27.3 ABIInternal](https://github.com/golang/go/blob/go1.27
 
 Go smoke 为两种 TLS 版本保存临时测试会话的采集样本、pcapng、诊断和开抓前后同协议的延迟/CPU/RSS 数据。核心 job 消费同次运行的样本，使用正式存储/导出器再生成 pcapng，并让 tshark 验证解密；测试身份和密钥只来自本次 CI fixture。产物名和覆盖范围见 [核心验证说明](../../libbox.md#构建同步和验证)。这些小样本用于回归诊断，不能据此宣称目标应用的性能收益。
 
-Linux smoke 通过 `sudo` 启动，以当前未使用的独立 UID 执行测试负载，采集器保留 Root。测试继续使用生产 UID 筛选和进程映射发现，核对事件 UID；APK 用例另验证不选中的 UID 没有事件。临时文件放在调用者的 `~/tmp`，只向该测试 UID 开放必要文件。这样宿主机的 Docker/containerd 等后台进程不会因同为 Root 被计入测试库和退出耗时。owner EOF 后仍要求五秒内退出，超时保留内核线程及 Go 协程栈。
+Linux smoke 通过 `sudo` 启动，以当前未使用的独立 UID 执行测试负载，采集器保留 Root。测试继续使用生产 UID 筛选和进程映射发现，核对事件 UID；APK 用例另验证不选中的 UID 没有事件。临时文件放在调用者拥有的 `~/tmp`，测试进程保留调用者的组以穿过目录，临时服务端私钥仅对该测试 UID 可读。这样宿主机的 Docker/containerd 等后台进程不会因同为 Root 被计入测试库和退出耗时。owner EOF 后仍要求五秒内退出，超时保留内核线程及 Go 协程栈。
 
 Android 采集器和平台测试由共享构建 Action 生成，并在 [Android smoke](../../.github/workflows/newui-android.yml) 验证。构建与动态测试遵守仓库 [AGENTS.md](../../AGENTS.md)，本机默认只做静态检查。依赖下载、编译成功、Linux smoke 和无 Root 模拟器均不能替代 Root Android 目标应用验收。

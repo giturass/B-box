@@ -23,8 +23,15 @@ def fixture_environment():
     assert os.geteuid() == 0, "run the Linux smoke through sudo"
     caller = int(os.environ["SUDO_UID"])
     assert caller != 0, "the CI runner must be an ordinary user"
-    base = Path(pwd.getpwuid(caller).pw_dir) / "tmp"
-    base.mkdir(exist_ok=True)
+    account = pwd.getpwuid(caller)
+    base = Path(account.pw_dir) / "tmp"
+    try:
+        base.mkdir(mode=0o750)
+    except FileExistsError:
+        pass
+    else:
+        os.chown(base, caller, account.pw_gid)
+        base.chmod(0o750)
     used = set()
     for process in Path("/proc").iterdir():
         if process.name.isdecimal():
@@ -33,16 +40,18 @@ def fixture_environment():
             except FileNotFoundError:
                 pass
     uid = next(value for value in range(60000, 61000) if value not in used)
-    return base, uid
+    # Ubuntu runner homes may be 0750. The fixture keeps the runner's group
+    # for directory traversal, but its distinct UID controls all BPF filters.
+    return base, uid, account.pw_gid
 
 
 @contextmanager
-def fixture_credentials(uid):
+def fixture_credentials(uid, gid):
     """Run the in-process APK fixture as its target UID, then restore cleanup."""
     uids, gids, groups = os.getresuid(), os.getresgid(), os.getgroups()
     try:
         os.setgroups([])
-        os.setresgid(uid, uid, gids[2])
+        os.setresgid(gid, gid, gids[2])
         os.setresuid(uid, uid, uids[2])
         yield
     finally:
@@ -103,8 +112,8 @@ def event(stream, timeout=20):
 
 
 def main():
-    base, uid = fixture_environment()
-    identity = {"user": uid, "group": uid, "extra_groups": []}
+    base, uid, gid = fixture_environment()
+    identity = {"user": uid, "group": gid, "extra_groups": []}
     with tempfile.TemporaryDirectory(prefix="bbox-ebpf-", dir=base) as directory:
         directory = Path(directory)
         directory.chmod(0o755)
@@ -120,11 +129,12 @@ def main():
             port = sock.getsockname()[1]
         server = subprocess.Popen(["openssl", "s_server", "-cert", str(cert), "-key", str(key),
                                    "-accept", f"127.0.0.1:{port}", "-www", "-quiet"],
-                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **identity)
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, **identity)
         collector = None
         try:
             deadline = time.monotonic() + 5
             while True:
+                assert server.poll() is None, "TLS fixture exited: " + server.stderr.read().decode(errors="replace")
                 try:
                     with socket.create_connection(("127.0.0.1", port), timeout=.2):
                         break

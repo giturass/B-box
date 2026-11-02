@@ -88,8 +88,8 @@ def main():
     assert fixture.is_file() and 1 <= args.requests <= 100
     output = ROOT / "build" / "gotls" / fixture.name
     output.mkdir(parents=True, exist_ok=True)
-    base, uid = fixture_environment()
-    identity = {"user": uid, "group": uid, "extra_groups": []}
+    base, uid, gid = fixture_environment()
+    identity = {"user": uid, "group": gid, "extra_groups": []}
     with tempfile.TemporaryDirectory(prefix="bbox-gotls-", dir=base) as directory:
         directory = Path(directory)
         directory.chmod(0o755)
