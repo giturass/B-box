@@ -114,7 +114,7 @@ class ProfileRecoveryTest {
                             result = JSONObject(Libbox.readUICapture(items.getJSONObject(0).getString("id")))
                         } else delay(20)
                     }
-                    result
+                    checkNotNull(result)
                 }
                 val metadata = detail.getJSONObject("metadata")
                 assertEquals("MITM", metadata.getString("captureSource"))

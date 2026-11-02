@@ -3,6 +3,8 @@ package io.nekohasekai.sfa.flutter
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.nekohasekai.sfa.Application
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -19,7 +21,7 @@ import java.util.zip.ZipInputStream
 
 @RunWith(AndroidJUnit4::class)
 class MitmCertificateTest {
-    private fun withCertificate(block: (MitmCertificate, File, MutableSet<String>) -> Unit) {
+    private fun withCertificate(block: (MitmCertificate, File, MutableSet<String>) -> Unit) = runBlocking(Dispatchers.IO) {
         Application.application.setupLibbox()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = File(context.cacheDir, "mitm-certificate-${UUID.randomUUID()}").apply { mkdirs() }

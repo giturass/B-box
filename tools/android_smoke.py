@@ -201,7 +201,10 @@ def mitm_origin():
                 assert requests == [{"path": "/probe?raw=1;2", "host": f"origin.test:{port}"}], requests
             finally:
                 server.shutdown()
-                adb("reverse", "--remove", f"tcp:{port}")
+                try:
+                    adb("reverse", "--remove", f"tcp:{port}")
+                except (subprocess.SubprocessError, OSError) as error:
+                    print(f"Reverse-port cleanup failed: {error}")
                 (OUT / "mitm-origin.json").write_text(json.dumps(requests, indent=2) + "\n")
 
 
