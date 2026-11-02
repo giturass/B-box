@@ -89,7 +89,10 @@ func mitmClient(t *testing.T, e *Engine, origin string, ca, roots *x509.CertPool
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{RootCAs: ca, MinVersion: tls.VersionTLS12}, ForceAttemptHTTP2: h2,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			client, inbound := net.Pipe()
+			client, inbound, err := mitmTCPPair(ctx)
+			if err != nil {
+				return nil, err
+			}
 			if !e.Handle(context.Background(), inbound, Metadata{Host: "origin.test", Port: 443, Protocol: "tls",
 				Outbound: "selected-route", Rule: "selected-rule", UID: 1234, Packages: []string{"com.test"}},
 				func(ctx context.Context) (net.Conn, error) {
@@ -105,6 +108,27 @@ func mitmClient(t *testing.T, e *Engine, origin string, ca, roots *x509.CertPool
 	}
 	t.Cleanup(transport.CloseIdleConnections)
 	return &http.Client{Transport: transport, Timeout: 5 * time.Second}, dials
+}
+
+// TLS 1.3 certificate rejection can write an alert while the peer is still
+// writing its handshake flight. Real TCP is duplex and buffered; net.Pipe's
+// synchronous writes would deadlock this fixture until a timeout.
+func mitmTCPPair(ctx context.Context) (net.Conn, net.Conn, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, nil, err
+	}
+	defer listener.Close()
+	client, err := (&net.Dialer{}).DialContext(ctx, "tcp", listener.Addr().String())
+	if err != nil {
+		return nil, nil, err
+	}
+	inbound, err := listener.Accept()
+	if err != nil {
+		client.Close()
+		return nil, nil, err
+	}
+	return client, inbound, nil
 }
 
 func TestMITMHTTP1AndHTTP2UseVerifiedConnectionAndPreserveMessages(t *testing.T) {
@@ -242,8 +266,8 @@ func TestMITMClientPinningFailureClosesVerifiedUpstream(t *testing.T) {
 	e, store, ca := mitmEngine(t, Config{})
 	client, _ := mitmClient(t, e, origin.Listener.Addr().String(), ca, roots, false)
 	client.Transport.(*http.Transport).TLSClientConfig.VerifyConnection = func(tls.ConnectionState) error { return errors.New("certificate pin mismatch") }
-	if _, err := client.Get("https://origin.test/"); err == nil {
-		t.Fatal("client pin bypassed")
+	if _, err := client.Get("https://origin.test/"); err == nil || !strings.Contains(err.Error(), "certificate pin mismatch") {
+		t.Fatal("client pinning failure was bypassed or replaced by a transport timeout", err)
 	}
 	if item := waitComplete(t, store, 1)[0]; !strings.Contains(item.Error, "Client TLS") {
 		t.Fatalf("wrong phase: %+v", item)

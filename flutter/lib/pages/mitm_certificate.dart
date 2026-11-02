@@ -1,4 +1,5 @@
 import '../widgets.dart';
+import '../components/record.dart';
 
 class MitmCertificatePage extends StatefulWidget {
   const MitmCertificatePage({super.key});
