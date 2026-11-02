@@ -37,7 +37,7 @@ func supportedGoVersion(version string) bool {
 	}
 	minor, err := strconv.Atoi(parts[0])
 	patch, patchErr := strconv.Atoi(parts[1])
-	return err == nil && patchErr == nil && patch >= 0 && minor >= 24 && minor <= 27 &&
+	return err == nil && patchErr == nil && patch >= 0 && minor >= 22 && minor <= 27 &&
 		strconv.Itoa(minor) == parts[0] && strconv.Itoa(patch) == parts[1]
 }
 
@@ -50,7 +50,7 @@ func resolveGoTLS(ctx context.Context, file *elf.File, info *debug.BuildInfo) (r
 		}
 	}()
 	if !supportedGoVersion(info.GoVersion) {
-		return nil, "", fmt.Errorf("Go TLS ABI is unverified for %s; supported: Go 1.24-1.27", info.GoVersion)
+		return nil, "", fmt.Errorf("Go TLS ABI is unverified for %s; supported: Go 1.22-1.27", info.GoVersion)
 	}
 	for _, setting := range info.Settings {
 		if setting.Key == "-compiler" && setting.Value != "gc" || setting.Key == "GOEXPERIMENT" && setting.Value != "" {

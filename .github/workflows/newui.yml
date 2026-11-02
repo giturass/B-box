@@ -78,7 +78,7 @@ jobs:
         if: ${{ !cancelled() && steps.collector_build.outcome == 'success' }}
         run: |
           mkdir -p "$HOME/tmp/bbox-go-tls"
-          for fixture_go in go1.24.0 go1.25.0 go1.26.10 go1.27.3; do
+          for fixture_go in go1.22.6 go1.23.0 go1.24.0 go1.25.0 go1.26.10 go1.27.3; do
             for fixture_link in internal external; do
               GOTOOLCHAIN="$fixture_go" CGO_ENABLED=1 go build -trimpath -buildmode=pie \
                 -ldflags="-s -w -linkmode=$fixture_link" \
@@ -86,6 +86,14 @@ jobs:
               sudo python3 tools/ebpf/gotls_smoke.py "$HOME/tmp/bbox-go-tls/$fixture_go-$fixture_link"
             done
           done
+      - name: Go 1.22.6 stripped c-shared TLS offsets
+        if: ${{ !cancelled() && steps.collector_build.outcome == 'success' }}
+        run: |
+          mkdir -p "$HOME/tmp/bbox-go-tls"
+          GOTOOLCHAIN=go1.22.6 CGO_ENABLED=1 go build -trimpath -buildmode=c-shared -ldflags="-s -w" \
+            -o "$HOME/tmp/bbox-go-tls/go1.22.6-shared.so" \
+            tools/ebpf/testdata/go_tls_client.go tools/ebpf/testdata/go_tls_shared.go
+          tools/ebpf/capture --inspect-library "$HOME/tmp/bbox-go-tls/go1.22.6-shared.so"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

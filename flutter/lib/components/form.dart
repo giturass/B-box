@@ -5,19 +5,20 @@ import '../widgets.dart';
 
 class FormPage extends StatelessWidget {
   const FormPage({super.key, required this.title, required this.onSave, required this.children,
-    this.error, this.saving = false, this.actions = const []});
+    this.error, this.saving = false, this.actions = const [], this.controller});
   final String title;
   final VoidCallback onSave;
   final String? error;
   final bool saving;
   final List<Widget> children;
   final List<IconButtonData> actions;
+  final ScrollController? controller;
 
   @override Widget build(BuildContext context) => CommonScaffold(
     title: context.tr(title), iconActions: actions,
     confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'),
       isLoading: saving, onPressed: saving ? null : onSave),
-    body: AbsorbPointer(absorbing: saving, child: ListView(shrinkWrap: true,
+    body: AbsorbPointer(absorbing: saving, child: ListView(shrinkWrap: true, controller: controller,
       padding: EdgeInsets.fromLTRB(16, context.sectionsTopPadding, 16, 20 + context.bottomInset),
       children: [
         // Keep form children at stable indices when the validation message changes.

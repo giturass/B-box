@@ -31,7 +31,12 @@ func (c collectorConfig) selected(uid uint32) bool {
 }
 
 func initialLibraryPaths(config collectorConfig) []string {
-	return append(append([]string(nil), config.Libraries...),
+	paths := make([]string, 0, len(config.TLSOffsets)+len(config.Libraries)+4)
+	for _, value := range config.TLSOffsets {
+		paths = append(paths, value.Path)
+	}
+	paths = append(paths, config.Libraries...)
+	return append(paths,
 		"/apex/com.android.conscrypt/lib64/libssl.so",
 		"/apex/com.android.conscrypt/lib64/libjavacrypto.so",
 		"/system/lib64/libssl.so", "/system/lib64/libjavacrypto.so")
@@ -53,7 +58,11 @@ func discoverPaths(ctx context.Context, config collectorConfig) ([]string, error
 	for _, path := range initialLibraryPaths(config) {
 		add(path)
 	}
-	for _, path := range config.Targets {
+	targets := append([]string(nil), config.Targets...)
+	for path := range config.TargetPackages {
+		targets = append(targets, path)
+	}
+	for _, path := range targets {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -123,6 +132,41 @@ func discoverPaths(ctx context.Context, config collectorConfig) ([]string, error
 		return result[i] < result[j]
 	})
 	return result, ctx.Err()
+}
+
+// These packages own installed code or share its APK. They are diagnostic
+// provenance, not the UID/socket attribution of an observed TLS connection.
+func (c collectorConfig) libraryPackages(path string) string {
+	names := make(map[string]bool)
+	parts := strings.SplitN(path, "/", 5)
+	if len(parts) == 5 && parts[1] == "proc" && (parts[3] == "root" || parts[3] == "map_files") {
+		if info, err := os.Stat("/proc/" + parts[2]); err == nil {
+			if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+				for _, name := range c.Packages[strconv.FormatUint(uint64(stat.Uid), 10)] {
+					names[name] = true
+				}
+			}
+		}
+		if parts[3] == "root" {
+			path = "/" + parts[4]
+		}
+	}
+	for target, packages := range c.TargetPackages {
+		if path == target || strings.HasPrefix(path, strings.TrimSuffix(target, "/")+"/") {
+			for _, name := range packages {
+				names[name] = true
+			}
+		}
+	}
+	values := make([]string, 0, len(names))
+	for name := range names {
+		values = append(values, name)
+	}
+	sort.Strings(values)
+	if len(values) == 0 {
+		return "packages=unknown"
+	}
+	return fmt.Sprintf("packages=%.512q", strings.Join(values, ","))
 }
 
 func mappedLibraryPath(directory, line string) string {

@@ -24,15 +24,43 @@ TLS 生命周期还依据 [OpenSSL 3.0 的 state_machine](https://github.com/ope
 
 [eCapture](https://github.com/gojue/ecapture/tree/331d546405b79731e1ea6189fe17e479f3bdb2d3) 固定参考提交为 `331d546405b79731e1ea6189fe17e479f3bdb2d3`（Apache-2.0）：[Go TLS 模块](https://github.com/gojue/ecapture/blob/331d546405b79731e1ea6189fe17e479f3bdb2d3/internal/probe/gotls/gotls_probe.go)、[Go 内核探针](https://github.com/gojue/ecapture/blob/331d546405b79731e1ea6189fe17e479f3bdb2d3/kern/gotls_kern.c) 和 [连接缓存](https://github.com/gojue/ecapture/blob/331d546405b79731e1ea6189fe17e479f3bdb2d3/internal/probe/openssl/connection_cache.go) 提供函数定位、寄存器 ABI、连接代次和 pcapng 独立解密的参考。B-box 自行实现对应适配，未引入其可执行文件或 TLS 私有结构版本表。
 
-Go 实现依据 [Go 1.27.3 ABIInternal](https://github.com/golang/go/blob/go1.27.3/src/cmd/compile/abi-internal.md)、[runtime.g/stack](https://github.com/golang/go/blob/go1.27.3/src/runtime/runtime2.go) 和 [crypto/tls.writeKeyLog](https://github.com/golang/go/blob/go1.27.3/src/crypto/tls/common.go)，所用字段及寄存器与 Go 1.26.10 对照核对：以 g 而非系统线程配对 I/O，处理栈搬移，在函数入口被动读取已生成密钥，不要求应用启用 `KeyLogWriter`。按照 [gosym.NewLineTable](https://github.com/golang/go/blob/go1.27.3/src/debug/gosym/pclntab.go) 的要求解析实际 `runtime.text` 地址及 ELF 重定位；Go 1.26/1.27 的 [pcHeader/moduledata](https://github.com/golang/go/blob/go1.27.3/src/runtime/symtab.go) 已不在 pcHeader 保存基址，改从 moduledata 读取并核对关联表和代码边界。外部链接的 C 启动代码不计入 Go 函数偏移。x86 返回指令和缺少 unwind 的 ARM64 候选分别使用 `golang.org/x/arch` 的 `x86asm` / `arm64asm` v0.32.0 解码，依赖固定在 [go.mod](go.mod)，BSD 许可保存在 [golang-x-arch-LICENSE](../../flutter/assets/licenses/golang-x-arch-LICENSE)。Go 版本/编译器门限和功能边界由 [libbox.md](../../libbox.md#httphttps-请求调试) 维护。
+Go 实现依据 [Go 1.27.3 ABIInternal](https://github.com/golang/go/blob/go1.27.3/src/cmd/compile/abi-internal.md)、[runtime.g/stack](https://github.com/golang/go/blob/go1.27.3/src/runtime/runtime2.go) 和 [crypto/tls.writeKeyLog](https://github.com/golang/go/blob/go1.27.3/src/crypto/tls/common.go)，所用字段及寄存器与 Go 1.26.10 对照核对：以 g 而非系统线程配对 I/O，处理栈搬移，在函数入口被动读取已生成密钥，不要求应用启用 `KeyLogWriter`。[Go 1.22.6 的 ABI](https://github.com/golang/go/blob/go1.22.6/src/cmd/compile/abi-internal.md)、[栈头](https://github.com/golang/go/blob/go1.22.6/src/runtime/runtime2.go)、[密钥入口](https://github.com/golang/go/blob/go1.22.6/src/crypto/tls/common.go) 及 [Go 1.23.0 ABI](https://github.com/golang/go/blob/go1.23.0/src/cmd/compile/abi-internal.md) 保持所用寄存器和参数布局。按照 [gosym.NewLineTable](https://github.com/golang/go/blob/go1.27.3/src/debug/gosym/pclntab.go) 的要求解析实际 `runtime.text` 地址及 ELF 重定位；Go 1.22–1.25 的 pcHeader 保存基址，Go 1.26/1.27 的 [pcHeader/moduledata](https://github.com/golang/go/blob/go1.27.3/src/runtime/symtab.go) 改从 moduledata 读取并核对关联表和代码边界。外部链接的 C 启动代码不计入 Go 函数偏移。x86 返回指令和缺少 unwind 的 ARM64 候选分别使用 `golang.org/x/arch` 的 `x86asm` / `arm64asm` v0.32.0 解码，依赖固定在 [go.mod](go.mod)，BSD 许可保存在 [golang-x-arch-LICENSE](../../flutter/assets/licenses/golang-x-arch-LICENSE)。Go 版本/编译器门限和功能边界由 [libbox.md](../../libbox.md#httphttps-请求调试) 维护。
 
 可选 socket 探针用设备 BTF 的 CO-RE 重定位读取实际 FD/file/socket，不使用固定内核字段偏移；库加载与字段重定位依据上述 ebpf fork。原始网络包遵循 [packet(7)](https://man7.org/linux/man-pages/man7/packet.7.html) 的 AF_PACKET `SOCK_DGRAM` 语义，输出真实 IP 包；pcapng 使用 [pcapng 格式说明](https://www.ietf.org/archive/id/draft-ietf-opsawg-pcapng-05.html) 中的 RAW IP、EPB 和 TLS DSB。遇到不明确的 socket/tuple 归属停止该关联并报告，不把 FD 复用或加密包当作单条 HTTP 请求的可靠标识。
 
 ## 检查入口
 
-`capture --inspect-library <ELF 或 APK 路径>` 使用生产识别器输出 `entry`、`method`、`archiveOffset` 和 `symbols`。其中 `symbols` 是 ELF 函数文件偏移，实际挂载偏移为 `archiveOffset + symbols[函数名]`。此命令只读安装文件，不加载 BPF；静态识别成功不代表设备允许挂载或目标应用实际调用了这些接口。
+`capture --inspect-library <ELF 或 APK 路径>` 使用生产识别器输出 `path`、`entry`、`sha256`、`method`、`archiveOffset` 和 `symbols`。其中 `sha256` 只计算 ELF 字节，`symbols` 是 ELF 函数文件偏移，实际挂载偏移为 `archiveOffset + symbols[函数名]`。自动识别失败的条目也输出哈希及 `error`。此命令只读安装文件，不加载 BPF；静态识别成功不代表设备允许挂载或目标应用实际调用了这些接口。
 
-[newui.yml](../../.github/workflows/newui.yml) 在 Linux ARM64/x86_64 编译并测试采集器，运行真实 OpenSSL TLS 和 [Go TLS/独立解密 smoke](gotls_smoke.py)，在 x86_64 另运行 [APK 映射执行 smoke](apk_smoke.py)。APK 测试独立加载未压缩 APK 中的 [公开 SSL ABI 测试程序](testdata/tls_fixture.c)，仅把 APK 路径交给采集器，验证挂载到原始 inode、跨 CPU 事件、UID 筛选、嵌套调用去重和异常生命周期。该程序不实现加密，真实 TLS 由 [smoke.py](smoke.py) 及四个 Go 工具链构建的 [Go fixture](testdata/go_tls_client.go) 覆盖。
+## 手动函数偏移
+
+抓包设置的“手动 TLS 函数偏移”可添加、编辑或删除库配置，保存抓包设置后生效。填写绝对文件路径、APK 内完整条目（独立 ELF 留空）、ELF 的 SHA-256，以及完整的 `SSL_new/free/read/write` 函数组；可选项为当前探针支持的 `SSL_clear`、`SSL_read_ex/write_ex`、`SSL_read_early_data/write_early_data`、`SSL_connect/do_handshake`。格式和挂载校验的支持边界由 [核心说明](../../libbox.md#httphttps-请求调试) 维护。
+
+可先用上述只读检查命令获取每个 ELF 的哈希。反汇编工具显示虚拟地址时，需要按对应 `PT_LOAD` 换算为 ELF 文件偏移：`p_offset + 函数虚拟地址 - p_vaddr`。填写十六进制 `0x...`，不要加入进程加载基址或 APK 容器偏移。
+
+`capture --inspect-library <路径> --offsets <JSON 文件>` 可在挂载前预览同一配置。JSON 文件为数组，示例中的哈希和偏移须替换为自行确认过公开 SSL ABI 的目标函数：
+
+```json
+[
+  {
+    "path": "/data/app/example/base.apk",
+    "entry": "lib/arm64-v8a/libtls.so",
+    "sha256": "<替换为 ELF 的 64 位 SHA-256>",
+    "functions": {
+      "SSL_new": "0x1000",
+      "SSL_free": "0x1100",
+      "SSL_read": "0x1200",
+      "SSL_write": "0x1300"
+    }
+  }
+]
+```
+
+手动配置优先于指定路径/条目的自动识别；哈希不符时报告实际哈希并拒绝该配置，不回退使用同一 inode 的自动结果。文件和可执行区间检查不证明用户提供的函数调用约定正确。Go TLS 仍须经过版本、参数和返回点识别，不能用公开 SSL 偏移覆盖 Go ABI。
+
+## CI 验证
+
+[newui.yml](../../.github/workflows/newui.yml) 在 Linux ARM64/x86_64 编译并测试采集器，运行真实 OpenSSL TLS 和 [Go TLS/独立解密 smoke](gotls_smoke.py)，在 x86_64 另运行 [APK 映射执行 smoke](apk_smoke.py)。APK 测试独立加载未压缩 APK 中的 [公开 SSL ABI 测试程序](testdata/tls_fixture.c)，分别只传入 APK 路径和传入独立换算的手动偏移/哈希，验证自动与手动模式均挂载到原始 inode、跨 CPU 事件、UID 筛选、嵌套调用去重和异常生命周期。该程序不实现加密，真实 TLS 由 [smoke.py](smoke.py) 及六个 Go 工具链构建的 [Go fixture](testdata/go_tls_client.go) 覆盖。Go 1.22.6 另构建带 [C 导出入口](testdata/go_tls_shared.go) 的 stripped c-shared 库，检查 JNI 类库布局的静态函数解析；此项不执行 JNI 或 Android 抓取。
 
 Go smoke 为两种 TLS 版本保存临时测试会话的采集样本、pcapng、诊断和开抓前后同协议的延迟/CPU/RSS 数据。核心 job 消费同次运行的样本，使用正式存储/导出器再生成 pcapng，并让 tshark 验证解密；测试身份和密钥只来自本次 CI fixture。产物名和覆盖范围见 [核心验证说明](../../libbox.md#构建同步和验证)。这些小样本用于回归诊断，不能据此宣称目标应用的性能收益。
 

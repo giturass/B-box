@@ -52,14 +52,20 @@ class ProfileRecoveryTest {
             assertFalse((initial["config"] as Map<*, *>).containsKey("rewriteEnabled"))
             assertFalse(File(directory, "ca.json").exists())
             val revision = initial["revision"] as String
-            val saved = settings.save(revision, """{"https":true,"decryptHosts":["api.test"]}""")
+            val manual = """{"path":"/data/app/example/base.apk","entry":"lib/arm64-v8a/libtls.so","sha256":"${"ab".repeat(32)}","functions":{"SSL_new":"0x1000","SSL_free":"0x1100","SSL_read":"0x1200","SSL_write":"0x1300"}}"""
+            val saved = settings.save(revision, """{"https":true,"decryptHosts":["api.test"],"tlsOffsets":[$manual]}""")
             assertNotEquals(revision, saved["revision"])
             assertTrue(runCatching { settings.save(revision, "{}") }.isFailure)
             val previous = File(directory, "settings.json").readText()
             assertTrue(runCatching { settings.save(saved["revision"] as String, """{"scripts":[]}""") }.isFailure)
             assertEquals(previous, File(directory, "settings.json").readText())
+            val invalid = manual.replace("0x1200", "0x1000")
+            assertTrue(runCatching { settings.save(saved["revision"] as String, """{"tlsOffsets":[$invalid]}""") }.isFailure)
+            assertEquals(previous, File(directory, "settings.json").readText())
             val reloaded = CaptureSettings(directory, retiredKeyAlias = null).snapshot()
             assertEquals(saved, reloaded)
+            val offsets = ((reloaded["config"] as Map<*, *>)["tlsOffsets"] as List<*>).single() as Map<*, *>
+            assertEquals("0x1200", (offsets["functions"] as Map<*, *>)["SSL_read"])
             val profile = """{"log":{"level":"warn"},"experimental":{"http_debug":{"scripts":[]},"cache_file":{"enabled":true}}}"""
             val cleaned = Libbox.removeUIRetiredCaptureOptions(profile)
             assertFalse(cleaned.contains("http_debug"))

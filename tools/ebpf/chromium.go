@@ -152,8 +152,14 @@ func resolveChromium(ctx context.Context, file *elf.File) (map[string]uint64, er
 		return nil, errors.New("SSL_peek/read call relationship is unavailable")
 	}
 	allocatedRegister, ok := c.validateAllocation(allocation, errorHelper)
-	if !ok || !c.validateWrite(write, errorHelper) {
-		return nil, errors.New("SSL_new/SSL_write public argument ABI could not be verified")
+	if !ok {
+		allocatedRegister, ok = c.outlinedAllocation(allocation, errorHelper)
+	}
+	if !ok {
+		return nil, errors.New("SSL_new public argument ABI could not be verified")
+	}
+	if !c.validateWrite(write, errorHelper) {
+		return nil, errors.New("SSL_write public argument ABI could not be verified")
 	}
 	var free *chromiumFunction
 	var slot int64
@@ -164,14 +170,16 @@ func resolveChromium(ctx context.Context, file *elf.File) (map[string]uint64, er
 			}
 			target, member, ok := chromiumReset(caller, call.pc)
 			if !ok {
-				continue
+				target, member, ok = c.outlinedReset(caller, call.pc)
+				if !ok {
+					continue
+				}
 			}
-			candidate, err := c.entryFunction(target)
+			candidate, destructor, deallocate, err := c.freeFunction(target)
 			if err != nil {
 				return nil, err
 			}
-			destructor, deallocate, ok := chromiumFree(candidate)
-			if !ok || !chromiumAllocationCleanup(allocation, allocatedRegister, destructor, deallocate) {
+			if candidate == nil || !chromiumAllocationCleanup(allocation, allocatedRegister, candidate.address, destructor, deallocate) {
 				continue
 			}
 			if free != nil && (free.address != candidate.address || slot != member) {
@@ -205,7 +213,7 @@ func resolveChromium(ctx context.Context, file *elf.File) (map[string]uint64, er
 			}
 			consuming := false
 			for _, peek := range peeks {
-				consuming = consuming || chromiumRead(candidate, peek.address)
+				consuming = consuming || chromiumRead(candidate, peek.address) || c.outlinedRead(candidate, peek.address)
 			}
 			// Clang may inline SSL_peek into SSL_read. The copy count and
 			// consumption must then be proven inside the same function.
@@ -221,8 +229,11 @@ func resolveChromium(ctx context.Context, file *elf.File) (map[string]uint64, er
 			read = candidate
 		}
 	}
-	if read == nil || !writeUsed {
-		return nil, errors.New("Chromium socket read/write ownership or consuming read ABI is unsupported")
+	if !writeUsed {
+		return nil, errors.New("Chromium socket ownership of SSL_write could not be verified")
+	}
+	if read == nil {
+		return nil, errors.New("Chromium socket ownership or consuming SSL_read ABI could not be verified")
 	}
 	result := make(map[string]uint64)
 	seen := make(map[uint64]bool)
@@ -544,8 +555,24 @@ func chromiumReturns(f *chromiumFunction, pc uint64, r armRegisters, expected ar
 	return false
 }
 
-func chromiumAllocationCleanup(f *chromiumFunction, allocated uint32, destructor, deallocate uint64) bool {
+func chromiumAllocationCleanup(f *chromiumFunction, allocated uint32, free, destructor, deallocate uint64) bool {
 	calls := armCalls(f)
+	// A non-inlined UniquePtr destructor calls the same verified release
+	// function as the socket's reset helper, then returns a null allocation.
+	for _, call := range calls {
+		if call.target != free || call.pc < f.address+4 {
+			continue
+		}
+		r := armArguments()
+		r[allocated] = armValue{kind: armResult, id: f.address}
+		if !r.move(f.word(call.pc-4), call.pc-4) || r[0] != r[allocated] {
+			continue
+		}
+		r.clobberCall()
+		if chromiumReturns(f, call.pc+4, r, armValue{kind: armConstant}) {
+			return true
+		}
+	}
 	for index := 0; index+1 < len(calls); index++ {
 		first, second := calls[index], calls[index+1]
 		if first.target != destructor || second.target != deallocate || second.pc-first.pc > 32 || first.pc < f.address+4 {
@@ -572,13 +599,13 @@ func chromiumAllocationCleanup(f *chromiumFunction, allocated uint32, destructor
 	return false
 }
 
-func chromiumRead(f *chromiumFunction, peek uint64) bool {
+func chromiumReadStart(f *chromiumFunction, peek uint64) (armRegisters, armValue, uint64, uint64, bool) {
 	r, call, ok := armPrelude(f)
 	if !ok || len(f.code) > 2048 || !r[0].argument(0, false) || !r[1].argument(1, false) || !r[2].argument(2, true) {
-		return false
+		return r, armValue{}, 0, 0, false
 	}
 	if target, linked, _ := armBranch(f.word(call), call); !linked || target != peek {
-		return false
+		return r, armValue{}, 0, 0, false
 	}
 	r.clobberCall()
 	result := armValue{kind: armResult, narrow: true, id: call}
@@ -591,17 +618,22 @@ func chromiumRead(f *chromiumFunction, peek uint64) bool {
 			branch := f.word(pc + 4)
 			condition := branch & 15
 			if branch&0xff000010 != 0x54000000 || !(immediate == 1 && condition == 11 || immediate == 0 && condition == 13) {
-				return false
+				return r, result, 0, 0, false
 			}
 			exit, _ = armConditional(branch, pc+4)
 			body = pc + 8
 			break
 		}
 		if !r.move(word, pc) {
-			return false
+			return r, result, 0, 0, false
 		}
 	}
-	if body == 0 || exit <= body || exit >= f.end() {
+	return r, result, body, exit, body != 0 && exit > body && exit < f.end() && chromiumReturns(f, exit, r, result)
+}
+
+func chromiumRead(f *chromiumFunction, peek uint64) bool {
+	r, result, body, exit, ok := chromiumReadStart(f, peek)
+	if !ok {
 		return false
 	}
 	type location struct {

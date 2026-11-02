@@ -70,3 +70,52 @@ Unknown helpers remain RET stubs. Corrupted FDEs, unavailable call entries,
 unbounded control flow, incorrect imports, wrong copy bounds/buffers and
 non-consuming reads must all fail recognition. These fixtures are static input,
 never executable tests or production address tables.
+
+## Older Cronet allocation and span helpers
+
+Two additional Android ARM64 samples cover the reported Google and WeChat
+libraries. They contain only the bounded instruction ranges needed for static
+recognition, with the same relocation and negative-mutation tests above:
+
+| Fixture | Original library | Instruction bytes | Function ranges |
+| --- | --- | --- | --- |
+| [cronet-134.json](cronet-134.json) | `libcronet.134.0.6986.0.so` | 6,820 | 9 |
+| [cronet-119.json](cronet-119.json) | `libcronet.119.0.6045.214.so` | 4,916 | 13 |
+
+Cronet 134's ELF SHA-256 is
+`aad6facaedcfadf0115f5dd5b881d2e444d8b555198da30f4a3cb3a19a63f9ee`.
+The matching Chromium tag points to
+[`b327e905c0cbe6201e6cf669a22b4bc082fda761`](https://chromium.googlesource.com/chromium/src/+/b327e905c0cbe6201e6cf669a22b4bc082fda761/),
+whose DEPS pins BoringSSL
+[`817ab07ebb53da35afea409ab9328f578492832d`](https://boringssl.googlesource.com/boringssl/+/817ab07ebb53da35afea409ab9328f578492832d/ssl/ssl_lib.cc).
+Its socket read computes the remaining length and buffer address next to the
+SSL member load; arithmetic must invalidate the destination register while
+preserving unrelated aliases.
+
+Cronet 119's ELF SHA-256 is
+`380142b446c0cd703462788ebd5b97a0dee110b0e93156dfefac683aba328b47`.
+The Chromium tag points to
+[`42d9ae0937c2bdac793feeb5922a0b0cb25ebae2`](https://chromium.googlesource.com/chromium/src/+/42d9ae0937c2bdac793feeb5922a0b0cb25ebae2/),
+whose DEPS pins BoringSSL
+[`d24a38200fef19150eef00cad35b138936c08767`](https://boringssl.googlesource.com/boringssl/+/d24a38200fef19150eef00cad35b138936c08767/ssl/ssl_lib.cc).
+Besides the nine original roles, this fixture retains `MakeUnique`,
+`unique_ptr::reset`, the transparent `SSL_free` wrapper and `Span::subspan`.
+The recognizer verifies context references, allocation/constructor arguments,
+replacement and release of the same socket member, span bounds and consumption,
+and unchanged signed read counts. It does not accept fixed private field offsets.
+
+Both Chromium licenses match [LICENSE.chromium](LICENSE.chromium). These older
+BoringSSL commits predate its Apache relicensing; their OpenSSL/SSLeay, ISC and
+other upstream notices are preserved separately in
+[LICENSE.boringssl-119](LICENSE.boringssl-119) and
+[LICENSE.boringssl-134](LICENSE.boringssl-134), with trailing spaces normalized.
+This product includes software developed by the OpenSSL Project for use in the
+OpenSSL Toolkit (http://www.openssl.org/), cryptographic software written by
+Eric Young (eay@cryptsoft.com), and software written by Tim Hudson
+(tjh@cryptsoft.com). The original SSL source also credits Oracle and Nokia.
+
+The outlined `unique_ptr::reset` instantiation follows Chromium 119's libc++ pin
+[`7cf98622abaf832e2d4784889ebc69d5b6fde4d8`](https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libcxx/+/7cf98622abaf832e2d4784889ebc69d5b6fde4d8/include/__memory/unique_ptr.h).
+Its Apache 2.0 with LLVM exceptions and prior notices are retained in
+[LICENSE.libcxx-119](LICENSE.libcxx-119). Test fixtures are not bundled in the
+Android application or read by production discovery.

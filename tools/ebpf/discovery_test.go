@@ -223,7 +223,7 @@ func TestDiscoveryLogsResolvedOffsetsAndPreparationAfterReady(t *testing.T) {
 			t.Fatalf("missing diagnostic %q: %s", detail, joined)
 		}
 	}
-	if !strings.Contains(joined, "resolving TLS function offsets in \""+paths[1]+"\"") {
+	if !strings.Contains(joined, "resolving TLS function offsets in packages=unknown path=\""+paths[1]+"\"") {
 		t.Fatal("preparation diagnostics stopped after the first attached library")
 	}
 }
@@ -274,7 +274,7 @@ func TestInstalledNativeDirectoryDiscoveredBeforeProcessLaunch(t *testing.T) {
 	if err := os.WriteFile(path, []byte("fixture"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	paths, err := discoverPaths(context.Background(), collectorConfig{Targets: []string{directory}, ExcludeUID: uint32(os.Getuid())})
+	paths, err := discoverPaths(context.Background(), collectorConfig{TargetPackages: map[string][]string{directory: {"com.example"}}, ExcludeUID: uint32(os.Getuid())})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,4 +284,87 @@ func TestInstalledNativeDirectoryDiscoveredBeforeProcessLaunch(t *testing.T) {
 		}
 	}
 	t.Fatal("installed native library was not discovered")
+}
+
+func TestDiscoveryFailuresKeepPackagePathAndEntryInLogsAndSummary(t *testing.T) {
+	paths := discoveryFiles(t, 2)
+	d := newLibraryDiscovery(nil, nil)
+	d.config.TargetPackages = map[string][]string{paths[0]: {"com.example.first"}, paths[1]: {"com.example.second"}}
+	d.walk = func(_ context.Context, _ string, _ func(library) error) error {
+		return &unsupportedChromiumError{"lib/arm64-v8a/libcronet.so", "unverified ABI"}
+	}
+	var logs []string
+	if err := d.scan(context.Background(), paths, func(update discoveryUpdate) error {
+		if update.level == "warn" {
+			logs = append(logs, update.stage)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i, path := range paths {
+		for _, text := range []string{logs[i], d.failures[i]} {
+			if !strings.Contains(text, path) || !strings.Contains(text, d.config.TargetPackages[path][0]) ||
+				!strings.Contains(text, "lib/arm64-v8a/libcronet.so") {
+				t.Fatal("library diagnostic lost application provenance", text)
+			}
+		}
+	}
+}
+
+func TestRejectedManualLibraryCannotFallBackThroughAnInodeAlias(t *testing.T) {
+	paths := discoveryFiles(t, 2)
+	for _, path := range paths {
+		if err := os.WriteFile(path, symbolFixture(), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alias := paths[0] + ".alias"
+	if err := os.Link(paths[0], alias); err != nil {
+		t.Fatal(err)
+	}
+	value := manualFixture(symbolFixture(), paths[0], "")
+	value.SHA256 = strings.Repeat("0", 64)
+	config := collectorConfig{TLSOffsets: []manualTLSOffsets{value}, Libraries: []string{alias, paths[1]}}
+	d := newLibraryDiscovery(nil, nil)
+	d.walk = func(ctx context.Context, path string, visit func(library) error) error {
+		return walkLibraryOptions(ctx, path, libraryOptions{offsets: config.TLSOffsets}, visit)
+	}
+	var attached []string
+	var closed atomic.Int32
+	d.attachLibrary = func(_ context.Context, value library) ([]io.Closer, error) {
+		attached = append(attached, value.path)
+		return []io.Closer{countedLink{&closed}}, nil
+	}
+	defer d.close()
+	if err := d.scan(context.Background(), initialLibraryPaths(config), func(discoveryUpdate) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(attached) != 1 || attached[0] != paths[1] || !strings.Contains(strings.Join(d.failures, "\n"), "SHA-256 mismatch") {
+		t.Fatal("manual error bypassed through alias or prevented an unrelated library", attached, d.failures)
+	}
+}
+
+func TestAPKManualDiagnosticsAreNotTruncatedToTheStatusSummary(t *testing.T) {
+	path := discoveryFiles(t, 1)[0]
+	d := newLibraryDiscovery(nil, nil)
+	d.walk = func(context.Context, string, func(library) error) error {
+		var problems []error
+		for i := 0; i < 5; i++ {
+			problems = append(problems, &manualTLSError{fmt.Sprintf("library-%d.so: SHA-256 mismatch", i)})
+		}
+		return errors.Join(problems...)
+	}
+	var logs []string
+	if err := d.scan(context.Background(), []string{path}, func(update discoveryUpdate) error {
+		if update.level == "warn" {
+			logs = append(logs, update.stage)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.failures) != 3 || len(logs) != 5 || !strings.Contains(logs[4], "library-4.so") {
+		t.Fatal("APK diagnostics were lost beyond the three-warning summary", d.failures, logs)
+	}
 }

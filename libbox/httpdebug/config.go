@@ -24,18 +24,19 @@ const (
 )
 
 type Config struct {
-	HTTPS              bool     `json:"https"`
-	Packages           []string `json:"packages"`
-	IncludeHosts       []string `json:"includeHosts"`
-	ExcludeHosts       []string `json:"excludeHosts"`
-	DecryptHosts       []string `json:"decryptHosts"`
-	Ports              []uint16 `json:"ports"`
-	BodyLimit          int64    `json:"bodyLimit"`
-	DecryptBypassHosts []string `json:"decryptBypassHosts,omitempty"`
-	ExtractHosts       bool     `json:"extractHosts,omitempty"`
-	TLSLibraries       []string `json:"tlsLibraries,omitempty"`
-	CaptureNetwork     bool     `json:"captureNetwork,omitempty"`
-	CaptureTLSKeys     bool     `json:"captureTlsKeys,omitempty"`
+	HTTPS              bool              `json:"https"`
+	Packages           []string          `json:"packages"`
+	IncludeHosts       []string          `json:"includeHosts"`
+	ExcludeHosts       []string          `json:"excludeHosts"`
+	DecryptHosts       []string          `json:"decryptHosts"`
+	Ports              []uint16          `json:"ports"`
+	BodyLimit          int64             `json:"bodyLimit"`
+	DecryptBypassHosts []string          `json:"decryptBypassHosts,omitempty"`
+	ExtractHosts       bool              `json:"extractHosts,omitempty"`
+	TLSLibraries       []string          `json:"tlsLibraries,omitempty"`
+	TLSOffsets         []TLSOffsetConfig `json:"tlsOffsets,omitempty"`
+	CaptureNetwork     bool              `json:"captureNetwork,omitempty"`
+	CaptureTLSKeys     bool              `json:"captureTlsKeys,omitempty"`
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
@@ -100,7 +101,7 @@ func (c *Config) validate() error {
 			return errors.New("TLS libraries must be absolute local paths")
 		}
 	}
-	return nil
+	return validateTLSOffsets(c.TLSOffsets)
 }
 
 func validHost(host string) bool {

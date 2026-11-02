@@ -172,12 +172,25 @@ func chromiumReadGuard(f *chromiumFunction, pc uint64, r armRegisters, value arm
 }
 
 func (c *chromiumImage) trapExit(f *chromiumFunction, pc uint64) bool {
-	if pc < f.address || pc >= f.end() {
+	for steps := 0; pc >= f.address && pc < f.end() && steps < 8; pc, steps = pc+4, steps+1 {
+		word := f.word(pc)
+		if armTrap(word) {
+			return true
+		}
+		if target, linked, branch := armBranch(word, pc); branch {
+			return linked && c.noReturnCall(target)
+		}
+		// An outlined fatal block can open a frame before calling abort.
+		// No data-dependent branches, target changes or ordinary calls qualify.
+		if armHint(word) {
+			continue
+		}
+		if m, ok := armLoadStore(word); ok && !m.load && m.base == 31 {
+			continue
+		}
 		return false
 	}
-	word := f.word(pc)
-	target, linked, branch := armBranch(word, pc)
-	return armTrap(word) || branch && linked && c.noReturnCall(target)
+	return false
 }
 
 func (c *chromiumImage) inlinedReadReturn(f *chromiumFunction, pc uint64, r armRegisters, count armValue) bool {

@@ -63,6 +63,7 @@ const (
 	armAdvanced
 	armReduced
 	armStack
+	armMember
 )
 
 type armRegisters [32]armValue
@@ -226,6 +227,17 @@ func armCompare(word uint32) bool {
 
 func (r *armRegisters) simple(word uint32, pc uint64) bool {
 	if r.move(word, pc) || armCompare(word) {
+		return true
+	}
+	// Socket reads can compute the remaining length and buffer address beside
+	// the SSL member load. These operations only write their destination; the
+	// result is unknown, never an alias of an input pointer or byte count.
+	if word&0xfffffc00 == 0x93407c00 || // SXTW Xd, Wn.
+		word&0x1fe0fc00 == 0x0b000000 || // ADD/SUB (S), unshifted register.
+		word&0x1fe0fc00 == 0x0b20c000 { // ADD/SUB (S), SXTW register, no shift.
+		if word&31 != 31 {
+			r[word&31] = armValue{}
+		}
 		return true
 	}
 	if memory, ok := armLoadStore(word); ok {

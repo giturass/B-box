@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import '../widgets.dart';
 import '../components/form.dart';
 import 'capture_domains.dart';
+import 'tls_offsets.dart';
 
 class RequestSettingsPage extends StatefulWidget {
   const RequestSettingsPage({super.key, required this.initial, this.source = const {}});
@@ -23,6 +24,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
   late List<String> _packages = (widget.initial['packages'] as List? ?? []).cast<String>().toList();
   late bool _extract = widget.initial['extractHosts'] == true;
   late final _libraries = TextEditingController(text: (widget.initial['tlsLibraries'] as List? ?? []).join('\n'));
+  late List<Json> _offsets = copyTLSOffsets(widget.initial['tlsOffsets']);
   bool _busy = false, _dirty = false;
   String? _error;
 
@@ -41,6 +43,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
         'captureNetwork': _network, 'captureTlsKeys': _keys,
         'decryptBypassHosts': _lines(_decryptBypass.text), 'extractHosts': _extract,
         'tlsLibraries': _libraries.text.split('\n').map((line) => line.trim()).where((line) => line.isNotEmpty).toSet().toList(),
+        'tlsOffsets': _offsets,
       }});
       if (mounted) { setState(() { _dirty = false; _busy = false; }); Navigator.pop(context); }
     } catch (error) {
@@ -84,9 +87,15 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
         ListItem(key: const ValueKey('add-https-hosts'), title: Text(context.tr('Add captured HTTPS domains')), onTap: () => _addDomains(_decrypt)),
         _field(_decryptBypass, 'HTTPS excluded domains', hint: 'pinned.example.com', footer: 'Skip plaintext capture for these HTTPS domains. Visible hostnames can still be extracted.'),
         ListItem(key: const ValueKey('add-bypass-hosts'), title: Text(context.tr('Add captured HTTPS exclusions')), onTap: () => _addDomains(_decryptBypass)),
-        ListFooter(text: context.tr('Requires Root, Linux 5.10 or newer and permitted eBPF uprobes. Supports compatible 64-bit OpenSSL/BoringSSL and Go 1.24–1.26 TLS clients. Reconnect after preparation finishes. QUIC is not captured.')),
+        ListFooter(text: context.tr('Requires Root, Linux 5.10 or newer and permitted eBPF uprobes. Supports compatible 64-bit OpenSSL/BoringSSL and Go 1.22–1.27 TLS clients. Reconnect after preparation finishes. QUIC is not captured.')),
         _field(_libraries, 'Additional TLS libraries', hint: '/data/app/.../lib/arm64/libssl.so',
           footer: 'Optional absolute library, APK or Go executable paths, one per line. Installed apps, shared libraries and function offsets are discovered automatically.'),
+        ListItem(key: const ValueKey('manual-tls-offsets'), title: Text(context.tr('Manual TLS function offsets')),
+          subtitle: Text(_offsets.isEmpty ? context.tr('No manual TLS offsets') : '${_offsets.length} ${context.tr('TLS libraries')}'),
+          onTap: () async {
+            final offsets = await openPage<List<Json>>(context, TLSOffsetsPage(initial: _offsets));
+            if (offsets != null && mounted) setState(() { _offsets = offsets; _dirty = true; });
+          }),
         generateSection(title: context.tr('Raw TLS capture'), items: [
           ListItem.toggle(key: const ValueKey('capture-network'), title: Text(context.tr('Save network packets')), value: _network,
             subtitle: Text(context.tr('Export original TCP/IP packets as pcapng. Requires kernel BTF and packet capture permission.')),

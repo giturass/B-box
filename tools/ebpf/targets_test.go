@@ -46,3 +46,26 @@ func TestMappedLibraryUsesTheOriginalInodeAfterPackageReplacement(t *testing.T) 
 		}
 	}
 }
+
+func TestLibraryPackagesIdentifyInstalledSharedAndProcessCode(t *testing.T) {
+	c := collectorConfig{
+		TargetPackages: map[string][]string{
+			"/product/priv-app/Velvet/Velvet.apk": {"com.google.android.googlequicksearchbox"},
+			"/data/app/example/lib/arm64":         {"com.example"},
+			"/data/app/shared/base.apk":           {"com.example.two", "com.example.one", "com.example.one"},
+		},
+		Packages: map[string][]string{fmt.Sprint(os.Getuid()): {"com.process"}},
+	}
+	for path, expected := range map[string]string{
+		"/product/priv-app/Velvet/Velvet.apk":                    `packages="com.google.android.googlequicksearchbox"`,
+		"/data/app/example/lib/arm64/libgojni.so":                `packages="com.example"`,
+		"/data/app/shared/base.apk":                              `packages="com.example.one,com.example.two"`,
+		"/data/app/example/lib/arm64-other/libssl.so":            "packages=unknown",
+		"/proc/self/root/data/app/example/lib/arm64/libgojni.so": `packages="com.example,com.process"`,
+		"/proc/self/map_files/1000-2000":                         `packages="com.process"`,
+	} {
+		if got := c.libraryPackages(path); got != expected {
+			t.Fatalf("%s: got %s, want %s", path, got, expected)
+		}
+	}
+}

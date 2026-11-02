@@ -72,12 +72,13 @@ class RootServer : RootService() {
                 .groupBy({ it.first }, { it.second })
             val uids = byUID.filterValues { group -> group.any { it in names } }.keys
             if (names.isNotEmpty()) require(uids.isNotEmpty()) { "Selected capture applications are not installed" }
-            val targets = captureTargetPaths(packages, caller, if (names.isEmpty()) emptySet() else uids)
+            val targets = captureTargetPackages(packages, caller, if (names.isEmpty()) emptySet() else uids)
             val config = JSONObject().put("excludeUid", caller).put("userId", caller / 100000)
                 .put("uids", JSONArray(if (names.isEmpty()) emptyList<Int>() else uids.toList()))
                 .put("packages", JSONObject(byUID.mapKeys { it.key.toString() }))
                 .put("libraries", options.optJSONArray("tlsLibraries") ?: JSONArray())
-                .put("targets", JSONArray(targets))
+                .put("tlsOffsets", options.optJSONArray("tlsOffsets") ?: JSONArray())
+                .put("targetPackages", JSONObject(targets))
                 .put("captureNetwork", options.optBoolean("captureNetwork"))
                 .put("captureTlsKeys", options.optBoolean("captureTlsKeys"))
             val session = synchronized(autoRedirectLifecycle) {

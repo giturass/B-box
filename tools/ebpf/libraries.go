@@ -23,6 +23,8 @@ import (
 // pathname again after analysis could instrument an updated, different library.
 type library struct {
 	path, entry, identity, attachPath, method string
+	sha256                                    string
+	size                                      int64
 	base                                      uint64
 	symbols                                   map[string]uint64
 }
@@ -79,11 +81,15 @@ func readSymbols(ctx context.Context, reader io.ReaderAt, name string) (map[stri
 }
 
 func resolveSymbols(ctx context.Context, reader io.ReaderAt, name string) (map[string]uint64, string, error) {
+	return resolveSymbolsForMachine(ctx, reader, name, collectorMachine())
+}
+
+func collectorMachine() elf.Machine {
 	machine := elf.EM_AARCH64
 	if runtime.GOARCH == "amd64" {
 		machine = elf.EM_X86_64
 	}
-	return resolveSymbolsForMachine(ctx, reader, name, machine)
+	return machine
 }
 
 func resolveSymbolsForMachine(ctx context.Context, reader io.ReaderAt, name string, machine elf.Machine) (map[string]uint64, string, error) {
@@ -237,7 +243,19 @@ func (r contextReaderAt) ReadAt(data []byte, offset int64) (int, error) {
 // The visitor runs while the original file is open. APK members are read in
 // place and probes always target APK data offset + ELF function file offset.
 func walkLibraries(ctx context.Context, path string, visit func(library) error) error {
+	return walkLibraryOptions(ctx, path, libraryOptions{}, visit)
+}
+
+type libraryOptions struct {
+	offsets  []manualTLSOffsets
+	describe func(library, error) error
+}
+
+func walkLibraryOptions(ctx context.Context, path string, options libraryOptions, visit func(library) error) error {
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validateManualTLSOffsets(options.offsets); err != nil {
 		return err
 	}
 	file, err := os.Open(path)
@@ -256,13 +274,55 @@ func walkLibraries(ctx context.Context, path string, visit func(library) error) 
 	identity := fmt.Sprintf("%d:%d", stat.Dev, stat.Ino)
 	reader := contextReaderAt{ctx, file}
 	attachPath := fmt.Sprintf("/proc/self/fd/%d", file.Fd())
+	isArchive := false
+	matched := make(map[string]bool)
 	inspect := func(entry string, base, size int64) error {
-		symbols, method, err := resolveSymbols(ctx, io.NewSectionReader(reader, base, size), entry)
+		section := io.NewSectionReader(reader, base, size)
+		value := library{path: path, entry: entry, identity: fmt.Sprintf("%s:%d", identity, base),
+			attachPath: attachPath, base: uint64(base), size: size}
+		var override *manualTLSOffsets
+		for index := range options.offsets {
+			candidate := &options.offsets[index]
+			if candidate.Path == path && (isArchive && candidate.Entry == entry || !isArchive && candidate.Entry == "") {
+				override = candidate
+				break
+			}
+		}
+		var err error
+		if override != nil {
+			matched[override.Entry] = true
+			value.symbols, value.method, err = resolveManualTLS(ctx, section, size, *override, collectorMachine())
+			if err == nil {
+				value.sha256 = override.SHA256
+				if current, statErr := file.Stat(); statErr != nil || current.Size() != info.Size() || !current.ModTime().Equal(info.ModTime()) {
+					err = &manualTLSError{"library changed during fingerprint verification"}
+				}
+			}
+			if err != nil {
+				err = fmt.Errorf("%s: %w", entry, err)
+			}
+		} else {
+			value.symbols, value.method, err = resolveSymbols(ctx, section, entry)
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if options.describe != nil {
+			if value.sha256 == "" {
+				hash, hashErr := librarySHA256(ctx, section, size)
+				value.sha256 = hash
+				if hashErr != nil {
+					return hashErr
+				}
+			}
+			if reportErr := options.describe(value, err); reportErr != nil {
+				return &libraryVisitError{reportErr}
+			}
+		}
 		if err != nil {
 			return err
 		}
-		err = visit(library{path: path, entry: entry, identity: fmt.Sprintf("%s:%d", identity, base),
-			attachPath: attachPath, base: uint64(base), symbols: symbols, method: method})
+		err = visit(value)
 		if err != nil {
 			return &libraryVisitError{err}
 		}
@@ -273,6 +333,12 @@ func walkLibraries(ctx context.Context, path string, visit func(library) error) 
 		return err
 	}
 	if bytes.Equal(magic[:], []byte{'P', 'K', 3, 4}) {
+		isArchive = true
+		for _, value := range options.offsets {
+			if value.Path == path && value.Entry == "" {
+				return &manualTLSError{"an APK path requires the exact lib/<ABI>/name.so entry"}
+			}
+		}
 		archive, err := zip.NewReader(reader, info.Size())
 		if err != nil {
 			return err
@@ -280,16 +346,34 @@ func walkLibraries(ctx context.Context, path string, visit func(library) error) 
 		if len(archive.File) > 32768 {
 			return errors.New("APK contains too many entries")
 		}
+		requested := make(map[string]int)
+		for _, value := range options.offsets {
+			if value.Path == path {
+				requested[value.Entry] = 0
+			}
+		}
+		ordered := make([]*zip.File, 0, len(archive.File))
+		for _, entry := range archive.File {
+			if _, manual := requested[entry.Name]; manual {
+				requested[entry.Name]++
+				ordered = append(ordered, entry)
+			}
+		}
+		for _, entry := range archive.File {
+			if _, manual := requested[entry.Name]; !manual {
+				ordered = append(ordered, entry)
+			}
+		}
 		prefix := "lib/arm64-v8a/"
 		if runtime.GOARCH == "amd64" {
 			prefix = "lib/x86_64/"
 		}
 		var warnings []error
-		for _, entry := range archive.File {
+		for _, entry := range ordered {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if !strings.HasPrefix(entry.Name, prefix) || !strings.HasSuffix(entry.Name, ".so") ||
+			if requested[entry.Name] > 1 || !strings.HasPrefix(entry.Name, prefix) || !strings.HasSuffix(entry.Name, ".so") ||
 				entry.UncompressedSize64 > 256*1024*1024 {
 				continue
 			}
@@ -309,7 +393,8 @@ func walkLibraries(ctx context.Context, path string, visit func(library) error) 
 				}
 				var unsupported *unsupportedChromiumError
 				var unsupportedGo *unsupportedGoTLSError
-				if (errors.As(err, &unsupported) || errors.As(err, &unsupportedGo)) && len(warnings) < 3 {
+				var manual *manualTLSError
+				if errors.As(err, &manual) || (errors.As(err, &unsupported) || errors.As(err, &unsupportedGo)) && len(warnings) < 3 {
 					warnings = append(warnings, err)
 				}
 				var visitorError *libraryVisitError
@@ -318,7 +403,21 @@ func walkLibraries(ctx context.Context, path string, visit func(library) error) 
 				}
 			}
 		}
+		for _, value := range options.offsets {
+			if value.Path == path && !matched[value.Entry] {
+				reason := "is missing, compressed, oversized or uses a different ABI; use its extracted library when compressed"
+				if requested[value.Entry] > 1 {
+					reason = "is ambiguous because the APK has duplicate entry names"
+				}
+				warnings = append(warnings, &manualTLSError{fmt.Sprintf("%.512q %s", value.Entry, reason)})
+			}
+		}
 		return errors.Join(warnings...)
+	}
+	for _, value := range options.offsets {
+		if value.Path == path && value.Entry != "" {
+			return &manualTLSError{"APK entry must be empty for a standalone ELF library"}
+		}
 	}
 	if info.Size() > 256*1024*1024 {
 		return errors.New("ELF exceeds 256 MiB")

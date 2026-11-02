@@ -37,3 +37,18 @@ func TestInvalidLibraryPathsIdentifyTheirSource(t *testing.T) {
 		})
 	}
 }
+
+func TestCollectorValidatesTargetPackageProvenance(t *testing.T) {
+	for _, input := range []string{
+		`{"targetPackages":{"relative.apk":["com.example"]}}`,
+		`{"targetPackages":{"/base.apk":["com.example\nother"]}}`,
+		`{"targetPackages":{"/base.apk":[""]}}`,
+	} {
+		if _, err := readConfig(bufio.NewReader(strings.NewReader(input + "\n"))); err == nil {
+			t.Fatal("invalid source attribution accepted", input)
+		}
+	}
+	if _, err := readConfig(bufio.NewReader(strings.NewReader(`{"targetPackages":{"/base.apk":["com.one","com.two"]}}` + "\n"))); err != nil {
+		t.Fatal(err)
+	}
+}

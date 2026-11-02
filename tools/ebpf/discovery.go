@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -38,6 +37,7 @@ type libraryDiscovery struct {
 	noted         map[string]bool
 	failures      []string
 	scanning      bool
+	config        collectorConfig
 	walk          func(context.Context, string, func(library) error) error
 	attachLibrary func(context.Context, library) ([]io.Closer, error)
 }
@@ -61,6 +61,7 @@ func (d *libraryDiscovery) close() {
 }
 
 func (d *libraryDiscovery) watch(ctx context.Context, config collectorConfig, updates chan<- discoveryUpdate) error {
+	d.config = config
 	report := func(update discoveryUpdate) error {
 		select {
 		case updates <- update:
@@ -71,6 +72,14 @@ func (d *libraryDiscovery) watch(ctx context.Context, config collectorConfig, up
 	}
 	for _, path := range config.Libraries {
 		d.explicit[path] = true
+	}
+	if len(config.TLSOffsets) > 0 {
+		for _, value := range config.TLSOffsets {
+			d.explicit[value.Path] = true
+		}
+		d.walk = func(ctx context.Context, path string, visit func(library) error) error {
+			return walkLibraryOptions(ctx, path, libraryOptions{offsets: config.TLSOffsets}, visit)
+		}
 	}
 	if err := d.scan(ctx, initialLibraryPaths(config), report); err != nil {
 		return err
@@ -126,8 +135,9 @@ func (d *libraryDiscovery) warn(message string) bool {
 }
 
 func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func(discoveryUpdate) error) error {
+	source := func(path string) string { return fmt.Sprintf("%s path=%.2048q", d.config.libraryPackages(path), path) }
 	stage := func(action, path string) error {
-		return report(discoveryUpdate{stage: fmt.Sprintf("%s %.2048q", action, path), level: "debug"})
+		return report(discoveryUpdate{stage: fmt.Sprintf("%s %s", action, source(path)), level: "debug"})
 	}
 	log := func(level, message string) error { return report(discoveryUpdate{stage: message, level: level}) }
 	status := func() error {
@@ -154,11 +164,11 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 		if err != nil || !info.Mode().IsRegular() {
 			if d.explicit[path] && !d.noted["unavailable:"+path] {
 				d.noted["unavailable:"+path] = true
-				d.warn(filepath.Base(path) + ": library is unavailable")
+				d.warn(source(path) + ": library is unavailable")
 				if err == nil {
 					err = errors.New("not a regular file")
 				}
-				if err := report(discoveryUpdate{stage: fmt.Sprintf("TLS library unavailable: %.2048q: %v", path, err), level: "warn",
+				if err := report(discoveryUpdate{stage: fmt.Sprintf("TLS library unavailable: %s: %v", source(path), err), level: "warn",
 					libraries: len(d.attached), warning: strings.Join(d.failures, "; "), scanning: d.scanning}); err != nil {
 					return err
 				}
@@ -209,7 +219,7 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 			if len(d.attached) >= 64 {
 				return errStopDiscovery
 			}
-			if err := stage("attaching TLS probes to", value.path+"!"+value.entry); err != nil {
+			if err := log("debug", fmt.Sprintf("attaching TLS probes to %s entry=%.512q", source(value.path), value.entry)); err != nil {
 				return err
 			}
 			probes, err := d.attachLibrary(ctx, value)
@@ -218,14 +228,14 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 				if err == nil {
 					err = errors.New("no probes attached")
 				}
-				d.warn(fmt.Sprintf("%s: attach failed: %v", value.entry, err))
-				if logErr := log("warn", fmt.Sprintf("TLS probe attachment failed: %.2048q!%.512q: %v", value.path, value.entry, err)); logErr != nil {
+				d.warn(fmt.Sprintf("%s entry=%.512q: attach failed: %v", source(value.path), value.entry, err))
+				if logErr := log("warn", fmt.Sprintf("TLS probe attachment failed: %s entry=%.512q: %v", source(value.path), value.entry, err)); logErr != nil {
 					return logErr
 				}
 				return ctx.Err()
 			}
 			d.attached[value.identity] = probes
-			return report(discoveryUpdate{stage: describeAttachedLibrary(value, len(probes)), level: "info",
+			return report(discoveryUpdate{stage: d.config.libraryPackages(value.path) + " " + describeAttachedLibrary(value, len(probes)), level: "info",
 				libraries: len(d.attached), warning: strings.Join(d.failures, "; "), scanning: d.scanning})
 		})
 		if ctx.Err() != nil {
@@ -242,23 +252,30 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 			return visitErr.err
 		}
 		if err != nil && !errors.Is(err, errStopDiscovery) {
-			var unsupported *unsupportedChromiumError
-			var unsupportedGo *unsupportedGoTLSError
-			level := "debug"
-			if d.explicit[path] || errors.As(err, &unsupported) || errors.As(err, &unsupportedGo) {
-				d.warn(filepath.Base(path) + ": " + err.Error())
-				level = "warn"
+			diagnostics := []error{err}
+			if joined, ok := err.(interface{ Unwrap() []error }); ok {
+				diagnostics = joined.Unwrap()
 			}
-			if logErr := log(level, fmt.Sprintf("TLS library inspection failed: %.2048q: %v", path, err)); logErr != nil {
-				return logErr
+			for _, diagnostic := range diagnostics {
+				var unsupported *unsupportedChromiumError
+				var unsupportedGo *unsupportedGoTLSError
+				var manual *manualTLSError
+				level := "debug"
+				if d.explicit[path] || errors.As(diagnostic, &unsupported) || errors.As(diagnostic, &unsupportedGo) || errors.As(diagnostic, &manual) {
+					d.warn(source(path) + ": " + diagnostic.Error())
+					level = "warn"
+				}
+				if logErr := log(level, fmt.Sprintf("TLS library inspection failed: %s: %v", source(path), diagnostic)); logErr != nil {
+					return logErr
+				}
 			}
 		} else if !resolved {
 			level := "debug"
 			if d.explicit[path] {
-				d.warn(filepath.Base(path) + ": no compatible TLS library found")
+				d.warn(source(path) + ": no compatible TLS library found")
 				level = "warn"
 			}
-			if err := log(level, fmt.Sprintf("No compatible TLS functions found in %.2048q", path)); err != nil {
+			if err := log(level, fmt.Sprintf("No compatible TLS functions found in %s", source(path))); err != nil {
 				return err
 			}
 		}
@@ -272,6 +289,10 @@ func (d *libraryDiscovery) scan(ctx context.Context, paths []string, report func
 }
 
 func describeAttachedLibrary(value library, probes int) string {
+	fingerprint := ""
+	if value.sha256 != "" {
+		fingerprint = " sha256=" + value.sha256
+	}
 	names := make([]string, 0, len(value.symbols))
 	for name := range value.symbols {
 		names = append(names, name)
@@ -281,6 +302,6 @@ func describeAttachedLibrary(value library, probes int) string {
 	for _, name := range names {
 		offsets = append(offsets, fmt.Sprintf("%s=%#x", name, value.base+value.symbols[name]))
 	}
-	return fmt.Sprintf("TLS probes attached: path=%.2048q entry=%.512q method=%s identity=%s archiveOffset=%#x probes=%d; file offsets: %s",
-		value.path, value.entry, value.method, value.identity, value.base, probes, strings.Join(offsets, ", "))
+	return fmt.Sprintf("TLS probes attached: path=%.2048q entry=%.512q method=%s identity=%s%s archiveOffset=%#x probes=%d; file offsets: %s",
+		value.path, value.entry, value.method, value.identity, fingerprint, value.base, probes, strings.Join(offsets, ", "))
 }

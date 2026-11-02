@@ -1,10 +1,11 @@
 """CI-only Linux smoke: execute ELF text mapped directly from a stored APK entry.
 
-The collector gets an APK path, never our independently resolved symbols. This
-tests its automatic offsets and the actual inode instrumented by the kernel.
+Exercise both automatic resolution and user-supplied ELF offsets, with the
+same APK mapping and the actual inode instrumented by the kernel.
 """
 import base64
 import ctypes as C
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -60,6 +61,15 @@ class MappedLibrary:
                     name, info, _, index, address, _ = struct.unpack_from("<IBBHQQ", data, offset)
                     if index and info & 0xF == 2:  # defined STT_FUNC
                         self.symbols[names[name:names.index(b"\0", name)].decode()] = address
+            offsets = {}
+            for name, address in self.symbols.items():
+                if name.startswith("SSL_"):
+                    matches = [s[2] + address - s[3] for s in segments
+                               if s[1] & 1 and s[3] <= address < s[3] + s[5]]
+                    assert len(matches) == 1
+                    offsets[name] = hex(matches[0])
+            self.manual_offsets = {"path": str(path), "entry": entry.filename,
+                                   "sha256": hashlib.sha256(data).hexdigest(), "functions": offsets}
             page = os.sysconf("SC_PAGESIZE")
             floor = lambda value: value // page * page
             ceil = lambda value: (value + page - 1) // page * page
@@ -147,16 +157,18 @@ class SSLFixture:
 
 
 class Collector:
-    def __init__(self, apk, directory):
+    def __init__(self, apk, directory, offsets=None):
         self.errors = open(directory / "collector.stderr", "w+b")
         self.process = subprocess.Popen([str(ROOT / "capture")], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=self.errors, bufsize=0)
         self.queue = queue.Queue()
         self.flows, self.consumed, self.pids = {}, set(), set()
+        self.logs = []
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
         config = {"excludeUid": 4294967295, "userId": os.getuid() // 100000, "uids": [os.getuid()],
-                  "packages": {}, "libraries": [str(apk)], "targets": []}
+                  "packages": {}, "libraries": [] if offsets else [str(apk)], "targets": [],
+                  "tlsOffsets": [offsets] if offsets else []}
         self.process.stdin.write((json.dumps(config) + "\n").encode())
         self.process.stdin.flush()
 
@@ -174,6 +186,8 @@ class Collector:
         if isinstance(value, BaseException):
             raise value
         assert value["type"] != "error", value.get("error")
+        if value.get("message"):
+            self.logs.append(value["message"])
         if value.get("id"):
             self.pids.add(value["pid"])
             self.flows.setdefault(value["id"], []).append(value)
@@ -247,14 +261,16 @@ def child_worker(apk, mode):
         library.close()
 
 
-def exercise(apk, directory):
+def exercise(apk, directory, manual=False):
     library = MappedLibrary(apk)
-    collector = Collector(apk, directory)
+    collector = Collector(apk, directory, library.manual_offsets if manual else None)
     fixture = SSLFixture(library)
     affinity = os.sched_getaffinity(0)
     blocked, worker, child = None, None, None
     try:
         collector.ready()
+        method = "manual SSL offsets" if manual else "ELF symbols"
+        assert any("method=" + method in message for message in collector.logs), collector.logs
         # Existing mappings and probes must continue using this inode after an
         # installer replaces the public pathname with a different file.
         mapped_apk = apk.with_name("previous.apk")
@@ -369,7 +385,7 @@ def exercise(apk, directory):
         collector.stop()
         assert child.pid not in collector.pids, "BPF UID filter captured an excluded process"
         assert set(collector.flows) == collector.consumed, "unexpected SSL generation or data after retirement"
-        print("Stored APK uprobes: original inode, automatic offsets, two CPUs, UID filtering, "
+        print(f"Stored APK uprobes ({method}): original inode, two CPUs, UID filtering, "
               "normal/_ex/early data, SSL_clear, local gaps, skipped returns and owner EOF passed.")
     finally:
         if blocked is not None:
@@ -393,9 +409,12 @@ def main():
         subprocess.run(["clang", "-O1", "-shared", "-fPIC", "-nostdlib", "-fno-builtin", "-fno-stack-protector",
                         "-fno-optimize-sibling-calls", "-Wl,-Bsymbolic", "-Wl,-z,max-page-size=16384",
                         str(ROOT / "testdata/tls_fixture.c"), "-o", str(shared)], check=True)
-        apk = directory / "base.apk"
-        stored_apk(apk, shared.read_bytes())
-        exercise(apk, directory)
+        for manual in (False, True):
+            case = directory / ("manual" if manual else "automatic")
+            case.mkdir()
+            apk = case / "base.apk"
+            stored_apk(apk, shared.read_bytes())
+            exercise(apk, case, manual)
 
 
 if __name__ == "__main__":

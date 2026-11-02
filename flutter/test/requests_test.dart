@@ -6,6 +6,7 @@ import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/pages/requests.dart';
 import 'package:b_box_ui/pages/request_settings.dart';
+import 'package:b_box_ui/pages/tls_offsets.dart';
 import 'package:b_box_ui/pages/capture_domains.dart';
 import 'package:b_box_ui/pages/capture_logs.dart';
 import 'package:b_box_ui/components/captured_body.dart';
@@ -158,10 +159,142 @@ void main() {
     expect(saved['tlsLibraries'], ['/data/app/test/libssl.so']);
     expect(saved['extractHosts'], isTrue);
     expect(saved.keys.toSet(), {'https', 'decryptHosts', 'includeHosts', 'excludeHosts', 'packages',
-      'ports', 'bodyLimit', 'decryptBypassHosts', 'extractHosts', 'tlsLibraries', 'captureNetwork', 'captureTlsKeys'});
+      'ports', 'bodyLimit', 'decryptBypassHosts', 'extractHosts', 'tlsLibraries', 'tlsOffsets', 'captureNetwork', 'captureTlsKeys'});
     expect(saved['captureNetwork'], isFalse);
     expect(saved['captureTlsKeys'], isFalse);
+    expect(saved['tlsOffsets'], isEmpty);
   });
+
+  Json offsetRecord({String path = '/data/app/com.example/base.apk'}) => {
+    'path': path, 'entry': 'lib/arm64-v8a/libprivate.so', 'sha256': 'ab' * 32,
+    'functions': {'SSL_new': '0x1000', 'SSL_free': '0x1100', 'SSL_read': '0x1200', 'SSL_write': '0x1300'},
+  };
+
+  Future<void> offsetField(WidgetTester tester, String name, String value) async {
+    final scrollable = find.descendant(of: find.byType(TLSOffsetEditorPage), matching: find.byType(Scrollable)).first;
+    tester.state<ScrollableState>(scrollable).position.jumpTo(0);
+    await tester.pumpAndSettle();
+    final field = find.byKey(ValueKey('tls-offset-$name'));
+    await tester.scrollUntilVisible(field, 200, scrollable: scrollable);
+    await tester.enterText(field, value);
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> openOffsets(WidgetTester tester) async {
+    final tile = find.byKey(const ValueKey('manual-tls-offsets'));
+    await tester.scrollUntilVisible(tile, 200,
+      scrollable: find.descendant(of: find.byType(RequestSettingsPage), matching: find.byType(Scrollable)).first);
+    await tester.tap(tile); await tester.pumpAndSettle();
+  }
+
+  testWidgets('manual offsets add through local revision settings and survive failed save', (tester) async {
+    await mount(tester);
+    await open(tester, const RequestSettingsPage(initial: {'https': true}, source: {'revision': 'offset-revision'}));
+    await openOffsets(tester);
+    await tester.tap(find.byKey(const ValueKey('add-tls-offset'))); await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    expect(find.text('Enter an absolute ELF library or APK path.'), findsOneWidget);
+    final record = offsetRecord();
+    for (final name in ['path', 'entry', 'sha256']) { await offsetField(tester, name, record[name] as String); }
+    for (final field in json(record['functions']).entries) { await offsetField(tester, field.key, field.value as String); }
+    await offsetField(tester, 'SSL_read_ex', '0XFFFFFFFFFFFFFFF0');
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    expect(find.byType(TLSOffsetsPage), findsOneWidget);
+    expect(calls.where((call) => call.method == 'capture.configure'), isEmpty);
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    extra = (call) async { if (call.method == 'capture.configure') throw PlatformException(code: 'conflict', message: 'Settings changed'); return null; };
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    expect(find.byType(RequestSettingsPage), findsOneWidget);
+    extra = null;
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    final saves = calls.where((call) => call.method == 'capture.configure').map((call) => json(call.arguments)).toList();
+    expect(saves.length, 2);
+    expect(saves[0], saves[1]);
+    expect(saves.last['revision'], 'offset-revision');
+    final saved = rows(json(saves.last['config'])['tlsOffsets']).single;
+    expect(saved['path'], record['path']);
+    expect(saved['entry'], record['entry']);
+    expect(saved['sha256'], record['sha256']);
+    expect(json(saved['functions'])['SSL_read_ex'], '0xfffffffffffffff0');
+    expect(calls.where((call) => call.method == 'capture.start'), isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('manual offset editing validates hashes and distinct functions without changing the original', (tester) async {
+    await mount(tester);
+    final original = offsetRecord();
+    await open(tester, TLSOffsetEditorPage(initial: original));
+    await offsetField(tester, 'sha256', 'incorrect');
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    expect(find.text('Enter the 64 hexadecimal digits of the ELF SHA-256.'), findsOneWidget);
+    await offsetField(tester, 'sha256', 'AB' * 32);
+    await offsetField(tester, 'SSL_read', '0x1000');
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    expect(find.text('Function offsets must be distinct.'), findsOneWidget);
+    await offsetField(tester, 'SSL_read', '0x00000000000001200');
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    expect(find.text('SSL_read: Enter a nonzero hexadecimal ELF file offset (0x...).'), findsOneWidget);
+    expect(json(original['functions'])['SSL_read'], '0x1200');
+    expect(original['sha256'], 'ab' * 32);
+    expect(calls.where((call) => call.method == 'capture.configure'), isEmpty);
+    await offsetField(tester, 'SSL_read', '0x1400');
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    expect(find.byType(TLSOffsetEditorPage), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('manual offsets can be edited and removed while unrelated settings survive', (tester) async {
+    await mount(tester);
+    final original = offsetRecord();
+    await open(tester, RequestSettingsPage(initial: {'https': true, 'tlsOffsets': [original], 'excludeHosts': ['private.test']}));
+    await openOffsets(tester);
+    await tester.tap(find.byKey(const ValueKey('tls-offset-entry-0'))); await tester.pumpAndSettle();
+    await offsetField(tester, 'SSL_write', '0x1500');
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('tls-offset-entry-0'))); await tester.pumpAndSettle();
+    final scrollable = find.descendant(of: find.byType(TLSOffsetEditorPage), matching: find.byType(Scrollable)).first;
+    final field = find.byKey(const ValueKey('tls-offset-SSL_write'));
+    await tester.scrollUntilVisible(field, 200, scrollable: scrollable);
+    expect(tester.widget<TextField>(field).controller!.text, '0x1500');
+    expect(json(original['functions'])['SSL_write'], '0x1300');
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Delete').last); await tester.pumpAndSettle();
+    expect(find.text('No manual TLS offsets'), findsOneWidget);
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    final config = json(json(calls.singleWhere((call) => call.method == 'capture.configure').arguments)['config']);
+    expect(config['tlsOffsets'], isEmpty);
+    expect(config['excludeHosts'], ['private.test']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('duplicate manual libraries are rejected and the library limit is visible', (tester) async {
+    await mount(tester);
+    final original = offsetRecord();
+    await open(tester, TLSOffsetEditorPage(initial: original, others: [original]));
+    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
+    expect(find.text('This library already has manual offsets.'), findsOneWidget);
+    Navigator.pop(tester.element(find.byType(TLSOffsetEditorPage)));
+    await tester.pumpAndSettle();
+    await open(tester, TLSOffsetsPage(initial: List.generate(16, (i) => offsetRecord(path: '/data/app/package$i/base.apk'))));
+    expect(find.byKey(const ValueKey('add-tls-offset')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final dark in [false, true]) {
+    testWidgets('manual offset forms fit narrow screens with large fonts dark=$dark', (tester) async {
+      await mount(tester, dark: dark, scale: dark ? 1.5 : 1, size: const Size(360, 900));
+      final original = offsetRecord(path: '/data/app/~~installed-package-version/com.example.long.package-name/base.apk');
+      await open(tester, TLSOffsetsPage(initial: [original]));
+      await capture(tester, 'manual-offset-list-${dark ? 'dark-large' : 'light'}');
+      await tester.tap(find.byKey(const ValueKey('tls-offset-entry-0'))); await tester.pumpAndSettle();
+      await capture(tester, 'manual-offset-editor-${dark ? 'dark-large' : 'light'}');
+      final scrollable = find.descendant(of: find.byType(TLSOffsetEditorPage), matching: find.byType(Scrollable)).first;
+      await tester.scrollUntilVisible(find.byKey(const ValueKey('tls-offset-SSL_write')), 200, scrollable: scrollable);
+      await capture(tester, 'manual-offset-functions-${dark ? 'dark-large' : 'light'}');
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('raw packets and TLS keys are explicit local settings', (tester) async {
     await mount(tester);

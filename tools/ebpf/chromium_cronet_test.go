@@ -13,32 +13,89 @@ import (
 )
 
 func TestCronetResolvesSparseUnwindAndInlinedRead(t *testing.T) {
-	for _, seed := range []int64{1, 11, 29} {
-		for _, sparse := range []bool{false, true} {
-			for _, shared := range []bool{false, true} {
-				t.Run(fmt.Sprintf("%d/sparse=%t/shared=%t", seed, sparse, shared), func(t *testing.T) {
-					fixture := makeChromiumFixtureSource(t, "cronet-150.json", seed, false, true)
-					if sparse {
-						fixture.sparseUnwind()
-					}
-					if shared {
-						fixture.mergeLoadSegments()
-					}
-					resolved, method, err := resolveSymbolsForMachine(context.Background(), bytes.NewReader(fixture.data), "renamed-library.so", elf.EM_AARCH64)
-					if err != nil {
-						t.Fatal(err)
-					}
-					base := uint64(0x10000000) + uint64(seed)*0x1000000
-					want := make(map[string]uint64)
-					for _, name := range requiredSymbols {
-						want[name] = fixture.functions[name].address - base
-					}
-					if !reflect.DeepEqual(resolved, want) || method != "BoringSSL code analysis" {
-						t.Fatalf("resolved %v (%s); expected %v", resolved, method, want)
-					}
-				})
+	for _, source := range []string{"cronet-119.json", "cronet-134.json", "cronet-150.json"} {
+		for _, seed := range []int64{1, 11, 29} {
+			for _, sparse := range []bool{false, true} {
+				for _, shared := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%s/%d/sparse=%t/shared=%t", source, seed, sparse, shared), func(t *testing.T) {
+						fixture := makeChromiumFixtureSource(t, source, seed, false, true)
+						if sparse {
+							fixture.sparseUnwind()
+						}
+						if shared {
+							fixture.mergeLoadSegments()
+						}
+						resolved, method, err := resolveSymbolsForMachine(context.Background(), bytes.NewReader(fixture.data), "renamed-library.so", elf.EM_AARCH64)
+						if err != nil {
+							t.Fatal(err)
+						}
+						base := uint64(0x10000000) + uint64(seed)*0x1000000
+						want := make(map[string]uint64)
+						for _, name := range requiredSymbols {
+							want[name] = fixture.functions[name].address - base
+						}
+						if !reflect.DeepEqual(resolved, want) || method != "BoringSSL code analysis" {
+							t.Fatalf("resolved %v (%s); expected %v", resolved, method, want)
+						}
+					})
+				}
 			}
 		}
+	}
+}
+
+func TestCronetOutlinedHelpersMustPreserveContextOwnershipAndConsumption(t *testing.T) {
+	word := func(f chromiumFixture, name string, offset int, value uint32) {
+		binary.LittleEndian.PutUint32(f.functions[name].code[offset:], value)
+	}
+	change := func(f chromiumFixture, name string, offset int, clear, set uint32) {
+		word(f, name, offset, binary.LittleEndian.Uint32(f.functions[name].code[offset:])&^clear|set)
+	}
+	cases := map[string]func(chromiumFixture){
+		"wrong context stored":                               func(f chromiumFixture) { change(f, "SSL_new", 0x10, 31, 1) },
+		"reference to another stack slot":                    func(f chromiumFixture) { change(f, "SSL_new", 0x18, 4095<<10, 16<<10) },
+		"constructor receives allocation instead of context": func(f chromiumFixture) { change(f, "MakeUnique", 0x20, 31<<5, 19<<5) },
+		"truncated allocation pointer":                       func(f chromiumFixture) { word(f, "MakeUnique", 0x2c, 0x2a1303e0) },
+		"reset stores old allocation":                        func(f chromiumFixture) { change(f, "SSL_reset", 0xc, 31, 0) },
+		"reset releases only null":                           func(f chromiumFixture) { change(f, "SSL_reset", 0x10, 0, 1<<24) },
+		"free wrapper changes argument":                      func(f chromiumFixture) { word(f, "SSL_free_wrapper", 0, 0xaa0103e0) },
+		"cleanup frees another pointer":                      func(f chromiumFixture) { word(f, "SSL_new", 0x2b0, 0xaa1403e0) },
+		"read unsigned positive guard":                       func(f chromiumFixture) { change(f, "SSL_read", 0x1c, 15, 3) },
+		"subspan receives another count":                     func(f chromiumFixture) { word(f, "SSL_read", 0x24, 0x2a1403e1) },
+		"subspan has a finite limit":                         func(f chromiumFixture) { word(f, "SSL_read", 0x28, 0xd2800022) },
+		"writeback targets another owner":                    func(f chromiumFixture) { change(f, "SSL_read", 0x34, 4095<<10, 7<<10) },
+		"writeback reverses pointer and length":              func(f chromiumFixture) { change(f, "SSL_read", 0x38, 31|31<<10, 1) },
+		"writeback omitted":                                  func(f chromiumFixture) { word(f, "SSL_read", 0x38, 0xd503201f) },
+		"Boolean return":                                     func(f chromiumFixture) { word(f, "SSL_read", 0x50, 0x52800020) },
+		"subspan wrong bounds condition":                     func(f chromiumFixture) { change(f, "Span_subspan", 0xc, 15, 2) },
+		"subspan moves pointer backwards":                    func(f chromiumFixture) { change(f, "Span_subspan", 0x18, 0, 1<<30) },
+		"subspan selects maximum length":                     func(f chromiumFixture) { change(f, "Span_subspan", 0x1c, 15<<12, 2<<12) },
+		"bounds failure returns": func(f chromiumFixture) {
+			sample := f.functions["Span_subspan"]
+			pc, target := sample.address+0x2c, f.imports["memcpy"].address
+			word(f, "Span_subspan", 0x2c, 0x94000000|uint32((int64(target)-int64(pc))/4)&0x3ffffff)
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			fixture := makeChromiumFixtureSource(t, "cronet-119.json", 13, false, true)
+			fixture.sparseUnwind()
+			mutate(fixture)
+			if symbols, err := resolveFixture(context.Background(), fixture); err == nil || len(symbols) != 0 {
+				t.Fatalf("unverified outlined ABI accepted: %v, %v", symbols, err)
+			}
+		})
+	}
+}
+
+func TestCronetSocketArithmeticCannotPreserveAClobberedSSLPointer(t *testing.T) {
+	fixture := makeChromiumFixtureSource(t, "cronet-134.json", 11, false, true)
+	code := fixture.functions["Chrome_Read"].code
+	// ADD x1, x8, x26 computes a buffer address. Changing its destination to
+	// x0 overwrites the SSL member and must invalidate socket ownership.
+	binary.LittleEndian.PutUint32(code[0x78:], binary.LittleEndian.Uint32(code[0x78:])&^uint32(31))
+	if symbols, err := resolveFixture(context.Background(), fixture); err == nil || len(symbols) != 0 {
+		t.Fatalf("buffer arithmetic was mistaken for an SSL alias: %v, %v", symbols, err)
 	}
 }
 

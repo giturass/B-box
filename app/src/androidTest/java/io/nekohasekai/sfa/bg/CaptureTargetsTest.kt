@@ -35,6 +35,11 @@ class CaptureTargetsTest {
         val all = captureTargetPaths(packages, 10003, emptySet())
         assertTrue(all.contains("/data/app/other/base.apk"))
         assertFalse(all.any { it.contains("/bbox/") || it.contains("/work/") })
+        val owners = captureTargetPackages(packages, 10003, setOf(10001))
+        assertEquals(listOf("one"), owners["/data/app/one/base.apk"])
+        assertEquals(listOf("two"), owners["/data/app/two/lib/arm64"])
+        assertEquals(listOf("one", "two"), owners["/data/app/trichrome/base.apk"])
+        assertEquals(paths, owners.keys.toList())
     }
 
     @Test

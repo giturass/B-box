@@ -31,14 +31,16 @@ import (
 var program []byte
 
 type collectorConfig struct {
-	ExcludeUID uint32              `json:"excludeUid"`
-	UserID     uint32              `json:"userId"`
-	UIDs       []uint32            `json:"uids"`
-	Packages   map[string][]string `json:"packages"`
-	Libraries  []string            `json:"libraries"`
-	Targets    []string            `json:"targets"`
-	Packets    bool                `json:"captureNetwork"`
-	TLSKeys    bool                `json:"captureTlsKeys"`
+	ExcludeUID     uint32              `json:"excludeUid"`
+	UserID         uint32              `json:"userId"`
+	UIDs           []uint32            `json:"uids"`
+	Packages       map[string][]string `json:"packages"`
+	Libraries      []string            `json:"libraries"`
+	Targets        []string            `json:"targets"`
+	TargetPackages map[string][]string `json:"targetPackages"`
+	Packets        bool                `json:"captureNetwork"`
+	TLSKeys        bool                `json:"captureTlsKeys"`
+	TLSOffsets     []manualTLSOffsets  `json:"tlsOffsets"`
 }
 
 func readConfig(reader *bufio.Reader) (collectorConfig, error) {
@@ -55,7 +57,7 @@ func readConfig(reader *bufio.Reader) (collectorConfig, error) {
 	if err = decoder.Decode(new(any)); err != io.EOF {
 		return config, errors.New("unexpected data after eBPF startup settings")
 	}
-	if len(config.UIDs) > 256 || len(config.Libraries) > 16 || len(config.Packages) > 8192 || len(config.Targets) > 4096 {
+	if len(config.UIDs) > 256 || len(config.Libraries) > 16 || len(config.Packages) > 8192 || len(config.Targets)+len(config.TargetPackages) > 4096 {
 		return config, errors.New("too many eBPF capture filters")
 	}
 	for _, group := range []struct {
@@ -81,6 +83,19 @@ func readConfig(reader *bufio.Reader) (collectorConfig, error) {
 			}
 		}
 	}
+	for path, names := range config.TargetPackages {
+		if !filepath.IsAbs(path) || len(path) > 4096 || strings.ContainsAny(path, "\x00\r\n") || len(names) > 256 {
+			return config, errors.New("invalid installed capture target ownership")
+		}
+		for _, name := range names {
+			if name == "" || len(name) > 255 || strings.ContainsAny(name, "\x00\r\n") {
+				return config, errors.New("invalid capture target package name")
+			}
+		}
+	}
+	if err := validateManualTLSOffsets(config.TLSOffsets); err != nil {
+		return config, err
+	}
 	return config, nil
 }
 
@@ -104,22 +119,51 @@ func main() {
 // Read-only diagnostics use exactly the production library resolver. This can
 // inspect an installed APK without Root, loading BPF, or observing a process.
 func inspectCommand(ctx context.Context, args []string, encode func(any) error) error {
-	if len(args) != 2 || args[0] != "--inspect-library" {
-		return errors.New("usage: --inspect-library <ELF or APK path>")
+	if (len(args) != 2 && len(args) != 4) || args[0] != "--inspect-library" || len(args) == 4 && args[2] != "--offsets" {
+		return errors.New("usage: --inspect-library <ELF or APK path> [--offsets <JSON array file>]")
 	}
-	libraries, err := inspectLibraries(ctx, args[1])
-	for _, library := range libraries {
-		if writeErr := encode(struct {
+	var options libraryOptions
+	if len(args) == 4 {
+		file, err := os.Open(args[3])
+		if err != nil {
+			return err
+		}
+		data, err := io.ReadAll(io.LimitReader(file, 64*1024+1))
+		file.Close()
+		if err != nil {
+			return err
+		}
+		data = bytes.TrimSpace(data)
+		if len(data) == 0 || len(data) > 64*1024 || data[0] != '[' {
+			return errors.New("manual offsets must be a JSON array of at most 64 KiB")
+		}
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&options.offsets); err != nil {
+			return err
+		}
+		if decoder.Decode(new(any)) != io.EOF {
+			return errors.New("unexpected data after manual TLS offsets")
+		}
+	}
+	options.describe = func(library library, failure error) error {
+		reason := ""
+		if failure != nil {
+			reason = failure.Error()
+		}
+		return encode(struct {
 			Path          string            `json:"path"`
 			Entry         string            `json:"entry"`
 			Method        string            `json:"method"`
+			SHA256        string            `json:"sha256"`
 			ArchiveOffset uint64            `json:"archiveOffset"`
 			Symbols       map[string]uint64 `json:"symbols"`
-		}{library.path, library.entry, library.method, library.base, library.symbols}); writeErr != nil {
-			return writeErr
-		}
+			Error         string            `json:"error,omitempty"`
+		}{library.path, library.entry, library.method, library.sha256, library.base, library.symbols, reason})
 	}
-	if err == nil && len(libraries) == 0 {
+	count := 0
+	err := walkLibraryOptions(ctx, args[1], options, func(library) error { count++; return nil })
+	if err == nil && count == 0 {
 		err = errors.New("no compatible TLS library found")
 	}
 	return err
