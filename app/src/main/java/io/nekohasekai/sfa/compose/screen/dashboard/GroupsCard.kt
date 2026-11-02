@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -591,7 +592,7 @@ private fun ProxyChip(
     modifier: Modifier = Modifier,
 ) {
     var showContextMenu by remember { mutableStateOf(false) }
-    val chipShape = RoundedCornerShape(20.dp)
+    val chipShape = CardDefaults.shape
     val colors = MaterialTheme.colorScheme
     val isLightTheme = colors.surface.luminance() > 0.5f
     val contentColor = if (isSelected) Color.White else colors.onSurface
@@ -631,7 +632,7 @@ private fun ProxyChip(
                 ),
             shape = chipShape,
             color = when {
-                isSelected -> Color(0xFF1565C0)
+                isSelected -> Color(0xFF0D47A1)
                 isLightTheme -> colors.surfaceBright
                 else -> colors.surfaceContainer
             },
