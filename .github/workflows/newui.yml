@@ -2,7 +2,7 @@ name: Core and Flutter validation
 
 on:
   push:
-    branches: [dev, newui]
+    branches: [dev, newui, "feat/mitm-requests"]
     paths-ignore: ['**/*.md']
   pull_request:
     branches: [dev, newui]
@@ -30,78 +30,11 @@ jobs:
       - name: HTTP, routed IP and LAN tests against the matching core
         working-directory: .core
         run: go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1
-      - name: HTTP and eBPF capture, storage and route tests
+      - name: HTTP and MITM capture, storage and route tests
         working-directory: .core
         run: |
-          go test -race ./experimental/httpdebug -count=1
-          go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1
-  ebpf:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            arch: amd64
-          - runner: ubuntu-24.04-arm
-            arch: arm64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v5
-      - id: go
-        run: echo "version=$(sed -n 's/^GO_VERSION=go//p' version.properties)" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ steps.go.outputs.version }}
-          cache-dependency-path: tools/ebpf/go.sum
-      - run: sudo apt-get update -qq && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y clang llvm libssl-dev
-      - id: collector_build
-        run: bash tools/ebpf/build.sh linux/${{ matrix.arch }}
-      - name: Collector framing, ordering, symbol and platform tests
-        working-directory: tools/ebpf
-        run: go test -mod=readonly -race -count=1 ./...
-      - name: Build a static collector for installed-library inspection
-        working-directory: tools/ebpf
-        env:
-          CGO_ENABLED: '0'
-        run: go build -mod=readonly -trimpath -o build/capture-inspect .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: capture-inspector-${{ matrix.arch }}
-          path: tools/ebpf/build/capture-inspect
-          if-no-files-found: error
-          retention-days: 7
-      - name: Root uprobe TLS smoke and owner shutdown
-        run: sudo python3 tools/ebpf/smoke.py
-      - name: Stored APK uprobes, automatic offsets and TLS lifetime smoke
-        if: ${{ !cancelled() && steps.collector_build.outcome == 'success' && matrix.arch == 'amd64' }}
-        run: sudo python3 tools/ebpf/apk_smoke.py
-      - name: Go TLS clients across supported ABIs and stripped PIE
-        if: ${{ !cancelled() && steps.collector_build.outcome == 'success' }}
-        run: |
-          mkdir -p "$HOME/tmp/bbox-go-tls"
-          for fixture_go in go1.22.6 go1.23.0 go1.24.0 go1.25.0 go1.26.10 go1.27.3; do
-            for fixture_link in internal external; do
-              GOTOOLCHAIN="$fixture_go" CGO_ENABLED=1 go build -trimpath -buildmode=pie \
-                -ldflags="-s -w -linkmode=$fixture_link" \
-                -o "$HOME/tmp/bbox-go-tls/$fixture_go-$fixture_link" tools/ebpf/testdata/go_tls_client.go
-              sudo python3 tools/ebpf/gotls_smoke.py "$HOME/tmp/bbox-go-tls/$fixture_go-$fixture_link"
-            done
-          done
-      - name: Go 1.22.6 stripped c-shared TLS offsets
-        if: ${{ !cancelled() && steps.collector_build.outcome == 'success' }}
-        run: |
-          mkdir -p "$HOME/tmp/bbox-go-tls"
-          GOTOOLCHAIN=go1.22.6 CGO_ENABLED=1 go build -trimpath -buildmode=c-shared -ldflags="-s -w" \
-            -o "$HOME/tmp/bbox-go-tls/go1.22.6-shared.so" \
-            tools/ebpf/testdata/go_tls_client.go tools/ebpf/testdata/go_tls_shared.go
-          tools/ebpf/capture --inspect-library "$HOME/tmp/bbox-go-tls/go1.22.6-shared.so"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: gotls-validation-${{ matrix.arch }}
-          path: tools/ebpf/build/gotls/
-          retention-days: 7
+          go test -race ./experimental/httpdebug -count=1 -timeout=5m
+          go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m
   flutter:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

@@ -1,17 +1,20 @@
 package io.nekohasekai.sfa.flutter
 
-import android.os.Binder
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings as AndroidSettings
+import android.security.KeyChain
 import io.nekohasekai.libbox.Libbox
-import io.nekohasekai.libbox.UICaptureSource
 import io.nekohasekai.sfa.bg.BoxService
-import io.nekohasekai.sfa.bg.ICaptureSession
-import io.nekohasekai.sfa.bg.RootClient
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.CommandTarget
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -19,20 +22,15 @@ import org.json.JSONObject
 import org.json.JSONArray
 import java.io.File
 
-/** Local passive HTTPS capture and routed HTTP recording. */
+/** Local routed HTTP recording and opt-in TLS interception. */
 internal class BoxCapture(private val activity: BoxActivity) {
     private val directory = File(activity.noBackupFilesDir, "http-debug")
     private val captures = File(directory, "captures")
     private val settings = CaptureSettings(directory)
+    private val certificate = MitmCertificate(activity)
 
     private companion object {
         val mutex = Mutex()
-    }
-
-    private class CaptureSource : UICaptureSource {
-        val owner = Binder()
-        var session: ICaptureSession? = null
-        override fun close() { runCatching { session?.close() } }
     }
 
     private fun requireLocal() {
@@ -43,84 +41,115 @@ internal class BoxCapture(private val activity: BoxActivity) {
     suspend fun invoke(method: String, args: Map<String, Any?>): Any? {
         requireLocal()
         if (method == "capture.export") return export(args)
-        return mutex.withLock { withContext(Dispatchers.IO) {
-            requireLocal()
-            if (method != "capture.logs" && method != "capture.logs.clear") Libbox.openUICapture(captures.absolutePath)
-            when (method) {
-                "capture.snapshot" -> mapOf(
-                    "state" to jsonObject(status()),
-                    "page" to jsonObject(JSONObject(Libbox.listUICapture(
-                        (args["limit"] as? Number)?.toInt()?.coerceIn(1, 300) ?: 50,
-                        (args["query"] as? String).orEmpty().take(1024),
-                    ))),
-                )
-                "capture.settings" -> settings.snapshot()
-                "capture.logs" -> jsonObject(JSONObject(Libbox.readUICaptureLogs()))
-                "capture.logs.clear" -> { Libbox.clearUICaptureLogs(); null }
-                "capture.configure" -> {
-                    require(!status().optBoolean("active")) { "Stop capture before changing its settings" }
-                    @Suppress("UNCHECKED_CAST")
-                    val value = args["config"] as? Map<String, Any?> ?: error("Missing capture settings")
-                    settings.save(args["revision"] as? String ?: error("Missing capture settings revision"), JSONObject(value).toString())
+        if (method == "capture.ca.export" || method == "capture.ca.module") return exportCertificate(method, args)
+        if (method == "capture.ca.install") return installCertificate(args)
+        return mutex.withLock {
+            var started = false
+            try {
+                withContext(Dispatchers.IO) {
+                    requireLocal()
+                    if (method != "capture.logs" && method != "capture.logs.clear" && !method.startsWith("capture.ca.")) Libbox.openUICapture(captures.absolutePath)
+                    when (method) {
+                        "capture.ca.snapshot" -> certificate.snapshot() + ("captureActive" to status().optBoolean("active"))
+                        "capture.ca.generate" -> {
+                            require(!status().optBoolean("active")) { "Stop capture before changing the MITM certificate" }
+                            certificate.generate(args["revision"] as? String ?: error("Missing certificate revision"))
+                        }
+                        "capture.snapshot" -> mapOf(
+                            "state" to jsonObject(status()),
+                            "page" to jsonObject(JSONObject(Libbox.listUICapture(
+                                (args["limit"] as? Number)?.toInt()?.coerceIn(1, 300) ?: 50,
+                                (args["query"] as? String).orEmpty().take(1024),
+                            ))),
+                        )
+                        "capture.settings" -> settings.snapshot()
+                        "capture.logs" -> jsonObject(JSONObject(Libbox.readUICaptureLogs()))
+                        "capture.logs.clear" -> { Libbox.clearUICaptureLogs(); null }
+                        "capture.configure" -> {
+                            require(!status().optBoolean("active")) { "Stop capture before changing its settings" }
+                            @Suppress("UNCHECKED_CAST")
+                            val value = args["config"] as? Map<String, Any?> ?: error("Missing capture settings")
+                            settings.save(args["revision"] as? String ?: error("Missing capture settings revision"), JSONObject(value).toString())
+                        }
+                        "capture.start" -> start { started = true }
+                        "capture.stop" -> { Libbox.stopUICapture(); jsonObject(status()) }
+                        "capture.clear" -> { Libbox.clearUICapture(); null }
+                        "capture.domains" -> {
+                            val domains = JSONArray(Libbox.extractUICaptureHosts((args["query"] as? String).orEmpty().take(1024)))
+                            List(domains.length()) { domains.getString(it) }
+                        }
+                        "capture.detail" -> jsonObject(JSONObject(Libbox.readUICapture(args["id"] as? String ?: error("Missing request ID"))))
+                        else -> error("Unknown capture operation")
+                    }
                 }
-                "capture.start" -> start()
-                "capture.stop" -> { Libbox.stopUICapture(); jsonObject(status()) }
-                "capture.clear" -> { Libbox.clearUICapture(); null }
-                "capture.domains" -> {
-                    val domains = JSONArray(Libbox.extractUICaptureHosts((args["query"] as? String).orEmpty().take(1024)))
-                    List(domains.length()) { domains.getString(it) }
+            } catch (error: Exception) {
+                // Covers cancellation while returning from Dispatchers.IO as
+                // well as failures after the native session has been created.
+                if (started) withContext(NonCancellable + Dispatchers.IO) {
+                    runCatching { Libbox.stopUICapture() }.onFailure(error::addSuppressed)
                 }
-                "capture.detail" -> jsonObject(JSONObject(Libbox.readUICapture(args["id"] as? String ?: error("Missing request ID"))))
-                else -> error("Unknown capture operation")
+                if (method == "capture.start" && error !is CancellationException) {
+                    Libbox.appendUICaptureLog("error", "Capture startup failed: ${error.message}")
+                }
+                throw error
             }
-        } }
+        }
     }
 
-    private suspend fun start(): Map<String, Any?> {
+    private suspend fun start(onStarted: () -> Unit): Map<String, Any?> {
         require(!status().optBoolean("active")) { "Capture is already running" }
         require(activity.serviceStatus.value == Status.Started) { "Start the local service before capturing requests" }
         val running = BoxService.dashboardConfig.value ?: error("Local service is not running")
         val value = settings.config()
-        val source = if (JSONObject(value).optBoolean("https")) CaptureSource() else null
-        try {
-            if (source != null) {
-                Libbox.appendUICaptureLog("info", "Starting eBPF capture; requesting the Root collector")
-                source.session = RootClient.startCapture(value, source.owner)
+        val material = if (JSONObject(value).optBoolean("https")) certificate.material() else null
+        return ProfileContent.mutex.withLock {
+            requireLocal()
+            require(activity.serviceStatus.value == Status.Started &&
+                running.profileId == Settings.selectedProfile &&
+                running === BoxService.dashboardConfig.value && running.server === BoxService.dashboardServer) {
+                "Local service changed; start capture again"
             }
-            return ProfileContent.mutex.withLock {
-                requireLocal()
-                require(activity.serviceStatus.value == Status.Started &&
-                    running.profileId == Settings.selectedProfile &&
-                    running === BoxService.dashboardConfig.value && running.server === BoxService.dashboardServer) {
-                    "Local service changed; start capture again"
-                }
-                if (source != null) {
-                    source.session!!.fileDescriptor.use { descriptor ->
-                        running.server.startUICapture(captures.absolutePath, value, descriptor.fd, source)
-                    }
-                } else {
-                    running.server.startUICapture(captures.absolutePath, value, -1, null)
-                }
-                if (CommandTarget.isRemote) { Libbox.stopUICapture(); requireLocal() }
-                val state = status()
-                check(state.optBoolean("active")) { state.optString("error", "Capture startup failed") }
-                jsonObject(state)
-            }
-        } catch (error: Exception) {
-            source?.close()
-            if (source != null) {
-                if (error is CancellationException) {
-                    Libbox.appendUICaptureLog("warn", "eBPF capture startup cancelled")
-                    throw error
-                }
-                (error.message ?: error.javaClass.simpleName).lineSequence().forEach { line ->
-                    val level = listOf("debug", "info", "warn", "error").firstOrNull { line.startsWith("[$it] ") }
-                    Libbox.appendUICaptureLog(level ?: "error", if (level == null) line else line.removePrefix("[$level] "))
-                }
-                throw IllegalStateException("Unable to start HTTPS capture. See eBPF logs for details.", error)
-            }
-            throw error
+            running.server.startUICapture(captures.absolutePath, value, material?.first.orEmpty(), material?.second)
+            onStarted()
+            currentCoroutineContext().ensureActive()
+            requireLocal()
+            val state = status()
+            check(state.optBoolean("active")) { state.optString("error", "Capture startup failed") }
+            jsonObject(state)
         }
+    }
+
+    private suspend fun installCertificate(args: Map<String, Any?>): Boolean = mutex.withLock {
+        val ca = withContext(Dispatchers.IO) {
+            requireLocal()
+            certificate.publicCertificate(args["revision"] as? String ?: error("Missing certificate revision"))
+        }
+        withContext(Dispatchers.Main) {
+            requireLocal()
+            // Android 11+ requires the user to select the exported CA in Settings.
+            val intent = if (Build.VERSION.SDK_INT >= 30) Intent(AndroidSettings.ACTION_SECURITY_SETTINGS)
+                else KeyChain.createInstallIntent().putExtra(KeyChain.EXTRA_CERTIFICATE, ca.encoded)
+                    .putExtra(KeyChain.EXTRA_NAME, ca.subjectX500Principal.name)
+            activity.startActivity(intent)
+        }
+        true // Only confirms that settings opened, never that trust was granted.
+    }
+
+    private suspend fun exportCertificate(method: String, args: Map<String, Any?>): Boolean {
+        val revision = args["revision"] as? String ?: error("Missing certificate revision")
+        val ca = mutex.withLock { withContext(Dispatchers.IO) { requireLocal(); certificate.publicCertificate(revision) } }
+        val module = method == "capture.ca.module"
+        val name = "B-box-MITM-${MitmCertificate.fingerprint(ca).take(12)}" + if (module) ".zip" else ".crt"
+        val destination = activity.pickDocument(name) ?: return false
+        return mutex.withLock { withContext(Dispatchers.IO) {
+            requireLocal()
+            certificate.publicCertificate(revision)
+            activity.contentResolver.openOutputStream(destination, "wt")?.use { output ->
+                if (module) MitmCertificateModule.write(activity, output, ca)
+                else output.write(MitmCertificate.pem(ca).toByteArray(Charsets.US_ASCII))
+            } ?: error("Unable to export MITM certificate")
+            true
+        } }
     }
 
     private suspend fun export(args: Map<String, Any?>): Boolean {

@@ -1,0 +1,16 @@
+B-box MITM certificate module
+
+Namespace discovery and module packaging reference chen08209/FlClash dev,
+commit 63aa150e23288558074d877f745a6d3b5f6418f6 (2026-11-01),
+android/app/src/main/assets/mitm_ca and SystemCaStore.kt.
+https://github.com/chen08209/FlClash/tree/63aa150e23288558074d877f745a6d3b5f6418f6/android/app/src/main/assets/mitm_ca
+
+GPL-3.0. B-box changes (2026-11-03): export for manual installation by the
+root manager; per-namespace staging before bind mounts; preserve each target's
+CA set; no app-driven su/install/uninstall; only a public certificate included.
+
+Install this ZIP with Magisk, KernelSU or APatch, then reboot. Refresh the
+certificate page in B-box to check this process's actual AndroidCAStore.
+System trust does not override app-specific trust stores or certificate pinning.
+After regenerating the CA, update the module and reboot. Remove the module in
+the root manager and reboot to remove its mounts. No private key is exported.

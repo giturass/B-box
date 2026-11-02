@@ -28,6 +28,7 @@ func debugMetadata(m adapter.InboundContext) httpdebug.Metadata {
 	}
 	if m.RouteOriginalDestination.IsValid() {
 		result.OriginalDestination = m.RouteOriginalDestination.String()
+		result.Port = m.RouteOriginalDestination.Port
 	}
 	if m.ProcessInfo != nil {
 		result.UID = m.ProcessInfo.UserId
@@ -43,6 +44,12 @@ func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata ada
 	if engine == nil || !engine.Candidate(debugMetadata(metadata)) {
 		return conn, false
 	}
+	// A CONNECT/SOCKS client may wait for success before sending ClientHello.
+	// This is the same early tunnel acknowledgment needed by route sniffing.
+	if err := N.ReportConnHandshakeSuccess(conn, conn); err != nil {
+		N.CloseOnHandshakeFailure(conn, onClose, err)
+		return conn, true
+	}
 	captureMetadata := metadata
 	if captureMetadata.Protocol == "" {
 		buffer := buf.NewSize(httpdebug.MaxHeaderBytes)
@@ -57,16 +64,15 @@ func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata ada
 		}
 	}
 	info := debugMetadata(captureMetadata)
-	if info.Protocol == "tls" || !engine.Matches(info) {
-		if info.Protocol == "tls" {
+	if info.Protocol == "tls" {
+		var selected bool
+		conn, info, selected = engine.SelectTLS(ctx, conn, info)
+		if !selected {
 			engine.Observe(info, "TLS")
+			return conn, false
 		}
+	} else if !engine.Matches(info) {
 		return conn, false
-	}
-	// Unblock delayed SOCKS/HTTP inbound handshakes before acting as the server.
-	if err := N.ReportConnHandshakeSuccess(conn, conn); err != nil {
-		N.CloseOnHandshakeFailure(conn, onClose, err)
-		return conn, true
 	}
 	dial := func(dialCtx context.Context) (net.Conn, error) {
 		if err := dialCtx.Err(); err != nil {
@@ -85,7 +91,7 @@ func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata ada
 		}()
 		return local, nil
 	}
-	return conn, engine.Handle(ctx, conn, info, dial, onClose)
+	return conn, engine.Handle(ctx, conn, info, dial, adapter.RootPoolFromContext(r.ctx), onClose)
 }
 
 func debugNeedsStream(m adapter.InboundContext) bool {
@@ -99,18 +105,18 @@ func debugNeedsStream(m adapter.InboundContext) bool {
 	return m.Network == N.NetworkUDP && engine.WantsQUIC(debugMetadata(m))
 }
 
-// Domain observation always returns every original datagram to the selected outbound.
-func debugObserveQUIC(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, buffers []*N.PacketBuffer) []*N.PacketBuffer {
+// Only a recovered QUIC ClientHello name can trigger the opt-in TCP fallback.
+// Other UDP and all buffered datagrams of unmatched flows stay unchanged.
+func debugObserveQUIC(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, buffers []*N.PacketBuffer) ([]*N.PacketBuffer, bool) {
 	engine := httpdebug.Current()
 	if engine == nil || !engine.WantsQUIC(debugMetadata(metadata)) {
-		return buffers
+		return buffers, false
 	}
 	if metadata.Protocol != "" && metadata.Protocol != C.ProtocolQUIC {
-		return buffers
+		return buffers, false
 	}
 	if metadata.Protocol == C.ProtocolQUIC && metadata.Domain != "" {
-		engine.Observe(debugMetadata(metadata), "QUIC")
-		return buffers
+		return buffers, engine.RejectQUIC(debugMetadata(metadata))
 	}
 	metadata.Domain = ""
 	for i := 0; i < 3; i++ {
@@ -132,12 +138,11 @@ func debugObserveQUIC(ctx context.Context, conn N.PacketConn, metadata adapter.I
 		}
 		err := sniff.QUICClientHello(ctx, &metadata, buffers[i].Buffer.Bytes())
 		if err == nil && metadata.Domain != "" {
-			engine.Observe(debugMetadata(metadata), "QUIC")
-			return buffers
+			return buffers, engine.RejectQUIC(debugMetadata(metadata))
 		}
 		if !errors.Is(err, sniff.ErrNeedMoreData) {
 			break
 		}
 	}
-	return buffers
+	return buffers, false
 }

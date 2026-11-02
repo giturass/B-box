@@ -22,8 +22,6 @@ import io.nekohasekai.libbox.NeighborUpdateListener
 import io.nekohasekai.libbox.ShellSession
 import io.nekohasekai.sfa.ktx.toStringIterator
 import io.nekohasekai.sfa.vendor.PrivilegedServiceUtils
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.lang.reflect.Proxy
@@ -46,8 +44,6 @@ class RootServer : RootService() {
     private val bridgeSessions = mutableSetOf<BridgeSessionBinder>()
     private val autoRedirectSessions = mutableSetOf<AutoRedirectSessionBinder>()
 
-    private val captureSessions = mutableSetOf<RootCaptureSession>()
-
     private var destroyed = false
 
     // libsu exits the process right after onDestroy, so a session whose Start
@@ -58,36 +54,6 @@ class RootServer : RootService() {
     private val binder = object : IRootService.Stub() {
         override fun destroy() {
             stopSelf()
-        }
-
-        override fun startCapture(settings: String, owner: IBinder): ICaptureSession {
-            require(settings.toByteArray().size <= 64 * 1024) { "Capture settings exceed 64 KiB" }
-            val options = JSONObject(settings)
-            val selected = options.optJSONArray("packages") ?: JSONArray()
-            val names = (0 until selected.length()).map { selected.getString(it) }.toSet()
-            require(names.size <= 256) { "Too many capture applications" }
-            val caller = Binder.getCallingUid()
-            val packages = PrivilegedServiceUtils.getInstalledPackages(PackageManager.GET_SHARED_LIBRARY_FILES, caller / 100000)
-            val byUID = packages.mapNotNull { pkg -> pkg.applicationInfo?.let { it.uid to pkg.packageName } }
-                .groupBy({ it.first }, { it.second })
-            val uids = byUID.filterValues { group -> group.any { it in names } }.keys
-            if (names.isNotEmpty()) require(uids.isNotEmpty()) { "Selected capture applications are not installed" }
-            val targets = captureTargetPackages(packages, caller, if (names.isEmpty()) emptySet() else uids)
-            val config = JSONObject().put("excludeUid", caller).put("userId", caller / 100000)
-                .put("uids", JSONArray(if (names.isEmpty()) emptyList<Int>() else uids.toList()))
-                .put("packages", JSONObject(byUID.mapKeys { it.key.toString() }))
-                .put("libraries", options.optJSONArray("tlsLibraries") ?: JSONArray())
-                .put("tlsOffsets", options.optJSONArray("tlsOffsets") ?: JSONArray())
-                .put("targetPackages", JSONObject(targets))
-            val session = synchronized(autoRedirectLifecycle) {
-                check(!destroyed) { "Root service is stopping" }
-                check(captureSessions.isEmpty()) { "An eBPF capture session is already running" }
-                RootCaptureSession(File(applicationInfo.nativeLibraryDir, "libbbox_capture.so"), owner, onClosed = { closed ->
-                    synchronized(autoRedirectLifecycle) { captureSessions.remove(closed) }
-                }).also { captureSessions.add(it) }
-            }
-            session.start(config.toString())
-            return session
         }
 
         override fun getInstalledPackages(flags: Int, userId: Int): ParceledListSlice<PackageInfo> {
@@ -593,8 +559,6 @@ class RootServer : RootService() {
             } catch (_: Exception) {
             }
         }
-        val captures = synchronized(autoRedirectLifecycle) { captureSessions.toList() }
-        for (session in captures) runCatching { session.close() }
         stopTetheringMonitor()
         neighborSubscription?.close()
         neighborSubscription = null

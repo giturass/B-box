@@ -130,7 +130,7 @@ func harEntry(d *Detail) map[string]any {
 		}
 	}
 	request := map[string]any{"method": d.Request.Method, "url": d.Request.URL, "httpVersion": d.Request.Protocol,
-		"headers": d.Request.Headers, "queryString": query, "cookies": []any{}, "headersSize": -1, "bodySize": d.Request.BodyBytes}
+		"headers": d.Request.Headers, "_trailers": d.Request.Trailers, "queryString": query, "cookies": []any{}, "headersSize": -1, "bodySize": d.Request.BodyBytes}
 	if len(d.RequestBody) > 0 {
 		text, encoding := string(d.RequestBody), ""
 		if !utf8.Valid(d.RequestBody) {
@@ -140,7 +140,7 @@ func harEntry(d *Detail) map[string]any {
 	}
 	content := harContent(d.Response, d.ResponseBody)
 	response := map[string]any{"status": d.Response.Status, "statusText": http.StatusText(d.Response.Status), "httpVersion": d.Response.Protocol,
-		"headers": d.Response.Headers, "cookies": []any{}, "content": content, "redirectURL": headerValue(d.Response, "Location"),
+		"headers": d.Response.Headers, "_trailers": d.Response.Trailers, "cookies": []any{}, "content": content, "redirectURL": headerValue(d.Response, "Location"),
 		"headersSize": -1, "bodySize": d.Response.BodyBytes}
 	return map[string]any{"startedDateTime": time.UnixMilli(d.StartedAt).UTC().Format(time.RFC3339Nano), "time": d.DurationMS,
 		"request": request, "response": response, "cache": map[string]any{},
@@ -148,7 +148,8 @@ func harEntry(d *Detail) map[string]any {
 		"comment": "B-box measures total elapsed time only. HAR wait contains that total; send/receive are placeholders, not measured phases.",
 		"_bBox": map[string]any{"metadata": d.Metadata, "complete": d.Complete, "error": d.Error, "note": d.Note, "originalUrl": d.OriginalURL,
 			"timingAccuracy": "total-only", "requestBodyComplete": d.Request.BodyComplete, "requestBodyTruncated": d.Request.BodyTruncated,
-			"requestHeadersTruncated": d.Request.HeadersTruncated, "responseHeadersTruncated": d.Response.HeadersTruncated}}
+			"requestHeadersTruncated": d.Request.HeadersTruncated, "responseHeadersTruncated": d.Response.HeadersTruncated,
+			"requestTrailersTruncated": d.Request.TrailersTruncated, "responseTrailersTruncated": d.Response.TrailersTruncated}}
 }
 
 func harContent(message Message, body []byte) map[string]any {
@@ -183,6 +184,9 @@ func (s *Store) Curl(id string) (string, error) {
 	}
 	if d.Request.Method == "TLS" || !d.Request.BodyComplete || d.Request.BodyTruncated || d.Request.HeadersTruncated {
 		return "", errors.New("cURL export requires complete, untruncated HTTP request headers and body")
+	}
+	if len(d.Request.Trailers) > 0 || d.Request.TrailersTruncated {
+		return "", errors.New("cURL export cannot reproduce request trailers; use HAR")
 	}
 	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
 	var out strings.Builder

@@ -18,10 +18,17 @@ def main():
     if len(apks) != 1 or apks[0].name != expected_name:
         raise SystemExit(f'Expected exactly one {expected_name}, found: {apks}')
     with ZipFile(apks[0]) as apk:
-        if 'lib/arm64-v8a/libbbox_capture.so' not in apk.namelist():
-            raise SystemExit('Packaged Root/eBPF collector is missing')
-        abis = {name.split('/')[1] for name in apk.namelist()
+        names = apk.namelist()
+        abis = {name.split('/')[1] for name in names
                 if name.startswith('lib/') and name.endswith('.so')}
+        if any(name.endswith('/libbbox_capture.so') for name in names):
+            raise SystemExit('Retired capture collector was packaged')
+        for source in Path('app/src/main/assets/mitm-ca').rglob('*'):
+            if not source.is_file():
+                continue
+            packaged = 'assets/' + source.relative_to('app/src/main/assets').as_posix()
+            if packaged not in names or apk.read(packaged) != source.read_bytes():
+                raise SystemExit(f'Missing or changed MITM module asset: {packaged}')
     if abis != {'arm64-v8a'}:
         raise SystemExit(f'Unexpected native ABIs: {abis}')
 

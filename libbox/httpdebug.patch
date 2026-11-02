@@ -13,15 +13,20 @@ diff --git a/route/route.go b/route/route.go
  	if outboundHandler, isHandler := outbound.(adapter.ConnectionHandler); isHandler {
  		outboundHandler.NewConnection(ctx, conn, metadata, onClose)
  	} else {
-@@ -316,6 +321,7 @@
+@@ -316,6 +321,12 @@
  	if err != nil {
  		N.ReleaseMultiPacketBuffer(packetBuffers)
  		return err
  	}
-+	packetBuffers = debugObserveQUIC(ctx, conn, metadata, packetBuffers)
++	var rejectQUIC bool
++	packetBuffers, rejectQUIC = debugObserveQUIC(ctx, conn, metadata, packetBuffers)
++	if rejectQUIC {
++		N.ReleaseMultiPacketBuffer(packetBuffers)
++		return E.New("QUIC rejected by local MITM capture; retry over TCP")
++	}
  	for _, buffer := range slices.Backward(packetBuffers) {
  		conn = bufio.NewCachedPacketConn(conn, buffer.Buffer, buffer.Destination)
-@@ -480,6 +486,9 @@
+@@ -480,6 +491,9 @@
  
  func (r *Router) preMatchFlow(ctx context.Context, metadata *adapter.InboundContext, packetDestination M.Socksaddr, matchedRule adapter.Rule, outboundTag string) adapter.PreMatchResult {
  	continueResult := adapter.PreMatchResult{Action: adapter.PreMatchContinue}

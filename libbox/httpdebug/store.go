@@ -18,16 +18,18 @@ import (
 )
 
 type Message struct {
-	Method           string   `json:"method,omitempty"`
-	URL              string   `json:"url,omitempty"`
-	Protocol         string   `json:"protocol"`
-	Status           int      `json:"status,omitempty"`
-	Headers          []Header `json:"headers"`
-	HeadersTruncated bool     `json:"headersTruncated"`
-	BodyBytes        int64    `json:"bodyBytes"`
-	CapturedBytes    int64    `json:"capturedBytes"`
-	BodyTruncated    bool     `json:"bodyTruncated"`
-	BodyComplete     bool     `json:"bodyComplete"`
+	Method            string   `json:"method,omitempty"`
+	URL               string   `json:"url,omitempty"`
+	Protocol          string   `json:"protocol"`
+	Status            int      `json:"status,omitempty"`
+	Headers           []Header `json:"headers"`
+	HeadersTruncated  bool     `json:"headersTruncated"`
+	Trailers          []Header `json:"trailers,omitempty"`
+	TrailersTruncated bool     `json:"trailersTruncated,omitempty"`
+	BodyBytes         int64    `json:"bodyBytes"`
+	CapturedBytes     int64    `json:"capturedBytes"`
+	BodyTruncated     bool     `json:"bodyTruncated"`
+	BodyComplete      bool     `json:"bodyComplete"`
 }
 
 type Exchange struct {
@@ -232,21 +234,6 @@ func (s *Store) addNote(id, note string) {
 	}
 }
 
-func (s *Store) updateSocket(captureID string, socket *SocketMetadata) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, record := range s.records {
-		if record.Metadata.CaptureID != captureID {
-			continue
-		}
-		oldNote := tlsCaptureNote(record.Metadata.Socket)
-		record.Metadata.setSocket(socket)
-		record.Note = strings.Replace(record.Note, oldNote, tlsCaptureNote(socket), 1)
-		s.persistLocked(record)
-	}
-	s.trimLocked()
-}
-
 func (s *Store) domainOnly(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -332,6 +319,18 @@ func (s *Store) bodyComplete(id string, response bool) {
 		} else {
 			record.Request.BodyComplete = true
 		}
+	}
+}
+
+func (s *Store) trailers(id string, response bool, trailers http.Header) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record := s.records[id]; record != nil {
+		message := &record.Request
+		if response {
+			message = &record.Response
+		}
+		message.Trailers, message.TrailersTruncated = captureHeaders(trailers, "")
 	}
 }
 

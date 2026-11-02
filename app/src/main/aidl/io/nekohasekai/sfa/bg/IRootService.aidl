@@ -1,7 +1,6 @@
 package io.nekohasekai.sfa.bg;
 
 import android.os.ParcelFileDescriptor;
-import io.nekohasekai.sfa.bg.ICaptureSession;
 import io.nekohasekai.sfa.bg.IAutoRedirectHandler;
 import io.nekohasekai.sfa.bg.IAutoRedirectSession;
 import io.nekohasekai.sfa.bg.IBridgeSession;
@@ -28,5 +27,5 @@ interface IRootService {
 
     IAutoRedirectSession startAutoRedirect(in byte[] options, IAutoRedirectHandler handler) = 9;
 
-    ICaptureSession startCapture(String settings, IBinder owner) = 10;
+    // Transaction 10 (retired eBPF capture) must not be reused.
 }

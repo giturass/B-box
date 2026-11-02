@@ -32,18 +32,6 @@ runs:
           build-tools;37.0.0
           ndk;28.0.13004108
           ndk;28.2.13676358
-    - name: Build packaged Root/eBPF collector
-      shell: bash
-      env:
-        CAPTURE_PLATFORM: ${{ inputs.platform }}
-      run: |
-        sudo apt-get update -qq
-        sudo apt-get install -y clang llvm
-        export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
-        bash tools/ebpf/build.sh "$CAPTURE_PLATFORM"
-        if [[ "$CAPTURE_PLATFORM" == android/amd64 ]]; then
-          bash tools/ebpf/build.sh android/arm64
-        fi
     - name: Build Android libbox
       shell: bash
       working-directory: .core

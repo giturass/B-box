@@ -13,8 +13,11 @@
 | `files` | 直接导入的共享组件、两个工具文件、字体和 glass shader；哈希对应将 Dart 包引用从 `fl_clash` 机械改名为 `b_box_ui` 后的文件 |
 | `adaptedFiles` | 仪表盘、配置/代理、外观、备份、IP 质量查询及参考测试等适配文件；记录原始来源哈希和实际改动说明 |
 | `adaptedNativeFiles` | `libbox/ui_egress.go` 对 FlClash IP 查询的适配来源；用 sing-box 路由和 libbox HTTP 替换原传输 |
+| `supplementalReferences` | 独立于整体 UI 基线的 MITM dev 补充参考，按原样导入、改写或设计参考记录源文件哈希；本地路径相对仓库根目录 |
 
 清单中 `files` 和 `adaptedFiles` 的本地路径相对 `flutter/`，`adaptedNativeFiles` 的本地路径相对仓库根目录；`source`/`sources` 指向固定参考提交内的上游路径。清单记录逐文件哈希和改动来源，本文维护使用说明，两者一并保留。
+
+本次请求/MITM 功能补充核对 FlClash `dev` 的 [`63aa150e23288558074d877f745a6d3b5f6418f6`](https://github.com/chen08209/FlClash/tree/63aa150e23288558074d877f745a6d3b5f6418f6)，相关提交为 [`f54486102172566e7342d7f5c138663c3c5dec0b`](https://github.com/chen08209/FlClash/commit/f54486102172566e7342d7f5c138663c3c5dec0b) 的 MITM 应用侧设计和 [`1a7556d30a38707f39abfba4b7d6a6b8f57774ed`](https://github.com/chen08209/FlClash/commit/1a7556d30a38707f39abfba4b7d6a6b8f57774ed) 的请求/连接整合。该 dev 源码的 `FEATURE_MITM` 默认关闭，公开 core 不提供完整 MITM 实现；B-box 自行实现 sing-box 路由上的 TLS 接管，不能把上游页面当成可用核心。此次采用证书信任、报文展示和 CA 模块设计，保留 B-box 的独立连接页，不整体迁移该版本的 UI 依赖。整体 FlClash UI、Android 上游和核心三个基线均不变。
 
 共享组件位于 [flutter/lib/ui](flutter/lib/ui)。原始许可保留在 [flutter/assets/licenses/LICENSE](flutter/assets/licenses/LICENSE)，字体归属见 [JetBrainsMono-OFL.txt](flutter/assets/licenses/JetBrainsMono-OFL.txt) 和 [Twemoji-LICENSE.md](flutter/assets/licenses/Twemoji-LICENSE.md)。Twemoji 原始图形来自 Twitter，字体转换由 Mozilla 提供，图形未修改。这些文件同时用于应用内许可证页，不再单独保存重复副本。
 
@@ -33,7 +36,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 | 系统 HTTP 代理 | [system_proxy_panel.dart](flutter/lib/components/system_proxy_panel.dart) | 采用参考版 VPN 卡片的布局、状态徽章和紧凑开关，使用 B-box 自有的大陆轮廓地球字形；开关接入内核上报状态及既有 Android 桥接 |
 | 外观与关于 | [appearance.dart](flutter/lib/pages/appearance.dart)、[about.dart](flutter/lib/pages/about.dart) | 复用主题预览、调色和版本/许可布局，保持 B-box 品牌及其 Release 来源 |
 | 备份 | [backup.dart](flutter/lib/pages/backup.dart)、[form.dart](flutter/lib/components/form.dart) | 复用本地/远程分区、WebDAV 表单、连通状态、恢复范围及策略，后端使用 `bbox-1` 格式 |
-| 请求调试 | [requests.dart](flutter/lib/pages/requests.dart)、[request_settings.dart](flutter/lib/pages/request_settings.dart)、[tls_offsets.dart](flutter/lib/pages/tls_offsets.dart)、[capture_logs.dart](flutter/lib/pages/capture_logs.dart)、[capture_domains.dart](flutter/lib/pages/capture_domains.dart) | 请求列表/详情、本机筛选、Root/eBPF HTTPS、分层诊断、域名选择及 HAR/cURL 导出；复用共享列表、表单和导航 |
+| 请求调试 | [requests.dart](flutter/lib/pages/requests.dart)、[request_settings.dart](flutter/lib/pages/request_settings.dart)、[mitm_certificate.dart](flutter/lib/pages/mitm_certificate.dart)、[capture_logs.dart](flutter/lib/pages/capture_logs.dart)、[capture_domains.dart](flutter/lib/pages/capture_domains.dart) | 请求列表/详情、本机筛选、HTTPS MITM 与证书、诊断、域名选择及 HAR/cURL 导出；复用共享列表、表单和导航 |
 
 ### 导航与交互约定
 
@@ -42,9 +45,9 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 - 服务按钮的暂停图形表示停止服务，不新增暂停核心能力。远程会话、启停过渡和不可用操作必须反映真实状态。
 - 工具页远程控制紧跟终端；终端设置在终端内，仪表盘编辑在首页工具栏。设置依次为外观、常规、访问控制、备份与恢复；高级配置从配置的“编辑”页进入，不保留重复资源入口。
 - “请求”紧挨在工具页“连接”上方；列表沿用连接页的卡片、左右边距、行间距和字形，支持搜索和分批加载。详情使用同一点击复制行及反馈，长 URL、头部与 Cookie 分行显示；右上角菜单切换请求、响应和 Cookies，请求与响应 Cookie 分组展示，保留重复 `Set-Cookie`、空值、值中的等号及属性，点击 Cookie 复制该条原文。抓取开关等待原生确认，停服时保留历史记录；远程会话显示不可用。
-- 抓包设置的 HTTPS 域名包含/排除项、端口及可选 TLS 库/APK/Go 可执行文件路径置于共享分组表单中，HTTPS 开关说明 Root/eBPF、Go 版本范围和重新连接的时机，路径说明提示自动查找安装文件、共享库及函数偏移；与 [核心支持范围](libbox.md#httphttps-请求调试) 一致。“手动 TLS 函数偏移”使用共享分组表单添加/编辑/删除库条目，填写绝对路径、可选 APK 内条目、ELF SHA-256、四个必需及七个可选 SSL 函数；明确使用 ELF 文件偏移、自动叠加 APK 偏移及 Go 单独校验。界面校验格式、重复函数偏移和重复库，失败滚到错误说明并保留输入；子页面返回草稿，保存抓包设置才通过原有修订检查持久化。设置保存在本机，可从记录选择 HTTPS 包含/排除域名，保存校验失败保留草稿。没有证书、改写或脚本页面。
-- 请求主界面不展示 eBPF 挂载数量、准备状态、跳过计数或最新采集错误；右上角折叠菜单提供抓包设置、“eBPF 日志”、按当前搜索导出 HAR 和清空请求。日志页集中展示状态、TLS/明文/已解析的紧凑统计和带时间、级别的历史记录，点击“抓取统计”展开 Go TLS、socket、筛选及保存计数。日志支持搜索、复制、导出和单独清空；按记录时间排列，保留延迟转发的启动阶段顺序。准备完成后的重新连接提示也只出现在日志页。日志由后端持续记录，范围与保留限额见 [libbox.md](libbox.md#httphttps-请求调试)。
-- 请求详情保留重复头部/正文状态，显示真实采集来源、PID/UID、TLS 实现和已观测的 socket FD/inode/源目的地址；字段继续支持点击复制。eBPF 未获取的 socket 以及出站/路由字段保持未知。域名观察标为“仅域名”，不能导出 cURL；抓包设置继续通过域名选择页添加筛选条件。页面均为 B-box 业务代码，没有修改 FlClash 直接导入文件。
+- 抓包设置使用共享分组表单，提供 HTTPS/MITM、证书管理、域名包含/排除、应用、原始目标端口、正文限额、可见域名提取及可选 QUIC TCP 回退。保存检查本机修订，失败保留草稿，运行中不能改设置。证书入口也在请求菜单中；生成 CA 是明确操作，重新生成需要确认，打开页面不生成、不安装、不启用抓包。证书页显示有效期、公钥 SHA-256、用户/系统信任及私钥可用性，提供 CRT/系统模块导出和 Android 设置入口；返回前台可刷新信任，远程会话不读本机证书，迟到结果不覆盖新会话。平台边界见 [app.md](app.md#请求抓取与-mitm)。
+- 请求菜单提供抓包设置、MITM 证书、“抓包日志”、当前搜索的 HAR 导出和清空请求。日志页集中展示当前后端、实际 TLS 尝试/失败、解密连接/正文字节、QUIC 回退和解析/筛选/保存计数，支持搜索、复制、导出与独立清空。启动或握手失败可在日志中查看，不把开启开关当作收到 HTTPS 请求；日志来源及限额见 [libbox.md](libbox.md#httphttps-请求调试)。
+- 请求详情保留重复头部、Cookie、正文状态及 trailers，显示原路由/应用、真实 SNI、双方 TLS 版本、ALPN 和上游证书 SHA-256，字段支持复制。已有记录中保存过的 PID/socket 字段仍可读，缺失值保持未知。域名观察与握手失败标为“仅域名”，不能导出 cURL；请求正文/头部不完整、截断或含 trailers 也不能导出 cURL。页面复用现有共享组件，没有修改 FlClash 直接导入文件。
 - 常规服务页使用即时应用的开关，保存和重启期间显示进度并禁用开关，底部没有“应用服务设置”按钮；启动确认及失败恢复见 [app.md](app.md#配置服务应用与备份)。
 - 日志页默认选择“跟随配置”，显示内核上报的日志级别及更严重的记录；菜单同时显示当前级别，仍可手动选择“全部”或单一级别，手动筛选不会被后续状态更新覆盖。搜索、暂停和导出沿用同一筛选结果；默认级别尚未收到时保留已接收记录。日志来源及本地重载同步见 [app.md](app.md#配置服务应用与备份)。
 - 应用始终跟随系统语言并响应运行时变化。旧设置及备份中的语言选项丢弃，其他偏好保留。
@@ -57,7 +60,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [data_subscription.dart](flutter/lib/components/data_subscription.dart) 按页面活动状态、TickerMode 和应用生命周期合并内存/日志订阅；卡片与详情页共享一个原生采样请求，最后一个可见消费者退出时停止。日志增量保留既有记录对象，暂停快照独立于后续追加和淘汰，恢复可见时重新同步原生缓冲。原生采样与消息边界见 [app.md](app.md#配置服务应用与备份)。
 
-[capture_poll.dart](flutter/lib/components/capture_poll.dart) 仅在本地请求列表/详情或 eBPF 日志页活动、TickerMode 开启且应用前台时每两秒查询；调用不重叠，筛选变化合并刷新，并忽略旧筛选或会话的迟到结果。日志使用独立的 `capture.logs` 查询，请求列表不拉取日志历史。隐藏页面停止轮询，抓取引擎与日志记录继续运行至用户或服务停止。页面为 B-box 业务代码，没有直接修改 FlClash 导入文件。
+[capture_poll.dart](flutter/lib/components/capture_poll.dart) 仅在本地请求列表/详情或抓包日志页活动、TickerMode 开启且应用前台时每两秒查询；调用不重叠，筛选变化合并刷新，并忽略旧筛选或会话的迟到结果。日志使用独立的 `capture.logs` 查询，请求列表不拉取日志历史。隐藏页面停止轮询，抓取引擎与日志记录继续运行至用户或服务停止。页面为 B-box 业务代码，没有直接修改 FlClash 导入文件。
 
 [captured_body.dart](flutter/lib/components/captured_body.dart) 将正文预览放在等宽、自动折行、有界滚动的卡片中，展示内容类型、保存/总字节数及 Base64、截断、未完成状态。完整 JSON 可切换格式化与原文；[http_message.dart](flutter/lib/common/http_message.dart) 仅调整 JSON 字符串外的空白，保留数值字面量、重复键及转义，无法解析或超过格式化限额时显示原文。长预览分批展开，边界不拆开 UTF-16 代理对；复制始终使用内核返回的原始预览，不受当前格式或已展开长度影响，也不代表未保存的完整正文。
 
@@ -120,7 +123,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [access_test.dart](flutter/test/access_test.dart) 覆盖进入托管页面不扫描、加载期间接收最新托管选择、显示范围与隐藏选择保留、保存失败后重试、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。它验证交互和调用行为，不代替实机加载耗时或视觉验收。
 
-[requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口、远程隔离、本机设置修订/字段、HTTPS 域名选择、端口保存和启动确认，检查请求主界面不显示 eBPF 状态/错误、菜单移除域名提取、日志页展示准备完成/挂载数/库诊断，以及停抓后的历史、时间顺序、搜索/复制/导出、清日志与清请求隔离、后台/遮挡轮询和迟到搜索结果。另覆盖手动偏移添加/修改/删除、哈希和重复项校验、数量限制、偏移字符串精度及保存失败后的重试，HAR 导出搜索条件、分层统计、socket 字段复制、报文菜单、字段/Cookie 复制、正文格式切换和 Unicode 分批展开。窄屏/大字号深色/宽屏截图保存在 `build/screenshots/requests/`，包含设置、手动偏移列表/编辑/函数字段的窄屏与大字号深色、日志页准备中/完成、列表、详情、头部、正文、菜单及 Cookies；显式加载 Roboto 和 JetBrains Mono。这些桥接替身测试不等于 eBPF/实机 TLS 验收，相关验证见 [libbox.md](libbox.md#构建同步和验证) 和 [app.md](app.md#验证与历史记录)。
+[requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口、远程隔离、本机设置修订、HTTPS 域名选择、端口和启动确认；检查日志统计、历史/搜索/复制/导出、清日志与清请求隔离、后台/遮挡轮询及迟到结果。证书测试检查明确生成、取消导出不报成功、运行中禁止重生成、远程切换/迟到快照和信任刷新。其他回归保留 HAR 搜索、已有 socket 元数据读取、报文菜单、字段/Cookie 复制、正文格式切换和 Unicode 分批展开。窄屏、大字号深色和宽屏截图在 `build/screenshots/requests/`，包含设置、证书/导出、日志、列表、详情、头部、正文和 Cookies，显式加载 Roboto 和 JetBrains Mono。桥接替身与截图不等于实际 TLS 或系统证书安装验收；验证分工见 [libbox.md](libbox.md#构建同步和验证) 与 [app.md](app.md#验证与历史记录)。
 
 [http_message_test.dart](flutter/test/http_message_test.dart) 检查 JSON 数值/重复键/转义保真、无效或过大内容回退，以及重复 Cookie、空值、等号和 Expires 逗号。请求正文不完整或截断时不提供 cURL 导出。
 

@@ -87,7 +87,7 @@ func debugClient(t *testing.T, e *Engine, origin string) *http.Client {
 		client, server := net.Pipe()
 		if !e.Handle(context.Background(), server, metadata, func(ctx context.Context) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "tcp", origin)
-		}, nil) {
+		}, nil, nil) {
 			t.Error("connection not captured")
 			client.Close()
 			server.Close()
@@ -263,16 +263,16 @@ func TestStoreBoundsPersistenceClearAndCurl(t *testing.T) {
 	}
 }
 
-func TestTLSIsNeverInterceptedAndStoppedEngineRejectsHTTP(t *testing.T) {
+func TestTLSRequiresAuthorityAndStoppedEngineRejectsHTTP(t *testing.T) {
 	e, _ := testEngine(t, Config{HTTPS: true})
 	a, b := net.Pipe()
 	defer a.Close()
 	defer b.Close()
-	if e.Handle(context.Background(), a, Metadata{Port: 443, Protocol: "tls"}, nil, nil) {
+	if e.Handle(context.Background(), a, Metadata{Host: "test.example", Port: 443, Protocol: "tls"}, nil, nil, nil) {
 		t.Fatal("TLS was intercepted")
 	}
 	e.Close()
-	if e.Handle(context.Background(), a, Metadata{Port: 80, Protocol: "http"}, nil, nil) {
+	if e.Handle(context.Background(), a, Metadata{Port: 80, Protocol: "http"}, nil, nil, nil) {
 		t.Fatal("closed engine accepted a connection")
 	}
 }
@@ -340,7 +340,7 @@ func TestWebSocketUpgradeForwardsFramesAndStops(t *testing.T) {
 	if !e.Handle(context.Background(), inbound, Metadata{Host: "example.test", Port: 80, Protocol: "http"},
 		func(ctx context.Context) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "tcp", origin.Listener.Addr().String())
-		}, nil) {
+		}, nil, nil) {
 		t.Fatal("upgrade was not captured")
 	}
 	_, err := io.WriteString(client, "GET /socket HTTP/1.1\r\nHost: example.test\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")

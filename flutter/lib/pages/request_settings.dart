@@ -2,7 +2,7 @@ import 'package:flutter/services.dart';
 import '../widgets.dart';
 import '../components/form.dart';
 import 'capture_domains.dart';
-import 'tls_offsets.dart';
+import 'mitm_certificate.dart';
 
 class RequestSettingsPage extends StatefulWidget {
   const RequestSettingsPage({super.key, required this.initial, this.source = const {}});
@@ -19,8 +19,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
   late int _bodyKiB = ((widget.initial['bodyLimit'] as num? ?? 65536) / 1024).round();
   late List<String> _packages = (widget.initial['packages'] as List? ?? []).cast<String>().toList();
   late bool _extract = widget.initial['extractHosts'] == true;
-  late final _libraries = TextEditingController(text: (widget.initial['tlsLibraries'] as List? ?? []).join('\n'));
-  late List<Json> _offsets = copyTLSOffsets(widget.initial['tlsOffsets']);
+  late bool _blockQUIC = widget.initial['blockQUIC'] == true;
   bool _busy = false, _dirty = false;
   String? _error;
 
@@ -33,11 +32,10 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
       final ports = _lines(_ports.text).map(int.parse).toList();
       if (ports.isEmpty || ports.any((port) => port < 1 || port > 65535)) throw const FormatException('Ports must be between 1 and 65535');
       await context.box.call('capture.configure', {'revision': widget.source['revision'], 'config': {
-        'https': _https, 'decryptHosts': _lines(_decrypt.text), 'packages': _packages, 'ports': ports,
+        'version': 2, 'https': _https, 'decryptHosts': _lines(_decrypt.text), 'packages': _packages, 'ports': ports,
         'bodyLimit': _bodyKiB * 1024,
         'decryptBypassHosts': _lines(_decryptBypass.text), 'extractHosts': _extract,
-        'tlsLibraries': _libraries.text.split('\n').map((line) => line.trim()).where((line) => line.isNotEmpty).toSet().toList(),
-        'tlsOffsets': _offsets,
+        'blockQUIC': _blockQUIC,
       }});
       if (mounted) { setState(() { _dirty = false; _busy = false; }); Navigator.pop(context); }
     } catch (error) {
@@ -45,7 +43,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
     }
   }
 
-  @override void dispose() { for (final c in [_decrypt, _decryptBypass, _ports, _libraries]) { c.dispose(); } super.dispose(); }
+  @override void dispose() { for (final c in [_decrypt, _decryptBypass, _ports]) { c.dispose(); } super.dispose(); }
 
   Future<void> _addDomains(TextEditingController controller) async {
     final selected = await openPage<List<String>>(context, const CaptureDomainsPage(select: true));
@@ -72,24 +70,20 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
     if (context.box.remote) return const BoxPage(title: 'Capture settings', children: [EmptyState('HTTP debugging is only available for the local service')]);
     return BoxEditGuard(dirty: _dirty, busy: _busy, child: FormPage(title: 'Capture settings', saving: _busy, error: _error, onSave: _save, children: [
       ListFooter(text: context.tr('Saved on this device. Capture stops when the local service restarts.')),
-      generateSection(title: 'HTTPS / eBPF', items: [
-        ListItem.toggle(title: Text(context.tr('Capture HTTPS with eBPF')), value: _https, onChanged: (value) => setState(() { _https = value; _dirty = true; })),
+      generateSection(title: 'HTTPS / MITM', items: [
+        ListItem.toggle(title: Text(context.tr('Decrypt HTTPS')), value: _https, onChanged: (value) => setState(() { _https = value; _dirty = true; })),
+        ListItem(title: Text(context.tr('MITM certificate')), onTap: () => openPage(context, const MitmCertificatePage())),
       ]),
       if (_https) ...[
         _field(_decrypt, 'HTTPS domains', hint: '*.example.com',
-          footer: 'Leave empty to capture all supported HTTPS domains. Exact names and *.example.com are accepted; exclusions take priority.'),
+          footer: 'Leave empty to decrypt all HTTPS domains. Exact names and *.example.com are accepted; exclusions take priority.'),
         ListItem(key: const ValueKey('add-https-hosts'), title: Text(context.tr('Add captured HTTPS domains')), onTap: () => _addDomains(_decrypt)),
-        _field(_decryptBypass, 'HTTPS excluded domains', hint: 'pinned.example.com', footer: 'Skip plaintext capture for these HTTPS domains. Visible hostnames can still be extracted.'),
+        _field(_decryptBypass, 'HTTPS excluded domains', hint: 'pinned.example.com', footer: 'Pass these TLS connections through unchanged. Visible hostnames can still be extracted.'),
         ListItem(key: const ValueKey('add-bypass-hosts'), title: Text(context.tr('Add captured HTTPS exclusions')), onTap: () => _addDomains(_decryptBypass)),
-        ListFooter(text: context.tr('Requires Root, Linux 5.10 or newer and permitted eBPF uprobes. Supports compatible 64-bit OpenSSL/BoringSSL and Go 1.22–1.27 TLS clients. Reconnect after preparation finishes. QUIC is not captured.')),
-        _field(_libraries, 'Additional TLS libraries', hint: '/data/app/.../lib/arm64/libssl.so',
-          footer: 'Optional absolute library, APK or Go executable paths, one per line. Installed apps, shared libraries and function offsets are discovered automatically.'),
-        generateSection(items: [ListItem(key: const ValueKey('manual-tls-offsets'), title: Text(context.tr('Manual TLS function offsets')),
-          subtitle: Text(_offsets.isEmpty ? context.tr('No manual TLS offsets') : '${_offsets.length} ${context.tr('TLS libraries')}'),
-          onTap: () async {
-            final offsets = await openPage<List<Json>>(context, TLSOffsetsPage(initial: _offsets));
-            if (offsets != null && mounted) setState(() { _offsets = offsets; _dirty = true; });
-          })]),
+        ListFooter(text: context.tr('Install and trust the MITM CA, start capture, then reconnect the target app. Only traffic routed through the local service is captured. Server certificates are always verified.')),
+        generateSection(items: [ListItem.toggle(title: Text(context.tr('Request TCP fallback for QUIC')), value: _blockQUIC,
+          subtitle: Text(context.tr('Reject only observed QUIC connections whose names match the HTTPS filters. Apps may retry over TCP. Unknown names and other UDP stay unchanged.')),
+          onChanged: (value) => setState(() { _blockQUIC = value; _dirty = true; }))]),
       ],
       generateSection(items: [ListItem.toggle(title: Text(context.tr('Extract TLS/QUIC domains')), value: _extract,
         subtitle: Text(context.tr('Collect visible TLS/QUIC hostnames through the local service. These records contain names only.')),
@@ -105,7 +99,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
           textBuilder: (value) => '$value KiB', onChanged: (value) => setState(() { _bodyKiB = value; _dirty = true; })),
       ]),
       _field(_ports, 'Capture ports', hint: '80, 443, 8080, 8443', multiline: false,
-        footer: 'Keeps up to 300 requests and 32 MiB. Large bodies keep a prefix. HTTPS port filters use the HTTP authority; observed socket endpoints are shown separately.'),
+        footer: 'Keeps up to 300 requests and 32 MiB. Large bodies keep a prefix. Port filters use the connection destination.'),
     ]));
   }
 }
@@ -136,7 +130,7 @@ class _CaptureAppsPageState extends State<CaptureAppsPage> {
       return ListView.builder(padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 24 + context.bottomInset),
         itemCount: visible.length + 1, itemBuilder: (context, index) {
           if (index == 0) return Column(children: [
-            Padding(padding: const EdgeInsets.all(12), child: Text(context.tr('An empty selection captures applications in this Android user. B-box itself is excluded from eBPF capture. Applications sharing a UID share the same filter.'))),
+            Padding(padding: const EdgeInsets.all(12), child: Text(context.tr('An empty selection captures all applications routed through the local service. Unknown owners do not match a selected application. Applications sharing a UID share the same filter.'))),
             if (snapshot.hasError) ErrorState(snapshot.error!, retry: () => setState(() => _apps = context.box.call('apps.list', {'system': true, 'refresh': true}).then(rows))),
             if (!snapshot.hasData && !snapshot.hasError) const Center(child: CircularProgressIndicator()),
           ]);

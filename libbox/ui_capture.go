@@ -2,7 +2,6 @@ package libbox
 
 import (
 	"encoding/json"
-	"golang.org/x/sys/unix"
 	"os"
 	"sync"
 
@@ -13,42 +12,26 @@ import (
 // and available with the local service stopped; capture itself never auto-starts.
 var uiCaptureLifecycle sync.Mutex
 
-// The source is owned by the active core session, including reload and shutdown.
-type UICaptureSource interface{ Close() }
-
 func ValidateUICaptureConfig(configJSON string) (string, error) {
 	return httpdebug.Validate(configJSON)
 }
 
 func OpenUICapture(directory string) error { return httpdebug.Open(directory) }
 
-func (s *CommandServer) StartUICapture(directory, configJSON string, fd int32, source UICaptureSource) error {
+func (s *CommandServer) StartUICapture(directory, configJSON, certificate string, signer UICaptureSigner) error {
 	uiCaptureLifecycle.Lock()
 	defer uiCaptureLifecycle.Unlock()
 	if s.Instance() == nil {
 		return os.ErrClosed
 	}
-	var reader *os.File
-	var closeSource func()
-	if fd >= 0 {
-		duplicate, err := unix.Dup(int(fd))
-		if err != nil {
-			return err
-		}
-		unix.CloseOnExec(duplicate)
-		reader = os.NewFile(uintptr(duplicate), "ebpf-capture")
+	if signer == nil {
+		return httpdebug.Start(directory, configJSON, certificate, nil)
 	}
-	if source != nil {
-		closeSource = source.Close
-	}
-	if reader == nil {
-		return httpdebug.Start(directory, configJSON, nil, closeSource)
-	}
-	if err := httpdebug.Start(directory, configJSON, reader, closeSource); err != nil {
-		reader.Close()
+	ca, err := httpdebug.ParseCA(certificate)
+	if err != nil {
 		return err
 	}
-	return nil
+	return httpdebug.Start(directory, configJSON, certificate, &uiCaptureSigner{ca.PublicKey, signer})
 }
 
 func StopUICapture() { httpdebug.Stop() }

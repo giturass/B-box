@@ -1,4 +1,4 @@
-"""Run UI, native and collector regressions independently on a CI emulator."""
+"""Run UI and native regressions independently on a CI emulator."""
 
 import functools
 import http.server
@@ -157,25 +157,6 @@ def native_regressions():
         "Native regressions failed or ran no tests; see native-tests.txt"
 
 
-def collector_regressions():
-    binary, = Path("build/apk").rglob("capture-platform.test")
-    remote = "/data/local/tmp/bbox-capture-platform.test"
-    adb("push", str(binary), remote)
-    adb("shell", "chmod", "700", remote)
-    log = OUT / "collector-tests.txt"
-    try:
-        with log.open("w") as output:
-            subprocess.run(
-                ["adb", "shell", remote, "-test.v", "-test.run=^TestBPFPlatform$", "-test.timeout=30s"],
-                stdout=output, stderr=subprocess.STDOUT, timeout=45, check=True,
-            )
-    finally:
-        if log.exists():
-            print(log.read_text())
-    assert re.search(r"^--- PASS: TestBPFPlatform \(", log.read_text(), re.MULTILINE), \
-        "Collector platform regression did not run; see collector-tests.txt"
-
-
 def diagnostics(name):
     try:
         capture(f"{name}-last-screen")
@@ -199,8 +180,7 @@ def main():
         instrumentation, = [apk for apk in apks if apk.name.endswith("-androidTest.apk")]
         for apk in (application, instrumentation):
             adb("install", "--no-streaming", "-r", str(apk), timeout=240)
-        for name, check in (("ui", ui_smoke), ("native", native_regressions),
-                            ("collector", collector_regressions)):
+        for name, check in (("ui", ui_smoke), ("native", native_regressions)):
             try:
                 # Each suite owns a fresh installation state, even if the UI suite failed mid-start.
                 adb("shell", "am", "force-stop", PACKAGE)
@@ -226,9 +206,9 @@ def main():
             adb("shell", "am", "force-stop", PACKAGE)
         except (subprocess.SubprocessError, OSError) as error:
             print(f"App cleanup failed: {error}")
-    if set(results) != {"ui", "native", "collector"} or not all(result["passed"] for result in results.values()):
+    if set(results) != {"ui", "native"} or not all(result["passed"] for result in results.values()):
         raise SystemExit("Android checks failed; see build/android-smoke/results.json")
-    print("Android UI smoke, native and collector regressions passed")
+    print("Android UI smoke and native regressions passed")
 
 
 if __name__ == "__main__":

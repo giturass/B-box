@@ -6,6 +6,7 @@ import '../components/captured_body.dart';
 import '../components/record.dart';
 import 'request_settings.dart';
 import 'capture_logs.dart';
+import 'mitm_certificate.dart';
 
 class RequestsPage extends StatefulWidget {
   const RequestsPage({super.key});
@@ -45,7 +46,8 @@ class _RequestsPageState extends State<RequestsPage> {
               } catch (error) { if (context.mounted) context.box.messages.add(BoxController.describe(error)); }
               finally { if (mounted) setState(() { _busy = false; _revision++; }); }
             }),
-            CommonPopupMenuItem(glyph: AppGlyphs.logs, label: context.tr('eBPF logs'), onPressed: () => openPage(context, const CaptureLogsPage())),
+            CommonPopupMenuItem(glyph: AppGlyphs.lock, label: context.tr('MITM certificate'), onPressed: () => openPage(context, const MitmCertificatePage())),
+            CommonPopupMenuItem(glyph: AppGlyphs.logs, label: context.tr('Capture logs'), onPressed: () => openPage(context, const CaptureLogsPage())),
             CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'), onPressed: _busy || entries.isEmpty ? null : () => _act('capture.export', {'format': 'har', 'query': _query})),
             CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear requests'), onPressed: _busy ? null : () async {
               if (await confirm(context, 'Clear captured requests?') && mounted) await _act('capture.clear');
@@ -70,7 +72,7 @@ class _RequestsPageState extends State<RequestsPage> {
                 if (error != null) ErrorState(error, retry: refresh),
                 if (snapshot == null && error == null) const Center(child: CircularProgressIndicator()),
                 if (snapshot != null && entries.isEmpty) EmptyState(_query.isEmpty ? 'No captured requests' : 'No results',
-                  message: _query.isEmpty ? 'HTTP capture follows the local service. HTTPS uses Root/eBPF on this device. Start capture, then reconnect the target app.' : null),
+                  message: _query.isEmpty ? 'HTTP and HTTPS capture follow the local service. HTTPS requires a trusted MITM CA. Start capture, then reconnect the target app.' : null),
               ]));
               if (index > entries.length) return (page['total'] as num? ?? 0) > entries.length
                 ? TextButton(onPressed: () => setState(() => _limit = (_limit + 50).clamp(1, 300).toInt()), child: Text(context.tr('Show more')))
@@ -145,6 +147,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
     return CapturePoll(method: 'capture.detail', arguments: {'id': widget.id}, builder: (context, detail, error, refresh) {
       final metadata = json(detail?['metadata']), request = json(detail?['request']);
       final socket = json(metadata['socket']);
+      final tls = json(metadata['tls']);
       final response = _part == 'Response';
       final message = json(detail?[response ? 'response' : 'request']);
       final preview = json(detail?[response ? 'responsePreview' : 'requestPreview']);
@@ -157,6 +160,11 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
         if (metadata['captureSource'] != null) 'Capture source': metadata['captureSource'],
         if (metadata['pid'] != null) 'PID': metadata['pid'],
         if ((metadata['tlsAdapter'] as String? ?? '').isNotEmpty) 'TLS implementation': metadata['tlsAdapter'],
+        if (tls.isNotEmpty) 'TLS server name': tls['serverName'],
+        if (tls.isNotEmpty) 'Client TLS': tls['clientVersion'],
+        if (tls.isNotEmpty) 'Upstream TLS': tls['upstreamVersion'],
+        if (tls.isNotEmpty) 'ALPN': tls['alpn']?.toString().isNotEmpty == true ? tls['alpn'] : context.tr('Not negotiated'),
+        if (tls.isNotEmpty) 'Upstream certificate SHA-256': tls['upstreamCertificate'],
         if (socket.isNotEmpty) 'Socket FD': socket['fd'],
         if (socket.isNotEmpty) 'Socket inode': socket['inode'],
         'Source': metadata['source'], 'Destination': metadata['destination'],
@@ -166,7 +174,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
       };
       return BoxPage(title: 'Request details', loading: _busy, actions: [
         IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr('Copy URL'), onPressed: detail == null ? null : () => _copy(request['url']?.toString() ?? '')),
-        IconButtonData(glyph: AppGlyphs.arrowDown, tooltip: context.tr('Export cURL'), onPressed: detail == null || _busy || request['bodyComplete'] != true || request['bodyTruncated'] == true || request['headersTruncated'] == true || request['method'] == 'TLS' ? null : () async {
+        IconButtonData(glyph: AppGlyphs.arrowDown, tooltip: context.tr('Export cURL'), onPressed: detail == null || _busy || request['bodyComplete'] != true || request['bodyTruncated'] == true || request['headersTruncated'] == true || rows(request['trailers']).isNotEmpty || request['trailersTruncated'] == true || request['method'] == 'TLS' ? null : () async {
           setState(() => _busy = true);
           await context.box.act('capture.export', {'format': 'curl', 'id': widget.id});
           if (mounted) setState(() => _busy = false);
@@ -180,13 +188,16 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
         if (detail == null && error == null) const Center(child: CircularProgressIndicator()),
         if (detail != null) ...[
           generateGroup([for (final value in values.entries) DetailRow.text(title: context.tr(value.key),
-            value: value.value?.toString() ?? '—', stacked: const ['URL', 'Original URL', 'App', 'Error', 'Note'].contains(value.key))]),
+            value: value.value?.toString() ?? '—', stacked: const ['URL', 'Original URL', 'App', 'Error', 'Note', 'Upstream certificate SHA-256'].contains(value.key))]),
           if (_part == 'Cookies') ...[
             _cookies(request, false),
             _cookies(json(detail['response']), true),
           ] else ...[
             _headers(message, response),
             CapturedBody(key: ValueKey('body-$_part'), message: message, preview: preview),
+            if (rows(message['trailers']).isNotEmpty) generateSection(title: context.tr('Trailers'), items: [
+              for (final trailer in rows(message['trailers'])) DetailRow.text(title: trailer['name']?.toString() ?? '', value: trailer['value']?.toString() ?? '', stacked: true),
+            ], footer: message['trailersTruncated'] == true ? context.tr('Headers truncated') : null),
           ],
         ],
       ]);

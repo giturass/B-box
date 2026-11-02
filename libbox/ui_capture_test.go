@@ -9,7 +9,7 @@ import (
 func TestUICaptureLogsAreAvailableWithoutStartingCapture(t *testing.T) {
 	ClearUICaptureLogs()
 	t.Cleanup(ClearUICaptureLogs)
-	AppendUICaptureLog("error", "Root collector startup failed")
+	AppendUICaptureLog("error", "MITM signing key unavailable")
 	value, err := ReadUICaptureLogs()
 	if err != nil {
 		t.Fatal(err)
@@ -24,7 +24,7 @@ func TestUICaptureLogsAreAvailableWithoutStartingCapture(t *testing.T) {
 	if err = json.Unmarshal([]byte(value), &result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Logs) != 1 || result.Logs[0].Message != "Root collector startup failed" || result.Logs[0].Level != "error" || result.Logs[0].ReceivedAt <= 0 {
+	if len(result.Logs) != 1 || result.Logs[0].Message != "MITM signing key unavailable" || result.Logs[0].Level != "error" || result.Logs[0].ReceivedAt <= 0 {
 		t.Fatalf("startup diagnostics not exposed: %s", value)
 	}
 	ClearUICaptureLogs()
@@ -34,11 +34,11 @@ func TestUICaptureLogsAreAvailableWithoutStartingCapture(t *testing.T) {
 }
 
 func TestUICaptureSettingsAreLocalAndRejectRetiredFeatures(t *testing.T) {
-	if _, err := ValidateUICaptureConfig(`{"https":true,"tlsLibraries":["/system/lib64/libssl.so"]}`); err != nil {
+	if _, err := ValidateUICaptureConfig(`{"version":2,"https":true,"decryptHosts":["api.test"],"blockQUIC":true}`); err != nil {
 		t.Fatal(err)
 	}
 	for _, invalid := range []string{
-		`{"rewriteEnabled":true}`, `{"scripts":[]}`, `{"mapLocal":[]}`, `{"blockQUIC":true}`,
+		`{"rewriteEnabled":true}`, `{"scripts":[]}`, `{"mapLocal":[]}`, `{"version":99}`, `{"tlsOffsets":[]}`,
 		`{"captureNetwork":true}`, `{"captureTlsKeys":true}`, `{"captureNetwork":false}`, `{"captureTlsKeys":false}`,
 		`{"includeHosts":["api.test"]}`, `{"excludeHosts":["private.test"]}`, `{"includeHosts":[]}`, `{"excludeHosts":[]}`,
 		`{"tlsLibraries":["relative.so"]}`,

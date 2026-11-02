@@ -357,5 +357,127 @@
         }
       ]
     }
-  }
+  },
+  "supplementalReferences": [
+    {
+      "name": "mitm-dev",
+      "repository": "https://github.com/chen08209/FlClash",
+      "commit": "63aa150e23288558074d877f745a6d3b5f6418f6",
+      "relatedCommits": [
+        "f54486102172566e7342d7f5c138663c3c5dec0b",
+        "1a7556d30a38707f39abfba4b7d6a6b8f57774ed"
+      ],
+      "scope": "Request and MITM certificate design only; the overall UI, Android and sing-box baselines stay unchanged. Local paths are relative to the repository root.",
+      "files": [
+        {
+          "source": "LICENSE",
+          "sourceSHA256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+          "usage": "verbatim",
+          "localPaths": [
+            "app/src/main/assets/mitm-ca/LICENSE"
+          ],
+          "changes": "GPL-3.0 license included in exported CA modules."
+        },
+        {
+          "source": "android/app/src/main/assets/mitm_ca/update-binary",
+          "sourceSHA256": "19a432c5614d139a2d9d0572d8a9c4158d5487bad75f2629e62cad036eb35dbd",
+          "usage": "verbatim",
+          "localPaths": [
+            "app/src/main/assets/mitm-ca/META-INF/com/google/android/update-binary"
+          ],
+          "changes": "Unmodified installer entry, moved to its ZIP path."
+        },
+        {
+          "source": "android/app/src/main/assets/mitm_ca/updater-script",
+          "sourceSHA256": "d2b8203193a083e43ad076fde01b9c7821e0aa521e1f8077b8628fb1cdb70c60",
+          "usage": "verbatim",
+          "localPaths": [
+            "app/src/main/assets/mitm-ca/META-INF/com/google/android/updater-script"
+          ],
+          "changes": "Unmodified installer marker, moved to its ZIP path."
+        },
+        {
+          "source": "android/app/src/main/assets/mitm_ca/inject.sh",
+          "sourceSHA256": "5f01bf083cafdd02bcf6408dd61fef191b2091092f6cbcd4a12bc55cfb9e1476",
+          "usage": "adapted",
+          "localPaths": [
+            "app/src/main/assets/mitm-ca/inject.sh"
+          ],
+          "changes": "Reference for system/Conscrypt APEX and init/zygote/app mount namespaces. B-box builds a complete tmpfs copy separately in each target namespace before binding it, retains hash collisions, has no live stale-certificate removal, and logs failures."
+        },
+        {
+          "source": "android/app/src/main/assets/mitm_ca/post-fs-data.sh",
+          "sourceSHA256": "399b6aa569e3e1a6685c5f8f1b7bda3cd22ddd0007f460531d350e9f09dc2452",
+          "usage": "adapted",
+          "localPaths": [
+            "app/src/main/assets/mitm-ca/post-fs-data.sh"
+          ],
+          "changes": "Uses the B-box module-relative injector and resets this boot’s diagnostic log."
+        },
+        {
+          "source": "android/app/src/main/assets/mitm_ca/service.sh",
+          "sourceSHA256": "20f045451e2b6197b83e033b6b3cd7ca201bd2253f0aece3ed70b3e2a58b6cd3",
+          "usage": "adapted",
+          "localPaths": [
+            "app/src/main/assets/mitm-ca/service.sh"
+          ],
+          "changes": "Uses the B-box injector’s --apps option to reach existing app namespaces."
+        },
+        {
+          "source": "android/app/src/main/kotlin/com/follow/clash/SystemCaStore.kt",
+          "sourceSHA256": "3279a91d13be99ee0c76495384c626cad6cdd88d408eb38259555bf53fe4aeac",
+          "usage": "design",
+          "localPaths": [
+            "app/src/main/java/io/nekohasekai/sfa/flutter/MitmCertificate.kt",
+            "app/src/main/java/io/nekohasekai/sfa/flutter/MitmCertificateModule.kt"
+          ],
+          "changes": "Reference for Android CA identity, hash names, store/namespace limitations and public module export. B-box implements non-exportable Keystore signing, revision checks and AtomicFile persistence; no automatic root command or private-key export."
+        },
+        {
+          "source": "lib/common/mitm_trust.dart",
+          "sourceSHA256": "9230a6d8efa32e5d672fa4b5e8d448c9c417155fb22168d5575381a917086d24",
+          "usage": "design",
+          "localPaths": [
+            "flutter/lib/pages/mitm_certificate.dart"
+          ],
+          "changes": "Distinguish user/system trust and refresh after returning from settings. B-box queries its local Android bridge and isolates remote sessions."
+        },
+        {
+          "source": "lib/views/config/mitm.dart",
+          "sourceSHA256": "44ab8149f393a7c4be5bbae25bddfc8084e3e3c117b56c5b5079e82835946f3c",
+          "usage": "design",
+          "localPaths": [
+            "flutter/lib/pages/request_settings.dart",
+            "flutter/lib/pages/mitm_certificate.dart"
+          ],
+          "changes": "Reference for explicit CA operations, HTTPS inclusion/exclusion and certificate setup. B-box uses private versioned settings and existing shared components; no Mihomo configuration, rewrites or scripts."
+        },
+        {
+          "source": "lib/features/connection/mitm_exchanges.dart",
+          "sourceSHA256": "78f44bbe580b2dea58f93ae5754ecd5abb7a1ee2f94cee06915c52ed893bb5de",
+          "usage": "design",
+          "localPaths": [
+            "flutter/lib/pages/requests.dart"
+          ],
+          "changes": "Reference for HTTP exchange information. B-box keeps bounded libbox records and its independent live Connections page."
+        },
+        {
+          "source": "lib/features/connection/detail_tabs.dart",
+          "sourceSHA256": "b989c3b61cfedf37253c9c61d6f5e66b3b9f8ceb7520f574fe3d6bac1ea17612",
+          "usage": "design",
+          "localPaths": [
+            "flutter/lib/pages/requests.dart"
+          ],
+          "changes": "Reference for per-message detail navigation; B-box retains its record menu and copyable rows with actual route/TLS metadata and trailers."
+        },
+        {
+          "source": "lib/common/constant.dart",
+          "sourceSHA256": "4adb4c82d21e02fe6cad366954ac0ea6f7fc832cc2153afe614b11df56629c29",
+          "usage": "design",
+          "localPaths": [],
+          "changes": "FEATURE_MITM is disabled by default in this reference. The public FlClash core is not used as an MITM backend."
+        }
+      ]
+    }
+  ]
 }

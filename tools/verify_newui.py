@@ -1,5 +1,7 @@
 """Source-level guardrails; runtime behavior is covered by Flutter/Android CI."""
 import re
+import json
+import hashlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,12 +43,25 @@ for path in (native / "flutter").glob("*.kt"):
         errors.append(f"{path.name}: legacy UI fallback is not allowed")
     if "NavController" in source or "navController.navigate" in source:
         errors.append(f"{path.name}: legacy navigation is not allowed")
-for retired in ("app/src/main/assets/capture-module", "flutter/lib/pages/capture_certificate.dart",
-                "flutter/lib/pages/capture_rules.dart", "libbox/option/httpdebug.go", "libbox/httpdebug/ca.go",
-                "libbox/httpdebug/wire.go", "tools/ebpf/packets.go"):
+for retired in ("flutter/lib/pages/capture_rules.dart", "libbox/option/httpdebug.go", "tools/ebpf",
+                "libbox/httpdebug/wire.go", "flutter/lib/pages/tls_offsets.dart",
+                "app/src/main/java/io/nekohasekai/sfa/bg/RootCaptureSession.kt"):
     path = ROOT / retired
     if path.is_file() or path.is_dir() and any(item.is_file() for item in path.rglob("*")):
         errors.append(f"{retired}: retired capture implementation remains")
+manifest = json.loads((ROOT / "flutter/flclash-manifest.json").read_text())
+for reference in manifest.get("supplementalReferences", []):
+    if not re.fullmatch(r"[0-9a-f]{40}", reference["commit"]):
+        errors.append("Supplemental FlClash reference must pin a complete commit")
+    for source in reference["files"]:
+        if not re.fullmatch(r"[0-9a-f]{64}", source["sourceSHA256"]):
+            errors.append(f"Invalid supplemental source hash: {source['source']}")
+        for local in source["localPaths"]:
+            path = ROOT / local
+            if not path.is_file():
+                errors.append(f"Missing supplemental reference target: {local}")
+            elif source["usage"] == "verbatim" and hashlib.sha256(path.read_bytes()).hexdigest() != source["sourceSHA256"]:
+                errors.append(f"Changed verbatim supplemental import: {local}")
 if errors:
     raise SystemExit("\n".join(errors))
 print("Flutter imports, glyphs, Android entry points and capture removal guards passed")

@@ -3,6 +3,8 @@ package httpdebug
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"io"
 	"log"
@@ -11,6 +13,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,21 +25,20 @@ type DialFunc func(context.Context) (net.Conn, error)
 
 type Engine struct {
 	config               Config
+	ca                   *authority
 	store                *Store
+	ctx                  context.Context
+	cancel               context.CancelFunc
 	mu                   sync.Mutex
 	wg                   sync.WaitGroup
 	closed               bool
 	connections          map[net.Conn]context.CancelFunc
+	preparing            int
 	skipped              atomic.Int64
-	passive              *plaintextCapture
-	reader               io.ReadCloser
-	closeSource          func()
-	libraries            atomic.Int64
-	scanning             atomic.Bool
 	warning              atomic.Pointer[string]
 	tlsOpened            atomic.Int64
-	goOpened             atomic.Int64
-	socketConnections    atomic.Int64
+	tlsFailed            atomic.Int64
+	blockedQUIC          atomic.Int64
 	plaintextConnections atomic.Int64
 	plaintextBytes       atomic.Int64
 	parsedRequests       atomic.Int64
@@ -46,27 +48,43 @@ type Engine struct {
 
 func newEngine(config Config, store *Store) *Engine {
 	e := &Engine{config: config, store: store, connections: make(map[net.Conn]context.CancelFunc)}
-	e.passive = newPlaintextCapture(e)
+	e.ctx, e.cancel = context.WithCancel(context.Background())
 	return e
 }
 
 func (e *Engine) Candidate(metadata Metadata) bool {
-	return (metadata.Protocol != "tls" || e.config.ExtractHosts) && e.config.candidate(metadata)
+	return e.config.candidate(metadata)
 }
 
 func (e *Engine) Matches(metadata Metadata) bool { return e.config.matches(metadata) }
 
 func (e *Engine) WantsQUIC(metadata Metadata) bool {
 	metadata.Protocol = "tls"
-	return e.config.ExtractHosts && e.config.candidate(metadata)
+	return (e.config.ExtractHosts || e.config.HTTPS && e.config.BlockQUIC) && e.config.candidate(metadata)
 }
 
-func (e *Engine) Handle(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, onClose func(error)) bool {
-	if metadata.Protocol == "tls" || !e.Matches(metadata) {
+// The caller must have observed a QUIC ClientHello, never just an IP/UDP port.
+func (e *Engine) RejectQUIC(metadata Metadata) bool {
+	metadata.Protocol = "tls"
+	e.Observe(metadata, "QUIC")
+	if !e.config.BlockQUIC || !e.Matches(metadata) {
 		return false
 	}
 	e.mu.Lock()
-	if e.closed || len(e.connections) >= MaxConnections {
+	defer e.mu.Unlock()
+	if e.closed {
+		return false
+	}
+	e.blockedQUIC.Add(1)
+	return true
+}
+
+func (e *Engine) Handle(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, roots *x509.CertPool, onClose func(error)) bool {
+	if !e.Matches(metadata) || metadata.Protocol == "tls" && e.ca == nil {
+		return false
+	}
+	e.mu.Lock()
+	if e.closed || len(e.connections)+e.preparing >= MaxConnections {
 		e.skipped.Add(1)
 		e.mu.Unlock()
 		return false
@@ -78,7 +96,7 @@ func (e *Engine) Handle(ctx context.Context, conn net.Conn, metadata Metadata, d
 	go func() {
 		defer e.wg.Done()
 		stopClose := context.AfterFunc(ctx, func() { conn.Close() })
-		err := e.serve(ctx, conn, metadata, dial)
+		err := e.serve(ctx, conn, metadata, dial, roots)
 		stopClose()
 		cancel()
 		conn.Close()
@@ -99,26 +117,34 @@ func (e *Engine) Close() {
 		return
 	}
 	e.closed = true
+	e.cancel()
 	for conn, cancel := range e.connections {
 		cancel()
 		conn.Close()
 	}
-	reader, closeSource := e.reader, e.closeSource
 	e.mu.Unlock()
-	if reader != nil {
-		reader.Close()
-	}
-	if closeSource != nil {
-		closeSource()
-	}
-	e.passive.close("Capture stopped before the transaction finished")
 	e.wg.Wait()
 }
 
-func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc) error {
+func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, roots *x509.CertPool) error {
+	dial = bindDialLifetime(ctx, dial)
 	transport := newTransport(dial)
+	scheme := "http"
+	if metadata.Protocol == "tls" {
+		var cleanup func()
+		var err error
+		conn, transport, metadata, cleanup, err = e.openMITM(ctx, conn, metadata, dial, roots)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+		scheme = "https"
+	} else {
+		metadata.CaptureSource = "HTTP"
+		e.plaintextConnections.Add(1)
+	}
 	defer transport.CloseIdleConnections()
-	target := &url.URL{Scheme: "http", Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))}
+	target := &url.URL{Scheme: scheme, Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))}
 	handler := e.handler(metadata, target, transport)
 	base := &http.Server{
 		Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
@@ -131,14 +157,21 @@ func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, di
 		IdleTimeout:                  60 * time.Second,
 		MaxUploadBufferPerConnection: 256 * 1024, MaxUploadBufferPerStream: 64 * 1024,
 	}
-	reader := bufio.NewReader(conn)
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-	prefix, _ := reader.Peek(3)
-	conn.SetReadDeadline(time.Time{})
-	conn = &bufferedConn{Conn: conn, reader: reader}
-	if string(prefix) == "PRI" {
-		h2.ServeConn(conn, &http2.ServeConnOpts{Context: ctx, BaseConfig: base, Handler: handler})
-		return nil
+	if secure, ok := conn.(*tls.Conn); ok {
+		if secure.ConnectionState().NegotiatedProtocol == "h2" {
+			h2.ServeConn(conn, &http2.ServeConnOpts{Context: ctx, BaseConfig: base, Handler: handler})
+			return nil
+		}
+	} else {
+		reader := bufio.NewReader(conn)
+		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		prefix, _ := reader.Peek(3)
+		conn.SetReadDeadline(time.Time{})
+		conn = &bufferedConn{Conn: conn, reader: reader}
+		if string(prefix) == "PRI" {
+			h2.ServeConn(conn, &http2.ServeConnOpts{Context: ctx, BaseConfig: base, Handler: handler})
+			return nil
+		}
 	}
 	listener := newSingleListener(conn)
 	defer listener.Close()
@@ -149,6 +182,28 @@ func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, di
 		return nil
 	}
 	return err
+}
+
+// net/http may detach a dial from a request's cancellation to reuse it. The
+// selected route must still end when this intercepted client connection ends.
+func bindDialLifetime(lifetime context.Context, dial DialFunc) DialFunc {
+	return func(callCtx context.Context) (net.Conn, error) {
+		ctx, cancel := context.WithCancel(callCtx)
+		stop := context.AfterFunc(lifetime, cancel)
+		conn, err := dial(ctx)
+		if err == nil {
+			err = ctx.Err()
+		}
+		if err != nil {
+			stop()
+			cancel()
+			if conn != nil {
+				conn.Close()
+			}
+			return nil, err
+		}
+		return &cancelConn{Conn: conn, cancel: func() { stop(); cancel() }}, nil
+	}
 }
 
 func newTransport(dial DialFunc) *http.Transport {
@@ -172,11 +227,24 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 		e.wg.Add(1)
 		e.mu.Unlock()
 		defer e.wg.Done()
-		requestHost := request.Host
-		if host, _, err := net.SplitHostPort(requestHost); err == nil {
-			requestHost = host
+		requestURL, err := url.Parse(target.Scheme + "://" + request.Host)
+		if err != nil || requestURL.Hostname() == "" || requestURL.User != nil {
+			http.Error(w, "Invalid request authority", http.StatusBadRequest)
+			return
 		}
-		requestHost = normalizeHost(requestHost)
+		requestHost := normalizeHost(requestURL.Hostname())
+		if metadata.Protocol == "tls" {
+			port := requestURL.Port()
+			if port == "" {
+				port = "443"
+			}
+			if requestHost != normalizeHost(metadata.Host) || port != strconv.Itoa(int(metadata.Port)) {
+				// HTTP/2 clients can retry this origin on its own TLS connection.
+				e.filteredRequests.Add(1)
+				http.Error(w, "Reconnect using this origin's own TLS connection", http.StatusMisdirectedRequest)
+				return
+			}
+		}
 		display := request.Clone(request.Context())
 		display.URL.Scheme = target.Scheme
 		display.URL.Host = request.Host
@@ -187,8 +255,14 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 		requestMetadata.Host = requestHost
 		id := ""
 		selected := e.config.matches(requestMetadata)
+		e.parsedRequests.Add(1)
 		if selected {
 			id = e.store.begin(requestMetadata, display, e.config.BodyLimit)
+			if id != "" {
+				e.recordedRequests.Add(1)
+			}
+		} else {
+			e.filteredRequests.Add(1)
 		}
 		defer func() {
 			if recovered := recover(); recovered != nil {
@@ -205,7 +279,7 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 		}
 		request.URL = display.URL
 		if request.Body != nil && request.Body != http.NoBody {
-			request.Body = &tapBody{ReadCloser: request.Body, store: e.store, id: id, expected: request.ContentLength}
+			request.Body = &tapBody{ReadCloser: request.Body, store: e.store, id: id, expected: request.ContentLength, trailers: request.Trailer, engine: e}
 			defer request.Body.Close()
 		}
 		proxy := &httputil.ReverseProxy{
@@ -218,6 +292,9 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 				r.Out.URL.RawQuery = r.In.URL.RawQuery
 				r.Out.Host = r.In.Host
 				// Preserve client-supplied forwarding headers without adding our own.
+				// Trailer values arrive while reading the incoming body. Keep that
+				// map shared instead of ReverseProxy's early clone with empty values.
+				r.Out.Trailer = r.In.Trailer
 				for _, name := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
 					if values := r.In.Header.Values(name); len(values) > 0 {
 						r.Out.Header[name] = append([]string(nil), values...)
@@ -231,7 +308,7 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 				}
 				e.store.response(id, response)
 				if response.StatusCode != http.StatusSwitchingProtocols && response.Body != nil && response.Body != http.NoBody {
-					response.Body = &tapBody{ReadCloser: response.Body, store: e.store, id: id, response: true, expected: response.ContentLength}
+					response.Body = &tapBody{ReadCloser: response.Body, store: e.store, id: id, response: true, expected: response.ContentLength, trailers: response.Trailer, engine: e}
 				}
 				return response, nil
 			}),
@@ -239,6 +316,7 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 			ErrorLog:      log.New(io.Discard, "", 0),
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 				e.store.setError(id, err)
+				e.reportError("Upstream HTTP " + metadata.Host + ": " + err.Error())
 				http.Error(w, "B-box: upstream connection failed; see HTTP debugging details", http.StatusBadGateway)
 			},
 		}
@@ -275,17 +353,21 @@ type tapBody struct {
 	id       string
 	response bool
 	expected int64
-	read     int64
+	read     atomic.Int64
+	trailers http.Header
+	engine   *Engine
 }
 
 func (b *tapBody) Read(p []byte) (int, error) {
 	n, err := b.ReadCloser.Read(p)
 	if n > 0 {
-		b.read += int64(n)
+		b.read.Add(int64(n))
+		b.engine.plaintextBytes.Add(int64(n))
 		b.store.appendBody(b.id, b.response, p[:n])
 	}
 	if err == io.EOF {
 		b.store.bodyComplete(b.id, b.response)
+		b.store.trailers(b.id, b.response, b.trailers)
 	} else if err != nil {
 		b.store.setError(b.id, err)
 	}
@@ -293,7 +375,7 @@ func (b *tapBody) Read(p []byte) (int, error) {
 }
 
 func (b *tapBody) Close() error {
-	if b.expected >= 0 && b.read == b.expected {
+	if b.expected >= 0 && b.read.Load() == b.expected {
 		b.store.bodyComplete(b.id, b.response)
 	}
 	return b.ReadCloser.Close()
@@ -345,9 +427,11 @@ func (c *closeNotifyConn) Close() error {
 
 func (e *Engine) skippedFlow(err error) {
 	e.skipped.Add(1)
-	message := err.Error()
-	if len(message) > 4096 {
-		message = message[:4096]
-	}
+	e.reportError(err.Error())
+}
+
+func (e *Engine) reportError(message string) {
+	message = strings.ToValidUTF8(message[:min(len(message), 4096)], "")
 	e.warning.Store(&message)
+	AppendCaptureLog("error", message)
 }

@@ -21,5 +21,5 @@ local.properties
 *.p12
 *.keystore
 
-# Generated Root/eBPF collector packaged by CI
+# Retired capture helper; keep stale local binaries out of version control
 /app/src/main/jniLibs/**/libbbox_capture.so

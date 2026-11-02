@@ -6,7 +6,7 @@ import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/pages/requests.dart';
 import 'package:b_box_ui/pages/request_settings.dart';
-import 'package:b_box_ui/pages/tls_offsets.dart';
+import 'package:b_box_ui/pages/mitm_certificate.dart';
 import 'package:b_box_ui/pages/capture_domains.dart';
 import 'package:b_box_ui/pages/capture_logs.dart';
 import 'package:b_box_ui/components/captured_body.dart';
@@ -20,6 +20,7 @@ void main() {
   late List<MethodCall> calls;
   late List<String> copied;
   late Json snapshot;
+  late Json caState;
   late GlobalKey boundaryKey;
   Future<dynamic> Function(MethodCall)? extra;
 
@@ -55,6 +56,7 @@ void main() {
     calls = [];
     copied = [];
     snapshot = {'state': {'active': false}, 'config': {}, 'page': {'items': [], 'total': 0, 'storedBytes': 0}};
+    caState = {'exists': false, 'revision': 'ca-empty'};
     const channel = MethodChannel('test.requests');
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
@@ -68,6 +70,14 @@ void main() {
         'dashboard': {'status': 'Started', if (remote) ...{'remote': 'Server', 'remoteConnected': true}},
       };
       if (extra != null) return extra!(call);
+      if (call.method == 'capture.ca.snapshot') return caState;
+      if (call.method == 'capture.ca.generate') {
+        caState = {'exists': true, 'revision': 'ca-created', 'subject': 'CN=B-box MITM test', 'fingerprint': 'ab' * 32,
+          'expiresAt': 1893456000000, 'valid': true, 'keyAvailable': true, 'systemTrusted': false, 'userTrusted': false};
+        return caState;
+      }
+      if (call.method == 'capture.ca.export' || call.method == 'capture.ca.module') return false;
+      if (call.method == 'capture.ca.install') return true;
       if (call.method == 'capture.snapshot') return snapshot;
       if (call.method == 'capture.logs') return {'state': snapshot['state'], 'logs': snapshot['logs'] ?? []};
       if (call.method == 'capture.logs.clear') { snapshot['logs'] = []; return null; }
@@ -133,7 +143,7 @@ void main() {
       'https': true, 'decryptHosts': [], 'excludeHosts': ['private.example'], 'includeHosts': ['*.example'], 'packages': ['com.example'],
       'decryptBypassHosts': ['private.example'],
     }));
-    expect(find.text('Leave empty to capture all supported HTTPS domains. Exact names and *.example.com are accepted; exclusions take priority.'), findsOneWidget);
+    expect(find.text('Leave empty to decrypt all HTTPS domains. Exact names and *.example.com are accepted; exclusions take priority.'), findsOneWidget);
     await tester.tap(find.byTooltip('Save').last);
     await tester.pumpAndSettle();
     final config = json(json(calls.singleWhere((call) => call.method == 'capture.configure').arguments)['config']);
@@ -158,154 +168,15 @@ void main() {
     expect(args['revision'], 'local-revision');
     expect(args.containsKey('profileId'), isFalse);
     final saved = json(args['config']);
-    expect(saved['tlsLibraries'], ['/data/app/test/libssl.so']);
+    expect(saved.containsKey('tlsLibraries'), isFalse);
     expect(saved['extractHosts'], isTrue);
-    expect(saved.keys.toSet(), {'https', 'decryptHosts', 'packages',
-      'ports', 'bodyLimit', 'decryptBypassHosts', 'extractHosts', 'tlsLibraries', 'tlsOffsets'});
-    expect(saved['tlsOffsets'], isEmpty);
+    expect(saved.keys.toSet(), {'version', 'https', 'decryptHosts', 'packages',
+      'ports', 'bodyLimit', 'decryptBypassHosts', 'extractHosts', 'blockQUIC'});
+    expect(saved['version'], 2);
+    expect(saved['blockQUIC'], isFalse);
+    expect(saved.containsKey('tlsOffsets'), isFalse);
     expect(calls.where((call) => call.method == 'capture.start'), isEmpty);
   });
-
-  Json offsetRecord({String path = '/data/app/com.example/base.apk'}) => {
-    'path': path, 'entry': 'lib/arm64-v8a/libprivate.so', 'sha256': 'ab' * 32,
-    'functions': {'SSL_new': '0x1000', 'SSL_free': '0x1100', 'SSL_read': '0x1200', 'SSL_write': '0x1300'},
-  };
-
-  Future<void> offsetField(WidgetTester tester, String name, String value) async {
-    final scrollable = find.descendant(of: find.byType(TLSOffsetEditorPage), matching: find.byType(Scrollable)).first;
-    tester.state<ScrollableState>(scrollable).position.jumpTo(0);
-    await tester.pumpAndSettle();
-    final field = find.byKey(ValueKey('tls-offset-$name'));
-    await tester.scrollUntilVisible(field, 200, scrollable: scrollable);
-    await tester.enterText(field, value);
-    await tester.pumpAndSettle();
-  }
-
-  Future<void> openOffsets(WidgetTester tester) async {
-    final tile = find.byKey(const ValueKey('manual-tls-offsets'));
-    await tester.scrollUntilVisible(tile, 200,
-      scrollable: find.descendant(of: find.byType(RequestSettingsPage), matching: find.byType(Scrollable)).first);
-    await tester.pumpAndSettle();
-    await Scrollable.ensureVisible(tester.element(tile), alignment: 0.2);
-    await tester.pumpAndSettle();
-    await tester.tap(tile); await tester.pumpAndSettle();
-  }
-
-  testWidgets('manual offsets add through local revision settings and survive failed save', (tester) async {
-    await mount(tester);
-    await open(tester, const RequestSettingsPage(initial: {'https': true}, source: {'revision': 'offset-revision'}));
-    await openOffsets(tester);
-    await tester.tap(find.byKey(const ValueKey('add-tls-offset'))); await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    expect(find.text('Enter an absolute ELF library or APK path.'), findsOneWidget);
-    final record = offsetRecord();
-    for (final name in ['path', 'entry', 'sha256']) { await offsetField(tester, name, record[name] as String); }
-    for (final field in json(record['functions']).entries) { await offsetField(tester, field.key, field.value as String); }
-    await offsetField(tester, 'SSL_read_ex', '0XFFFFFFFFFFFFFFF0');
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    expect(find.byType(TLSOffsetsPage), findsOneWidget);
-    expect(calls.where((call) => call.method == 'capture.configure'), isEmpty);
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    extra = (call) async { if (call.method == 'capture.configure') throw PlatformException(code: 'conflict', message: 'Settings changed'); return null; };
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    expect(find.byType(RequestSettingsPage), findsOneWidget);
-    extra = null;
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    final saves = calls.where((call) => call.method == 'capture.configure').map((call) => json(call.arguments)).toList();
-    expect(saves.length, 2);
-    expect(saves[0], saves[1]);
-    expect(saves.last['revision'], 'offset-revision');
-    final saved = rows(json(saves.last['config'])['tlsOffsets']).single;
-    expect(saved['path'], record['path']);
-    expect(saved['entry'], record['entry']);
-    expect(saved['sha256'], record['sha256']);
-    expect(json(saved['functions'])['SSL_read_ex'], '0xfffffffffffffff0');
-    expect(calls.where((call) => call.method == 'capture.start'), isEmpty);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('manual offset editing validates hashes and distinct functions without changing the original', (tester) async {
-    await mount(tester);
-    final original = offsetRecord();
-    await open(tester, TLSOffsetEditorPage(initial: original));
-    await offsetField(tester, 'sha256', 'incorrect');
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    expect(find.text('Enter the 64 hexadecimal digits of the ELF SHA-256.'), findsOneWidget);
-    await offsetField(tester, 'sha256', 'AB' * 32);
-    await offsetField(tester, 'SSL_read', '0x1000');
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    expect(find.text('Function offsets must be distinct.'), findsOneWidget);
-    await offsetField(tester, 'SSL_read', '0x00000000000001200');
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    expect(find.text('SSL_read: Enter a nonzero hexadecimal ELF file offset (0x...).'), findsOneWidget);
-    expect(json(original['functions'])['SSL_read'], '0x1200');
-    expect(original['sha256'], 'ab' * 32);
-    expect(calls.where((call) => call.method == 'capture.configure'), isEmpty);
-    await offsetField(tester, 'SSL_read', '0x1400');
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    expect(find.byType(TLSOffsetEditorPage), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('manual offsets can be edited and removed while unrelated settings survive', (tester) async {
-    await mount(tester);
-    final original = offsetRecord();
-    await open(tester, RequestSettingsPage(initial: {'https': true, 'tlsOffsets': [original], 'decryptBypassHosts': ['private.test']}));
-    await openOffsets(tester);
-    await tester.tap(find.byKey(const ValueKey('tls-offset-entry-0'))); await tester.pumpAndSettle();
-    await offsetField(tester, 'SSL_write', '0x1500');
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('tls-offset-entry-0'))); await tester.pumpAndSettle();
-    final scrollable = find.descendant(of: find.byType(TLSOffsetEditorPage), matching: find.byType(Scrollable)).first;
-    final field = find.byKey(const ValueKey('tls-offset-SSL_write'));
-    await tester.scrollUntilVisible(field, 200, scrollable: scrollable);
-    expect(tester.widget<TextField>(field).controller!.text, '0x1500');
-    expect(json(original['functions'])['SSL_write'], '0x1300');
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Delete').last); await tester.pumpAndSettle();
-    expect(find.text('No manual TLS offsets'), findsOneWidget);
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    final config = json(json(calls.singleWhere((call) => call.method == 'capture.configure').arguments)['config']);
-    expect(config['tlsOffsets'], isEmpty);
-    expect(config['decryptBypassHosts'], ['private.test']);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('duplicate manual libraries are rejected and the library limit is visible', (tester) async {
-    await mount(tester);
-    final original = offsetRecord();
-    await open(tester, TLSOffsetEditorPage(initial: original, others: [original]));
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    expect(find.text('This library already has manual offsets.'), findsOneWidget);
-    Navigator.pop(tester.element(find.byType(TLSOffsetEditorPage)));
-    await tester.pumpAndSettle();
-    await open(tester, TLSOffsetsPage(initial: List.generate(16, (i) => offsetRecord(path: '/data/app/package$i/base.apk'))));
-    expect(find.byKey(const ValueKey('add-tls-offset')), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
-
-  for (final dark in [false, true]) {
-    testWidgets('manual offset forms fit narrow screens with large fonts dark=$dark', (tester) async {
-      await mount(tester, dark: dark, scale: dark ? 1.5 : 1, size: const Size(360, 900));
-      final original = offsetRecord(path: '/data/app/~~installed-package-version/com.example.long.package-name/base.apk');
-      await open(tester, TLSOffsetsPage(initial: [original]));
-      await capture(tester, 'manual-offset-list-${dark ? 'dark-large' : 'light'}');
-      await tester.tap(find.byKey(const ValueKey('tls-offset-entry-0'))); await tester.pumpAndSettle();
-      await capture(tester, 'manual-offset-editor-${dark ? 'dark-large' : 'light'}');
-      final scrollable = find.descendant(of: find.byType(TLSOffsetEditorPage), matching: find.byType(Scrollable)).first;
-      final firstFunction = find.byKey(const ValueKey('tls-offset-SSL_new'));
-      await tester.scrollUntilVisible(firstFunction, 200, scrollable: scrollable);
-      await tester.pumpAndSettle();
-      await Scrollable.ensureVisible(tester.element(firstFunction), alignment: 0.15);
-      await tester.pumpAndSettle();
-      for (final name in ['SSL_new', 'SSL_free', 'SSL_read', 'SSL_write']) {
-        expect(find.byKey(ValueKey('tls-offset-$name')).hitTestable(), findsOneWidget);
-      }
-      await capture(tester, 'manual-offset-functions-${dark ? 'dark-large' : 'light'}');
-      expect(tester.takeException(), isNull);
-    });
-  }
 
   testWidgets('HAR export uses the current request filter', (tester) async {
     await mount(tester);
@@ -324,15 +195,15 @@ void main() {
 
   testWidgets('diagnostics distinguish observed plaintext parsed and filtered requests', (tester) async {
     await mount(tester);
-    snapshot['state'] = {'active': false, 'backend': 'eBPF', 'tlsOpened': 8, 'goTlsOpened': 2,
+    snapshot['state'] = {'active': false, 'backend': 'MITM', 'tlsOpened': 8, 'tlsFailed': 2,
       'plaintextConnections': 5, 'plaintextBytes': 4096, 'parsedRequests': 12, 'filteredRequests': 3,
-      'recordedRequests': 9, 'socketConnections': 4};
+      'recordedRequests': 9, 'blockedQUIC': 4};
     await open(tester, const CaptureLogsPage());
     expect(find.text('TLS 8 · Plaintext 5 · Parsed 12'), findsOneWidget);
     expect(find.text('Capture stopped'), findsOneWidget);
     await tester.tap(find.text('Capture statistics')); await tester.pumpAndSettle();
     expect(find.text('Requests excluded by filters'), findsOneWidget);
-    expect(find.text('HTTPS requests saved'), findsOneWidget);
+    expect(find.text('Requests saved'), findsOneWidget);
     await capture(tester, 'capture-statistics');
     expect(tester.takeException(), isNull);
   });
@@ -405,90 +276,68 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('TLS state and errors appear only in the eBPF logs menu destination', (tester) async {
+  testWidgets('MITM errors and counters appear in capture logs without rebuilding the request list', (tester) async {
     await mount(tester, size: const Size(320, 900), scale: 1.3);
-    const preparing = 'Preparing capture for more applications. Reconnect the target app when preparation finishes.';
-    const finished = 'Capture preparation finished. Reconnect the target app to capture new HTTPS connections.';
-    const warning = 'libprivate.so: automatic SSL function resolution is incomplete';
-    snapshot['state'] = {'active': true, 'backend': 'eBPF', 'libraries': 2, 'scanning': true, 'error': warning, 'skipped': 4};
+    const warning = 'Upstream TLS for origin.test: certificate has expired';
+    snapshot['state'] = {'active': true, 'backend': 'MITM', 'tlsFailed': 2, 'error': warning, 'skipped': 4};
     await open(tester, const RequestsPage());
-    expect(find.text(preparing), findsNothing);
-    expect(find.text(finished), findsNothing);
     expect(find.text(warning), findsNothing);
-    expect(find.textContaining('TLS libraries attached'), findsNothing);
-    expect(find.text('Connections skipped or interrupted'), findsNothing);
     expect(calls.where((call) => call.method == 'capture.logs'), isEmpty);
-    await capture(tester, 'requests-without-tls-diagnostics');
-    await tester.tap(find.byTooltip('More').last);
-    await tester.pumpAndSettle();
-    expect(find.text('Extract domains'), findsNothing);
-    await tester.tap(find.text('eBPF logs').last);
-    await tester.pumpAndSettle();
-    expect(find.byType(CaptureLogsPage), findsOneWidget);
-    expect(find.text(preparing), findsOneWidget);
+    await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
+    expect(find.text('MITM certificate'), findsOneWidget);
+    await tester.tap(find.text('Capture logs').last); await tester.pumpAndSettle();
+    expect(find.text('MITM'), findsOneWidget);
     expect(find.text(warning), findsOneWidget);
     expect(find.text('Connections skipped or interrupted'), findsOneWidget);
-    await capture(tester, 'tls-preparing-narrow-large-text');
-    snapshot['state'] = {'active': true, 'backend': 'eBPF', 'libraries': 3, 'scanning': false, 'error': warning};
-    await tester.pump(const Duration(seconds: 2));
-    await tester.pumpAndSettle();
-    expect(find.text(preparing), findsNothing);
-    expect(find.text(finished), findsOneWidget);
-    expect(find.text('eBPF · 3 TLS libraries attached'), findsOneWidget);
-    expect(find.text(warning), findsOneWidget);
-    expect(find.text('Capturing new connections'), findsOneWidget);
-    await capture(tester, 'tls-prepared-narrow-large-text');
-    Navigator.pop(tester.element(find.byType(CaptureLogsPage)));
-    await tester.pumpAndSettle();
-    expect(find.text(finished), findsNothing);
+    await capture(tester, 'mitm-diagnostics-narrow-large-text');
+    Navigator.pop(tester.element(find.byType(CaptureLogsPage))); await tester.pumpAndSettle();
     expect(find.text(warning), findsNothing);
-    expect(find.textContaining('TLS libraries attached'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('eBPF history survives stopped capture and supports filtered copy export and clear', (tester) async {
+  testWidgets('Capture history survives stopped capture and supports filtered copy export and clear', (tester) async {
     await mount(tester);
-    snapshot['state'] = {'active': false, 'error': 'collector disconnected'};
+    snapshot['state'] = {'active': false, 'error': 'capture stopped after service reload'};
     snapshot['logs'] = [
-      {'id': 1, 'receivedAt': 1700000000100, 'level': 'info', 'message': 'collector ready'},
+      {'id': 1, 'receivedAt': 1700000000100, 'level': 'info', 'message': 'MITM capture started'},
       // Startup diagnostics arrive after ready but retain their earlier time.
-      {'id': 2, 'receivedAt': 1700000000000, 'level': 'debug', 'message': 'libssl.so SSL_read=0x1020'},
-      {'id': 3, 'receivedAt': 1700000000200, 'level': 'error', 'message': 'TLS gap PID=42 UID=10001'},
+      {'id': 2, 'receivedAt': 1700000000000, 'level': 'debug', 'message': 'upstream certificate verified'},
+      {'id': 3, 'receivedAt': 1700000000200, 'level': 'error', 'message': 'Client TLS for origin.test: certificate rejected'},
     ];
     await open(tester, const CaptureLogsPage());
     expect(find.text('Capture stopped'), findsOneWidget);
-    expect(find.text('collector disconnected'), findsOneWidget);
+    expect(find.text('capture stopped after service reload'), findsOneWidget);
     await tester.tap(find.byTooltip('More').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Copy logs'));
     await tester.pumpAndSettle();
-    expect(copied.last, contains('[debug] libssl.so SSL_read=0x1020'));
-    expect(copied.last.indexOf('libssl.so'), lessThan(copied.last.indexOf('collector ready')));
-    expect(copied.last, contains('[error] TLS gap PID=42 UID=10001'));
+    expect(copied.last, contains('[debug] upstream certificate verified'));
+    expect(copied.last.indexOf('upstream certificate'), lessThan(copied.last.indexOf('MITM capture started')));
+    expect(copied.last, contains('[error] Client TLS for origin.test: certificate rejected'));
     final scaffold = tester.widget<CommonScaffold>(find.descendant(of: find.byType(CaptureLogsPage), matching: find.byType(CommonScaffold)).first);
-    scaffold.onKeywordsUpdate!(['PID=42']);
+    scaffold.onKeywordsUpdate!(['origin.test']);
     await tester.pumpAndSettle();
-    expect(find.text('TLS gap PID=42 UID=10001'), findsOneWidget);
-    expect(find.text('libssl.so SSL_read=0x1020'), findsNothing);
+    expect(find.text('Client TLS for origin.test: certificate rejected'), findsOneWidget);
+    expect(find.text('upstream certificate verified'), findsNothing);
     await tester.tap(find.byTooltip('More').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Export').last);
     await tester.pumpAndSettle();
     final exported = json(calls.singleWhere((call) => call.method == 'document.save').arguments);
-    expect(exported['name'], 'B-box-ebpf.log');
-    expect(exported['content'], contains('[error] TLS gap PID=42 UID=10001'));
-    expect(exported['content'], isNot(contains('libssl.so')));
+    expect(exported['name'], 'B-box-capture.log');
+    expect(exported['content'], contains('[error] Client TLS for origin.test: certificate rejected'));
+    expect(exported['content'], isNot(contains('upstream certificate')));
     await tester.tap(find.byTooltip('More').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Clear').last);
     await tester.pumpAndSettle();
     expect(calls.where((call) => call.method == 'capture.logs.clear'), hasLength(1));
     expect(calls.where((call) => call.method == 'capture.clear'), isEmpty);
-    expect(find.text('TLS gap PID=42 UID=10001'), findsNothing);
+    expect(find.text('Client TLS for origin.test: certificate rejected'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('eBPF log polling follows page visibility and refuses remote records', (tester) async {
+  testWidgets('Capture log polling follows page visibility and refuses remote records', (tester) async {
     await mount(tester);
     await open(tester, const CaptureLogsPage());
     final count = calls.where((call) => call.method == 'capture.logs').length;
@@ -674,17 +523,17 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.textContaining('https://example.test/'), findsOneWidget);
       await capture(tester, '$label-list');
-      snapshot['state'] = {'active': true, 'backend': 'eBPF', 'libraries': 3, 'scanning': false};
-      final diagnostic = 'TLS probes attached: path=/data/app/${'installed-library/' * 12}base.apk entry=lib/arm64-v8a/libssl.so method=symbols; SSL_read=0x1020 SSL_write=0x2040';
+      snapshot['state'] = {'active': true, 'backend': 'MITM', 'libraries': 3, 'scanning': false};
+      final diagnostic = 'Upstream TLS for ${'long-domain-' * 12}example.test: certificate verification failed';
       snapshot['logs'] = [{'id': 1, 'receivedAt': 1700000000000, 'level': 'info', 'message': diagnostic}];
       await tester.tap(find.byTooltip('More').last);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('eBPF logs').last);
+      await tester.tap(find.text('Capture logs').last);
       await tester.pumpAndSettle();
-      await capture(tester, '$label-ebpf-logs');
+      await capture(tester, '$label-mitm-logs');
       await tester.scrollUntilVisible(find.text(diagnostic), 250,
         scrollable: find.descendant(of: find.byType(CaptureLogsPage), matching: find.byType(Scrollable)).first);
-      await capture(tester, '$label-ebpf-log-details');
+      await capture(tester, '$label-mitm-log-details');
       expect(tester.takeException(), isNull);
       Navigator.pop(tester.element(find.byType(CaptureLogsPage)));
       await tester.pumpAndSettle();
@@ -724,4 +573,82 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+  testWidgets('MITM CA is generated explicitly and cancelled exports never imply trust', (tester) async {
+    await mount(tester);
+    await open(tester, const MitmCertificatePage());
+    expect(calls.where((call) => call.method == 'capture.ca.generate'), isEmpty);
+    expect(find.text('No MITM certificate'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('mitm-ca-generate'))); await tester.pumpAndSettle();
+    expect(json(calls.singleWhere((call) => call.method == 'capture.ca.generate').arguments)['revision'], 'ca-empty');
+    expect(find.text('CA not installed'), findsOneWidget);
+    final export = find.byKey(const ValueKey('mitm-ca-export'));
+    await tester.scrollUntilVisible(export, 200, scrollable: find.descendant(of: find.byType(MitmCertificatePage), matching: find.byType(Scrollable)).first);
+    await tester.tap(export); await tester.pumpAndSettle();
+    expect(find.text('Public CA certificate exported'), findsNothing);
+    expect(caState['systemTrusted'], isFalse);
+    expect(caState['userTrusted'], isFalse);
+    expect(calls.where((call) => call.method == 'capture.start'), isEmpty);
+    await tester.tap(find.byTooltip('Refresh trust')); await tester.pumpAndSettle();
+    expect(calls.where((call) => call.method == 'capture.ca.snapshot'), hasLength(2));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('MITM CA actions respect active capture and remote sessions', (tester) async {
+    await mount(tester);
+    caState = {'exists': true, 'revision': 'active-ca', 'subject': 'CN=B-box MITM test', 'fingerprint': 'cd' * 32,
+      'valid': true, 'keyAvailable': true, 'systemTrusted': false, 'userTrusted': true, 'captureActive': true};
+    await open(tester, const MitmCertificatePage());
+    expect(find.text('Present in user CA store'), findsOneWidget);
+    final generate = find.byKey(const ValueKey('mitm-ca-generate'));
+    await tester.scrollUntilVisible(generate, 200, scrollable: find.descendant(of: find.byType(MitmCertificatePage), matching: find.byType(Scrollable)).first);
+    await tester.tap(generate); await tester.pumpAndSettle();
+    expect(calls.where((call) => call.method == 'capture.ca.generate'), isEmpty);
+    events.add({'type': 'dashboard', 'value': {'status': 'Started', 'remote': 'Server', 'remoteConnected': true}});
+    await tester.pumpAndSettle();
+    expect(find.text('HTTP debugging is only available for the local service'), findsOneWidget);
+    final count = calls.where((call) => call.method.startsWith('capture.ca.')).length;
+    await tester.pump(const Duration(seconds: 5));
+    expect(calls.where((call) => call.method.startsWith('capture.ca.')), hasLength(count));
+    caState = {...caState, 'systemTrusted': true, 'captureActive': false};
+    events.add({'type': 'dashboard', 'value': {'status': 'Started'}});
+    await tester.pumpAndSettle();
+    expect(find.text('Present in system CA store'), findsOneWidget);
+    expect(calls.where((call) => call.method.startsWith('capture.ca.')), hasLength(count + 1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('MITM CA ignores late snapshots from a previous local session', (tester) async {
+    await mount(tester);
+    final delayed = Completer<Json>();
+    extra = (call) async => call.method == 'capture.ca.snapshot' ? delayed.future : null;
+    openPage(tester.element(find.byType(HomePage)), const MitmCertificatePage());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    events.add({'type': 'dashboard', 'value': {'status': 'Started', 'remote': 'Server'}});
+    await tester.pumpAndSettle();
+    extra = null;
+    events.add({'type': 'dashboard', 'value': {'status': 'Started'}});
+    await tester.pumpAndSettle();
+    expect(find.text('No MITM certificate'), findsOneWidget);
+    delayed.complete({'exists': true, 'revision': 'stale', 'systemTrusted': true});
+    await tester.pumpAndSettle();
+    expect(find.text('No MITM certificate'), findsOneWidget);
+    expect(find.text('Present in system CA store'), findsNothing);
+  });
+
+  for (final dark in [false, true]) {
+    testWidgets('MITM certificate layout fits narrow screens dark=$dark', (tester) async {
+      await mount(tester, dark: dark, scale: dark ? 1.5 : 1, size: const Size(360, 900));
+      caState = {'exists': true, 'revision': 'layout-ca', 'subject': 'CN=B-box MITM 0123456789abcdef', 'fingerprint': 'ab' * 32,
+        'expiresAt': 1893456000000, 'valid': true, 'keyAvailable': true, 'systemTrusted': false, 'userTrusted': false};
+      await open(tester, const MitmCertificatePage());
+      await capture(tester, 'mitm-certificate-${dark ? 'dark-large' : 'light'}');
+      final module = find.byKey(const ValueKey('mitm-ca-module'));
+      await tester.scrollUntilVisible(module, 200, scrollable: find.descendant(of: find.byType(MitmCertificatePage), matching: find.byType(Scrollable)).first);
+      await tester.pumpAndSettle();
+      await capture(tester, 'mitm-certificate-export-${dark ? 'dark-large' : 'light'}');
+      expect(tester.takeException(), isNull);
+    });
+  }
+
 }

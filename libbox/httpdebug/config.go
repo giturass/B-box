@@ -1,4 +1,4 @@
-// Package httpdebug records local HTTP streams and TLS plaintext from eBPF.
+// Package httpdebug records routed HTTP streams and opt-in HTTPS MITM sessions.
 // Settings are private application data, never sing-box configuration options.
 package httpdebug
 
@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -24,15 +23,15 @@ const (
 )
 
 type Config struct {
-	HTTPS              bool              `json:"https"`
-	Packages           []string          `json:"packages"`
-	DecryptHosts       []string          `json:"decryptHosts"`
-	Ports              []uint16          `json:"ports"`
-	BodyLimit          int64             `json:"bodyLimit"`
-	DecryptBypassHosts []string          `json:"decryptBypassHosts,omitempty"`
-	ExtractHosts       bool              `json:"extractHosts,omitempty"`
-	TLSLibraries       []string          `json:"tlsLibraries,omitempty"`
-	TLSOffsets         []TLSOffsetConfig `json:"tlsOffsets,omitempty"`
+	Version            int      `json:"version"`
+	HTTPS              bool     `json:"https"`
+	Packages           []string `json:"packages"`
+	DecryptHosts       []string `json:"decryptHosts"`
+	Ports              []uint16 `json:"ports"`
+	BodyLimit          int64    `json:"bodyLimit"`
+	DecryptBypassHosts []string `json:"decryptBypassHosts,omitempty"`
+	ExtractHosts       bool     `json:"extractHosts,omitempty"`
+	BlockQUIC          bool     `json:"blockQUIC,omitempty"`
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
@@ -51,6 +50,12 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 }
 
 func (c *Config) validate() error {
+	if c.Version == 0 {
+		c.Version = 2
+	}
+	if c.Version != 2 {
+		return errors.New("unsupported capture settings version")
+	}
 	if c.BodyLimit == 0 {
 		c.BodyLimit = DefaultBodyLimit
 	}
@@ -89,15 +94,7 @@ func (c *Config) validate() error {
 			return errors.New("invalid application package name")
 		}
 	}
-	if len(c.TLSLibraries) > 16 {
-		return errors.New("select at most 16 extra TLS libraries")
-	}
-	for _, path := range c.TLSLibraries {
-		if len(path) > 4096 || !filepath.IsAbs(path) || strings.ContainsAny(path, "\x00\r\n") {
-			return errors.New("TLS libraries must be absolute local paths")
-		}
-	}
-	return validateTLSOffsets(c.TLSOffsets)
+	return nil
 }
 
 func validHost(host string) bool {
@@ -137,6 +134,16 @@ type Metadata struct {
 	CaptureID           string          `json:"captureId,omitempty"`
 	TLSAdapter          string          `json:"tlsAdapter,omitempty"`
 	Socket              *SocketMetadata `json:"socket,omitempty"`
+	TLS                 *TLSMetadata    `json:"tls,omitempty"`
+}
+
+// Versions and ALPN are the negotiated values on each side, not estimates.
+type TLSMetadata struct {
+	ServerName          string `json:"serverName"`
+	ClientVersion       string `json:"clientVersion"`
+	UpstreamVersion     string `json:"upstreamVersion"`
+	ALPN                string `json:"alpn"`
+	UpstreamCertificate string `json:"upstreamCertificate"`
 }
 
 type SocketMetadata struct {
@@ -170,7 +177,7 @@ func (c Config) candidate(m Metadata) bool {
 
 func (c Config) matches(m Metadata) bool {
 	return c.candidate(m) &&
-		(m.Protocol != "tls" || c.HTTPS && !hostMatches(m.Host, c.DecryptBypassHosts) &&
+		(m.Protocol != "tls" || c.HTTPS && validHost(normalizeHost(m.Host)) && !hostMatches(m.Host, c.DecryptBypassHosts) &&
 			(len(c.DecryptHosts) == 0 || hostMatches(m.Host, c.DecryptHosts)))
 }
 

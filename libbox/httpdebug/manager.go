@@ -1,10 +1,10 @@
 package httpdebug
 
 import (
+	"crypto"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"sync"
 	"sync/atomic"
 )
@@ -13,7 +13,6 @@ var (
 	managerMu        sync.Mutex
 	store            *Store
 	active           atomic.Pointer[Engine]
-	lastCaptureError string
 	lastCaptureState State
 )
 
@@ -37,13 +36,18 @@ func openLocked(directory string) error {
 	return err
 }
 
-func Start(directory, configJSON string, reader io.ReadCloser, closeSource func()) error {
+func Start(directory, configJSON, certificate string, signer crypto.Signer) error {
 	var config Config
 	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
 		return err
 	}
-	if config.HTTPS && reader == nil {
-		return errors.New("HTTPS capture requires a running Root/eBPF collector")
+	var ca *authority
+	if config.HTTPS {
+		var err error
+		ca, err = loadAuthority(certificate, signer)
+		if err != nil {
+			return fmt.Errorf("load MITM CA: %w", err)
+		}
 	}
 	managerMu.Lock()
 	defer managerMu.Unlock()
@@ -54,14 +58,10 @@ func Start(directory, configJSON string, reader io.ReadCloser, closeSource func(
 		return err
 	}
 	engine := newEngine(config, store)
-	engine.reader, engine.closeSource = reader, closeSource
-	lastCaptureError = ""
+	engine.ca = ca
 	lastCaptureState = State{}
 	active.Store(engine)
-	if reader != nil {
-		AppendCaptureLog("info", fmt.Sprintf("eBPF capture connected to the local service; ports=%v; body limit=%d bytes", config.Ports, config.BodyLimit))
-		go engine.readPlaintext(reader)
-	}
+	AppendCaptureLog("info", fmt.Sprintf("%s capture started; ports=%v; body limit=%d bytes; reconnect target applications", engine.backend(), config.Ports, config.BodyLimit))
 	return nil
 }
 
@@ -79,14 +79,9 @@ func Stop() {
 	managerMu.Lock()
 	defer managerMu.Unlock()
 	if engine := active.Swap(nil); engine != nil {
-		if engine.config.HTTPS {
-			AppendCaptureLog("info", "Stopping eBPF capture and releasing the collector")
-		}
 		engine.Close()
 		lastCaptureState = engine.captureState()
-		if engine.config.HTTPS {
-			AppendCaptureLog("info", "eBPF capture stopped")
-		}
+		AppendCaptureLog("info", "Capture stopped; active intercepted connections closed")
 	}
 }
 
@@ -104,14 +99,12 @@ func Saved() (*Store, error) {
 type State struct {
 	Backend              string `json:"backend"`
 	Error                string `json:"error,omitempty"`
-	Libraries            int64  `json:"libraries"`
-	Scanning             bool   `json:"scanning"`
 	Active               bool   `json:"active"`
 	Connections          int    `json:"connections"`
 	Skipped              int64  `json:"skipped"`
 	TLSOpened            int64  `json:"tlsOpened"`
-	GoTLSOpened          int64  `json:"goTlsOpened"`
-	SocketConnections    int64  `json:"socketConnections"`
+	TLSFailed            int64  `json:"tlsFailed"`
+	BlockedQUIC          int64  `json:"blockedQUIC"`
 	PlaintextConnections int64  `json:"plaintextConnections"`
 	PlaintextBytes       int64  `json:"plaintextBytes"`
 	ParsedRequests       int64  `json:"parsedRequests"`
@@ -124,11 +117,7 @@ func Status() State {
 	defer managerMu.Unlock()
 	engine := Current()
 	if engine == nil {
-		state := lastCaptureState
-		if lastCaptureError != "" {
-			state.Error = lastCaptureError
-		}
-		return state
+		return lastCaptureState
 	}
 	return engine.captureState()
 }
@@ -136,31 +125,21 @@ func Status() State {
 func (engine *Engine) captureState() State {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	backend := "HTTP"
-	if engine.config.HTTPS {
-		backend = "eBPF"
+	warning := ""
+	if value := engine.warning.Load(); value != nil {
+		warning = *value
 	}
-	warning := lastCaptureError
-	if warning == "" {
-		if value := engine.warning.Load(); value != nil {
-			warning = *value
-		}
-	}
-	return State{Active: !engine.closed, Backend: backend, Error: warning,
-		Connections: len(engine.connections) + engine.passive.count(),
-		Skipped:     engine.skipped.Load(), Libraries: engine.libraries.Load(), Scanning: engine.scanning.Load(),
-		TLSOpened: engine.tlsOpened.Load(), GoTLSOpened: engine.goOpened.Load(), SocketConnections: engine.socketConnections.Load(),
+	return State{Active: !engine.closed, Backend: engine.backend(), Error: warning,
+		Connections: len(engine.connections) + engine.preparing,
+		Skipped:     engine.skipped.Load(), TLSFailed: engine.tlsFailed.Load(), BlockedQUIC: engine.blockedQUIC.Load(),
+		TLSOpened:            engine.tlsOpened.Load(),
 		PlaintextConnections: engine.plaintextConnections.Load(), PlaintextBytes: engine.plaintextBytes.Load(),
 		ParsedRequests: engine.parsedRequests.Load(), FilteredRequests: engine.filteredRequests.Load(), RecordedRequests: engine.recordedRequests.Load()}
 }
 
-func failCapture(engine *Engine, err error) {
-	managerMu.Lock()
-	defer managerMu.Unlock()
-	if active.CompareAndSwap(engine, nil) {
-		lastCaptureError = err.Error()
-		AppendCaptureLog("error", lastCaptureError)
-		engine.Close()
-		lastCaptureState = engine.captureState()
+func (engine *Engine) backend() string {
+	if engine.config.HTTPS {
+		return "MITM"
 	}
+	return "HTTP"
 }
