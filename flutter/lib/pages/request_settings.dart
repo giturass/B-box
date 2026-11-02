@@ -90,12 +90,12 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
         ListFooter(text: context.tr('Requires Root, Linux 5.10 or newer and permitted eBPF uprobes. Supports compatible 64-bit OpenSSL/BoringSSL and Go 1.22–1.27 TLS clients. Reconnect after preparation finishes. QUIC is not captured.')),
         _field(_libraries, 'Additional TLS libraries', hint: '/data/app/.../lib/arm64/libssl.so',
           footer: 'Optional absolute library, APK or Go executable paths, one per line. Installed apps, shared libraries and function offsets are discovered automatically.'),
-        ListItem(key: const ValueKey('manual-tls-offsets'), title: Text(context.tr('Manual TLS function offsets')),
+        generateSection(items: [ListItem(key: const ValueKey('manual-tls-offsets'), title: Text(context.tr('Manual TLS function offsets')),
           subtitle: Text(_offsets.isEmpty ? context.tr('No manual TLS offsets') : '${_offsets.length} ${context.tr('TLS libraries')}'),
           onTap: () async {
             final offsets = await openPage<List<Json>>(context, TLSOffsetsPage(initial: _offsets));
             if (offsets != null && mounted) setState(() { _offsets = offsets; _dirty = true; });
-          }),
+          })]),
         generateSection(title: context.tr('Raw TLS capture'), items: [
           ListItem.toggle(key: const ValueKey('capture-network'), title: Text(context.tr('Save network packets')), value: _network,
             subtitle: Text(context.tr('Export original TCP/IP packets as pcapng. Requires kernel BTF and packet capture permission.')),

@@ -18,6 +18,8 @@ import threading
 import time
 import zipfile
 
+from smoke import stop_collector
+
 ROOT = Path(__file__).resolve().parent
 ALIGN = 16384
 
@@ -223,8 +225,7 @@ class Collector:
         raise AssertionError(f"missing complete SSL lifetime for {prefix}")
 
     def stop(self):
-        self.process.stdin.close()
-        assert self.process.wait(timeout=5) == 0, "owner EOF failed to stop collector"
+        assert stop_collector(self.process) == 0, "owner EOF failed to stop collector"
         self.reader.join(timeout=2)
         assert not self.reader.is_alive()
         while not self.queue.empty():

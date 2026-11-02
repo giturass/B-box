@@ -79,8 +79,8 @@ recognition, with the same relocation and negative-mutation tests above:
 
 | Fixture | Original library | Instruction bytes | Function ranges |
 | --- | --- | --- | --- |
-| [cronet-134.json](cronet-134.json) | `libcronet.134.0.6986.0.so` | 6,820 | 9 |
-| [cronet-119.json](cronet-119.json) | `libcronet.119.0.6045.214.so` | 4,916 | 13 |
+| [cronet-134.json](cronet-134.json) | `libcronet.134.0.6986.0.so` | 6,260 | 9 |
+| [cronet-119.json](cronet-119.json) | `libcronet.119.0.6045.214.so` | 4,644 | 13 |
 
 Cronet 134's ELF SHA-256 is
 `aad6facaedcfadf0115f5dd5b881d2e444d8b555198da30f4a3cb3a19a63f9ee`.

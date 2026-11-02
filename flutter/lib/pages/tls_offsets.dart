@@ -52,8 +52,8 @@ class _TLSOffsetsPageState extends State<TLSOffsetsPage> {
             onPressed: () => setState(() { _entries.removeAt(i); _dirty = true; })),
         ),
       ]),
-      if (_entries.length < 16) ListItem(key: const ValueKey('add-tls-offset'),
-        leading: const GlyphIcon(AppGlyphs.add), title: Text(context.tr('Add TLS library')), onTap: _edit),
+      if (_entries.length < 16) generateSection(items: [ListItem(key: const ValueKey('add-tls-offset'),
+        leading: const GlyphIcon(AppGlyphs.add), title: Text(context.tr('Add TLS library')), onTap: _edit)]),
       ListFooter(text: context.tr('Up to 16 libraries. Manual offsets take priority over automatic resolution for the specified file.')),
     ]));
 }

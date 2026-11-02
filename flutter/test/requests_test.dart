@@ -184,6 +184,9 @@ void main() {
     final tile = find.byKey(const ValueKey('manual-tls-offsets'));
     await tester.scrollUntilVisible(tile, 200,
       scrollable: find.descendant(of: find.byType(RequestSettingsPage), matching: find.byType(Scrollable)).first);
+    await tester.pumpAndSettle();
+    await Scrollable.ensureVisible(tester.element(tile), alignment: 0.2);
+    await tester.pumpAndSettle();
     await tester.tap(tile); await tester.pumpAndSettle();
   }
 
@@ -303,6 +306,9 @@ void main() {
     for (final key in ['capture-network', 'capture-tls-keys']) {
       final toggle = find.byKey(ValueKey(key));
       await tester.scrollUntilVisible(toggle, 240, scrollable: scrollable);
+      await tester.pumpAndSettle();
+      await Scrollable.ensureVisible(tester.element(toggle), alignment: 0.2);
+      await tester.pumpAndSettle();
       await tester.tap(toggle); await tester.pumpAndSettle();
     }
     await Scrollable.ensureVisible(tester.element(find.byKey(const ValueKey('capture-network'))), alignment: 0.2);

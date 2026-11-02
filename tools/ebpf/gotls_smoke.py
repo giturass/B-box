@@ -15,7 +15,7 @@ import tempfile
 import threading
 import time
 
-from smoke import event
+from smoke import event, stop_collector
 
 ROOT = Path(__file__).resolve().parent
 
@@ -186,8 +186,7 @@ def main():
             measurements.update({"collectorCpuSeconds": after["cpuSeconds"] - before["cpuSeconds"],
                                  "collectorRssBytes": after["rssBytes"], "reportedLosses": len(failures)})
             assert not failures, failures
-            collector.stdin.close()
-            assert collector.wait(timeout=5) == 0, collector.stderr.read().decode()
+            assert stop_collector(collector) == 0, collector.stderr.read().decode()
             reader.join(timeout=2)
             (output / "results.json").write_text(json.dumps(measurements, indent=2) + "\n")
             print(f"{fixture.name}: Go TLS plaintext, socket identity, TLS 1.2/1.3 keys and tshark decryption passed.")

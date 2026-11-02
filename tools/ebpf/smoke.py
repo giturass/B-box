@@ -5,12 +5,49 @@ import os
 from pathlib import Path
 import platform
 import selectors
+import signal
 import socket
 import subprocess
+import sys
 import tempfile
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parent
+
+
+def stop_collector(process):
+    """Keep the owner-EOF deadline, preserving stacks if cleanup stalls in CI."""
+    process.stdin.close()
+    try:
+        return process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        print(f"Collector {process.pid} did not stop within 5 seconds of owner EOF", file=sys.stderr)
+        for task in sorted(Path(f"/proc/{process.pid}/task").glob("*")):
+            try:
+                print(f"Thread {task.name}: {task.joinpath('wchan').read_text().strip()}\n"
+                      f"{task.joinpath('stack').read_text()}", file=sys.stderr)
+            except OSError as error:
+                print(f"Thread {task.name}: {error}", file=sys.stderr)
+        # Only the CI collector is signalled. Drain stderr while Go prints its
+        # goroutine stacks, including when normal test output uses a pipe.
+        diagnostic = []
+        reader = None
+        if process.stderr is not None:
+            reader = threading.Thread(target=lambda: diagnostic.append(process.stderr.read()), daemon=True)
+            reader.start()
+        try:
+            process.send_signal(signal.SIGQUIT)
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        finally:
+            if reader is not None:
+                reader.join(timeout=2)
+                for value in diagnostic:
+                    print(value.decode(errors="replace"), file=sys.stderr)
+        raise
 
 
 def event(stream, timeout=20):
@@ -96,8 +133,7 @@ def main():
                     break
             assert output["write"] == request, "SSL_write/_ex data duplicated, reordered or lost"
             assert output["read"] == response, "SSL_read/_ex data duplicated, reordered or lost"
-            collector.stdin.close()
-            assert collector.wait(timeout=5) == 0, collector.stderr.read().decode()
+            assert stop_collector(collector) == 0, collector.stderr.read().decode()
             print("Real TLS plaintext matched both directions; owner EOF stopped the collector.")
         finally:
             if collector is not None and collector.poll() is None:

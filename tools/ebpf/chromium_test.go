@@ -108,10 +108,13 @@ func makeChromiumFixtureSource(t *testing.T, source string, seed int64, duplicat
 		}
 		samples = append(samples, &chromiumSample{name: fmt.Sprintf("helper_%x", target), old: target, code: code})
 	}
+	var entryPoints []*chromiumSample
 	if entryCalls {
-		// Stand in for callers outside the nine extracted functions. A direct
-		// BL is required even when the callee has no unwind record.
-		samples = append(samples, &chromiumSample{name: "fixture_entry_calls", code: make([]byte, 4*(len(input.Functions)+1))})
+		// Stand in for callers outside the extracted functions, including
+		// independently called helpers reached here only by tail calls.
+		// A direct BL is required even when the callee has no unwind record.
+		entryPoints = append(entryPoints, samples...)
+		samples = append(samples, &chromiumSample{name: "fixture_entry_calls", code: make([]byte, 4*(len(entryPoints)+1))})
 	}
 	if duplicateWrite {
 		for _, sample := range samples {
@@ -233,8 +236,8 @@ func makeChromiumFixtureSource(t *testing.T, source string, seed int64, duplicat
 		}
 	}
 	if driver := fixture.functions["fixture_entry_calls"]; driver != nil {
-		for index, source := range input.Functions {
-			target := fixture.functions[source.Name].address
+		for index, source := range entryPoints {
+			target := source.address
 			pc := driver.address + uint64(index)*4
 			put32(pc-base, 0x94000000|uint32((int64(target)-int64(pc))/4)&0x3ffffff)
 		}
