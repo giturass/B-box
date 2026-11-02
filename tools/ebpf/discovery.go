@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,8 +27,8 @@ type discoveryUpdate struct {
 }
 
 // One worker owns all file inspection and perf handles. The event loop keeps
-// draining plaintext while further APKs are analyzed. Shutdown waits for this
-// worker before closing the BPF maps and programs.
+// draining plaintext while further APKs are analyzed. Shutdown joins the worker
+// and its bounded probe cleanup before closing the BPF maps and programs.
 type libraryDiscovery struct {
 	collection    *ebpf.Collection
 	attacher      *uprobeAttacher
@@ -54,9 +55,22 @@ func newLibraryDiscovery(collection *ebpf.Collection, attacher *uprobeAttacher) 
 }
 
 func (d *libraryDiscovery) close() {
+	// Closing a perf uprobe may wait for the kernel's RCU/SRCU grace periods.
+	// Let independent libraries share those waits without serializing every
+	// library behind them. Each library still closes in reverse attach order,
+	// and all handles are gone before the shared programs/maps are released.
+	var pending sync.WaitGroup
+	workers := make(chan struct{}, 8)
 	for _, probes := range d.attached {
-		closeProbes(probes)
+		workers <- struct{}{}
+		pending.Add(1)
+		go func() {
+			defer pending.Done()
+			defer func() { <-workers }()
+			closeProbes(probes)
+		}()
 	}
+	pending.Wait()
 	clear(d.attached)
 }
 

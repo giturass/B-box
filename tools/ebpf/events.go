@@ -338,15 +338,13 @@ func (a *eventAssembler) emitAuxiliary(event rawEvent) error {
 			a.retired[event.id()] = retired
 		}
 		message.Type = "socket"
-		// Packet timestamps use CLOCK_REALTIME; generations use BPF's
-		// CLOCK_MONOTONIC. Translate at delivery so a recent suspend does not
-		// leave a stale boot-time offset. Never include bytes before this TLS
-		// lifetime merely because an earlier socket used the same endpoints.
-		var now unix.Timespec
-		if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &now); err != nil {
+		// Refresh the clock relation at delivery so suspend does not leave a
+		// stale boot-time offset, without treating scheduling jitter as time.
+		var err error
+		message.TimestampNS, err = generationTimestamp(event.generation, clockNanos)
+		if err != nil {
 			return err
 		}
-		message.TimestampNS = time.Now().UnixNano() - now.Nano() + int64(event.generation)
 		if event.flags != 0 {
 			message.SocketConflict = true
 		} else {

@@ -76,11 +76,11 @@ socket 对象指针须在所有能到达被检查调用的路径上保持有效�
 
 [挂载](tools/ebpf/attach.go) 在解析期间保持原始文件描述符，通过 `/proc/self/fd` 将同一 inode 交给 uprobe PMU，地址为 APK 条目数据偏移加 ELF 函数文件偏移。只挂载 APK 内未压缩的对应 ABI `.so`；压缩条目的提取副本由原生库目录和进程映射发现。映射路径在目标进程的 mount namespace 中解析，设备号/inode 不符或文件已删除时使用 `map_files`，避免包更新后把新文件当作旧映射。
 
-[手动偏移](tools/ebpf/manual.go)通过本机设置 `tlsOffsets` 配置，最多 16 组，每组指定绝对路径、APK 内条目（独立 ELF 为空）、ELF SHA-256 和函数字符串映射。必须提供 `SSL_new/free/read/write`，可附加已有公开 SSL 探针；只接受互不重复的非零十六进制 ELF 文件偏移。保存时由 [设置校验](libbox/httpdebug/tls_offsets.go)检查字段、格式及重复条目，挂载前核对当前 ARM64/x86_64 架构、ELF 哈希、指令对齐、可执行节及完整指令所在加载段，再用已校验的同一文件描述符挂载。指定路径/条目优先使用手动值，失败不通过同 inode 的自动识别回退，其他库继续发现。哈希只约束文件身份，公开 SSL 调用约定由使用者确认；Go 二进制不能以手动 SSL 偏移绕过 Go ABI/返回点校验。格式示例和预览命令见 [使用说明](tools/ebpf/README.md#手动函数偏移)。
+[手动偏移](tools/ebpf/manual.go)通过本机设置 `tlsOffsets` 配置，最多 16 组，每组指定绝对路径、APK 内条目（独立 ELF 为空）、ELF SHA-256 和函数字符串映射。必须提供 `SSL_new/free/read/write`，可附加已有公开 SSL 探针；只接受互不重复的非零十六进制 ELF 文件偏移。保存时由 [设置校验](libbox/httpdebug/tls_offsets.go)检查字段、格式及重复条目，挂载前核对当前 ARM64/x86_64 架构、ELF 哈希、ARM64 四字节对齐及可执行节/加载段范围，再用已校验的同一文件描述符挂载。指定路径/条目优先使用手动值，失败不通过同 inode 的自动识别回退，其他库继续发现。哈希只约束文件身份，公开 SSL 调用约定由使用者确认；Go 二进制不能以手动 SSL 偏移绕过 Go ABI/返回点校验。格式示例和预览命令见 [使用说明](tools/ebpf/README.md#手动函数偏移)。
 
 采集器的 `--inspect-library <ELF 或 APK 路径>` 只读诊断入口使用同一识别器，输出条目、ELF SHA-256、识别方式、APK 数据偏移及实际识别出的函数文件偏移；自动识别失败仍输出该条目的哈希和原因，可加 `--offsets <JSON 数组文件>` 预览手动校验；它不需要 Root、不加载 BPF，也不读取目标进程或网络数据。可用 CI 构建的对应 ABI 采集器检查安装文件，结果仅证明静态识别，不能当作实机抓包通过。
 
-[库发现](tools/ebpf/discovery.go) 依次优先检查手动偏移路径、补充库路径和系统 TLS 库，首个库的完整探针挂载成功后发送 ready，其余安装文件、进程映射及调试符号检查在独立工作协程继续，新增挂载通过 status 更新数量。`scanning` 表示仍在准备其他库，界面在准备完成后提示目标应用重新连接。最多保留三条有界库识别/挂载诊断，经 ready/status 传递，不将诊断当成全局丢数据或清零挂载数。事件读取和完整性检查不等待整个扫描结束，ready 始终先于采集数据。启动进度覆盖 BPF 加载、perf 缓冲及库检查/挂载，Android 的超时与协议处理见 [app.md](app.md#请求抓取与-rootebpf)。owner EOF 取消库扫描及后续文件读取，先释放探针并等待扫描退出，再关闭共享 BPF 程序和 map；扫描最多保留 4096 条候选路径、2048 个文件身份及 64 个挂载库。
+[库发现](tools/ebpf/discovery.go) 依次优先检查手动偏移路径、补充库路径和系统 TLS 库，首个库的完整探针挂载成功后发送 ready，其余安装文件、进程映射及调试符号检查在独立工作协程继续，新增挂载通过 status 更新数量。`scanning` 表示仍在准备其他库，界面在准备完成后提示目标应用重新连接。最多保留三条有界库识别/挂载诊断，经 ready/status 传递，不将诊断当成全局丢数据或清零挂载数。事件读取和完整性检查不等待整个扫描结束，ready 始终先于采集数据。启动进度覆盖 BPF 加载、perf 缓冲及库检查/挂载，Android 的超时与协议处理见 [app.md](app.md#请求抓取与-rootebpf)。owner EOF 取消库扫描及后续文件读取，以最多八个并发任务回收不同库的探针，每个库内部仍按挂载的反序关闭，避免逐库串行等待内核 RCU/SRCU 回收；所有探针关闭且扫描退出后，再关闭共享 BPF 程序和 map；扫描最多保留 4096 条候选路径、2048 个文件身份及 64 个挂载库。
 
 [诊断日志](libbox/httpdebug/logs.go) 独立于上述三条状态摘要，按时间记录启动环境及阶段、库来源包名、完整路径/条目、识别方式、文件身份、APK 数据偏移、实际挂载函数的文件偏移、后续库检查及全部识别/挂载失败。库来源依据 [Android 安装信息](app.md#请求抓取与-rootebpf)或进程 UID，共享库列出相关包，无法确定时明确标为未知；状态摘要也保留来源。连接日志包含代次 ID、PID/UID、应用、读写字节数、丢失/解析错误和停止原因，不逐明文分片写日志。采集器就绪后用 `log` 事件发送后续诊断，libbox 与 Android 桥接记录启动失败及服务停止；页面不可见仍持续记录。内存环形缓冲最多 1000 条、512 KiB 消息，每条最多 4 KiB，截断保留有效 UTF-8；停抓和重新开始保留历史，应用进程退出后清除。`ReadUICaptureLogs`、`AppendUICaptureLog` 和 `ClearUICaptureLogs` 提供独立的读取、应用侧补记及清日志绑定，清日志不清请求。界面入口及查询方式见 [flclash.md](flclash.md#导航与交互约定)。
 
@@ -110,7 +110,7 @@ socket 对象指针须在所有能到达被检查调用的路径上保持有效�
 
 原始数据保存由独立且默认关闭的 `captureNetwork` / `captureTlsKeys` 控制，仅在 HTTPS 采集期间生效：
 
-- [网络包采集](tools/ebpf/packets.go) 使用 AF_PACKET 保存与已确认目标 socket 同网络命名空间的原始 IPv4/IPv6 TCP 包，snaplen 为 32768，保留内核时间戳和原始长度。关联前缓存最多三秒、4 MiB、4096 包，不输出未关联流量，不合成 TCP/TLS 包；只接受本次 TLS 代次开始后的包，可能缺少建连 SYN。IP 分片不重组，其他命名空间不进入；共享/复用 TCP tuple 或出现新 SYN 时停止该 tuple 的包关联，直到重新开抓，避免把没有 inode 的旧包配给新代次。最多记住 1024 对端点，缓存、内核/队列丢包和关联冲突均有独立诊断，不把包丢失伪装成完整抓取。
+- [网络包采集](tools/ebpf/packets.go) 使用 AF_PACKET 保存与已确认目标 socket 同网络命名空间的原始 IPv4/IPv6 TCP 包，snaplen 为 32768，保留内核时间戳和原始长度。关联前缓存最多三秒、4 MiB、4096 包，不输出未关联流量，不合成 TCP/TLS 包；只接受本次 TLS 代次开始后的包，可能缺少建连 SYN。[时间换算](tools/ebpf/timestamps.go)在每次关联时以单调时钟夹住实时时钟读取，选取五次中跨度最小的样本，避免调度延迟把 ClientHello 误判为旧包；保留排除前一连接数据的时间边界。IP 分片不重组，其他命名空间不进入；共享/复用 TCP tuple 或出现新 SYN 时停止该 tuple 的包关联，直到重新开抓，避免把没有 inode 的旧包配给新代次。最多记住 1024 对端点，缓存、内核/队列丢包和关联冲突均有独立诊断，不把包丢失伪装成完整抓取。
 - [Go TLS 密钥探针](tools/ebpf/bpf/gotls.h) 在 `crypto/tls.(*Config).writeKeyLog` 入口读取已生成的 NSS label、client random 和 secret，`KeyLogWriter` 无需开启。支持 TLS 1.2 master secret 和 TLS 1.3 traffic secret；当前不提取 OpenSSL/BoringSSL 私有结构中的密钥。只有密钥和原始握手/网络包均被保留时，独立解密才具备所需数据。
 - [原始数据存储和导出](libbox/httpdebug/wire.go) 将包/密钥保存为应用私有的 0600 日志，独立限制 32 MiB、128 条 TLS 连接、每连接 32 条去重密钥。恢复中断写入时只保留有效前缀，淘汰/恢复/丢包警告随存储保留；无法执行淘汰时停止写入并报告失败。清请求同时清包和密钥，清日志不影响它们。这些数据不进入配置或备份。
 - `ExportUICaptureWire` 输出标准 pcapng（RAW IP、纳秒时间戳、TLS Decryption Secrets Block）或独立 NSS key-log 文本。每条 TLS 连接使用独立 pcapng section，密钥块置于包之前，支持单遍读取。非空搜索按匹配请求选择整条 TLS 连接，可能包含同连接上的其他 HTTP/2/顺序请求；空搜索也导出未成功解析 HTTP 的原始流。原始采集只按应用选择，域名/端口筛选约束 HTTP 记录，不承诺从加密包中隔离单个请求。

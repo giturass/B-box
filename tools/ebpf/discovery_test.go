@@ -7,7 +7,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,6 +31,58 @@ func discoveryFiles(t *testing.T, count int) []string {
 		paths = append(paths, path)
 	}
 	return paths
+}
+
+func TestDiscoveryClosesIndependentLibrariesTogetherAndWaitsForEveryHandle(t *testing.T) {
+	d := newLibraryDiscovery(nil, nil)
+	started := make(chan int, 2)
+	release := make(chan struct{})
+	var unblock sync.Once
+	t.Cleanup(func() { unblock.Do(func() { close(release) }) })
+	orders := make([][]int, 2)
+	for library := range orders {
+		var probes []io.Closer
+		for index := range 3 {
+			probes = append(probes, closeFunc(func() error {
+				if index == 2 {
+					started <- library
+					<-release
+				}
+				orders[library] = append(orders[library], index)
+				return nil
+			}))
+		}
+		d.attached[fmt.Sprint(library)] = probes
+	}
+	done := make(chan struct{})
+	go func() { d.close(); close(done) }()
+	for range orders {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("one library's kernel cleanup blocked another library")
+		}
+	}
+	select {
+	case <-done:
+		t.Fatal("cleanup returned while probe handles were still open")
+	default:
+	}
+	unblock.Do(func() { close(release) })
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cleanup did not join every library")
+	}
+	d.close()
+	for _, order := range orders {
+		if !reflect.DeepEqual(order, []int{2, 1, 0}) {
+			t.Fatal("probe cleanup lost reverse order or closed a handle twice", orders)
+		}
+	}
+	if len(d.attached) != 0 {
+		t.Fatal("closed libraries retained")
+	}
 }
 
 func TestDiscoveryPublishesFirstAttachBeforeSlowLibraryAndCancels(t *testing.T) {
