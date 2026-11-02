@@ -4,7 +4,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -23,10 +22,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.UnfoldLess
@@ -597,6 +594,7 @@ private fun ProxyChip(
     val chipShape = RoundedCornerShape(20.dp)
     val colors = MaterialTheme.colorScheme
     val isLightTheme = colors.surface.luminance() > 0.5f
+    val contentColor = if (isSelected) Color.White else colors.onSurface
     val nameStyle = MaterialTheme.typography.bodyMedium.copy(
         fontSize = 15.sp,
         lineHeight = 20.sp,
@@ -632,39 +630,24 @@ private fun ProxyChip(
                     onLongClick = { showContextMenu = true },
                 ),
             shape = chipShape,
-            color = if (isLightTheme) colors.surfaceBright else colors.surfaceContainer,
-            contentColor = colors.onSurface,
+            color = when {
+                isSelected -> Color(0xFF1565C0)
+                isLightTheme -> colors.surfaceBright
+                else -> colors.surfaceContainer
+            },
+            contentColor = contentColor,
         ) {
             Column(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
             ) {
-                Row(
+                Text(
+                    text = item.tag,
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    Text(
-                        text = item.tag,
-                        modifier = Modifier.weight(1f),
-                        style = nameStyle,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (isSelected) {
-                        Box(
-                            modifier = Modifier.size(22.dp).background(colors.primary, CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = colors.onPrimary,
-                            )
-                        }
-                    }
-                }
+                    style = nameStyle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -674,7 +657,7 @@ private fun ProxyChip(
                         text = item.displayType,
                         modifier = Modifier.weight(1f),
                         style = typeStyle,
-                        color = colors.onSurface.copy(alpha = 0.8f),
+                        color = contentColor.copy(alpha = if (isSelected) 0.9f else 0.8f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -683,7 +666,7 @@ private fun ProxyChip(
                             text = "${item.urlTestDelay} ms",
                             modifier = Modifier.widthIn(max = maxDelayWidth),
                             style = delayStyle,
-                            color = palette.forDelay(item.urlTestDelay),
+                            color = if (isSelected) contentColor else palette.forDelay(item.urlTestDelay),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
