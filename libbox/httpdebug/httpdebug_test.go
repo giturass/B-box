@@ -34,9 +34,9 @@ func TestDomainSelection(t *testing.T) {
 		{"wildcard", Config{HTTPS: true, DecryptHosts: []string{"*.example.com"}}, "api.example.com", "tls", true},
 		{"wildcard excludes apex", Config{HTTPS: true, DecryptHosts: []string{"*.example.com"}}, "example.com", "tls", false},
 		{"suffix boundary", Config{HTTPS: true, DecryptHosts: []string{"*.example.com"}}, "otherexample.com", "tls", false},
-		{"exclude wins", Config{HTTPS: true, DecryptHosts: []string{"*.example.com"}, ExcludeHosts: []string{"api.example.com"}}, "api.example.com", "tls", false},
-		{"empty list still honors excludes", Config{HTTPS: true, ExcludeHosts: []string{"private.example"}}, "private.example", "tls", false},
-		{"capture filter still applies", Config{HTTPS: true, IncludeHosts: []string{"api.example"}}, "other.example", "tls", false},
+		{"exclude wins", Config{HTTPS: true, DecryptHosts: []string{"*.example.com"}, DecryptBypassHosts: []string{"api.example.com"}}, "api.example.com", "tls", false},
+		{"empty list still honors excludes", Config{HTTPS: true, DecryptBypassHosts: []string{"private.example"}}, "private.example", "tls", false},
+		{"HTTPS filters do not restrict HTTP", Config{HTTPS: true, DecryptHosts: []string{"api.example"}, DecryptBypassHosts: []string{"other.example"}}, "other.example", "http", true},
 		{"ipv6", Config{HTTPS: true, DecryptHosts: []string{"::1"}}, "[::1]", "tls", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

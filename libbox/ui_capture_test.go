@@ -40,6 +40,7 @@ func TestUICaptureSettingsAreLocalAndRejectRetiredFeatures(t *testing.T) {
 	for _, invalid := range []string{
 		`{"rewriteEnabled":true}`, `{"scripts":[]}`, `{"mapLocal":[]}`, `{"blockQUIC":true}`,
 		`{"captureNetwork":true}`, `{"captureTlsKeys":true}`, `{"captureNetwork":false}`, `{"captureTlsKeys":false}`,
+		`{"includeHosts":["api.test"]}`, `{"excludeHosts":["private.test"]}`, `{"includeHosts":[]}`, `{"excludeHosts":[]}`,
 		`{"tlsLibraries":["relative.so"]}`,
 	} {
 		if _, err := ValidateUICaptureConfig(invalid); err == nil {

@@ -26,8 +26,6 @@ const (
 type Config struct {
 	HTTPS              bool              `json:"https"`
 	Packages           []string          `json:"packages"`
-	IncludeHosts       []string          `json:"includeHosts"`
-	ExcludeHosts       []string          `json:"excludeHosts"`
 	DecryptHosts       []string          `json:"decryptHosts"`
 	Ports              []uint16          `json:"ports"`
 	BodyLimit          int64             `json:"bodyLimit"`
@@ -65,10 +63,10 @@ func (c *Config) validate() error {
 	if len(c.Ports) > 32 || slices.Contains(c.Ports, 0) {
 		return errors.New("specify up to 32 ports between 1 and 65535")
 	}
-	if len(c.Packages) > 256 || len(c.IncludeHosts)+len(c.ExcludeHosts)+len(c.DecryptHosts)+len(c.DecryptBypassHosts) > 256 {
+	if len(c.Packages) > 256 || len(c.DecryptHosts)+len(c.DecryptBypassHosts) > 256 {
 		return errors.New("too many capture filters")
 	}
-	for _, hosts := range [][]string{c.IncludeHosts, c.ExcludeHosts, c.DecryptHosts, c.DecryptBypassHosts} {
+	for _, hosts := range [][]string{c.DecryptHosts, c.DecryptBypassHosts} {
 		for i, host := range hosts {
 			host = strings.TrimSpace(host)
 			wildcard := strings.HasPrefix(host, "*.")
@@ -171,8 +169,7 @@ func (c Config) candidate(m Metadata) bool {
 }
 
 func (c Config) matches(m Metadata) bool {
-	return c.candidate(m) && !hostMatches(m.Host, c.ExcludeHosts) &&
-		(len(c.IncludeHosts) == 0 || hostMatches(m.Host, c.IncludeHosts)) &&
+	return c.candidate(m) &&
 		(m.Protocol != "tls" || c.HTTPS && !hostMatches(m.Host, c.DecryptBypassHosts) &&
 			(len(c.DecryptHosts) == 0 || hostMatches(m.Host, c.DecryptHosts)))
 }

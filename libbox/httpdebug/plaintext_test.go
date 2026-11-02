@@ -129,7 +129,7 @@ func h2Headers(t *testing.T, framer *http2.Framer, stream uint32, end bool, fiel
 
 func TestPlaintextHTTP2MultiplexingAndCoalescedHostFilters(t *testing.T) {
 	for iteration := 0; iteration < 10; iteration++ {
-		engine, store := testEngine(t, Config{HTTPS: true, IncludeHosts: []string{"selected.test"}})
+		engine, store := testEngine(t, Config{HTTPS: true, DecryptHosts: []string{"selected.test"}})
 		var request, response bytes.Buffer
 		request.WriteString(http2.ClientPreface)
 		req, res := http2.NewFramer(&request, nil), http2.NewFramer(&response, nil)

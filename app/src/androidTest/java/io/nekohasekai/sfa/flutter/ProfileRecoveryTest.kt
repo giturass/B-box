@@ -44,7 +44,7 @@ class ProfileRecoveryTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = File(context.cacheDir, "capture-settings-test").apply { deleteRecursively(); mkdirs() }
         try {
-            File(directory, "settings.json").writeText("""{"https":true,"rewriteEnabled":true,"scripts":[],"blockQUIC":true,"captureNetwork":true,"captureTlsKeys":true,"includeHosts":["api.test"],"bodyLimit":131072}""")
+            File(directory, "settings.json").writeText("""{"https":true,"rewriteEnabled":true,"scripts":[],"blockQUIC":true,"captureNetwork":true,"captureTlsKeys":true,"includeHosts":["old-include.test"],"excludeHosts":["old-exclude.test"],"decryptHosts":["api.test"],"decryptBypassHosts":["private.test"],"packages":["com.test"],"ports":[8443],"bodyLimit":131072}""")
             File(directory, "ca.json").writeText("retired material")
             val settings = CaptureSettings(directory, retiredKeyAlias = null)
             val initial = settings.snapshot()
@@ -52,18 +52,27 @@ class ProfileRecoveryTest {
             assertFalse((initial["config"] as Map<*, *>).containsKey("rewriteEnabled"))
             assertFalse((initial["config"] as Map<*, *>).containsKey("captureNetwork"))
             assertFalse((initial["config"] as Map<*, *>).containsKey("captureTlsKeys"))
-            assertEquals(listOf("api.test"), (initial["config"] as Map<*, *>)["includeHosts"])
+            assertFalse((initial["config"] as Map<*, *>).containsKey("includeHosts"))
+            assertFalse((initial["config"] as Map<*, *>).containsKey("excludeHosts"))
+            assertEquals(listOf("api.test"), (initial["config"] as Map<*, *>)["decryptHosts"])
+            assertEquals(listOf("private.test"), (initial["config"] as Map<*, *>)["decryptBypassHosts"])
+            assertEquals(listOf("com.test"), (initial["config"] as Map<*, *>)["packages"])
+            assertEquals(listOf(8443), (initial["config"] as Map<*, *>)["ports"])
             assertEquals(131072, ((initial["config"] as Map<*, *>)["bodyLimit"] as Number).toInt())
             assertFalse(File(directory, "settings.json").readText().contains("captureNetwork"))
             assertFalse(File(directory, "settings.json").readText().contains("captureTlsKeys"))
+            assertFalse(File(directory, "settings.json").readText().contains("includeHosts"))
+            assertFalse(File(directory, "settings.json").readText().contains("excludeHosts"))
             assertFalse(File(directory, "ca.json").exists())
+            assertEquals(initial, CaptureSettings(directory, retiredKeyAlias = null).snapshot())
             val revision = initial["revision"] as String
             val manual = """{"path":"/data/app/example/base.apk","entry":"lib/arm64-v8a/libtls.so","sha256":"${"ab".repeat(32)}","functions":{"SSL_new":"0x1000","SSL_free":"0x1100","SSL_read":"0x1200","SSL_write":"0x1300"}}"""
             val saved = settings.save(revision, """{"https":true,"decryptHosts":["api.test"],"tlsOffsets":[$manual]}""")
             assertNotEquals(revision, saved["revision"])
             assertTrue(runCatching { settings.save(revision, "{}") }.isFailure)
             val previous = File(directory, "settings.json").readText()
-            for (retired in listOf("""{"scripts":[]}""", """{"captureNetwork":true}""", """{"captureTlsKeys":true}""")) {
+            for (retired in listOf("""{"scripts":[]}""", """{"captureNetwork":true}""", """{"captureTlsKeys":true}""",
+                """{"includeHosts":["api.test"]}""", """{"excludeHosts":["private.test"]}""")) {
                 assertTrue(runCatching { settings.save(saved["revision"] as String, retired) }.isFailure)
                 assertEquals(previous, File(directory, "settings.json").readText())
             }
@@ -89,7 +98,7 @@ class ProfileRecoveryTest {
         try {
             val base = File(directory, "settings.json")
             val backup = File(directory, "settings.json.bak")
-            backup.writeText("""{"https":true,"ports":[8443],"scripts":[],"captureNetwork":true,"captureTlsKeys":true}""")
+            backup.writeText("""{"https":true,"ports":[8443],"scripts":[],"captureNetwork":true,"captureTlsKeys":true,"includeHosts":["api.test"],"excludeHosts":["private.test"]}""")
             val settings = CaptureSettings(directory, retiredKeyAlias = null)
             val recovered = settings.snapshot()
             val config = recovered["config"] as Map<*, *>
@@ -98,6 +107,8 @@ class ProfileRecoveryTest {
             assertFalse(config.containsKey("scripts"))
             assertFalse(config.containsKey("captureNetwork"))
             assertFalse(config.containsKey("captureTlsKeys"))
+            assertFalse(config.containsKey("includeHosts"))
+            assertFalse(config.containsKey("excludeHosts"))
             assertFalse(backup.exists())
             val content = base.readText()
             assertTrue(base.renameTo(backup))

@@ -127,10 +127,11 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('empty HTTPS list is saved as unrestricted and filters survive', (tester) async {
+  testWidgets('empty HTTPS list stays unrestricted and retired domain filters are dropped', (tester) async {
     await mount(tester);
     await open(tester, const RequestSettingsPage(initial: {
       'https': true, 'decryptHosts': [], 'excludeHosts': ['private.example'], 'includeHosts': ['*.example'], 'packages': ['com.example'],
+      'decryptBypassHosts': ['private.example'],
     }));
     expect(find.text('Leave empty to capture all supported HTTPS domains. Exact names and *.example.com are accepted; exclusions take priority.'), findsOneWidget);
     await tester.tap(find.byTooltip('Save').last);
@@ -138,8 +139,9 @@ void main() {
     final config = json(json(calls.singleWhere((call) => call.method == 'capture.configure').arguments)['config']);
     expect(config['https'], isTrue);
     expect(config['decryptHosts'], isEmpty);
-    expect(config['excludeHosts'], ['private.example']);
-    expect(config['includeHosts'], ['*.example']);
+    expect(config.containsKey('excludeHosts'), isFalse);
+    expect(config.containsKey('includeHosts'), isFalse);
+    expect(config['decryptBypassHosts'], ['private.example']);
     expect(config['packages'], ['com.example']);
     expect(config['bodyLimit'], 65536);
     expect(tester.takeException(), isNull);
@@ -158,7 +160,7 @@ void main() {
     final saved = json(args['config']);
     expect(saved['tlsLibraries'], ['/data/app/test/libssl.so']);
     expect(saved['extractHosts'], isTrue);
-    expect(saved.keys.toSet(), {'https', 'decryptHosts', 'includeHosts', 'excludeHosts', 'packages',
+    expect(saved.keys.toSet(), {'https', 'decryptHosts', 'packages',
       'ports', 'bodyLimit', 'decryptBypassHosts', 'extractHosts', 'tlsLibraries', 'tlsOffsets'});
     expect(saved['tlsOffsets'], isEmpty);
     expect(calls.where((call) => call.method == 'capture.start'), isEmpty);
@@ -248,7 +250,7 @@ void main() {
   testWidgets('manual offsets can be edited and removed while unrelated settings survive', (tester) async {
     await mount(tester);
     final original = offsetRecord();
-    await open(tester, RequestSettingsPage(initial: {'https': true, 'tlsOffsets': [original], 'excludeHosts': ['private.test']}));
+    await open(tester, RequestSettingsPage(initial: {'https': true, 'tlsOffsets': [original], 'decryptBypassHosts': ['private.test']}));
     await openOffsets(tester);
     await tester.tap(find.byKey(const ValueKey('tls-offset-entry-0'))); await tester.pumpAndSettle();
     await offsetField(tester, 'SSL_write', '0x1500');
@@ -266,7 +268,7 @@ void main() {
     await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
     final config = json(json(calls.singleWhere((call) => call.method == 'capture.configure').arguments)['config']);
     expect(config['tlsOffsets'], isEmpty);
-    expect(config['excludeHosts'], ['private.test']);
+    expect(config['decryptBypassHosts'], ['private.test']);
     expect(tester.takeException(), isNull);
   });
 
@@ -648,7 +650,7 @@ void main() {
       final label = '${size.width.toInt()}-$scale-${dark ? 'dark' : 'light'}';
       await open(tester, const RequestSettingsPage(initial: {
         'https': true, 'decryptHosts': ['*.example.test', 'api.example.test'],
-        'includeHosts': ['*.example.test'], 'excludeHosts': ['private.example.test'],
+        'decryptBypassHosts': ['private.example.test'],
       }));
       await tester.enterText(find.byKey(const ValueKey('HTTPS domains')), '*.example.test\napi.example.test');
       await tester.pumpAndSettle();
@@ -664,7 +666,7 @@ void main() {
       final saved = json(json(calls.singleWhere((call) => call.method == 'capture.configure').arguments)['config']);
       expect(saved['decryptHosts'], ['*.example.test', 'api.example.test']);
       expect(saved['ports'], [80, 443, 8443]);
-      expect(saved['excludeHosts'], ['private.example.test']);
+      expect(saved['decryptBypassHosts'], ['private.example.test']);
       expect(tester.takeException(), isNull);
       snapshot['page'] = {'items': [{'id': 'long', 'url': 'https://example.test/${'long-path/' * 30}',
         'method': 'POST', 'status': 200, 'protocol': 'HTTP/2.0', 'packages': ['com.example.long.app.name'], 'bytes': 65536, 'durationMs': 120}], 'total': 1};

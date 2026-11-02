@@ -199,7 +199,7 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 			e.store.finish(id)
 		}()
 		if request.Method == http.MethodConnect {
-			e.store.setError(id, errors.New("nested CONNECT is not supported; bypass this proxy's domain"))
+			e.store.setError(id, errors.New("nested CONNECT is not supported"))
 			http.Error(w, "Nested CONNECT is not supported", http.StatusNotImplemented)
 			return
 		}
@@ -250,8 +250,7 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 // Domain observations do not imply that TLS plaintext was captured.
 func (e *Engine) Observe(metadata Metadata, protocol string) {
 	metadata.Protocol = "tls"
-	if !e.config.ExtractHosts || !e.config.candidate(metadata) || !validHost(normalizeHost(metadata.Host)) ||
-		hostMatches(metadata.Host, e.config.ExcludeHosts) || len(e.config.IncludeHosts) > 0 && !hostMatches(metadata.Host, e.config.IncludeHosts) {
+	if !e.config.ExtractHosts || !e.config.candidate(metadata) || !validHost(normalizeHost(metadata.Host)) {
 		return
 	}
 	e.mu.Lock()

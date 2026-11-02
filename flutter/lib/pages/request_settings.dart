@@ -13,8 +13,6 @@ class RequestSettingsPage extends StatefulWidget {
 
 class _RequestSettingsPageState extends State<RequestSettingsPage> {
   late final _decrypt = TextEditingController(text: (widget.initial['decryptHosts'] as List? ?? []).join('\n'));
-  late final _include = TextEditingController(text: (widget.initial['includeHosts'] as List? ?? []).join('\n'));
-  late final _exclude = TextEditingController(text: (widget.initial['excludeHosts'] as List? ?? []).join('\n'));
   late final _decryptBypass = TextEditingController(text: (widget.initial['decryptBypassHosts'] as List? ?? []).join('\n'));
   late final _ports = TextEditingController(text: (widget.initial['ports'] as List? ?? [80, 443, 8080, 8443]).join(', '));
   late bool _https = widget.initial['https'] == true;
@@ -35,8 +33,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
       final ports = _lines(_ports.text).map(int.parse).toList();
       if (ports.isEmpty || ports.any((port) => port < 1 || port > 65535)) throw const FormatException('Ports must be between 1 and 65535');
       await context.box.call('capture.configure', {'revision': widget.source['revision'], 'config': {
-        'https': _https, 'decryptHosts': _lines(_decrypt.text), 'includeHosts': _lines(_include.text),
-        'excludeHosts': _lines(_exclude.text), 'packages': _packages, 'ports': ports,
+        'https': _https, 'decryptHosts': _lines(_decrypt.text), 'packages': _packages, 'ports': ports,
         'bodyLimit': _bodyKiB * 1024,
         'decryptBypassHosts': _lines(_decryptBypass.text), 'extractHosts': _extract,
         'tlsLibraries': _libraries.text.split('\n').map((line) => line.trim()).where((line) => line.isNotEmpty).toSet().toList(),
@@ -48,7 +45,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
     }
   }
 
-  @override void dispose() { for (final c in [_decrypt, _include, _exclude, _decryptBypass, _ports, _libraries]) { c.dispose(); } super.dispose(); }
+  @override void dispose() { for (final c in [_decrypt, _decryptBypass, _ports, _libraries]) { c.dispose(); } super.dispose(); }
 
   Future<void> _addDomains(TextEditingController controller) async {
     final selected = await openPage<List<String>>(context, const CaptureDomainsPage(select: true));
@@ -98,8 +95,6 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
         subtitle: Text(context.tr('Collect visible TLS/QUIC hostnames through the local service. These records contain names only.')),
         onChanged: (value) => setState(() { _extract = value; _dirty = true; })),
       ]),
-      _field(_include, 'Capture domains', hint: '*.example.com', footer: 'Leave empty to capture all domains. Applies to both HTTP and HTTPS.'),
-      _field(_exclude, 'Bypass domains', hint: 'private.example.com', footer: 'Matching domains are excluded from capture.'),
       generateSection(title: context.tr('Filters and storage'), items: [
         ListItem(leading: const GlyphIcon(AppGlyphs.appsList), title: Text(context.tr('Capture applications')),
           subtitle: Text(_packages.isEmpty ? context.tr('All applications') : _packages.join(', ')), onTap: () async {
