@@ -1,9 +1,11 @@
 """CI-only: exercise real OpenSSL uprobes and owner-EOF cleanup on Linux."""
 import base64
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
 import platform
+import pwd
 import selectors
 import signal
 import socket
@@ -14,6 +16,40 @@ import threading
 import time
 
 ROOT = Path(__file__).resolve().parent
+
+
+def fixture_environment():
+    """Give this CI workload a UID separate from the collector and runner."""
+    assert os.geteuid() == 0, "run the Linux smoke through sudo"
+    caller = int(os.environ["SUDO_UID"])
+    assert caller != 0, "the CI runner must be an ordinary user"
+    base = Path(pwd.getpwuid(caller).pw_dir) / "tmp"
+    base.mkdir(exist_ok=True)
+    used = set()
+    for process in Path("/proc").iterdir():
+        if process.name.isdecimal():
+            try:
+                used.add(process.stat().st_uid)
+            except FileNotFoundError:
+                pass
+    uid = next(value for value in range(60000, 61000) if value not in used)
+    return base, uid
+
+
+@contextmanager
+def fixture_credentials(uid):
+    """Run the in-process APK fixture as its target UID, then restore cleanup."""
+    uids, gids, groups = os.getresuid(), os.getresgid(), os.getgroups()
+    try:
+        os.setgroups([])
+        os.setresgid(uid, uid, gids[2])
+        os.setresuid(uid, uid, uids[2])
+        yield
+    finally:
+        os.seteuid(uids[1])
+        os.setresuid(*uids)
+        os.setresgid(*gids)
+        os.setgroups(groups)
 
 
 def stop_collector(process):
@@ -67,22 +103,24 @@ def event(stream, timeout=20):
 
 
 def main():
-    base = Path.home() / "tmp"
-    base.mkdir(exist_ok=True)
+    base, uid = fixture_environment()
+    identity = {"user": uid, "group": uid, "extra_groups": []}
     with tempfile.TemporaryDirectory(prefix="bbox-ebpf-", dir=base) as directory:
         directory = Path(directory)
+        directory.chmod(0o755)
         cert, key = directory / "server.crt", directory / "server.key"
         # Ephemeral server identity for this test, never installed as a trusted CA.
         subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
                         "-nodes", "-days", "1", "-subj", "/CN=capture.test",
                         "-addext", "basicConstraints=critical,CA:FALSE", "-out", str(cert), "-keyout", str(key)],
                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        os.chown(key, uid, uid)
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
         server = subprocess.Popen(["openssl", "s_server", "-cert", str(cert), "-key", str(key),
                                    "-accept", f"127.0.0.1:{port}", "-www", "-quiet"],
-                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **identity)
         collector = None
         try:
             deadline = time.monotonic() + 5
@@ -98,8 +136,8 @@ def main():
                            if Path(path).is_file())
             collector = subprocess.Popen([str(ROOT / "capture")], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                          stderr=subprocess.PIPE, bufsize=0)
-            config = {"excludeUid": 4294967295, "userId": os.getuid() // 100000,
-                      "uids": [os.getuid()], "packages": {}, "libraries": [library]}
+            config = {"excludeUid": 4294967295, "userId": uid // 100000,
+                      "uids": [uid], "packages": {}, "libraries": [library]}
             collector.stdin.write((json.dumps(config) + "\n").encode())
             collector.stdin.flush()
             deadline = time.monotonic() + 25
@@ -116,7 +154,7 @@ def main():
             assert stages, "collector did not report startup stages"
             client = subprocess.Popen(["openssl", "s_client", "-connect", f"127.0.0.1:{port}",
                                        "-servername", "capture.test", "-quiet", "-ign_eof"],
-                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **identity)
             request = b"GET /ebpf-smoke HTTP/1.1\r\nHost: capture.test\r\nX-Test: " + b"x" * 6000 + b"\r\nConnection: close\r\n\r\n"
             response, _ = client.communicate(request, timeout=10)
             assert b"HTTP/1.0 200" in response, response[:200]
@@ -126,6 +164,7 @@ def main():
                 value = event(collector.stdout, 5)
                 if value.get("pid") != client.pid:
                     continue
+                assert value.get("uid") == uid, "TLS data attributed to a different UID"
                 if value["type"] == "data":
                     assert not value.get("gap"), {"event": value, "capturedBytes": {key: len(data) for key, data in output.items()}}
                     output[value["direction"]].extend(base64.b64decode(value.get("data", "")))

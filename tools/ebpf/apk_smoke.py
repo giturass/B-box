@@ -4,6 +4,7 @@ Exercise both automatic resolution and user-supplied ELF offsets, with the
 same APK mapping and the actual inode instrumented by the kernel.
 """
 import base64
+from contextlib import ExitStack
 import ctypes as C
 import hashlib
 import json
@@ -18,7 +19,7 @@ import threading
 import time
 import zipfile
 
-from smoke import stop_collector
+from smoke import fixture_credentials, fixture_environment, stop_collector
 
 ROOT = Path(__file__).resolve().parent
 ALIGN = 16384
@@ -159,7 +160,7 @@ class SSLFixture:
 
 
 class Collector:
-    def __init__(self, apk, directory, offsets=None):
+    def __init__(self, apk, directory, uid, offsets=None):
         self.errors = open(directory / "collector.stderr", "w+b")
         self.process = subprocess.Popen([str(ROOT / "capture")], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=self.errors, bufsize=0)
@@ -168,7 +169,7 @@ class Collector:
         self.logs = []
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
-        config = {"excludeUid": 4294967295, "userId": os.getuid() // 100000, "uids": [os.getuid()],
+        config = {"excludeUid": 4294967295, "userId": uid // 100000, "uids": [uid],
                   "packages": {}, "libraries": [] if offsets else [str(apk)], "targets": [],
                   "tlsOffsets": [offsets] if offsets else []}
         self.process.stdin.write((json.dumps(config) + "\n").encode())
@@ -262,16 +263,20 @@ def child_worker(apk, mode):
         library.close()
 
 
-def exercise(apk, directory, manual=False):
+def exercise(apk, directory, uid, manual=False):
     library = MappedLibrary(apk)
-    collector = Collector(apk, directory, library.manual_offsets if manual else None)
+    collector = Collector(apk, directory, uid, library.manual_offsets if manual else None)
     fixture = SSLFixture(library)
     affinity = os.sched_getaffinity(0)
     blocked, worker, child = None, None, None
+    credentials = ExitStack()
     try:
         collector.ready()
         method = "manual SSL offsets" if manual else "ELF symbols"
         assert any("method=" + method in message for message in collector.logs), collector.logs
+        child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--excluded", str(apk)])
+        assert child.wait(timeout=10) == 0
+        credentials.enter_context(fixture_credentials(uid))
         # Existing mappings and probes must continue using this inode after an
         # installer replaces the public pathname with a different file.
         mapped_apk = apk.with_name("previous.apk")
@@ -381,14 +386,14 @@ def exercise(apk, directory, manual=False):
         interrupted = json.loads(exited.stdout)
         collector.expect(interrupted["pointer"], pid=interrupted["pid"], gap=True)
 
-        child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--excluded", str(mapped_apk)])
-        assert child.wait(timeout=10) == 0
+        credentials.close()
         collector.stop()
         assert child.pid not in collector.pids, "BPF UID filter captured an excluded process"
         assert set(collector.flows) == collector.consumed, "unexpected SSL generation or data after retirement"
         print(f"Stored APK uprobes ({method}): original inode, two CPUs, UID filtering, "
               "normal/_ex/early data, SSL_clear, local gaps, skipped returns and owner EOF passed.")
     finally:
+        credentials.close()
         if blocked is not None:
             blocked.block = 0
         if worker is not None:
@@ -402,10 +407,10 @@ def exercise(apk, directory, manual=False):
 
 
 def main():
-    base = Path.home() / "tmp"
-    base.mkdir(exist_ok=True)
+    base, uid = fixture_environment()
     with tempfile.TemporaryDirectory(prefix="bbox-apk-uprobe-", dir=base) as temporary:
         directory = Path(temporary)
+        directory.chmod(0o755)
         shared = directory / "fixture.so"
         subprocess.run(["clang", "-O1", "-shared", "-fPIC", "-nostdlib", "-fno-builtin", "-fno-stack-protector",
                         "-fno-optimize-sibling-calls", "-Wl,-Bsymbolic", "-Wl,-z,max-page-size=16384",
@@ -413,9 +418,10 @@ def main():
         for manual in (False, True):
             case = directory / ("manual" if manual else "automatic")
             case.mkdir()
+            os.chown(case, uid, uid)
             apk = case / "base.apk"
             stored_apk(apk, shared.read_bytes())
-            exercise(apk, case, manual)
+            exercise(apk, case, uid, manual)
 
 
 if __name__ == "__main__":

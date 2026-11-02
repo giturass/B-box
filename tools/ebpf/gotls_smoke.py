@@ -15,7 +15,7 @@ import tempfile
 import threading
 import time
 
-from smoke import event, stop_collector
+from smoke import event, fixture_environment, stop_collector
 
 ROOT = Path(__file__).resolve().parent
 
@@ -88,15 +88,18 @@ def main():
     assert fixture.is_file() and 1 <= args.requests <= 100
     output = ROOT / "build" / "gotls" / fixture.name
     output.mkdir(parents=True, exist_ok=True)
-    base = Path.home() / "tmp"
-    base.mkdir(exist_ok=True)
+    base, uid = fixture_environment()
+    identity = {"user": uid, "group": uid, "extra_groups": []}
     with tempfile.TemporaryDirectory(prefix="bbox-gotls-", dir=base) as directory:
         directory = Path(directory)
+        directory.chmod(0o755)
         cert, key = directory / "server.crt", directory / "server.key"
         subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
                         "-days", "1", "-subj", "/CN=capture.test", "-addext", "subjectAltName=DNS:capture.test",
                         "-out", str(cert), "-keyout", str(key)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        server = subprocess.Popen([str(fixture), "-serve", "-cert", str(cert), "-key", str(key)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        os.chown(key, uid, uid)
+        server = subprocess.Popen([str(fixture), "-serve", "-cert", str(cert), "-key", str(key)],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, **identity)
         collector = None
         messages, failures, clients, measurements = [], [], [], {}
         try:
@@ -104,11 +107,11 @@ def main():
             assert address.startswith("127.0.0.1:"), "fixture did not listen on loopback"
             port = int(address.rsplit(":", 1)[1])
             for version in (12, 13):
-                baseline = json.loads(subprocess.check_output([str(fixture), "-address", address, "-cert", str(cert), "-version", str(version), "-count", str(args.requests)], timeout=25))
+                baseline = json.loads(subprocess.check_output([str(fixture), "-address", address, "-cert", str(cert), "-version", str(version), "-count", str(args.requests)], timeout=25, **identity))
                 measurements[f"tls{version}BaselineMedianRequestMs"] = statistics.median(item["ElapsedNS"] for item in baseline) / 1e6
             measurements["requestsPerProtocol"] = args.requests
             collector = subprocess.Popen([str(ROOT / "capture")], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
-            config = {"excludeUid": 4294967295, "userId": os.getuid() // 100000, "uids": [os.getuid()],
+            config = {"excludeUid": 4294967295, "userId": uid // 100000, "uids": [uid],
                       "packages": {}, "libraries": [str(fixture)], "captureNetwork": True, "captureTlsKeys": True}
             collector.stdin.write((json.dumps(config) + "\n").encode())
             collector.stdin.flush()
@@ -137,7 +140,8 @@ def main():
             reader.start()
             before = process_sample(collector.pid)
             for version in (12, 13):
-                client = subprocess.Popen([str(fixture), "-address", address, "-cert", str(cert), "-version", str(version), "-count", str(args.requests)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                client = subprocess.Popen([str(fixture), "-address", address, "-cert", str(cert), "-version", str(version), "-count", str(args.requests)],
+                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, **identity)
                 clients.append(client)
                 stdout, stderr = client.communicate(timeout=25)
                 assert client.returncode == 0, stderr.decode()
@@ -159,7 +163,7 @@ def main():
                     "events": [value for value in client_events if value["type"] in ("packet", "secret")],
                 }) + "\n")
                 opens = [value for value in client_events if value["type"] == "open"]
-                assert len(opens) == args.requests and all(value.get("adapter") == "Go TLS" for value in opens), "Go handshakes were not captured"
+                assert len(opens) == args.requests and all(value.get("adapter") == "Go TLS" and value.get("uid") == uid for value in opens), "Go handshakes were not captured for the target UID"
                 flows = {value["id"]: {"write": bytearray(), "read": bytearray()} for value in opens}
                 for value in client_events:
                     if value["type"] == "data":

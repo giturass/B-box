@@ -45,7 +45,7 @@ Go 实现依据 [Go 1.27.3 ABIInternal](https://github.com/golang/go/blob/go1.27
   {
     "path": "/data/app/example/base.apk",
     "entry": "lib/arm64-v8a/libtls.so",
-    "sha256": "<替换为 ELF 的 64 位 SHA-256>",
+    "sha256": "<替换为 ELF SHA-256 的 64 个十六进制字符>",
     "functions": {
       "SSL_new": "0x1000",
       "SSL_free": "0x1100",
@@ -63,5 +63,7 @@ Go 实现依据 [Go 1.27.3 ABIInternal](https://github.com/golang/go/blob/go1.27
 [newui.yml](../../.github/workflows/newui.yml) 在 Linux ARM64/x86_64 编译并测试采集器，运行真实 OpenSSL TLS 和 [Go TLS/独立解密 smoke](gotls_smoke.py)，在 x86_64 另运行 [APK 映射执行 smoke](apk_smoke.py)。APK 测试独立加载未压缩 APK 中的 [公开 SSL ABI 测试程序](testdata/tls_fixture.c)，分别只传入 APK 路径和传入独立换算的手动偏移/哈希，验证自动与手动模式均挂载到原始 inode、跨 CPU 事件、UID 筛选、嵌套调用去重和异常生命周期。该程序不实现加密，真实 TLS 由 [smoke.py](smoke.py) 及六个 Go 工具链构建的 [Go fixture](testdata/go_tls_client.go) 覆盖。Go 1.22.6 另构建带 [C 导出入口](testdata/go_tls_shared.go) 的 stripped c-shared 库，检查 JNI 类库布局的静态函数解析；此项不执行 JNI 或 Android 抓取。
 
 Go smoke 为两种 TLS 版本保存临时测试会话的采集样本、pcapng、诊断和开抓前后同协议的延迟/CPU/RSS 数据。核心 job 消费同次运行的样本，使用正式存储/导出器再生成 pcapng，并让 tshark 验证解密；测试身份和密钥只来自本次 CI fixture。产物名和覆盖范围见 [核心验证说明](../../libbox.md#构建同步和验证)。这些小样本用于回归诊断，不能据此宣称目标应用的性能收益。
+
+Linux smoke 通过 `sudo` 启动，以当前未使用的独立 UID 执行测试负载，采集器保留 Root。测试继续使用生产 UID 筛选和进程映射发现，核对事件 UID；APK 用例另验证不选中的 UID 没有事件。临时文件放在调用者的 `~/tmp`，只向该测试 UID 开放必要文件。这样宿主机的 Docker/containerd 等后台进程不会因同为 Root 被计入测试库和退出耗时。owner EOF 后仍要求五秒内退出，超时保留内核线程及 Go 协程栈。
 
 Android 采集器和平台测试由共享构建 Action 生成，并在 [Android smoke](../../.github/workflows/newui-android.yml) 验证。构建与动态测试遵守仓库 [AGENTS.md](../../AGENTS.md)，本机默认只做静态检查。依赖下载、编译成功、Linux smoke 和无 Root 模拟器均不能替代 Root Android 目标应用验收。
