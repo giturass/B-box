@@ -122,6 +122,35 @@ func TestCronetTailWrapperCannotBypassCorruptUnwind(t *testing.T) {
 	}
 }
 
+func TestCronetUnboundedSocketHelperDoesNotHideVerifiedRead(t *testing.T) {
+	fixture := makeChromiumFixtureSource(t, "cronet-119.json", 19, false, true)
+	fixture.sparseUnwind()
+	// The real SSL_get_error has a switch compiled to an indirect BR. Its
+	// inert external-helper stub must not make every socket callee look bounded.
+	helper := fixture.functions["helper_32fac0"]
+	if helper == nil {
+		t.Fatal("fixture lost SSL_get_error called from the socket read/write paths")
+	}
+	b := binary.LittleEndian
+	b.PutUint32(helper.code, 0xd61f0140) // BR x10; never executed.
+	// Keep only SSL_free's FDE so this optional helper is definitely uncovered.
+	free := fixture.functions["SSL_free"]
+	base := b.Uint64(fixture.data[64+16:])
+	b.PutUint32(fixture.data[fixture.header+12:], uint32(free.address-(base+fixture.header)))
+	b.PutUint32(fixture.data[fixture.header+16:], uint32(free.frame-fixture.header))
+	resolved, err := resolveFixture(context.Background(), fixture)
+	if err != nil || resolved["SSL_read"] != fixture.functions["SSL_read"].address-base {
+		t.Fatalf("unrelated indirect helper rejected the verified TLS group: %v, %v", resolved, err)
+	}
+	// Missing control-flow evidence is different from corrupt unwind metadata.
+	fixture = makeChromiumFixtureSource(t, "cronet-119.json", 19, false, true)
+	helper = fixture.functions["helper_32fac0"]
+	b.PutUint32(fixture.data[helper.frame+12:], 0)
+	if symbols, err := resolveFixture(context.Background(), fixture); err == nil || len(symbols) != 0 || !strings.Contains(err.Error(), "invalid unwind function range") {
+		t.Fatalf("an optional helper hid a corrupt FDE: %v, %v", symbols, err)
+	}
+}
+
 func TestCronetSocketArithmeticCannotPreserveAClobberedSSLPointer(t *testing.T) {
 	fixture := makeChromiumFixtureSource(t, "cronet-134.json", 11, false, true)
 	code := fixture.functions["Chrome_Read"].code

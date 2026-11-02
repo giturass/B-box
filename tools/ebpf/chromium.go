@@ -200,6 +200,12 @@ func resolveChromium(ctx context.Context, file *elf.File) (map[string]uint64, er
 			}
 			checked[call.target] = true
 			candidate, err := c.entryFunction(call.target)
+			if errors.Is(err, errChromiumCodeRange) {
+				// Socket methods also call helpers such as SSL_get_error, whose
+				// switch may use an unverified indirect jump. It is not a read
+				// candidate. Required I/O and lifetime functions must still match.
+				continue
+			}
 			if err != nil {
 				return nil, err
 			}

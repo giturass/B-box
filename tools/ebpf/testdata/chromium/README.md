@@ -106,6 +106,11 @@ the fixture driver from inventing a `BL` to that wrapper. Sparse-unwind tests
 must instead verify its actual `BTI; B` forwarding to the independently called
 release implementation. Mutations which change arguments, SP or LR, return,
 loop, jump into another function or corrupt the wrapper's FDE are rejected.
+The socket read/write paths also call `SSL_get_error` at original address
+`0x32fac0`. Its real implementation uses an indirect switch jump, which the
+bounded recognizer does not decode. A regression replaces that external RET
+stub with an inert indirect BR: discovery must continue to the verified read
+candidate, while corrupt helper unwind metadata must still fail discovery.
 The recognizer verifies context references, allocation/constructor arguments,
 replacement and release of the same socket member, span bounds and consumption,
 and unchanged signed read counts. It does not accept fixed private field offsets.
