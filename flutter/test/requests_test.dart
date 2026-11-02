@@ -294,6 +294,9 @@ void main() {
       await capture(tester, 'manual-offset-editor-${dark ? 'dark-large' : 'light'}');
       final scrollable = find.descendant(of: find.byType(TLSOffsetEditorPage), matching: find.byType(Scrollable)).first;
       await tester.scrollUntilVisible(find.byKey(const ValueKey('tls-offset-SSL_write')), 200, scrollable: scrollable);
+      await tester.pumpAndSettle();
+      await Scrollable.ensureVisible(tester.element(find.byKey(const ValueKey('tls-offset-SSL_new'))), alignment: 0.15);
+      await tester.pumpAndSettle();
       await capture(tester, 'manual-offset-functions-${dark ? 'dark-large' : 'light'}');
       expect(tester.takeException(), isNull);
     });
