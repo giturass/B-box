@@ -21,7 +21,6 @@ const (
 	goWrite     = "crypto/tls.(*Conn).Write"
 	goHandshake = "crypto/tls.(*Conn).clientHandshake"
 	goClose     = "crypto/tls.(*Conn).Close"
-	goKeyLog    = "crypto/tls.(*Config).writeKeyLog"
 )
 
 type unsupportedGoTLSError struct{ name, reason string }
@@ -128,7 +127,7 @@ func resolveGoTLS(ctx context.Context, file *elf.File, info *debug.BuildInfo) (r
 		return nil, "", errors.New("Go TLS function table is missing or unsupported")
 	}
 	result = make(map[string]uint64)
-	for _, name := range []string{goRead, goWrite, goClose, goKeyLog, goHandshake} {
+	for _, name := range []string{goRead, goWrite, goClose, goHandshake} {
 		if err := ctx.Err(); err != nil {
 			return nil, "", err
 		}
@@ -313,13 +312,10 @@ func planGoProbes(library library) ([]probeSpec, error) {
 			}
 		}
 	}
-	if err := add(goKeyLog, "go_keylog"); err != nil {
-		return nil, err
-	}
 	if err := add(goClose, "go_close"); err != nil {
 		return nil, err
 	}
-	// Enable new generations only after every I/O, key and lifetime probe.
+	// Enable new generations only after every I/O and lifetime probe.
 	if err := add(goHandshake, "go_handshake_enter"); err != nil {
 		return nil, err
 	}

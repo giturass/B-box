@@ -35,8 +35,6 @@ type Config struct {
 	ExtractHosts       bool              `json:"extractHosts,omitempty"`
 	TLSLibraries       []string          `json:"tlsLibraries,omitempty"`
 	TLSOffsets         []TLSOffsetConfig `json:"tlsOffsets,omitempty"`
-	CaptureNetwork     bool              `json:"captureNetwork,omitempty"`
-	CaptureTLSKeys     bool              `json:"captureTlsKeys,omitempty"`
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {

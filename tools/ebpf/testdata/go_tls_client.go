@@ -1,5 +1,5 @@
 // CI fixture. The server and client use separate processes, and client I/O
-// moves between goroutines. KeyLogWriter is deliberately left unset.
+// moves between goroutines.
 package main
 
 import (

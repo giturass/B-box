@@ -42,7 +42,7 @@ func decodeEvent(data []byte) (rawEvent, error) {
 		pid: b.Uint32(data[32:]), uid: b.Uint32(data[40:]), kind: b.Uint32(data[44:]), fd: int32(b.Uint32(data[48:])), length: b.Uint32(data[52:]),
 		offset: b.Uint32(data[56:]), flags: b.Uint32(data[64:])}
 	length := b.Uint32(data[60:])
-	if length > 4096 || int(length)+72 > len(data) || event.kind < 1 || event.kind > 7 ||
+	if length > 4096 || int(length)+72 > len(data) || event.kind < 1 || event.kind > 6 ||
 		event.length > 128*1024 || event.offset > event.length || length > event.length-event.offset {
 		return rawEvent{}, fmt.Errorf("invalid eBPF event bounds: kind=%d total=%d offset=%d captured=%d sample=%d",
 			event.kind, event.length, event.offset, length, len(data))
@@ -50,10 +50,9 @@ func decodeEvent(data []byte) (rawEvent, error) {
 	if event.kind == 5 && (event.flags < 1 || event.flags > 8 || event.length != 0 || length != 0 || event.sequence != 0) {
 		return rawEvent{}, errors.New("invalid eBPF gap event")
 	}
-	if event.kind >= 6 && (event.offset != 0 || event.sequence != 0 || event.length != length ||
-		event.kind == 6 && (length != 56 || event.flags > 1 || event.fd < 0) ||
-		event.kind == 7 && (length != 164 || event.flags != 0)) {
-		return rawEvent{}, errors.New("invalid eBPF socket or key event")
+	if event.kind == 6 && (event.offset != 0 || event.sequence != 0 || event.length != length ||
+		length != 56 || event.flags > 1 || event.fd < 0) {
+		return rawEvent{}, errors.New("invalid eBPF socket event")
 	}
 	event.data = append([]byte(nil), data[72:72+length]...)
 	return event, nil
@@ -80,11 +79,6 @@ type pipeEvent struct {
 	Adapter        string      `json:"adapter,omitempty"`
 	Socket         *socketInfo `json:"socket,omitempty"`
 	SocketConflict bool        `json:"socketConflict,omitempty"`
-	Label          string      `json:"label,omitempty"`
-	ClientRandom   []byte      `json:"clientRandom,omitempty"`
-	Secret         []byte      `json:"secret,omitempty"`
-	TimestampNS    int64       `json:"timestampNs,omitempty"`
-	PacketLength   int         `json:"packetLength,omitempty"`
 }
 
 type socketInfo struct {
@@ -169,8 +163,8 @@ func newAssembler(config collectorConfig, emit func(pipeEvent) error) *eventAsse
 func (a *eventAssembler) accept(event rawEvent) error {
 	id := event.id()
 	if _, done := a.retired[id]; done {
-		if event.kind == 6 || event.kind == 7 {
-			return a.emitAuxiliary(event)
+		if event.kind == 6 {
+			return a.emitSocket(event)
 		}
 		return nil
 	}
@@ -208,9 +202,9 @@ func (a *eventAssembler) accept(event rawEvent) error {
 		}
 	case 5:
 		a.breakFlow(flow, event)
-	case 6, 7:
+	case 6:
 		if len(flow.auxiliary) >= 32 {
-			return errors.New("eBPF socket/key reorder limit reached")
+			return errors.New("eBPF socket reorder limit reached")
 		}
 		flow.auxiliary = append(flow.auxiliary, event)
 	case 2, 3:
@@ -257,7 +251,7 @@ func (a *eventAssembler) accept(event rawEvent) error {
 		return nil
 	}
 	for _, auxiliary := range flow.auxiliary {
-		if err := a.emitAuxiliary(auxiliary); err != nil {
+		if err := a.emitSocket(auxiliary); err != nil {
 			return err
 		}
 	}
@@ -322,51 +316,28 @@ func (a *eventAssembler) accept(event rawEvent) error {
 	return nil
 }
 
-func (a *eventAssembler) emitAuxiliary(event rawEvent) error {
-	message := pipeEvent{ID: event.id(), PID: event.pid, UID: event.uid}
-	if event.kind == 6 {
-		if flow := a.flows[event.id()]; flow != nil {
-			if flow.socketConflict {
-				return nil
-			}
-			flow.socketConflict = event.flags != 0
-		} else if retired, ok := a.retired[event.id()]; ok {
-			if retired.socketConflict {
-				return nil
-			}
-			retired.socketConflict = event.flags != 0
-			a.retired[event.id()] = retired
+func (a *eventAssembler) emitSocket(event rawEvent) error {
+	message := pipeEvent{Type: "socket", ID: event.id(), PID: event.pid, UID: event.uid}
+	if flow := a.flows[event.id()]; flow != nil {
+		if flow.socketConflict {
+			return nil
 		}
-		message.Type = "socket"
-		// Refresh the clock relation at delivery so suspend does not leave a
-		// stale boot-time offset, without treating scheduling jitter as time.
+		flow.socketConflict = event.flags != 0
+	} else if retired, ok := a.retired[event.id()]; ok {
+		if retired.socketConflict {
+			return nil
+		}
+		retired.socketConflict = event.flags != 0
+		a.retired[event.id()] = retired
+	}
+	if event.flags != 0 {
+		message.SocketConflict = true
+	} else {
 		var err error
-		message.TimestampNS, err = generationTimestamp(event.generation, clockNanos)
+		message.Socket, err = decodeSocket(event)
 		if err != nil {
 			return err
 		}
-		if event.flags != 0 {
-			message.SocketConflict = true
-		} else {
-			var err error
-			message.Socket, err = decodeSocket(event)
-			if err != nil {
-				return err
-			}
-		}
-	} else {
-		if !a.config.TLSKeys {
-			return nil
-		}
-		if len(event.data) != 164 {
-			return errors.New("invalid TLS key event length")
-		}
-		label, secret := int(event.data[0]), int(event.data[1])
-		if label < 1 || label > 64 || secret < 16 || secret > 64 {
-			return errors.New("invalid TLS key event bounds")
-		}
-		message.Type, message.Label = "secret", string(event.data[4:4+label])
-		message.ClientRandom, message.Secret = event.data[68:100], event.data[100:100+secret]
 	}
 	return a.emit(message)
 }

@@ -38,8 +38,6 @@ type collectorConfig struct {
 	Libraries      []string            `json:"libraries"`
 	Targets        []string            `json:"targets"`
 	TargetPackages map[string][]string `json:"targetPackages"`
-	Packets        bool                `json:"captureNetwork"`
-	TLSKeys        bool                `json:"captureTlsKeys"`
 	TLSOffsets     []manualTLSOffsets  `json:"tlsOffsets"`
 }
 
@@ -254,13 +252,6 @@ func run(encode func(any) error) error {
 	if err = collection.Maps["config"].Put(uint32(2), config.UserID); err != nil {
 		return err
 	}
-	keysEnabled := uint32(0)
-	if config.TLSKeys {
-		keysEnabled = 1
-	}
-	if err = collection.Maps["config"].Put(uint32(3), keysEnabled); err != nil {
-		return err
-	}
 	for _, uid := range config.UIDs {
 		if err = collection.Maps["uids"].Put(uid, uint8(1)); err != nil {
 			return err
@@ -312,46 +303,7 @@ func run(encode func(any) error) error {
 		}
 	}()
 	go func() { <-ctx.Done(); events.Close() }()
-	var packets *packetCapture
-	var packetReader *packetSource
-	var packetResults <-chan networkPacket
-	if config.Packets {
-		if socketErr != nil {
-			if err = encode(diagnosticEvent("warn", "Network packet capture unavailable without verified socket correlation", true)); err != nil {
-				return err
-			}
-		} else {
-			packets, err = newPacketCapture(func(event pipeEvent) error { return encode(event) })
-			if err == nil {
-				packetReader, err = openPacketSource()
-			}
-			if err != nil {
-				packets = nil
-				if err = encode(diagnosticEvent("warn", fmt.Sprintf("Network packet capture unavailable: %v", err), true)); err != nil {
-					return err
-				}
-			} else {
-				packetContext, stopPackets := context.WithCancel(ctx)
-				packetDone := make(chan struct{})
-				queue := make(chan networkPacket, 256)
-				packetResults = queue
-				go func() { defer close(packetDone); packetReader.read(packetContext, queue) }()
-				defer func() { stopPackets(); <-packetDone; unix.Close(packetReader.fd) }()
-				if err = progress("network packet capture ready; only verified target TLS sockets will be saved"); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	emit := func(event pipeEvent) error {
-		if err := encode(event); err != nil {
-			return err
-		}
-		if packets != nil {
-			return packets.observe(event)
-		}
-		return nil
-	}
+	emit := func(event pipeEvent) error { return encode(event) }
 	assembler := newAssembler(config, emit)
 
 	// Discovery owns its links and can inspect slow APK/debug-data files without
@@ -379,7 +331,6 @@ func run(encode func(any) error) error {
 		<-discoveryDone
 	}()
 	var activeResults <-chan readResult
-	var activePackets <-chan networkPacket
 	cleanup := time.NewTicker(3 * time.Second)
 	defer cleanup.Stop()
 	health := time.NewTicker(250 * time.Millisecond)
@@ -412,7 +363,6 @@ func run(encode func(any) error) error {
 				// A probe may already have produced data. Keep it buffered until
 				// ready has been written as the first capture event.
 				activeResults = results
-				activePackets = packetResults
 			}
 		case result := <-activeResults:
 			if result.err != nil {
@@ -431,17 +381,6 @@ func run(encode func(any) error) error {
 			if err = assembler.accept(event); err != nil {
 				return err
 			}
-		case packet := <-activePackets:
-			if packet.err != nil {
-				activePackets = nil
-				if err = emit(pipeEvent{Type: "packet_loss", Error: fmt.Sprintf("Network packet reader stopped: %v", packet.err)}); err != nil {
-					return err
-				}
-				continue
-			}
-			if err = packets.accept(packet); err != nil {
-				return err
-			}
 		case now := <-health.C:
 			if activeResults == nil {
 				continue
@@ -457,20 +396,6 @@ func run(encode func(any) error) error {
 			}
 			if err = assembler.checkLoss(now); err != nil {
 				return err
-			}
-			if activePackets != nil {
-				dropped, lossErr := packetReader.losses()
-				if lossErr != nil || dropped > 0 {
-					reason := fmt.Sprintf("Network packet capture lost %d packets; pcapng is incomplete", dropped)
-					if lossErr != nil {
-						reason = lossErr.Error()
-						activePackets = nil
-					}
-					if err = emit(pipeEvent{Type: "packet_loss", PacketLength: int(dropped), Error: reason}); err != nil {
-						return err
-					}
-				}
-				packets.expire(now)
 			}
 		case <-cleanup.C:
 			if activeResults == nil {

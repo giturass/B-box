@@ -127,7 +127,7 @@ func TestGoFunctionTableWithoutTLSIsNotAnUnsupportedTLSLibrary(t *testing.T) {
 }
 
 func TestGoTLSMissingFunctionsAndCorruptTablesRemainDiagnostics(t *testing.T) {
-	names := []string{goRead, goWrite, goClose, goKeyLog, goHandshake}
+	names := []string{goRead, goWrite, goClose, goHandshake}
 	data := goTableFixture(names, ".data.rel.ro", 0)
 	symbols, method, err := resolveSymbols(context.Background(), bytes.NewReader(data), "tls.so")
 	if err != nil || symbols[goRead] != 0x280 || !strings.HasPrefix(method, "Go TLS go1.22.6 ") {

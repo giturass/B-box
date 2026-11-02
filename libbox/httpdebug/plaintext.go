@@ -37,11 +37,6 @@ type plaintextEvent struct {
 	Adapter        string          `json:"adapter,omitempty"`
 	Socket         *SocketMetadata `json:"socket,omitempty"`
 	SocketConflict bool            `json:"socketConflict,omitempty"`
-	TimestampNS    int64           `json:"timestampNs,omitempty"`
-	PacketLength   int             `json:"packetLength,omitempty"`
-	Label          string          `json:"label,omitempty"`
-	ClientRandom   []byte          `json:"clientRandom,omitempty"`
-	Secret         []byte          `json:"secret,omitempty"`
 }
 
 func (e *Engine) readPlaintext(reader io.Reader) {
@@ -115,13 +110,6 @@ func (e *Engine) readPlaintext(reader io.Reader) {
 			}
 			continue
 		}
-		if event.Type == "packet" || event.Type == "secret" || event.Type == "packet_loss" {
-			if err := e.acceptWire(event); err != nil {
-				failCapture(e, err)
-				return
-			}
-			continue
-		}
 		if err := e.passive.accept(event); err != nil {
 			failCapture(e, err)
 			return
@@ -132,37 +120,6 @@ func (e *Engine) readPlaintext(reader io.Reader) {
 		err = errors.New("eBPF collector disconnected")
 	}
 	failCapture(e, err)
-}
-
-func (e *Engine) acceptWire(event plaintextEvent) error {
-	if event.Type == "packet_loss" {
-		if !e.config.CaptureNetwork || event.PacketLength < 0 {
-			return errors.New("unexpected packet loss event")
-		}
-		reason := fmt.Sprintf("%.1024s", event.Error)
-		if reason == "" {
-			reason = "Network packet capture is incomplete"
-		}
-		e.store.wire.warn(reason)
-		AppendCaptureLog("warn", reason)
-		return nil
-	}
-	record := wireRecord{Type: event.Type}
-	if event.Type == "packet" {
-		if !e.config.CaptureNetwork {
-			return errors.New("unexpected network packet event")
-		}
-		record.Time, record.Length, record.Data = event.TimestampNS, event.PacketLength, event.Data
-	} else {
-		if !e.config.CaptureTLSKeys {
-			return errors.New("unexpected TLS key event")
-		}
-		record.Label, record.Random, record.Secret = event.Label, event.ClientRandom, event.Secret
-	}
-	if err := e.store.wire.append(event.ID, record); err != nil {
-		return fmt.Errorf("save raw TLS capture: %w", err)
-	}
-	return nil
 }
 
 type pendingFlow struct {

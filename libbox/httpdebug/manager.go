@@ -102,22 +102,21 @@ func Saved() (*Store, error) {
 }
 
 type State struct {
-	Backend              string    `json:"backend"`
-	Error                string    `json:"error,omitempty"`
-	Libraries            int64     `json:"libraries"`
-	Scanning             bool      `json:"scanning"`
-	Active               bool      `json:"active"`
-	Connections          int       `json:"connections"`
-	Skipped              int64     `json:"skipped"`
-	TLSOpened            int64     `json:"tlsOpened"`
-	GoTLSOpened          int64     `json:"goTlsOpened"`
-	SocketConnections    int64     `json:"socketConnections"`
-	PlaintextConnections int64     `json:"plaintextConnections"`
-	PlaintextBytes       int64     `json:"plaintextBytes"`
-	ParsedRequests       int64     `json:"parsedRequests"`
-	FilteredRequests     int64     `json:"filteredRequests"`
-	RecordedRequests     int64     `json:"recordedRequests"`
-	Wire                 wireState `json:"wire"`
+	Backend              string `json:"backend"`
+	Error                string `json:"error,omitempty"`
+	Libraries            int64  `json:"libraries"`
+	Scanning             bool   `json:"scanning"`
+	Active               bool   `json:"active"`
+	Connections          int    `json:"connections"`
+	Skipped              int64  `json:"skipped"`
+	TLSOpened            int64  `json:"tlsOpened"`
+	GoTLSOpened          int64  `json:"goTlsOpened"`
+	SocketConnections    int64  `json:"socketConnections"`
+	PlaintextConnections int64  `json:"plaintextConnections"`
+	PlaintextBytes       int64  `json:"plaintextBytes"`
+	ParsedRequests       int64  `json:"parsedRequests"`
+	FilteredRequests     int64  `json:"filteredRequests"`
+	RecordedRequests     int64  `json:"recordedRequests"`
 }
 
 func Status() State {
@@ -128,9 +127,6 @@ func Status() State {
 		state := lastCaptureState
 		if lastCaptureError != "" {
 			state.Error = lastCaptureError
-		}
-		if store != nil {
-			state.Wire = store.wire.state()
 		}
 		return state
 	}
@@ -155,8 +151,7 @@ func (engine *Engine) captureState() State {
 		Skipped:     engine.skipped.Load(), Libraries: engine.libraries.Load(), Scanning: engine.scanning.Load(),
 		TLSOpened: engine.tlsOpened.Load(), GoTLSOpened: engine.goOpened.Load(), SocketConnections: engine.socketConnections.Load(),
 		PlaintextConnections: engine.plaintextConnections.Load(), PlaintextBytes: engine.plaintextBytes.Load(),
-		ParsedRequests: engine.parsedRequests.Load(), FilteredRequests: engine.filteredRequests.Load(), RecordedRequests: engine.recordedRequests.Load(),
-		Wire: engine.store.wire.state()}
+		ParsedRequests: engine.parsedRequests.Load(), FilteredRequests: engine.filteredRequests.Load(), RecordedRequests: engine.recordedRequests.Load()}
 }
 
 func failCapture(engine *Engine, err error) {

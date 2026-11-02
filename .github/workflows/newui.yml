@@ -19,18 +19,11 @@ concurrency:
 
 jobs:
   core:
-    needs: ebpf
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-core
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: gotls-wire-validation-*
-          path: ${{ runner.temp }}/gotls-wire-validation
-      - name: Independent pcapng decoder
-        run: sudo apt-get update -qq && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
       - name: Android ingress-discard map compatibility tests
         working-directory: .core
         run: go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1
@@ -39,8 +32,6 @@ jobs:
         run: go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1
       - name: HTTP and eBPF capture, storage and route tests
         working-directory: .core
-        env:
-          BBOX_WIRE_FIXTURE_DIR: ${{ runner.temp }}/gotls-wire-validation
         run: |
           go test -race ./experimental/httpdebug -count=1
           go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1
@@ -63,7 +54,7 @@ jobs:
         with:
           go-version: ${{ steps.go.outputs.version }}
           cache-dependency-path: tools/ebpf/go.sum
-      - run: sudo apt-get update -qq && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y clang llvm libssl-dev tshark
+      - run: sudo apt-get update -qq && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y clang llvm libssl-dev
       - id: collector_build
         run: bash tools/ebpf/build.sh linux/${{ matrix.arch }}
       - name: Collector framing, ordering, symbol and platform tests
@@ -108,7 +99,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: gotls-wire-validation-${{ matrix.arch }}
+          name: gotls-validation-${{ matrix.arch }}
           path: tools/ebpf/build/gotls/
           retention-days: 7
   flutter:

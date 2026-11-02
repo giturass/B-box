@@ -39,9 +39,9 @@ func TestGoTLSVersionGateAndInstructionBoundaries(t *testing.T) {
 
 func TestGoProbePlanNeverUsesKernelReturnProbes(t *testing.T) {
 	library := library{base: 0x4000, symbols: make(map[string]uint64)}
-	for i, name := range []string{goRead, goWrite, goHandshake, goClose, goKeyLog} {
+	for i, name := range []string{goRead, goWrite, goHandshake, goClose} {
 		library.symbols[name] = uint64(0x100 + i*0x100)
-		if name != goClose && name != goKeyLog {
+		if name != goClose {
 			library.symbols[name+"/return/0"] = library.symbols[name] + 0x40
 		}
 	}

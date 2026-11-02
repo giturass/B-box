@@ -42,7 +42,8 @@ for path in (native / "flutter").glob("*.kt"):
     if "NavController" in source or "navController.navigate" in source:
         errors.append(f"{path.name}: legacy navigation is not allowed")
 for retired in ("app/src/main/assets/capture-module", "flutter/lib/pages/capture_certificate.dart",
-                "flutter/lib/pages/capture_rules.dart", "libbox/option/httpdebug.go", "libbox/httpdebug/ca.go"):
+                "flutter/lib/pages/capture_rules.dart", "libbox/option/httpdebug.go", "libbox/httpdebug/ca.go",
+                "libbox/httpdebug/wire.go", "tools/ebpf/packets.go"):
     path = ROOT / retired
     if path.is_file() or path.is_dir() and any(item.is_file() for item in path.rglob("*")):
         errors.append(f"{retired}: retired capture implementation remains")

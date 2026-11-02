@@ -31,10 +31,6 @@ struct regs { u64 x[31], sp, pc, pstate; };
 #define GO_ARG1(r) ((r)->x[0])
 #define GO_ARG2(r) ((r)->x[1])
 #define GO_ARG3(r) ((r)->x[2])
-#define GO_ARG4(r) ((r)->x[3])
-#define GO_ARG5(r) ((r)->x[4])
-#define GO_ARG7(r) ((r)->x[6])
-#define GO_ARG8(r) ((r)->x[7])
 #elif defined(__TARGET_ARCH_x86)
 struct regs { u64 r15,r14,r13,r12,bp,bx,r11,r10,r9,r8,ax,cx,dx,si,di,orig_ax,ip,cs,flags,sp,ss; };
 #define ARG1(r) ((r)->di)
@@ -46,10 +42,6 @@ struct regs { u64 r15,r14,r13,r12,bp,bx,r11,r10,r9,r8,ax,cx,dx,si,di,orig_ax,ip,
 #define GO_ARG1(r) ((r)->ax)
 #define GO_ARG2(r) ((r)->bx)
 #define GO_ARG3(r) ((r)->cx)
-#define GO_ARG4(r) ((r)->di)
-#define GO_ARG5(r) ((r)->si)
-#define GO_ARG7(r) ((r)->r9)
-#define GO_ARG8(r) ((r)->r10)
 #else
 #error Unsupported capture architecture
 #endif
@@ -91,7 +83,7 @@ HASH_MAP(broken, struct session_key, u32, 8192);
 HASH_MAP(clears, u64, u64, 8192);
 HASH_MAP(socket_seen, struct session_key, struct socket_identity, 8192);
 HASH_MAP(uids, u32, u8, 256);
-struct { __uint(type, ARRAY); __uint(max_entries, 4);
+struct { __uint(type, ARRAY); __uint(max_entries, 3);
     __type(key, u32); __type(value, u32); } config SEC(".maps");
 struct { __uint(type, PERCPU_ARRAY); __uint(max_entries, 1);
     __type(key, u32); __type(value, struct event); } scratch SEC(".maps");

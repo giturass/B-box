@@ -30,7 +30,6 @@ class _RequestsPageState extends State<RequestsPage> {
     return CapturePoll(method: 'capture.snapshot', arguments: {'query': _query, 'limit': _limit}, revision: _revision,
       builder: (context, snapshot, error, refresh) {
         final state = json(snapshot?['state']), page = json(snapshot?['page']);
-        final wire = json(state['wire']);
         final active = state['active'] == true, entries = rows(page['items']);
         return CommonScaffold(
           title: context.tr('Requests'), isLoading: _busy,
@@ -48,10 +47,8 @@ class _RequestsPageState extends State<RequestsPage> {
             }),
             CommonPopupMenuItem(glyph: AppGlyphs.logs, label: context.tr('eBPF logs'), onPressed: () => openPage(context, const CaptureLogsPage())),
             CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'), onPressed: _busy || entries.isEmpty ? null : () => _act('capture.export', {'format': 'har', 'query': _query})),
-            CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export pcapng'), onPressed: _busy || (wire['packets'] as num? ?? 0) == 0 ? null : () => _act('capture.export', {'format': 'pcapng', 'query': _query})),
-            CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export TLS keys'), onPressed: _busy || (wire['secrets'] as num? ?? 0) == 0 ? null : () => _act('capture.export', {'format': 'keys', 'query': _query})),
             CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear requests'), onPressed: _busy ? null : () async {
-              if (await confirm(context, 'Clear captured requests and raw TLS data?') && mounted) await _act('capture.clear');
+              if (await confirm(context, 'Clear captured requests?') && mounted) await _act('capture.clear');
             }),
           ],
           body: ListView.builder(

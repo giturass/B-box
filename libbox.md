@@ -58,9 +58,9 @@
 
 [patch_httpdebug.py](tools/patch_httpdebug.py) 在匹配核心中安装 [路由与生命周期补丁](libbox/httpdebug.patch)、[抓取引擎](libbox/httpdebug/)、[路由适配](libbox/route/) 和 `ui_capture*.go`。明文 HTTP 在选路及连接跟踪之后记录，继续使用原出站的 `ConnectionHandler`，保留路由、目的地址和应用归属；补充嗅探只修改元数据副本，不匹配的字节回放到原连接。没有新增代理监听器或直连回退。
 
-HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF uprobes 观察目标进程在 `SSL_read`/`SSL_write`、`_ex` 公共接口及受支持的 Go TLS 客户端中读写的明文。可另行开启原始网络包和 Go TLS 密钥保存；密钥来自应用已有的握手计算，不从网络密文推导，不接管握手或修改目标内存，应用照常验证服务端证书。CA 生成、证书安装/模块、MITM、HTTP 改写和 JavaScript 已移除。
+HTTPS 默认关闭；开启后通过 [专用采集器](tools/ebpf/) 的 eBPF uprobes 观察目标进程在 `SSL_read`/`SSL_write`、`_ex` 公共接口及受支持的 Go TLS 客户端中读写的明文。采集不接管握手或修改目标内存，应用照常验证服务端证书。CA 生成、证书安装/模块、MITM、HTTP 改写和 JavaScript 已移除。
 
-采集器参考 stackplz 的 Android 文件定位、APK 偏移和 UID 筛选方式，以及 eCapture 的 Go TLS、连接关联和独立解密思路，继续使用固定的 SeeFlowerX/ebpf Android fork；比较提交、依赖来源和许可见 [采集器说明](tools/ebpf/README.md#参考与来源)。依据 [Linux uprobes](https://www.kernel.org/doc/html/latest/trace/uprobetracer.html) 和经核对的函数 ABI 工作，不读取 BoringSSL 私有结构偏移。支持 ARM64/x86_64 的 64 位库和 Go 可执行文件，需要 Root、Linux 5.10 或更新内核、BPF/uprobe/perf 支持及 SELinux 许可。自动检查系统 Conscrypt/libssl、所选已安装应用的原生库目录、base/split/shared APK 和当前 Android 用户的可执行映射，可补充最多 16 个绝对库、APK 或 Go 可执行文件路径。没有兼容库或全部挂载失败时启动报错；挂载库数不表示所有目标应用均受支持。32 位进程、下述范围之外的 Go TLS、未通过自动识别或手动校验的无符号自有/裁剪 TLS 库和 QUIC/HTTP/3 不在当前支持范围。
+采集器参考 stackplz 的 Android 文件定位、APK 偏移和 UID 筛选方式，以及 eCapture 的 Go TLS 和连接关联思路，继续使用固定的 SeeFlowerX/ebpf Android fork；比较提交、依赖来源和许可见 [采集器说明](tools/ebpf/README.md#参考与来源)。依据 [Linux uprobes](https://www.kernel.org/doc/html/latest/trace/uprobetracer.html) 和经核对的函数 ABI 工作，不读取 BoringSSL 私有结构偏移。支持 ARM64/x86_64 的 64 位库和 Go 可执行文件，需要 Root、Linux 5.10 或更新内核、BPF/uprobe/perf 支持及 SELinux 许可。自动检查系统 Conscrypt/libssl、所选已安装应用的原生库目录、base/split/shared APK 和当前 Android 用户的可执行映射，可补充最多 16 个绝对库、APK 或 Go 可执行文件路径。没有兼容库或全部挂载失败时启动报错；挂载库数不表示所有目标应用均受支持。32 位进程、下述范围之外的 Go TLS、未通过自动识别或手动校验的无符号自有/裁剪 TLS 库和 QUIC/HTTP/3 不在当前支持范围。
 
 [Go TLS 识别器](tools/ebpf/gotls.go) 接受 Go 1.22–1.27 正式 patch 版本的 gc 编译结果，拒绝开发版、其他编译器和自定义 `GOEXPERIMENT`。从 build info 校验版本，以标准库 `debug/gosym` 解析 pclntab，支持普通和 stripped PIE ELF；Go 1.22–1.25 从 pclntab 读取 `runtime.text`，Go 1.26/1.27 按其 [moduledata 布局](tools/ebpf/gotls_module.go) 定位并交叉校验函数表、切片和代码范围，均解析 ELF REL/RELA 重定位，不把包含 C 启动代码的 `.text` 节起点当作 Go 函数基址。Go 1.27.3 的寄存器 ABI、goroutine 栈头及所用 moduledata 前缀与 1.26.10 相同，类型元数据的后续变化不进入采集器读取范围；这项支持不改变本项目核心的构建版本。每次从实际指令定位 `Read`、`Write`、`clientHandshake` 的 RET，以普通 uprobe 捕获返回，不使用会干扰 Go 栈的内核 uretprobe。读写按 PID、goroutine 指针和方向配对，核对栈帧并在 Go 栈搬移后调整栈内缓冲地址；新代次只由客户端握手建立，兼容首个 I/O 内的隐式握手，失败握手和 `Close` 释放代次。成功解析的 Go 函数表若完全不含 `crypto/tls` 函数，按普通非 TLS 库跳过，不因 Go build info 报告抓取失败；包含 TLS 函数但缺少必需入口时仍报告具体缺失函数，不将其误记为函数表缺失。服务端、缺失函数表或函数、无法确认 ABI/返回边界的程序不挂载；同一 ELF 同时包含公开 SSL 接口时保留两套适配，非 TLS Go 代码不遮蔽已有 SSL 适配或其失败原因。实际版本/架构验证入口见下文，不把版本门限当作全部 Android 应用已实测的声明。
 
@@ -84,7 +84,7 @@ socket 对象指针须在所有能到达被检查调用的路径上保持有效�
 
 [诊断日志](libbox/httpdebug/logs.go) 独立于上述三条状态摘要，按时间记录启动环境及阶段、库来源包名、完整路径/条目、识别方式、文件身份、APK 数据偏移、实际挂载函数的文件偏移、后续库检查及全部识别/挂载失败。库来源依据 [Android 安装信息](app.md#请求抓取与-rootebpf)或进程 UID，共享库列出相关包，无法确定时明确标为未知；状态摘要也保留来源。连接日志包含代次 ID、PID/UID、应用、读写字节数、丢失/解析错误和停止原因，不逐明文分片写日志。采集器就绪后用 `log` 事件发送后续诊断，libbox 与 Android 桥接记录启动失败及服务停止；页面不可见仍持续记录。内存环形缓冲最多 1000 条、512 KiB 消息，每条最多 4 KiB，截断保留有效 UTF-8；停抓和重新开始保留历史，应用进程退出后清除。`ReadUICaptureLogs`、`AppendUICaptureLog` 和 `ClearUICaptureLogs` 提供独立的读取、应用侧补记及清日志绑定，清日志不清请求。界面入口及查询方式见 [flclash.md](flclash.md#导航与交互约定)。
 
-状态分别统计已观测 TLS/Go TLS 连接、已关联 socket、收到明文的连接/字节、解析出的 HTTPS 请求、筛选排除数及保存数；保存的网络包/密钥数来自持久存储。停止后保留本次统计，重新开始重置会话计数。首次明文、首次保存请求及 socket 冲突单独记日志，避免把“探针挂载成功”当作“已收到并解析目标请求”。日志不写明文正文或密钥内容。
+状态分别统计已观测 TLS/Go TLS 连接、已关联 socket、收到明文的连接/字节、解析出的 HTTPS 请求、筛选排除数及保存数。停止后保留本次统计，重新开始重置会话计数。首次明文、首次保存请求及 socket 冲突单独记日志，避免把“探针挂载成功”当作“已收到并解析目标请求”。日志不写明文正文。
 
 启动参数的路径校验区分补充 TLS 库与自动安装目标，错误包含对应列表的索引和有界、转义后的路径；[配置回归](tools/ebpf/config_test.go) 检查来源及错误消息边界。Android 自动候选过滤见 [应用侧发现规则](app.md#请求抓取与-rootebpf)，手动填写的库路径继续严格校验。
 
@@ -108,13 +108,6 @@ socket 对象指针须在所有能到达被检查调用的路径上保持有效�
 
 预览/HAR 的 gzip/deflate 解码上限 64 KiB；不支持的编码或二进制保留 Base64，HAR 另保留原始压缩前缀和截断/完整性标记。耗时仅为总时长，不冒充 DNS/TCP/TLS 分阶段计时。cURL 要求请求头与正文完整且未截断，正文缺失则拒绝导出。停止服务后仍可查询保存记录。
 
-原始数据保存由独立且默认关闭的 `captureNetwork` / `captureTlsKeys` 控制，仅在 HTTPS 采集期间生效：
-
-- [网络包采集](tools/ebpf/packets.go) 使用 AF_PACKET 保存与已确认目标 socket 同网络命名空间的原始 IPv4/IPv6 TCP 包，snaplen 为 32768，保留内核时间戳和原始长度。关联前缓存最多三秒、4 MiB、4096 包，不输出未关联流量，不合成 TCP/TLS 包；只接受本次 TLS 代次开始后的包，可能缺少建连 SYN。[时间换算](tools/ebpf/timestamps.go)在每次关联时以单调时钟夹住实时时钟读取，选取五次中跨度最小的样本，避免调度延迟把 ClientHello 误判为旧包；保留排除前一连接数据的时间边界。IP 分片不重组，其他命名空间不进入；共享/复用 TCP tuple 或出现新 SYN 时停止该 tuple 的包关联，直到重新开抓，避免把没有 inode 的旧包配给新代次。最多记住 1024 对端点，缓存、内核/队列丢包和关联冲突均有独立诊断，不把包丢失伪装成完整抓取。
-- [Go TLS 密钥探针](tools/ebpf/bpf/gotls.h) 在 `crypto/tls.(*Config).writeKeyLog` 入口读取已生成的 NSS label、client random 和 secret，`KeyLogWriter` 无需开启。支持 TLS 1.2 master secret 和 TLS 1.3 traffic secret；当前不提取 OpenSSL/BoringSSL 私有结构中的密钥。只有密钥和原始握手/网络包均被保留时，独立解密才具备所需数据。
-- [原始数据存储和导出](libbox/httpdebug/wire.go) 将包/密钥保存为应用私有的 0600 日志，独立限制 32 MiB、128 条 TLS 连接、每连接 32 条去重密钥。恢复中断写入时只保留有效前缀，淘汰/恢复/丢包警告随存储保留；无法执行淘汰时停止写入并报告失败。清请求同时清包和密钥，清日志不影响它们。这些数据不进入配置或备份。
-- `ExportUICaptureWire` 输出标准 pcapng（RAW IP、纳秒时间戳、TLS Decryption Secrets Block）或独立 NSS key-log 文本。每条 TLS 连接使用独立 pcapng section，密钥块置于包之前，支持单遍读取。非空搜索按匹配请求选择整条 TLS 连接，可能包含同连接上的其他 HTTP/2/顺序请求；空搜索也导出未成功解析 HTTP 的原始流。原始采集只按应用选择，域名/端口筛选约束 HTTP 记录，不承诺从加密包中隔离单个请求。
-
 `extractHosts` 额外记录经过本地服务的可见 TLS/QUIC 名称，条目标为“仅域名”，不伪造明文或响应，也不阻断 QUIC。域名导出对当前搜索条件下的全部保留记录去重，HAR 跳过仅域名条目；ECH 隐藏的名称无法由该观察恢复。
 
 `CommandServer.StartUICapture(directory, config, fd, source)` 与核心重载/停止串行，复制 Root 管道 FD，并通过 `UICaptureSource.Close` 管理采集器；HTTP 模式不需要 Root 管道。其余 `Open/Validate/Stop/Read/List/Clear/ExportUICapture*` 和 `ExtractUICaptureHosts` 提供本地设置校验、状态及记录访问。原始正文通过文件导出，轮询仅返回有界预览。设置持久化与 Binder 生命周期见 [app.md](app.md#请求抓取与-rootebpf)。
@@ -122,6 +115,8 @@ socket 对象指针须在所有能到达被检查调用的路径上保持有效�
 ### 旧抓包配置清理
 
 抓包筛选是应用私有设置，不属于 sing-box schema。`experimental.http_debug` 类型、编辑绑定及示例已移除。[兼容清理](libbox/ui_capture_migration.go) 在 libbox 解析前仅删除该退役字段，不解释或执行其中内容；其他未知字段继续由核心拒绝。格式化以及应用配置保存会移除它，未包含该字段的内容保持原样。原字段中嵌入的规则/脚本不会迁移为可执行内容，也不会自动开启抓包。
+
+打开请求存储时，[存储清理](libbox/httpdebug/store_migration.go) 删除旧版 `wire/` 中以 64 个十六进制字符组成的 ID 命名的 `.wire` 包/密钥日志及 `warning.txt`，删除失败返回错误。清理不读取日志内容、不跟随目录符号链接，保留 HTTP 请求和无关文件，仅移除已清空的专用目录。旧本机设置的原子迁移见 [app.md](app.md#请求抓取与-rootebpf)。
 
 ## Android 自动重定向兼容
 
@@ -148,9 +143,9 @@ socket 对象指针须在所有能到达被检查调用的路径上保持有效�
 
 [httpdebug_test.go](libbox/httpdebug/httpdebug_test.go) 保留 HTTP 路由、SSE/WebSocket、存储上限和导出回归；[plaintext_test.go](libbox/httpdebug/plaintext_test.go) 覆盖分片、HTTP/2 并发/跨域筛选、有界缺口说明、半截正文、准备状态/库诊断、采集器退出与源关闭，以及诊断事件不干扰抓取、超过三条的失败历史、停抓保留和清日志不清请求。[logs_test.go](libbox/httpdebug/logs_test.go) 检查日志条数/字节限额、UTF-8 截断、独立快照和并发记录/读取/清空。[tls_offsets_test.go](libbox/httpdebug/tls_offsets_test.go) 检查手动函数组、指纹、偏移格式/精度和数量限制；[ui_capture_test.go](libbox/ui_capture_test.go) 检查本地设置、退役字段清理、schema 及未开抓包时的诊断绑定；[路由测试](libbox/route/httpdebug_test.go) 检查原出站和字节回放。获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py)，它不构建 Android 绑定。
 
-UI 验证在 Linux ARM64/x86_64 编译 BPF/采集器，运行 [事件测试](tools/ebpf/events_test.go)、[库发现测试](tools/ebpf/discovery_test.go)、[偏移解析测试](tools/ebpf/libraries_test.go)、[手动偏移/哈希/原始 inode 测试](tools/ebpf/manual_test.go)、[Go ABI/返回指令测试](tools/ebpf/gotls_test.go)、[socket/包关联测试](tools/ebpf/packets_test.go)、[挂载回滚测试](tools/ebpf/attach_test.go)、[映射 inode 测试](tools/ebpf/targets_test.go) 和 [平台回归](tools/ebpf/platformtest/platform_test.go)。[真实 OpenSSL smoke](tools/ebpf/smoke.py) 检查两方向 TLS 明文；x86_64 的 [APK smoke](tools/ebpf/apk_smoke.py) 执行直接映射在未压缩 APK 中的独立测试库，检查自动/手动偏移、原始 inode、跨 CPU、UID 过滤、嵌套/early-data 去重、SSL_clear、超长/重叠/跳过返回/进程退出的局部缺口及 owner EOF 清理。
+UI 验证在 Linux ARM64/x86_64 编译 BPF/采集器，运行 [事件测试](tools/ebpf/events_test.go)、[库发现测试](tools/ebpf/discovery_test.go)、[偏移解析测试](tools/ebpf/libraries_test.go)、[手动偏移/哈希/原始 inode 测试](tools/ebpf/manual_test.go)、[Go ABI/返回指令测试](tools/ebpf/gotls_test.go)、[socket 关联测试](tools/ebpf/sockets_test.go)、[挂载回滚测试](tools/ebpf/attach_test.go)、[映射 inode 测试](tools/ebpf/targets_test.go) 和 [平台回归](tools/ebpf/platformtest/platform_test.go)。[真实 OpenSSL smoke](tools/ebpf/smoke.py) 检查两方向 TLS 明文；x86_64 的 [APK smoke](tools/ebpf/apk_smoke.py) 执行直接映射在未压缩 APK 中的独立测试库，检查自动/手动偏移、原始 inode、跨 CPU、UID 过滤、嵌套/early-data 去重、SSL_clear、超长/重叠/跳过返回/进程退出的局部缺口及 owner EOF 清理。
 
-[Go TLS smoke](tools/ebpf/gotls_smoke.py) 分别用 Go 1.22.6、1.23.0、1.24.0、1.25.0、1.26.10、1.27.3 的 internal/external 链接构建 stripped PIE 客户端，在两种架构上验证显式/隐式握手、跨 goroutine I/O、socket、TLS 1.2/1.3 密钥和原始网络包。`KeyLogWriter` 保持 nil，由 tshark 独立解密；同次运行的 `gotls-wire-validation-amd64` / `gotls-wire-validation-arm64` 产物继续交给核心的 [wire_test.go](libbox/httpdebug/wire_test.go)，通过正式日志/导出器再验证 48 组 pcapng。Go 1.22.6 另构建 stripped c-shared fixture，以只读识别命令检查 JNI 类共享库的函数表和返回点，不将其视为 JNI 实机抓取。该测试还覆盖私有权限、截断恢复、搜索选连接、限额和清理；[HTTP/2 取消测试](libbox/httpdebug/plaintext_h2_test.go) 检查两方向取消、部分正文、共享 HPACK 及连续取消后的其他流。smoke 按相同 TLS 版本记录开抓前后样本延迟、采集器 CPU/RSS 和丢失信息，样本少且来自 Linux fixture，不表示 Android 性能收益或实机应用验收。
+[Go TLS smoke](tools/ebpf/gotls_smoke.py) 分别用 Go 1.22.6、1.23.0、1.24.0、1.25.0、1.26.10、1.27.3 的 internal/external 链接构建 stripped PIE 客户端，在两种架构上验证显式/隐式握手、跨 goroutine I/O、TLS 1.2/1.3 明文和 socket 关联。`gotls-validation-amd64` / `gotls-validation-arm64` 产物保留本次 fixture 的明文事件及诊断。Go 1.22.6 另构建 stripped c-shared fixture，以只读识别命令检查 JNI 类共享库的函数表和返回点，不将其视为 JNI 实机抓取。[明文 socket 回归](libbox/httpdebug/plaintext_socket_test.go) 验证迟到地址、连接代次和 HTTP authority；[存储迁移测试](libbox/httpdebug/store_migration_test.go) 检查旧数据清理、幂等性、请求保留和目录符号链接隔离；[HTTP/2 取消测试](libbox/httpdebug/plaintext_h2_test.go) 检查两方向取消、部分正文、共享 HPACK 及连续取消后的其他流。smoke 按相同 TLS 版本记录开抓前后样本延迟、采集器 CPU/RSS 和丢失信息，样本少且来自 Linux fixture，不表示 Android 性能收益或实机应用验收。
 
 平台测试检查 map/程序能进入内核调用，允许真实权限或内核限制，不将其通过视为抓取可用。共享 Android 构建 Action 使用 NDK 编译 PIE 采集器，链接 16 KiB page alignment，打包为 `libbbox_capture.so`；x86_64 构建额外生成 Android 平台回归二进制，由 Android smoke 在 API 24/31/35 的无特权 shell 中执行。生成的 BPF 对象和可执行文件不入库。Linux smoke 和无特权平台测试不代替 Android 实机内核、SELinux、Conscrypt 和目标应用验收。
 

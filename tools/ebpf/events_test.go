@@ -81,6 +81,13 @@ func TestDecodeEventBounds(t *testing.T) {
 	if e, err := decodeEvent(input); err != nil || string(e.data) != "abc" {
 		t.Fatal(e, err)
 	}
+	retired := make([]byte, 72+164)
+	binary.LittleEndian.PutUint32(retired[44:], 7)
+	binary.LittleEndian.PutUint32(retired[52:], 164)
+	binary.LittleEndian.PutUint32(retired[60:], 164)
+	if _, err := decodeEvent(retired); err == nil {
+		t.Fatal("retired TLS key event accepted")
+	}
 	binary.LittleEndian.PutUint32(input[60:], 4097)
 	if _, err := decodeEvent(input); err == nil {
 		t.Fatal("oversized event accepted")
@@ -135,6 +142,7 @@ func TestSelectionAndPrivateConfigValidation(t *testing.T) {
 	}
 	for _, invalid := range []string{
 		"{} {}\n", "{\"targets\":[\"relative.apk\"]}\n", "{\"offsets\":{}}\n",
+		"{\"captureNetwork\":true}\n", "{\"captureTlsKeys\":true}\n",
 	} {
 		if _, err := readConfig(bufio.NewReader(strings.NewReader(invalid))); err == nil {
 			t.Fatal("invalid private startup settings accepted", invalid)

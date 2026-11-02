@@ -34,15 +34,12 @@ func TestUICaptureLogsAreAvailableWithoutStartingCapture(t *testing.T) {
 }
 
 func TestUICaptureSettingsAreLocalAndRejectRetiredFeatures(t *testing.T) {
-	normalized, err := ValidateUICaptureConfig(`{"https":true,"captureNetwork":true,"captureTlsKeys":true}`)
-	if err != nil || !strings.Contains(normalized, `"captureNetwork":true`) || !strings.Contains(normalized, `"captureTlsKeys":true`) {
-		t.Fatal("raw capture settings did not survive validation", err)
-	}
 	if _, err := ValidateUICaptureConfig(`{"https":true,"tlsLibraries":["/system/lib64/libssl.so"]}`); err != nil {
 		t.Fatal(err)
 	}
 	for _, invalid := range []string{
 		`{"rewriteEnabled":true}`, `{"scripts":[]}`, `{"mapLocal":[]}`, `{"blockQUIC":true}`,
+		`{"captureNetwork":true}`, `{"captureTlsKeys":true}`, `{"captureNetwork":false}`, `{"captureTlsKeys":false}`,
 		`{"tlsLibraries":["relative.so"]}`,
 	} {
 		if _, err := ValidateUICaptureConfig(invalid); err == nil {

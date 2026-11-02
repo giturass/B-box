@@ -18,8 +18,6 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
   late final _decryptBypass = TextEditingController(text: (widget.initial['decryptBypassHosts'] as List? ?? []).join('\n'));
   late final _ports = TextEditingController(text: (widget.initial['ports'] as List? ?? [80, 443, 8080, 8443]).join(', '));
   late bool _https = widget.initial['https'] == true;
-  late bool _network = widget.initial['captureNetwork'] == true;
-  late bool _keys = widget.initial['captureTlsKeys'] == true;
   late int _bodyKiB = ((widget.initial['bodyLimit'] as num? ?? 65536) / 1024).round();
   late List<String> _packages = (widget.initial['packages'] as List? ?? []).cast<String>().toList();
   late bool _extract = widget.initial['extractHosts'] == true;
@@ -40,7 +38,6 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
         'https': _https, 'decryptHosts': _lines(_decrypt.text), 'includeHosts': _lines(_include.text),
         'excludeHosts': _lines(_exclude.text), 'packages': _packages, 'ports': ports,
         'bodyLimit': _bodyKiB * 1024,
-        'captureNetwork': _network, 'captureTlsKeys': _keys,
         'decryptBypassHosts': _lines(_decryptBypass.text), 'extractHosts': _extract,
         'tlsLibraries': _libraries.text.split('\n').map((line) => line.trim()).where((line) => line.isNotEmpty).toSet().toList(),
         'tlsOffsets': _offsets,
@@ -96,14 +93,6 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
             final offsets = await openPage<List<Json>>(context, TLSOffsetsPage(initial: _offsets));
             if (offsets != null && mounted) setState(() { _offsets = offsets; _dirty = true; });
           })]),
-        generateSection(title: context.tr('Raw TLS capture'), items: [
-          ListItem.toggle(key: const ValueKey('capture-network'), title: Text(context.tr('Save network packets')), value: _network,
-            subtitle: Text(context.tr('Export original TCP/IP packets as pcapng. Requires kernel BTF and packet capture permission.')),
-            onChanged: (value) => setState(() { _network = value; _dirty = true; })),
-          ListItem.toggle(key: const ValueKey('capture-tls-keys'), title: Text(context.tr('Save TLS keys')), value: _keys,
-            subtitle: Text(context.tr('Supported Go TLS clients provide keys for Wireshark. Keys are included in pcapng and can also be exported separately.')),
-            onChanged: (value) => setState(() { _keys = value; _dirty = true; })),
-        ], footer: context.tr('Raw capture saves whole TLS connections of selected apps, including multiplexed requests. Domain and port filters apply to HTTP records. Raw data has a separate 32 MiB limit and is cleared with requests.')),
       ],
       generateSection(items: [ListItem.toggle(title: Text(context.tr('Extract TLS/QUIC domains')), value: _extract,
         subtitle: Text(context.tr('Collect visible TLS/QUIC hostnames through the local service. These records contain names only.')),

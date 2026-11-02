@@ -159,10 +159,9 @@ void main() {
     expect(saved['tlsLibraries'], ['/data/app/test/libssl.so']);
     expect(saved['extractHosts'], isTrue);
     expect(saved.keys.toSet(), {'https', 'decryptHosts', 'includeHosts', 'excludeHosts', 'packages',
-      'ports', 'bodyLimit', 'decryptBypassHosts', 'extractHosts', 'tlsLibraries', 'tlsOffsets', 'captureNetwork', 'captureTlsKeys'});
-    expect(saved['captureNetwork'], isFalse);
-    expect(saved['captureTlsKeys'], isFalse);
+      'ports', 'bodyLimit', 'decryptBypassHosts', 'extractHosts', 'tlsLibraries', 'tlsOffsets'});
     expect(saved['tlsOffsets'], isEmpty);
+    expect(calls.where((call) => call.method == 'capture.start'), isEmpty);
   });
 
   Json offsetRecord({String path = '/data/app/com.example/base.apk'}) => {
@@ -306,43 +305,17 @@ void main() {
     });
   }
 
-  testWidgets('raw packets and TLS keys are explicit local settings', (tester) async {
+  testWidgets('HAR export uses the current request filter', (tester) async {
     await mount(tester);
-    await open(tester, const RequestSettingsPage(initial: {'https': true}, source: {'revision': 'raw-revision'}));
-    final scrollable = find.descendant(of: find.byType(RequestSettingsPage), matching: find.byType(Scrollable)).first;
-    for (final key in ['capture-network', 'capture-tls-keys']) {
-      final toggle = find.byKey(ValueKey(key));
-      await tester.scrollUntilVisible(toggle, 240, scrollable: scrollable);
-      await tester.pumpAndSettle();
-      await Scrollable.ensureVisible(tester.element(toggle), alignment: 0.2);
-      await tester.pumpAndSettle();
-      await tester.tap(toggle); await tester.pumpAndSettle();
-    }
-    await Scrollable.ensureVisible(tester.element(find.byKey(const ValueKey('capture-network'))), alignment: 0.2);
-    await tester.pumpAndSettle();
-    await capture(tester, 'raw-capture-settings');
-    await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    final args = json(calls.singleWhere((call) => call.method == 'capture.configure').arguments);
-    expect(args['revision'], 'raw-revision');
-    expect(json(args['config'])['captureNetwork'], isTrue);
-    expect(json(args['config'])['captureTlsKeys'], isTrue);
-    expect(calls.where((call) => call.method == 'capture.start'), isEmpty);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('pcapng and key exports use the current filter and retained data', (tester) async {
-    await mount(tester);
-    snapshot['state'] = {'active': false, 'wire': {'packets': 12, 'secrets': 4}};
+    snapshot['page'] = {'items': [{'id': 'saved', 'url': 'https://api.test/request',
+      'method': 'GET', 'protocol': 'HTTP/1.1', 'status': 200, 'complete': true}], 'total': 1, 'storedBytes': 0};
     await open(tester, const RequestsPage());
     final scaffold = tester.widget<CommonScaffold>(find.descendant(of: find.byType(RequestsPage), matching: find.byType(CommonScaffold)).first);
     scaffold.onKeywordsUpdate!(['api.test']); await tester.pumpAndSettle();
-    for (final label in ['Export pcapng', 'Export TLS keys']) {
-      await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
-      await tester.tap(find.text(label).last); await tester.pumpAndSettle();
-    }
+    await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
+    await tester.tap(find.text('Export HAR').last); await tester.pumpAndSettle();
     final exports = calls.where((call) => call.method == 'capture.export').map((call) => json(call.arguments)).toList();
-    expect(exports.map((value) => value['format']), ['pcapng', 'keys']);
-    expect(exports.every((value) => value['query'] == 'api.test'), isTrue);
+    expect(exports.single, {'format': 'har', 'query': 'api.test'});
     expect(find.text('Capture statistics'), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -351,7 +324,7 @@ void main() {
     await mount(tester);
     snapshot['state'] = {'active': false, 'backend': 'eBPF', 'tlsOpened': 8, 'goTlsOpened': 2,
       'plaintextConnections': 5, 'plaintextBytes': 4096, 'parsedRequests': 12, 'filteredRequests': 3,
-      'recordedRequests': 9, 'socketConnections': 4, 'wire': {'packets': 30, 'secrets': 4, 'bytes': 1024}};
+      'recordedRequests': 9, 'socketConnections': 4};
     await open(tester, const CaptureLogsPage());
     expect(find.text('TLS 8 · Plaintext 5 · Parsed 12'), findsOneWidget);
     expect(find.text('Capture stopped'), findsOneWidget);

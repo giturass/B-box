@@ -167,29 +167,3 @@ SEC("uprobe/go_handshake_leave") int go_handshake_leave(struct regs *ctx) {
     if (failed_ssl) retire(ctx, failed_ssl);
     return 0;
 }
-
-SEC("uprobe/go_keylog") int go_keylog(struct regs *ctx) {
-    if (!selected()) return 0;
-    u32 option = 3;
-    u32 *enabled = lookup(&config, &option);
-    if (!enabled || !*enabled) return 0;
-    struct go_key key = go_key_for(ctx, 0);
-    struct go_handshake *handshake = lookup(&go_handshakes, &key);
-    if (!handshake) return 0;
-    struct connection_key conn_key = key_for(handshake->ssl);
-    struct connection *connection = lookup(&connections, &conn_key);
-    if (!connection || connection->generation != handshake->generation) return 0;
-    u64 label_len = GO_ARG3(ctx), random_len = GO_ARG5(ctx), secret_len = GO_ARG8(ctx);
-    if (!label_len || label_len > 64 || random_len != 32 || secret_len < 16 || secret_len > 64) return 0;
-    struct event *event = prepare(handshake->ssl, connection, 7);
-    if (!event) return 0;
-    __builtin_memset(event->data, 0, 164);
-    event->data[0] = (u8)label_len;
-    event->data[1] = (u8)secret_len;
-    if (read_user(event->data + 4, (u32)label_len, (void *)GO_ARG2(ctx)) ||
-        read_user(event->data + 68, 32, (void *)GO_ARG4(ctx)) ||
-        read_user(event->data + 100, (u32)secret_len, (void *)GO_ARG7(ctx))) return 0;
-    event->original_len = event->captured_len = 164;
-    emit(ctx, event, 164);
-    return 0;
-}

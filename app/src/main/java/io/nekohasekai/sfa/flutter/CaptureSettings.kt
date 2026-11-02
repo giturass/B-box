@@ -39,7 +39,8 @@ internal class CaptureSettings(private val directory: File, private val retiredK
             val previous = read(4 * 1024 * 1024)
             if (previous != null) {
                 val value = JSONObject(previous)
-                val retired = listOf("blockQUIC", "rewriteEnabled", "headerRewrite", "urlRewrite", "bodyRewrite", "mapLocal", "scripts")
+                val retired = listOf("blockQUIC", "rewriteEnabled", "headerRewrite", "urlRewrite", "bodyRewrite", "mapLocal", "scripts",
+                    "captureNetwork", "captureTlsKeys")
                 if (retired.any(value::has)) {
                     retired.forEach(value::remove)
                     writeCaptureFile(file, Libbox.validateUICaptureConfig(value.toString()))
