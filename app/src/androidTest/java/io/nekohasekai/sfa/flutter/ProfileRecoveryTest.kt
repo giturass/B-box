@@ -40,6 +40,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.security.KeyStore
 import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.Date
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
@@ -99,11 +100,15 @@ class ProfileRecoveryTest {
                             serverNames = listOf(SNIHostName("origin.test"))
                         }
                         client.startHandshake()
+                        // Conscrypt may discard peer certificates after receiving
+                        // close_notify. Verify the live session before reading EOF.
+                        val peer = client.session.peerCertificates[0] as X509Certificate
+                        assertFalse(peer.encoded.contentEquals(certificate.encoded))
+                        peer.verify(certificate.publicKey)
                         client.getOutputStream().write("GET /probe?raw=1;2 HTTP/1.1\r\nHost: origin.test:$originPort\r\nConnection: close\r\n\r\n".toByteArray())
                         val response = client.getInputStream().readBytes().toString(Charsets.UTF_8)
                         assertTrue(response.startsWith("HTTP/1.1 200"))
                         assertTrue(response.contains("through-original-route"))
-                        assertFalse(client.session.peerCertificates[0].encoded.contentEquals(certificate.encoded))
                     }
                 }
                 val detail = withTimeout(5_000) {

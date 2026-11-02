@@ -47,13 +47,13 @@ def matching(label, items):
     ).splitlines()]
 
 
-def wait_for(label, timeout=90, dismiss_launcher_anr=False):
+def wait_for(label, timeout=90, dismiss_launcher_anr=False, whole_window=False):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         current = nodes()
         found = matching(label, current)
         if found:
-            return found
+            return current if whole_window else found
         # Google APIs images can start with a Pixel Launcher ANR over our app.
         # Dismiss only that known emulator failure, once; B-box ANRs still fail.
         if dismiss_launcher_anr and matching("Pixel Launcher isn't responding", current):
@@ -73,8 +73,9 @@ def tap_node(item):
     time.sleep(0.6)
 
 
-def click(label):
-    found = wait_for(label)
+def click(label, window=None):
+    found = wait_for(label) if window is None else matching(label, window)
+    assert found, f"No {label!r} action in the observed window"
     exact = [node for node in found if node.get("text") == label or node.get("content-desc") == label]
     if label in ("Start", "Stop"):
         assert exact, "The VPN button must have its own accessible tap target"
@@ -125,9 +126,12 @@ def ui_smoke():
                         tap_node(matching(label, current)[-1])
                         break
                 time.sleep(0.5)
-            wait_for("Running")
+            else:
+                current = wait_for("Running", whole_window=True)
             capture("03-vpn-running")
-            click("Proxies")
+            # Reuse the window that confirmed Running. A second UIAutomator
+            # idle wait can time out on the continuously updating dashboard.
+            click("Proxies", current)
             wait_for("Smoke selector")
             capture("04-core-proxies")
             click("Dashboard")
