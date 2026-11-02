@@ -11,6 +11,7 @@ import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.backend.log.LogLevel
 import io.nekohasekai.sfa.backend.log.LogViewModel
 import io.nekohasekai.sfa.bg.UpdateProfileWork
+import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.compose.MainActivity
 import io.nekohasekai.sfa.constant.Path
 import io.nekohasekai.sfa.constant.SettingsKey
@@ -21,6 +22,7 @@ import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.preference.KeyValueDatabase
 import io.nekohasekai.sfa.vendor.PackageQueryManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.withLock
@@ -29,16 +31,114 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.Closeable
 import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
+import java.net.Socket
+import java.security.KeyStore
+import java.security.SecureRandom
 import java.util.Date
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SNIHostName
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.TrustManagerFactory
 import kotlin.concurrent.thread
 
 @RunWith(AndroidJUnit4::class)
 class ProfileRecoveryTest {
+    @Test fun routedMITMUsesKeystoreAndTheOriginalOutbound() {
+        val arguments = InstrumentationRegistry.getArguments()
+        val originPort = arguments.getString("mitmOriginPort")?.toInt() ?: error("Run with tools/android_smoke.py TLS fixture")
+        val originCA = android.util.Base64.decode(arguments.getString("mitmOriginCA"), android.util.Base64.DEFAULT).toString(Charsets.US_ASCII)
+        withRunningProfile { activity, profiles, id ->
+            val directory = File(activity.cacheDir, "mitm-route-${UUID.randomUUID()}").apply { mkdirs() }
+            val authority = MitmCertificate(activity, directory)
+            var alias: String? = null
+            try {
+                val generated = authority.generate(authority.snapshot()["revision"] as String)
+                alias = JSONObject(File(directory, "mitm-authority.json").readText()).getString("alias")
+                val certificate = authority.publicCertificate(generated["revision"] as String)
+                val proxyPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+                val config = JSONObject("""{
+                    "inbounds":[{"type":"mixed","tag":"mitm-in","listen":"127.0.0.1","listen_port":$proxyPort}],
+                    "outbounds":[{"type":"selector","tag":"mitm-route","outbounds":["fixture-direct"]},{"type":"direct","tag":"fixture-direct"}],
+                    "route":{"rules":[{"domain":["origin.test"],"action":"route","outbound":"mitm-route","override_address":"127.0.0.1"}]}
+                }""").put("certificate", JSONObject().put("store", "none").put("certificate", JSONArray().put(originCA))).toString()
+                profiles.writeContent(id, config, BoxProfiles.revision(profiles.read(id)))
+                assertEquals(Status.Started, activity.serviceStatus.value)
+                val captures = File(activity.noBackupFilesDir, "http-debug/captures")
+                Libbox.openUICapture(captures.absolutePath)
+                Libbox.clearUICapture()
+                val material = authority.material()
+                BoxService.dashboardServer!!.startUICapture(captures.absolutePath,
+                    """{"version":2,"https":true,"ports":[$originPort],"decryptHosts":["origin.test"]}""", material.first, material.second)
+                assertTrue(JSONObject(Libbox.readUICaptureStatus()).getBoolean("active"))
+
+                val trustStore = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("mitm", certificate) }
+                val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(trustStore) }
+                val ssl = SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, SecureRandom()) }
+                Socket("127.0.0.1", proxyPort).use { tunnel ->
+                    tunnel.soTimeout = 10_000
+                    tunnel.getOutputStream().write("CONNECT origin.test:$originPort HTTP/1.1\r\nHost: origin.test:$originPort\r\n\r\n".toByteArray())
+                    val reply = StringBuilder()
+                    while (!reply.endsWith("\r\n\r\n")) {
+                        val value = tunnel.getInputStream().read()
+                        check(value >= 0 && reply.length < 8192) { "Invalid CONNECT response: $reply" }
+                        reply.append(value.toChar())
+                    }
+                    assertTrue(reply.toString().startsWith("HTTP/1.1 200"))
+                    (ssl.socketFactory.createSocket(tunnel, "origin.test", originPort, true) as SSLSocket).use { client ->
+                        client.soTimeout = 10_000
+                        client.sslParameters = client.sslParameters.apply {
+                            endpointIdentificationAlgorithm = "HTTPS"
+                            serverNames = listOf(SNIHostName("origin.test"))
+                        }
+                        client.startHandshake()
+                        client.getOutputStream().write("GET /probe?raw=1;2 HTTP/1.1\r\nHost: origin.test:$originPort\r\nConnection: close\r\n\r\n".toByteArray())
+                        val response = client.getInputStream().readBytes().toString(Charsets.UTF_8)
+                        assertTrue(response.startsWith("HTTP/1.1 200"))
+                        assertTrue(response.contains("through-original-route"))
+                        assertFalse(client.session.peerCertificates[0].encoded.contentEquals(certificate.encoded))
+                    }
+                }
+                val detail = withTimeout(5_000) {
+                    var result: JSONObject? = null
+                    while (result == null) {
+                        val items = JSONObject(Libbox.listUICapture(10, "origin.test")).getJSONArray("items")
+                        if (items.length() == 1 && items.getJSONObject(0).getBoolean("complete")) {
+                            result = JSONObject(Libbox.readUICapture(items.getJSONObject(0).getString("id")))
+                        } else delay(20)
+                    }
+                    result
+                }
+                val metadata = detail.getJSONObject("metadata")
+                assertEquals("MITM", metadata.getString("captureSource"))
+                assertEquals("mitm-in", metadata.getString("inbound"))
+                assertEquals("mitm-route", metadata.getString("outbound"))
+                assertEquals("origin.test", metadata.getJSONObject("tls").getString("serverName"))
+                assertEquals("https://origin.test:$originPort/probe?raw=1;2", detail.getJSONObject("request").getString("url"))
+                assertTrue(detail.getJSONObject("responsePreview").getString("text").contains("through-original-route"))
+                assertTrue(detail.getJSONObject("response").getBoolean("bodyComplete"))
+                val headers = detail.getJSONObject("response").getJSONArray("headers")
+                assertEquals(2, (0 until headers.length()).count { headers.getJSONObject(it).getString("name").equals("Set-Cookie", true) })
+                assertTrue(Libbox.exportUICaptureCurl(detail.getString("id")).contains("origin.test:$originPort"))
+                profiles.writeContent(id, "{}", BoxProfiles.revision(profiles.read(id)))
+                assertFalse(JSONObject(Libbox.readUICaptureStatus()).getBoolean("active"))
+            } catch (error: Exception) {
+                throw AssertionError("Android routed MITM failed: ${Libbox.readUICaptureLogs()}", error)
+            } finally {
+                Libbox.stopUICapture()
+                alias?.let { KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry(it) } }
+                directory.deleteRecursively()
+            }
+        }
+    }
+
     @Test fun captureSettingsAreLocalAndCheckRevisions() = runBlocking(Dispatchers.IO) {
         Application.application.setupLibbox()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
