@@ -48,7 +48,10 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools
+          # Install Flutter's NDK once before Gradle configures AAR projects.
+          packages: >-
+            platform-tools
+            ndk;28.2.13676358
           log-accepted-android-sdk-licenses: false
       - name: Analyze Flutter
         working-directory: flutter
