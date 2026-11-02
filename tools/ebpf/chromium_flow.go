@@ -101,6 +101,61 @@ func (c *chromiumImage) codeFunction(pc uint64) (*chromiumFunction, error) {
 	return f, nil
 }
 
+// A tail-only wrapper need not have a BL caller or an FDE of its own. Follow
+// only NOP/BTI and an unconditional B, preserving all arguments and LR, until
+// an independently observed entry is reached. No probe is placed on the
+// wrapper, and a damaged FDE or a jump into a function is never a fallback.
+func (c *chromiumImage) tailCallEntry(address uint64) (uint64, error) {
+	for hops := 0; hops < 4; hops++ {
+		f, err := c.unwindFunction(address)
+		if !errors.Is(err, errChromiumUnwindGap) {
+			if err != nil {
+				return 0, err
+			}
+			if f.address != address {
+				return 0, errChromiumCodeRange
+			}
+			return address, nil
+		}
+		if err := c.loadCodeEntries(); err != nil {
+			return 0, err
+		}
+		index := sort.Search(len(c.codeEntries), func(i int) bool { return c.codeEntries[i] >= address })
+		if index < len(c.codeEntries) && c.codeEntries[index] == address {
+			return address, nil
+		}
+		limit := address + min(uint64(16), c.text.Size-(address-c.text.Addr))
+		if index < len(c.codeEntries) {
+			limit = min(limit, c.codeEntries[index])
+		}
+		if next := sort.Search(len(c.table)/8, func(i int) bool { start, _ := c.entry(i); return start > address }); next < len(c.table)/8 {
+			start, _ := c.entry(next)
+			limit = min(limit, start)
+		}
+		var code [16]byte
+		if _, err := c.text.ReadAt(code[:limit-address], int64(address-c.text.Addr)); err != nil {
+			return 0, err
+		}
+		branched := false
+		for pc := address; pc < limit; pc += 4 {
+			word := binary.LittleEndian.Uint32(code[pc-address:])
+			if word == 0xd503201f || word&0xffffff3f == 0xd503241f { // NOP / BTI.
+				continue
+			}
+			target, linked, branch := armBranch(word, pc)
+			if !branch || linked {
+				return 0, errChromiumCodeRange
+			}
+			address, branched = target, true
+			break
+		}
+		if !branched {
+			return 0, errChromiumCodeRange
+		}
+	}
+	return 0, errChromiumCodeRange
+}
+
 func (c *chromiumImage) walkCode(start uint64, code []byte) (*chromiumFunction, error) {
 	visited := make([]bool, len(code)/4)
 	queue := []uint64{start}
@@ -140,7 +195,12 @@ func (c *chromiumImage) walkCode(start uint64, code []byte) (*chromiumFunction, 
 			} else if target < start || target-start >= uint64(len(code)) {
 				i := sort.Search(len(c.codeEntries), func(i int) bool { return c.codeEntries[i] >= target })
 				if i == len(c.codeEntries) || c.codeEntries[i] != target {
-					return reject(pc, "tail call has no independently observed entry")
+					if _, err := c.tailCallEntry(target); err != nil {
+						if errors.Is(err, errChromiumCodeRange) {
+							return reject(pc, "tail call has no verified entry or transparent branch wrapper")
+						}
+						return nil, err
+					}
 				}
 				exits++
 				continue

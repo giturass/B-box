@@ -1,5 +1,6 @@
 {
   "library": "libcronet.119.0.6045.214.so",
+  "tail_only": ["SSL_free_wrapper"],
   "library_sha256": "380142b446c0cd703462788ebd5b97a0dee110b0e93156dfefac683aba328b47",
   "chromium_commit": "42d9ae0937c2bdac793feeb5922a0b0cb25ebae2",
   "boringssl_commit": "d24a38200fef19150eef00cad35b138936c08767",

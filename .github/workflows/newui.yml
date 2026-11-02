@@ -69,6 +69,17 @@ jobs:
       - name: Collector framing, ordering, symbol and platform tests
         working-directory: tools/ebpf
         run: go test -mod=readonly -race -count=1 ./...
+      - name: Build a static collector for installed-library inspection
+        working-directory: tools/ebpf
+        env:
+          CGO_ENABLED: '0'
+        run: go build -mod=readonly -trimpath -o build/capture-inspect .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: capture-inspector-${{ matrix.arch }}
+          path: tools/ebpf/build/capture-inspect
+          if-no-files-found: error
+          retention-days: 7
       - name: Root uprobe TLS smoke and owner shutdown
         run: sudo python3 tools/ebpf/smoke.py
       - name: Stored APK uprobes, automatic offsets and TLS lifetime smoke

@@ -148,6 +148,27 @@ func TestRenamedCronetIsRecognizedByContents(t *testing.T) {
 	}
 }
 
+func TestChromiumBasenameAloneDoesNotReportMissingTLS(t *testing.T) {
+	data := symbolFixture()
+	for i := range requiredSymbols {
+		binary.LittleEndian.PutUint16(data[0x500+24*(i+1)+6:], uint16(elf.SHN_UNDEF))
+	}
+	for _, name := range []string{"/system/lib64/libchrome.so", "libwebviewchromium.so", "libmonochrome.so", "renamed.so"} {
+		_, _, err := resolveSymbols(context.Background(), bytes.NewReader(data), name)
+		var unsupported *unsupportedChromiumError
+		if err == nil || errors.As(err, &unsupported) {
+			t.Fatalf("%s was treated as a TLS implementation based on its name: %v", name, err)
+		}
+	}
+	// A partial SSL interface remains a warning, regardless of the basename.
+	binary.LittleEndian.PutUint16(data[0x500+24+6:], 1)
+	_, _, err := resolveSymbols(context.Background(), bytes.NewReader(data), "/system/lib64/libchrome.so")
+	var unsupported *unsupportedChromiumError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("an incomplete SSL implementation was silently skipped: %v", err)
+	}
+}
+
 func writeAPK(t *testing.T, path string, method uint16) string {
 	t.Helper()
 	var buffer bytes.Buffer

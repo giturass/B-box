@@ -59,17 +59,25 @@ func TestCronetOutlinedHelpersMustPreserveContextOwnershipAndConsumption(t *test
 		"reset stores old allocation":                        func(f chromiumFixture) { change(f, "SSL_reset", 0xc, 31, 0) },
 		"reset releases only null":                           func(f chromiumFixture) { change(f, "SSL_reset", 0x10, 0, 1<<24) },
 		"free wrapper changes argument":                      func(f chromiumFixture) { word(f, "SSL_free_wrapper", 0, 0xaa0103e0) },
-		"cleanup frees another pointer":                      func(f chromiumFixture) { word(f, "SSL_new", 0x2b0, 0xaa1403e0) },
-		"read unsigned positive guard":                       func(f chromiumFixture) { change(f, "SSL_read", 0x1c, 15, 3) },
-		"subspan receives another count":                     func(f chromiumFixture) { word(f, "SSL_read", 0x24, 0x2a1403e1) },
-		"subspan has a finite limit":                         func(f chromiumFixture) { word(f, "SSL_read", 0x28, 0xd2800022) },
-		"writeback targets another owner":                    func(f chromiumFixture) { change(f, "SSL_read", 0x34, 4095<<10, 7<<10) },
-		"writeback reverses pointer and length":              func(f chromiumFixture) { change(f, "SSL_read", 0x38, 31|31<<10, 1) },
-		"writeback omitted":                                  func(f chromiumFixture) { word(f, "SSL_read", 0x38, 0xd503201f) },
-		"Boolean return":                                     func(f chromiumFixture) { word(f, "SSL_read", 0x50, 0x52800020) },
-		"subspan wrong bounds condition":                     func(f chromiumFixture) { change(f, "Span_subspan", 0xc, 15, 2) },
-		"subspan moves pointer backwards":                    func(f chromiumFixture) { change(f, "Span_subspan", 0x18, 0, 1<<30) },
-		"subspan selects maximum length":                     func(f chromiumFixture) { change(f, "Span_subspan", 0x1c, 15<<12, 2<<12) },
+		"free wrapper changes stack":                         func(f chromiumFixture) { word(f, "SSL_free_wrapper", 0, 0xd10043ff) },
+		"free wrapper returns without freeing":               func(f chromiumFixture) { word(f, "SSL_free_wrapper", 4, 0xd65f03c0) },
+		"free wrapper changes link register":                 func(f chromiumFixture) { change(f, "SSL_free_wrapper", 4, 0, 1<<31) },
+		"free wrapper loops":                                 func(f chromiumFixture) { word(f, "SSL_free_wrapper", 4, 0x17ffffff) },
+		"free wrapper jumps inside a function": func(f chromiumFixture) {
+			pc, target := f.functions["SSL_free_wrapper"].address+4, f.functions["SSL_free"].address+4
+			word(f, "SSL_free_wrapper", 4, 0x14000000|uint32((int64(target)-int64(pc))/4)&0x3ffffff)
+		},
+		"cleanup frees another pointer":         func(f chromiumFixture) { word(f, "SSL_new", 0x2b0, 0xaa1403e0) },
+		"read unsigned positive guard":          func(f chromiumFixture) { change(f, "SSL_read", 0x1c, 15, 3) },
+		"subspan receives another count":        func(f chromiumFixture) { word(f, "SSL_read", 0x24, 0x2a1403e1) },
+		"subspan has a finite limit":            func(f chromiumFixture) { word(f, "SSL_read", 0x28, 0xd2800022) },
+		"writeback targets another owner":       func(f chromiumFixture) { change(f, "SSL_read", 0x34, 4095<<10, 7<<10) },
+		"writeback reverses pointer and length": func(f chromiumFixture) { change(f, "SSL_read", 0x38, 31|31<<10, 1) },
+		"writeback omitted":                     func(f chromiumFixture) { word(f, "SSL_read", 0x38, 0xd503201f) },
+		"Boolean return":                        func(f chromiumFixture) { word(f, "SSL_read", 0x50, 0x52800020) },
+		"subspan wrong bounds condition":        func(f chromiumFixture) { change(f, "Span_subspan", 0xc, 15, 2) },
+		"subspan moves pointer backwards":       func(f chromiumFixture) { change(f, "Span_subspan", 0x18, 0, 1<<30) },
+		"subspan selects maximum length":        func(f chromiumFixture) { change(f, "Span_subspan", 0x1c, 15<<12, 2<<12) },
 		"bounds failure returns": func(f chromiumFixture) {
 			sample := f.functions["Span_subspan"]
 			pc, target := sample.address+0x2c, f.imports["memcpy"].address
@@ -85,6 +93,32 @@ func TestCronetOutlinedHelpersMustPreserveContextOwnershipAndConsumption(t *test
 				t.Fatalf("unverified outlined ABI accepted: %v, %v", symbols, err)
 			}
 		})
+	}
+}
+
+func TestCronetFreeWrapperNeedsNoInventedCallEntry(t *testing.T) {
+	fixture := makeChromiumFixtureSource(t, "cronet-119.json", 19, false, true)
+	fixture.sparseUnwind()
+	wrapper := fixture.functions["SSL_free_wrapper"]
+	for _, sample := range fixture.functions {
+		for _, call := range armCalls(&chromiumFunction{sample.address, sample.code}) {
+			if _, linked, _ := armBranch(binary.LittleEndian.Uint32(sample.code[call.pc-sample.address:]), call.pc); linked && call.target == wrapper.address {
+				t.Fatal("fixture invented a BL caller absent from the installed library")
+			}
+		}
+	}
+	resolved, err := resolveFixture(context.Background(), fixture)
+	if err != nil || resolved["SSL_free"] != fixture.functions["SSL_free"].address-(0x10000000+19*0x1000000) {
+		t.Fatalf("tail-only release wrapper: %v, %v", resolved, err)
+	}
+}
+
+func TestCronetTailWrapperCannotBypassCorruptUnwind(t *testing.T) {
+	fixture := makeChromiumFixtureSource(t, "cronet-119.json", 19, false, true)
+	wrapper := fixture.functions["SSL_free_wrapper"]
+	binary.LittleEndian.PutUint32(fixture.data[wrapper.frame+12:], 0)
+	if symbols, err := resolveFixture(context.Background(), fixture); err == nil || len(symbols) != 0 || !strings.Contains(err.Error(), "invalid unwind function range") {
+		t.Fatalf("tail-only wrapper hid a corrupt FDE: %v, %v", symbols, err)
 	}
 }
 

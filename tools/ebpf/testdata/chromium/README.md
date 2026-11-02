@@ -100,6 +100,12 @@ whose DEPS pins BoringSSL
 [`d24a38200fef19150eef00cad35b138936c08767`](https://boringssl.googlesource.com/boringssl/+/d24a38200fef19150eef00cad35b138936c08767/ssl/ssl_lib.cc).
 Besides the nine original roles, this fixture retains `MakeUnique`,
 `unique_ptr::reset`, the transparent `SSL_free` wrapper and `Span::subspan`.
+The installed library reaches the `SSL_free` wrapper only through a tail `B`;
+it has neither a direct `BL` caller nor an FDE. The `tail_only` metadata prevents
+the fixture driver from inventing a `BL` to that wrapper. Sparse-unwind tests
+must instead verify its actual `BTI; B` forwarding to the independently called
+release implementation. Mutations which change arguments, SP or LR, return,
+loop, jump into another function or corrupt the wrapper's FDE are rejected.
 The recognizer verifies context references, allocation/constructor arguments,
 replacement and release of the same socket member, span bounds and consumption,
 and unchanged signed read counts. It does not accept fixed private field offsets.

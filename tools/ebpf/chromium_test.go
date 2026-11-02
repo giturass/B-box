@@ -55,6 +55,7 @@ func makeChromiumFixtureSource(t *testing.T, source string, seed int64, duplicat
 	var input struct {
 		Sources   map[string]string `json:"sources"`
 		Imports   map[string]string `json:"imports"`
+		TailOnly  []string          `json:"tail_only"`
 		Functions []struct {
 			Name, Address, SHA256 string
 			Code                  []string
@@ -112,8 +113,16 @@ func makeChromiumFixtureSource(t *testing.T, source string, seed int64, duplicat
 	if entryCalls {
 		// Stand in for callers outside the extracted functions, including
 		// independently called helpers reached here only by tail calls.
-		// A direct BL is required even when the callee has no unwind record.
-		entryPoints = append(entryPoints, samples...)
+		// Do not invent BL callers for entries known to have only tail calls.
+		for _, sample := range samples {
+			tailOnly := false
+			for _, name := range input.TailOnly {
+				tailOnly = tailOnly || sample.name == name
+			}
+			if !tailOnly {
+				entryPoints = append(entryPoints, sample)
+			}
+		}
 		samples = append(samples, &chromiumSample{name: "fixture_entry_calls", code: make([]byte, 4*(len(entryPoints)+1))})
 	}
 	if duplicateWrite {

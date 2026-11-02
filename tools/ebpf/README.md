@@ -18,6 +18,8 @@ stackplz 的模块文件使用相邻目录替换依赖，未固定该 fork 的 S
 
 无符号 ARM64 BoringSSL 的静态识别是 B-box 的实现，源码依据及测试片段许可见 [Chromium 测试说明](testdata/chromium/README.md)。它根据当前 ELF 内容重新计算偏移，没有版本地址表；缺少足够证据的库保持未支持状态。
 
+尾跳转包装的参数与返回地址约束依据 [AAPCS64 的子程序调用及尾调用定义](https://github.com/ARM-software/abi-aa/blob/2025Q1/aapcs64/aapcs64.rst#subroutine-calls)。只有不修改参数、栈和 LR 的 NOP/BTI 与直接 B 转发可跨过缺少独立调用入口的包装；最终释放函数仍须通过分配/释放配对检查。
+
 该 fork 的 [perf/reader.go](https://github.com/SeeFlowerX/ebpf/blob/61cbc4a37e8264c3788494a74dcec992c636b918/perf/reader.go) 为堆栈/寄存器解析保留完整采样正文，`Record.RawSample` 包含开头的四字节 `PERF_SAMPLE_RAW` 长度。B-box 仅启用 RAW 采样，由 [events.go](events.go) 检查并移除这层封装，再处理自己的事件及内核对齐填充。升级依赖时必须核对该格式，不能把 fork 与原版 cilium 的同名 API 视为行为相同。
 
 TLS 生命周期还依据 [OpenSSL 3.0 的 state_machine](https://github.com/openssl/openssl/blob/openssl-3.0.13/ssl/statem/statem.c)：首次 `SSL_read`/`SSL_write` 可能在内部调用 `SSL_clear` 初始化握手。采集器区分尚无明文字节的同线程初始化与已有流的重置，避免把正常首个 I/O 当作缺口；该行为由真实 OpenSSL 和 APK 测试库共同覆盖。
@@ -31,6 +33,8 @@ Go 实现依据 [Go 1.27.3 ABIInternal](https://github.com/golang/go/blob/go1.27
 ## 检查入口
 
 `capture --inspect-library <ELF 或 APK 路径>` 使用生产识别器输出 `path`、`entry`、`sha256`、`method`、`archiveOffset` 和 `symbols`。其中 `sha256` 只计算 ELF 字节，`symbols` 是 ELF 函数文件偏移，实际挂载偏移为 `archiveOffset + symbols[函数名]`。自动识别失败的条目也输出哈希及 `error`。此命令只读安装文件，不加载 BPF；静态识别成功不代表设备允许挂载或目标应用实际调用了这些接口。
+
+[UI 验证工作流](../../.github/workflows/newui.yml) 在采集器测试通过后上传 `capture-inspector-arm64` / `capture-inspector-amd64`，其中的 `capture-inspect` 是同一源码的无 libc 依赖 Linux 可执行文件，可用上述参数只读检查对应架构的安装库。产物与运行的源码 SHA 对应，不需要在 Termux 编译；Android 应用仍使用 NDK 构建的采集器。
 
 ## 手动函数偏移
 

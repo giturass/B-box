@@ -6,8 +6,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"path/filepath"
-	"strings"
 )
 
 // Public BoringSSL error reasons, not source line numbers or private layouts.
@@ -24,12 +22,6 @@ type unsupportedChromiumError struct{ name, reason string }
 
 func (e *unsupportedChromiumError) Error() string {
 	return fmt.Sprintf("Automatic TLS function resolution is unavailable for %s: %s; TLS/QUIC domain observations may still be available", e.name, e.reason)
-}
-
-func chromiumLibraryName(name string) bool {
-	name = filepath.Base(name)
-	return name == "libchrome.so" || name == "libwebviewchromium.so" || name == "libtrichrome.so" ||
-		strings.HasPrefix(name, "libmonochrome") && strings.HasSuffix(name, ".so")
 }
 
 type chromiumErrorSite struct {

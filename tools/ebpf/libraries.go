@@ -105,6 +105,9 @@ func resolveSymbolsForMachine(ctx context.Context, reader io.ReaderAt, name stri
 	sslSymbols, sslMethod, sslErr := resolveSSLSymbols(ctx, file, name, machine)
 	if info, err := buildinfo.Read(contextReaderAt{ctx, reader}); err == nil {
 		goSymbols, goMethod, goErr := resolveGoTLS(ctx, file, info)
+		if errors.Is(goErr, errNoGoTLS) {
+			return sslSymbols, sslMethod, sslErr
+		}
 		if goErr != nil {
 			if sslErr == nil {
 				return sslSymbols, sslMethod + "; Go TLS unavailable: " + goErr.Error(), nil
@@ -206,9 +209,11 @@ func resolveSSLSymbols(ctx context.Context, file *elf.File, name string, machine
 				}
 			}
 			result, method = resolved, "BoringSSL code analysis"
-		} else if len(result) > 0 || anchors || chromiumLibraryName(name) {
+		} else if len(result) > 0 || anchors {
 			return nil, "", &unsupportedChromiumError{filepath.Base(name), "automatic SSL_new/free/read/write resolution is incomplete"}
 		} else {
+			// Android's system libchrome contains Chromium base utilities,
+			// not the browser TLS stack. A basename is not evidence of SSL.
 			return nil, "", errors.New("no supported SSL interface found")
 		}
 	}

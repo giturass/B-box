@@ -26,6 +26,8 @@ const (
 
 type unsupportedGoTLSError struct{ name, reason string }
 
+var errNoGoTLS = errors.New("Go function table contains no crypto/tls functions")
+
 func (e *unsupportedGoTLSError) Error() string {
 	return e.name + ": Go TLS capture unavailable: " + e.reason
 }
@@ -62,6 +64,7 @@ func resolveGoTLS(ctx context.Context, file *elf.File, info *debug.BuildInfo) (r
 		return nil, "", errors.New("Go TLS executable text is missing")
 	}
 	var table *gosym.Table
+	parsedTable := false
 	for _, name := range []string{".gopclntab", ".data.rel.ro.gopclntab", ".data.rel.ro"} {
 		section := file.Section(name)
 		if section == nil || section.Size > 32*1024*1024 {
@@ -97,9 +100,17 @@ func resolveGoTLS(ctx context.Context, file *elf.File, info *debug.BuildInfo) (r
 					return nil, "", addressErr
 				}
 				candidate, parseErr := gosym.NewTable(nil, gosym.NewLineTable(data[at:], textStart))
-				if parseErr == nil && candidate.LookupFunc(goRead) != nil {
-					table = candidate
-					break
+				if parseErr == nil && len(candidate.Funcs) > 0 {
+					parsedTable = true
+					for _, function := range candidate.Funcs {
+						if function.Sym != nil && strings.HasPrefix(function.Name, "crypto/tls.") {
+							table = candidate
+							break
+						}
+					}
+					if table != nil {
+						break
+					}
 				}
 			}
 			at += 8
@@ -109,6 +120,11 @@ func resolveGoTLS(ctx context.Context, file *elf.File, info *debug.BuildInfo) (r
 		}
 	}
 	if table == nil {
+		// Go build information alone does not imply a TLS implementation.
+		// Keep a valid table without crypto/tls separate from damaged metadata.
+		if parsedTable {
+			return nil, "", errNoGoTLS
+		}
 		return nil, "", errors.New("Go TLS function table is missing or unsupported")
 	}
 	result = make(map[string]uint64)

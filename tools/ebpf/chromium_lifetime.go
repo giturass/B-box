@@ -218,6 +218,11 @@ func chromiumResetHelper(f *chromiumFunction) (uint64, bool) {
 
 func (c *chromiumImage) freeFunction(address uint64) (*chromiumFunction, uint64, uint64, error) {
 	for hops := 0; hops < 3; hops++ {
+		entry, err := c.tailCallEntry(address)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		address = entry
 		f, err := c.entryFunction(address)
 		if err != nil {
 			return nil, 0, 0, err
