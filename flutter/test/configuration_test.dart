@@ -85,7 +85,9 @@ void main() {
     Json wire() => {'formatted': content, 'content': content, 'revision': revision};
     final writes = <Json>[];
     messenger.setMockMethodCallHandler(channel, (call) async {
-      if (call.method == 'ready') return {'version': 'test', 'dashboard': {'status': 'Stopped'}};
+      if (call.method == 'ready') return {
+        'version': 'test', 'coreVersion': 'test', 'preferences': {'locale': 'en'}, 'dashboard': {'status': 'Stopped'},
+      };
       if (call.method == 'profiles.config') return wire();
       if (call.method == 'profiles.write') {
         final args = json(call.arguments);
@@ -102,6 +104,12 @@ void main() {
     final store = ProfileConfigStore(box, {'id': 7, 'name': 'Profile'});
     await store.load();
     await tester.pumpWidget(BoxApp(controller: box));
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      store.dispose();
+      await events.close();
+      messenger.setMockMethodCallHandler(channel, null);
+    });
     await tester.pumpAndSettle();
     openPage(tester.element(find.byType(HomePage)), HttpRewriteConfigPage(store: store));
     await tester.pumpAndSettle();
@@ -117,10 +125,6 @@ void main() {
     expect(store.revision, 'after');
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-    store.dispose();
-    await events.close();
-    messenger.setMockMethodCallHandler(channel, null);
   });
 
   testWidgets('config sheet keeps edits after canceling dismissal and a failed save', (tester) async {

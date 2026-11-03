@@ -40,6 +40,9 @@ func TestRewriteConfigValidation(t *testing.T) {
 		`{"header_rewrite":[{"pattern":".","phase":"response","operation":"add","header":"X-Test","value":"x\r\nInjected: yes"}]}`,
 		`{"header_rewrite":[{"pattern":".","phase":"request","operation":"delete","header":"Host"}]}`,
 		`{"url_rewrite":[{"pattern":".","action":"header","replacement":"file:///etc/passwd"}]}`,
+		`{"url_rewrite":[{"pattern":".","action":"302","replacement":"http://"}]}`,
+		`{"map_remote":[{"pattern":".","replacement":"https://example.test:99999/"}]}`,
+		`{"map_remote":[{"pattern":".","replacement":"https://user:password@example.test/"}]}`,
 		`{"body_rewrite":[{"pattern":".","phase":"request","regex":"(?<=x)y"}]}`,
 		`{"scripts":[{"pattern":".","phase":"request","source":"function {"}]}`,
 		`{"scripts":[{"pattern":".","phase":"request","source":"$done()","timeout_ms":2001}]}`,
@@ -320,6 +323,41 @@ func TestRewriteBodyLimitAndHTTPFraming(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestRewriteUpgradePreservesProtocolAndSkipsBody(t *testing.T) {
+	for _, test := range []struct {
+		name, source string
+		requiresBody bool
+		wantError    bool
+	}{
+		{"headers", "$done({headers:$response.headers});", false, false},
+		{"body skipped", "$done({body:'not a websocket frame'});", true, false},
+		{"status rejected", "$done({status:200});", false, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			content, _ := json.Marshal(map[string]any{"scripts": []any{map[string]any{
+				"pattern": ".", "phase": "response", "source": test.source, "requires_body": test.requiresBody,
+			}}})
+			program := rewriteProgram(t, string(content))
+			request, _ := http.NewRequest("GET", "http://example.test/socket", nil)
+			body := io.NopCloser(strings.NewReader("opaque websocket frames"))
+			response := &http.Response{StatusCode: http.StatusSwitchingProtocols, Body: body,
+				Header: http.Header{"Connection": {"Upgrade"}, "Upgrade": {"websocket"}}}
+			err := program.response(request, response, "test", request.URL.String(), func(string) {})
+			if (err != nil) != test.wantError {
+				t.Fatalf("unexpected script result: %v", err)
+			}
+			if response.StatusCode != http.StatusSwitchingProtocols || response.Body != body || response.Header.Get("Upgrade") != "websocket" || response.Header.Get("Connection") != "Upgrade" {
+				t.Fatal("rewrite changed the protocol upgrade or replaced its stream")
+			}
+			data, err := io.ReadAll(body)
+			body.Close()
+			if err != nil || string(data) != "opaque websocket frames" {
+				t.Fatalf("rewrite consumed protocol data: %q %v", data, err)
+			}
+		})
 	}
 }
 

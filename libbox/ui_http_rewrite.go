@@ -24,7 +24,7 @@ func (s *CommandServer) prepareUIHTTPRewrite(configContent string, overrides *Ov
 	if options.Experimental == nil || options.Experimental.HTTPRewrite == nil || !options.Experimental.HTTPRewrite.Enabled {
 		return nil, nil
 	}
-	config := options.Experimental.HTTPRewrite
+	config := (*httpdebug.RewriteConfig)(options.Experimental.HTTPRewrite)
 	var signer crypto.Signer
 	if config.MITM.Enabled {
 		ca, err := httpdebug.ParseCA(overrides.RewriteCertificate)

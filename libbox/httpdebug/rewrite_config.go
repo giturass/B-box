@@ -427,6 +427,10 @@ func validateURLTemplate(value string) error {
 	if len(value) > 8192 || strings.ContainsAny(value, "\r\n") || (!strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://")) {
 		return errors.New("replacement must be an absolute http:// or https:// URL template, at most 8192 bytes")
 	}
+	if !strings.Contains(value, "$") {
+		_, err := parseRewriteURL(value)
+		return err
+	}
 	return nil
 }
 

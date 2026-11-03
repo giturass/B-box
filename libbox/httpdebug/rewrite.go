@@ -187,6 +187,9 @@ func (p *RewriteProgram) response(request *http.Request, response *http.Response
 				return errors.New("response aborted by rewrite script")
 			}
 			if result.status != 0 {
+				if response.StatusCode == http.StatusSwitchingProtocols {
+					return errors.New("script cannot change the status of a protocol upgrade")
+				}
 				response.StatusCode = result.status
 				response.Status = fmt.Sprintf("%d %s", result.status, http.StatusText(result.status))
 			}
