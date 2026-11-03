@@ -27,6 +27,8 @@ void main() {
     testWidgets('all primary routes render at $size dark=$dark scale=$fontScale', (tester) async {
       tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];
       addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
+      tester.platformDispatcher.textScaleFactorTestValue = fontScale;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -35,7 +37,7 @@ void main() {
       final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready' ? {
         'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped', 'modes': []},
-        'profiles': [], 'preferences': {'locale': 'zh', 'theme': dark ? 'dark' : 'light', 'fontScale': fontScale},
+        'profiles': [], 'preferences': {'locale': 'zh', 'theme': dark ? 'dark' : 'light'},
       } : null);
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
       final events = StreamController<dynamic>.broadcast();
@@ -128,7 +130,7 @@ void main() {
         await tester.pumpAndSettle();
         await closed;
       }
-      events.add({'type': 'preferences', 'value': {'locale': 'en', 'theme': dark ? 'dark' : 'light', 'fontScale': fontScale}});
+      events.add({'type': 'preferences', 'value': {'locale': 'en', 'theme': dark ? 'dark' : 'light'}});
       tester.binding.platformDispatcher.localesTestValue = const [Locale('zh', 'CN')];
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'Chinese locale');

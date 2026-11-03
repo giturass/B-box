@@ -51,8 +51,31 @@ void main() {
     await events.close();
   });
 
-  test('custom text size replaces system scaling instead of multiplying it', () {
-    expect(appTextScale({'customFontScale': true, 'fontScale': 1.2}, 1.4), 1.2);
-    expect(appTextScale({'customFontScale': false, 'fontScale': 1.2}, 1.4), 1.4);
+  testWidgets('retired font choices do not override the default font or live system scaling', (tester) async {
+    tester.platformDispatcher.textScaleFactorTestValue = 1.2;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final events = StreamController<dynamic>.broadcast();
+    const channel = MethodChannel('test.appearance.system-font');
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready' ? {
+      'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'},
+      'preferences': {'fontFamily': 'JetBrainsMono', 'customFontScale': true, 'fontScale': .8},
+    } : null);
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      await events.close();
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+    await tester.pumpWidget(BoxApp(controller: BoxController(channel: channel, events: events.stream)));
+    await tester.pumpAndSettle();
+    final context = tester.element(find.byType(HomePage));
+    expect(Theme.of(context).textTheme.bodyMedium!.fontFamily, ThemeData().textTheme.bodyMedium!.fontFamily);
+    expect(MediaQuery.textScalerOf(context).scale(10), closeTo(12, 1e-9));
+    for (final (system, expected) in [(1.3, 13.0), (2.0, 14.0), (.5, 8.0)]) {
+      tester.platformDispatcher.textScaleFactorTestValue = system;
+      await tester.pumpAndSettle();
+      expect(MediaQuery.textScalerOf(context).scale(10), closeTo(expected, 1e-9));
+    }
+    expect(tester.takeException(), isNull);
   });
 }

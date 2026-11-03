@@ -51,6 +51,8 @@ void main() {
   Future<void> mount(WidgetTester tester, {bool remote = false, bool dark = false, double scale = 1, Size size = const Size(360, 900)}) async {
     tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];
     addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
+    tester.platformDispatcher.textScaleFactorTestValue = scale;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -68,7 +70,7 @@ void main() {
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
       if (call.method == 'ready') return {
-        'version': 'test', 'coreVersion': 'test', 'preferences': {'fontScale': scale, 'theme': dark ? 'dark' : 'light'},
+        'version': 'test', 'coreVersion': 'test', 'preferences': {'theme': dark ? 'dark' : 'light'},
         'dashboard': {'status': 'Started', if (remote) ...{'remote': 'Server', 'remoteConnected': true}},
       };
       if (extra != null) return extra!(call);

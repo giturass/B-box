@@ -33,6 +33,8 @@ class _Dashboard {
     reportFlutterErrors();
     tester.binding.platformDispatcher.localesTestValue = [Locale(locale)];
     addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
+    tester.platformDispatcher.textScaleFactorTestValue = scale;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -45,7 +47,7 @@ class _Dashboard {
       switch (call.method) {
         case 'ready': return {
           'version': 'test', 'coreVersion': 'test',
-          'preferences': {'fontScale': scale,
+          'preferences': {
             'hiddenCards': ['Network speed', 'Outbound mode', 'Current profile', 'Proxy groups', 'Memory', 'Intranet IP']},
           'dashboard': {'status': status, 'mode': 'rule', if (remote) 'remote': 'Remote server', if (remote) 'remoteConnected': true},
         };

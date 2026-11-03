@@ -12,8 +12,3 @@ ColorScheme appColorScheme(BoxController box, Brightness brightness, {Color? col
   final style = ColorStyle.values.firstWhere((v) => v.name == prefs['colorStyle'], orElse: () => ColorStyle.vivid);
   return seededColorScheme(seedColor: accent, brightness: brightness, style: style).toPureBlack(pureBlack ?? prefs['pureBlack'] == true);
 }
-
-bool customFontScale(Json prefs) => prefs['customFontScale'] as bool? ?? prefs.containsKey('fontScale');
-
-double appTextScale(Json prefs, double systemScale) =>
-    (customFontScale(prefs) ? (prefs['fontScale'] as num?)?.toDouble() ?? 1 : systemScale).clamp(.8, 1.4);

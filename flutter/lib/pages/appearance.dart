@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:math';
 import '../widgets.dart';
 import '../theme_settings.dart';
@@ -64,13 +63,7 @@ class AppearancePage extends StatelessWidget {
             label: context.tr({'none': 'None', 'standard': 'Standard', 'ultra': 'Ultra'}[mode]!),
             pictogram: preview(floatingBar: true, liquidGlass: mode != 'none'))],
           onChanged: (v) => box.setPreference('liquidGlass', v),
-        ), const SizedBox(height: 16),
-        InfoHeader(info: Info(label: context.tr('Font family'), glyph: AppGlyphs.font)),
-        Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0), child: generateGroup([
-          ListItem.open(leading: Text('Aa', style: AppTextStyle.headline.of(context)),
-            title: Text(prefs['fontFamily'] as String? ?? context.tr('Default')), widget: const FontFamilyPage()),
-        ])), const SizedBox(height: 16),
-        const _TextScaleControl(),
+        ),
       ],
     ));
   }
@@ -139,81 +132,6 @@ class _CustomColorPageState extends State<CustomColorPage> {
       )),
       const SizedBox(height: 16), Palette(controller: _color),
     ]);
-}
-
-class _TextScaleControl extends StatefulWidget {
-  const _TextScaleControl();
-  @override State<_TextScaleControl> createState() => _TextScaleControlState();
-}
-class _TextScaleControlState extends State<_TextScaleControl> {
-  double? _draft;
-  @override Widget build(BuildContext context) {
-    final box = context.box, prefs = context.box.preferences;
-    final enabled = customFontScale(prefs);
-    final scale = _draft ?? appTextScale(prefs, View.of(context).platformDispatcher.textScaleFactor);
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      InfoHeader(info: Info(label: context.tr('Font scale'), glyph: AppGlyphs.textSize), actions: [
-        if (enabled && scale != 1) IconButton(icon: const GlyphIcon(AppGlyphs.reset), tooltip: context.tr('Reset'), onPressed: () => box.setPreference('fontScale', 1)),
-      ]),
-      Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0), child: Column(spacing: 8, children: [
-        SegmentedControl<bool>(segments: [(false, context.tr('Follow system')), (true, context.tr('Custom'))], value: enabled,
-          onChanged: (v) { setState(() => _draft = null); box.setPreference('customFontScale', v); }),
-        Container(padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          decoration: ShapeDecoration(color: context.raisedSurfaceLevel.colorOf(context.colorScheme), shape: AppShape.lg),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Expanded(child: MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)), child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start, spacing: 4, children: [Text('Aa', style: AppTextStyle.title3.of(context)),
-                  Text(context.tr('Text size preview'), style: AppTextStyle.subheadline.of(context))],
-              ))), Text('${(scale * 100).round()}%', style: AppTextStyle.subheadline.of(context).toTabular),
-            ]),
-            const SizedBox(height: 8),
-            MediaQuery.withNoTextScaling(child: Row(spacing: 12, children: [
-              Text('A', style: AppTextStyle.footnote.of(context)),
-              Expanded(child: Slider(min: .8, max: 1.4, divisions: 12, value: scale,
-                onChanged: enabled ? (v) => setState(() => _draft = v) : null,
-                onChangeEnd: (v) async { await box.setPreference('fontScale', v); if (mounted) setState(() => _draft = null); })),
-              Text('A', style: AppTextStyle.title2.of(context)),
-            ])),
-          ]),
-        ),
-      ])),
-    ]);
-  }
-}
-
-class FontFamilyPage extends StatefulWidget {
-  const FontFamilyPage({super.key});
-  @override State<FontFamilyPage> createState() => _FontFamilyPageState();
-}
-class _FontFamilyPageState extends State<FontFamilyPage> {
-  List<String>? _fonts;
-  String _query = '';
-  @override void initState() { super.initState(); _load(); }
-  Future<void> _load() async {
-    final fonts = <String>{'JetBrainsMono'};
-    if (Platform.isAndroid) {
-      try {
-        final xml = await File('/system/etc/fonts.xml').readAsString();
-        fonts.addAll(RegExp(r'<family\b[^>]*\bname="([^"]+)"').allMatches(xml).map((m) => m.group(1)!));
-      } on FileSystemException catch (error) { if (mounted) context.box.report(error); }
-    }
-    if (mounted) setState(() => _fonts = fonts.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase())));
-  }
-  @override Widget build(BuildContext context) {
-    final box = context.box, selected = context.box.preferences['fontFamily'];
-    final fonts = (_fonts ?? <String>[]).where((v) => v.toLowerCase().contains(_query.toLowerCase())).toList();
-    return CommonScaffold(title: context.tr('Font family'), isLoading: _fonts == null,
-      searchState: AppBarSearchState(onSearch: (v) => setState(() => _query = v)),
-      body: ListView.builder(padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 24 + context.bottomInset),
-        itemCount: fonts.length + 1, itemBuilder: (context, i) {
-          final family = i == 0 ? null : fonts[i - 1];
-          return DecorationListItem(title: Text(family ?? context.tr('Default'), style: TextStyle(fontFamily: family)),
-            isSelected: selected == family, trailing: selected == family ? const SelectionCheck() : null,
-            onPressed: () => box.setPreference('fontFamily', family));
-        }),
-    );
-  }
 }
 
 class _ColorSwatches extends StatelessWidget {

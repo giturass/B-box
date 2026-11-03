@@ -50,15 +50,12 @@ class _BoxAppState extends State<BoxApp> with WidgetsBindingObserver {
   @override void didChangeLocales(List<Locale>? locales) => setState(_themes.clear);
 
   ThemeData _theme(Brightness brightness) {
-    final prefs = widget.controller.preferences;
     final scheme = appColorScheme(widget.controller, brightness);
-    final family = prefs['fontFamily'] as String?;
-    final key = "$brightness:${scheme.hashCode}:$family";
+    final key = "$brightness:${scheme.hashCode}";
     return _themes.putIfAbsent(key, () => ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      fontFamily: family,
-      fontFamilyFallback: appFontFamilyFallback(platform: defaultTargetPlatform, locales: WidgetsBinding.instance.platformDispatcher.locales, fontFamily: family),
+      fontFamilyFallback: appFontFamilyFallback(platform: defaultTargetPlatform, locales: WidgetsBinding.instance.platformDispatcher.locales),
       actionIconTheme: ActionIconThemeData(
         backButtonIconBuilder: (context) => GlyphIcon(AppGlyphs.backFor(Theme.of(context).platform)),
         closeButtonIconBuilder: (_) => const GlyphIcon(AppGlyphs.close),
@@ -89,15 +86,15 @@ class _BoxAppState extends State<BoxApp> with WidgetsBindingObserver {
           ],
           builder: (context, child) {
             final media = MediaQuery.of(context);
-            final scale = appTextScale(prefs, media.textScaler.scale(1));
+            final scale = media.textScaler.scale(1).clamp(.8, 1.4);
             final glass = (prefs['liquidGlass'] ?? 'none') != 'none';
             return MeasureScope(
-              measure: Measure.of(context, scale.clamp(.8, 1.4)),
+              measure: Measure.of(context, scale),
               child: ViewScope(
               size: media.size,
               isMobile: media.size.width < 600,
               child: MediaQuery(
-                data: media.copyWith(textScaler: TextScaler.linear(scale.clamp(.8, 1.4))),
+                data: media.copyWith(textScaler: TextScaler.linear(scale)),
                 child: AnnotatedRegion<SystemUiOverlayStyle>(
                   value: SystemUiOverlayStyle(
                     statusBarColor: Colors.transparent, systemNavigationBarColor: Colors.transparent,

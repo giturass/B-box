@@ -23,11 +23,13 @@ class BoxSettingsTest {
     }
 
     @Test
-    fun retiredLanguageChoicePreservesOtherPreferences() {
-        val current = mapOf("theme" to "dark", "fontScale" to 1.4, "proxyLayout" to "List")
+    fun retiredAppearanceChoicesPreserveOtherPreferences() {
+        val current = mapOf("theme" to "dark", "pureBlack" to true, "proxyLayout" to "List")
+        val fonts = mapOf("fontFamily" to "JetBrainsMono", "fontScale" to 1.4, "customFontScale" to true)
         for (locale in listOf("system", "en", "zh")) {
-            assertEquals(current, BoxPreferences.validate(current + ("locale" to locale)))
+            assertEquals(current, BoxPreferences.validate(current + fonts + ("locale" to locale)))
         }
+        assertEquals(current, BoxPreferences.validate(current + mapOf("fontFamily" to null, "fontScale" to 0.8)))
     }
 
     @Test

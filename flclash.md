@@ -21,6 +21,8 @@
 
 共享组件位于 [flutter/lib/ui](flutter/lib/ui)。原始许可保留在 [flutter/assets/licenses/LICENSE](flutter/assets/licenses/LICENSE)，字体归属见 [JetBrainsMono-OFL.txt](flutter/assets/licenses/JetBrainsMono-OFL.txt) 和 [Twemoji-LICENSE.md](flutter/assets/licenses/Twemoji-LICENSE.md)。Twemoji 原始图形来自 Twitter，字体转换由 Mozilla 提供，图形未修改。这些文件同时用于应用内许可证页，不再单独保存重复副本。
 
+应用打包的字体均有实际用途：[JetBrainsMono-Regular.ttf](flutter/assets/fonts/JetBrainsMono-Regular.ttf) 用于代码编辑、请求报文、记录详情及终端预览，[Twemoji.Mozilla.ttf](flutter/assets/fonts/Twemoji.Mozilla.ttf) 用于代理名称等 Emoji 文本。[NotoSansSC-status.ttf](flutter/test/support/fonts/NotoSansSC-status.ttf) 仅供状态卡像素比较测试使用，不进入应用资源。
+
 ## 界面复用与业务适配
 
 Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。复用 FlClash 的控件、字形、形状、排版、字体、动效、弹层及导航；页面状态和操作经 Android 桥接接入 B-box 的 Room 与 libbox。没有引入 FlClash/Mihomo 原生库、Clash 配置模型、Mihomo 配置覆写脚本、订阅转换器或 Clash 专用服务。B-box 请求/响应脚本与定时任务的范围见 [独立脚本与 Cron](libbox.md#独立脚本与-cron)。
@@ -42,6 +44,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 - 首次启动直接进入仪表盘，没有免责声明接受门槛。Android 默认显示状态、网络速度、出站模式、配置和代理组五张卡；内存与内网 IP 可选。连接与请求从工具页进入，不提供首页连接卡，旧布局/备份忽略该卡，下一次布局保存清理其键。
 - 手机可选固定或悬浮导航栏。固定样式由 [main.dart](flutter/lib/main.dart) 中的 `Scaffold.bottomNavigationBar` 承载，栏体高度为 64 dp，仅追加系统底部安全区；栏体及底部安全区使用主界面背景色，无阴影和表面叠色，随浅色、深色及纯黑主题同步。外观页预览使用相同底色和紧凑比例。
+- 外观页提供主题、纯黑模式、主题色、导航栏样式、标签页动画及液态玻璃，不提供字体选择或自定义字体缩放。应用正文使用默认字体，字号随系统变化并沿用 0.8～1.4 倍的缩放范围；旧偏好的兼容处理见 [app.md](app.md#配置服务应用与备份)。
 - 出站模式只显示内核提供的值。规则、全局、直连使用参考版字形，名称和选中态忽略大小写，排列和切换参数保留内核原值。系统 HTTP 代理卡片按内核能力显示，支持首页编辑中的排序、移除和重新添加；能力暂不可用时保留顺序和隐藏偏好。卡片沿用参考版 VPN 卡片的 48 像素徽章、加粗标题、启用/禁用副标题及紧凑开关；启用时徽章为主题色六瓣形，禁用时为低强调圆形。卡片和首页编辑列表共用 [system_proxy_glyph.dart](flutter/lib/components/system_proxy_glyph.dart) 中的大陆轮廓地球字形，使用共享 Glyph 的线宽与圆角；全局出站模式保留参考版经纬线球体字形。
 - 服务按钮的暂停图形表示停止服务，不新增暂停核心能力。远程会话、启停过渡和不可用操作必须反映真实状态。
 - 工具页远程控制紧跟终端；终端设置在终端内，仪表盘编辑在首页工具栏。设置依次为外观、常规、访问控制、备份与恢复；高级配置从配置的“编辑”页进入，不保留重复资源入口。
@@ -53,7 +56,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 - 请求详情保留重复头部、Cookie、正文状态及 trailers，显示原路由/应用、真实 SNI、双方 TLS 版本、ALPN 和上游证书 SHA-256，字段支持复制。已有记录中保存过的 PID/socket 字段仍可读，缺失值保持未知。域名观察与握手失败标为“仅域名”，不能导出 cURL；请求正文/头部不完整、截断或含 trailers 也不能导出 cURL。TLS/TCP 详情分别显示两个方向的原始字节，不显示 HTTP 状态、头部和 Cookies，禁用 cURL；正常完成的流显示“已完成”。页面复用现有共享组件，没有修改 FlClash 直接导入文件。
 - 常规服务页使用即时应用的开关，保存和重启期间显示进度并禁用开关，底部没有“应用服务设置”按钮；启动确认及失败恢复见 [app.md](app.md#配置服务应用与备份)。
 - 日志页默认选择“跟随配置”，显示内核上报的日志级别及更严重的记录；菜单同时显示当前级别，仍可手动选择“全部”或单一级别，手动筛选不会被后续状态更新覆盖。搜索、暂停和导出沿用同一筛选结果；默认级别尚未收到时保留已接收记录。日志来源及本地重载同步见 [app.md](app.md#配置服务应用与备份)。
-- 应用始终跟随系统语言并响应运行时变化。旧设置及备份中的语言选项丢弃，其他偏好保留。
+- 应用始终跟随系统语言并响应运行时变化；旧偏好的兼容处理见 [app.md](app.md#配置服务应用与备份)。
 - 代理列表保留圆角吸顶分组标题、固定高度的懒加载行、折叠动效及填充/普通/隐藏分组图标。折叠状态按选中配置保存，定位节点通过行偏移实现，不要求节点预先进入视口。
 - 访问控制按上游 SFA 的列表/扫描分离方式加载，进入页面直接显示应用与已保存的托管选择；“重新扫描托管应用”为独立操作，扫描期间保留列表。筛选/搜索/排序结果在列表及相关条件未变化时复用，流量等无关状态更新不重新排序。图标保持按可见行请求和缓存，切换显示范围或无修改地关闭查询设置不清空图标；查询策略变更或申请权限后关闭设置只刷新一次。原生查询与托管更新约定见 [app.md](app.md#配置服务应用与备份)。
 - 首页编辑保留卡片的全局 key，防止重复出口请求及丢失状态。改动立即保存；保存失败保留草稿，点击完成再次尝试。
@@ -117,6 +120,8 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 ## 验证与升级参考版本
 
 [newui.yml](.github/workflows/newui.yml) 配置 Flutter 分析、测试及 AAR 构建，由 [setup-flutter](.github/actions/setup-flutter/action.yml) 固定 SDK 和依赖锁文件。测试按功能组织，覆盖导航、配置编辑、首页编辑、代理列表、备份、外观、关于、终端设置、模式、内网 IP 和 IP 查询/缓存；源码约束检查为 [verify_newui.py](tools/verify_newui.py)。截图/像素比较仍由同一测试入口运行，截图与 AAR 分别上传到 `newui-validation` 和 `flutter-aar-arm64`，Release 消费同次运行的 AAR，见 [构建与发布](app.md#构建与发布)。
+
+[appearance_test.dart](flutter/test/appearance_test.dart) 检查主题选择与重开页面后的偏好，以及旧字体偏好不覆盖默认字体、系统字号运行时变化和既有缩放上下限。导航、状态、内网 IP、出站模式及请求页面的字号场景通过系统缩放模拟，不依赖已退役的应用偏好。
 
 [profiles_test.dart](flutter/test/profiles_test.dart) 覆盖新建与二进制导入的内容/元数据、添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、自动更新校验、选中配置定位、列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、排序冲突及远程会话隔离。[navigation_test.dart](flutter/test/navigation_test.dart) 另输出配置编辑与排序弹层在窄屏、大字号和宽屏下的截图；这些是布局回归产物，配置页尚未声明与上游逐像素一致。
 

@@ -177,7 +177,7 @@
     "lib/pages/appearance.dart": {
       "source": "lib/views/theme.dart",
       "sourceSHA256": "a5751491fbabb34065309577f84eb12f54a085cc9b827f2e3786156a17811bba",
-      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Desktop-only controls omitted."
+      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Font family and font scale controls removed; app text uses the default font and system scaling. Desktop-only controls omitted."
     },
     "lib/components/status_panel.dart": {
       "source": "lib/views/dashboard/widgets/current_outbound.dart",

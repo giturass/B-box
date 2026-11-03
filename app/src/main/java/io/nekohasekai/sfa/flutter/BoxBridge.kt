@@ -370,10 +370,10 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             "preferences.set" -> operations.withLock {
                 @Suppress("UNCHECKED_CAST")
                 val value = BoxPreferences.validate(args["value"] as? Map<String, Any?> ?: error("Missing preferences"))
-                val old = JSONObject(preferences.getString("value", "{}")!!).apply { remove("locale") }
-                value.forEach { (key, item) -> old.put(key.toString(), JSONObject.wrap(item)) }
-                withContext(Dispatchers.IO) { check(preferences.edit().putString("value", old.toString()).commit()) { "Unable to save preferences" } }
-                readPreferences()
+                val old = jsonObject(JSONObject(preferences.getString("value", "{}")!!))
+                val updated = BoxPreferences.validate(old + value)
+                withContext(Dispatchers.IO) { check(preferences.edit().putString("value", JSONObject(updated).toString()).commit()) { "Unable to save preferences" } }
+                updated
             }
             "settings.get" -> settings()
             "settings.set" -> operations.withLock { saveSettings(args); settings() }
