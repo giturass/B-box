@@ -5,7 +5,6 @@ import '../components/capture_poll.dart';
 import '../components/captured_body.dart';
 import '../components/record.dart';
 import 'request_settings.dart';
-import 'configuration.dart';
 
 class RequestsPage extends StatefulWidget {
   const RequestsPage({super.key});
@@ -45,7 +44,6 @@ class _RequestsPageState extends State<RequestsPage> {
               } catch (error) { if (context.mounted) context.box.messages.add(BoxController.describe(error)); }
               finally { if (mounted) setState(() { _busy = false; _revision++; }); }
             }),
-            CommonPopupMenuItem(glyph: AppGlyphs.lock, label: 'MITM', onPressed: () => openPage(context, const MitmPage())),
             CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'), onPressed: _busy || entries.isEmpty ? null : () => _act('capture.export', {'format': 'har', 'query': _query})),
             CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear requests'), onPressed: _busy ? null : () async {
               if (await confirm(context, 'Clear captured requests?') && mounted) await _act('capture.clear');

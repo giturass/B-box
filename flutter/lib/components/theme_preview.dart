@@ -333,7 +333,7 @@ class _MiniGeometry {
   _MiniGeometry(this.size, {required bool floatingBar})
     : unit = size.width / 20 {
     margin = unit * 1.5;
-    final barHeight = floatingBar ? unit * 3.2 : unit * 3.6;
+    final barHeight = unit * 3.2;
     pageBottom = floatingBar ? 0 : barHeight;
     bar = floatingBar
         ? Rect.fromLTWH(

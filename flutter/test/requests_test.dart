@@ -136,7 +136,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Requests only shows recording state and has no capture log entry', (tester) async {
+  testWidgets('Requests only shows recording state without MITM or capture logs in its menu', (tester) async {
     await mount(tester);
     snapshot['state'] = {'active': false, 'rewriteActive': true, 'rewriteRules': 3};
     await open(tester, const RequestsPage());
@@ -144,7 +144,7 @@ void main() {
     expect(find.text('Capture stopped'), findsOneWidget);
     await tester.tap(find.byTooltip('More').last);
     await tester.pumpAndSettle();
-    expect(find.text('MITM'), findsOneWidget);
+    expect(find.text('MITM'), findsNothing);
     expect(find.text('Capture logs'), findsNothing);
     Navigator.pop(tester.element(find.text('Export HAR').last));
     await tester.pumpAndSettle();

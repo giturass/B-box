@@ -108,7 +108,7 @@
     "lib/components/profile_panel.dart": {
       "source": "lib/views/dashboard/widgets/profiles.dart",
       "sourceSHA256": "f04f71f02f4a1c6dc5af00e005248371e370a0150dd68a021914939c0f48864d",
-      "changes": "Mobile profile summary, update and profile-switch controls. Shows compact Room update times with full-date tooltips for local and remote profiles, retaining an unknown placeholder when absent. Remote sessions omit local profile metadata. Counts describe the actual sing-box configuration, with unavailable remote counts left unknown. Disable the profile-switch control during native service start/stop transitions."
+      "changes": "Mobile profile summary, update and profile-switch controls. Shows compact Room update times with full-date tooltips for local and remote profiles, retaining an unknown placeholder when absent. Remote sessions omit local profile metadata. Counts describe the actual sing-box configuration, with unavailable remote counts left unknown. Each count or loading placeholder is centered above its label. Disable the profile-switch control during native service start/stop transitions."
     },
     "lib/pages/profile_details.dart": {
       "source": "lib/views/dashboard/widgets/profile_detail.dart",
@@ -167,7 +167,7 @@
     "lib/components/theme_preview.dart": {
       "source": "lib/views/theme_preview.dart",
       "sourceSHA256": "03565aea92009f1115f1c0c774d1bfec5d07f28872e9e8aafc298aa19f3cb0b1",
-      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Desktop-only controls omitted."
+      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Docked preview proportions are compacted to reflect B-box's 64 dp navigation bar. Desktop-only controls omitted."
     },
     "lib/components/palette.dart": {
       "source": "lib/widgets/palette.dart",

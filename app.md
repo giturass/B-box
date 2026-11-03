@@ -76,7 +76,7 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 ## 请求抓取与 MITM
 
-“工具 → MITM”独立提供配置和证书设置；“工具 → 脚本”独立编辑 HTTP 脚本与 Cron。先准备并安装 CA，再在选中配置的 MITM 中开启 HTTPS、填写允许解密的域名，并按需开启 TCP 解密。空域名列表不解密，无 HTTPS 排除列表。配置随本地服务生效；“工具 → 请求”只控制记录，开启后让目标应用重新连接。HTTP 明文记录不需要 CA，核心支持范围见 [libbox.md](libbox.md#独立-mitm-配置)。
+MITM 配置、证书设置及 HTTP 脚本/Cron 的入口见 [高级配置](flclash.md#配置页与内核差异)。先准备并安装 CA，再在选中配置的 MITM 中开启 HTTPS、填写允许解密的域名，并按需开启 TCP 解密。空域名列表不解密，无 HTTPS 排除列表。配置随本地服务生效；“工具 → 请求”只控制记录，开启后让目标应用重新连接。HTTP 明文记录不需要 CA，核心支持范围见 [libbox.md](libbox.md#独立-mitm-配置)。
 
 [BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 提供本地请求启停、筛选、列表/详情、域名、HAR/cURL 导出以及 CA 管理。开始抓包需本地服务已 Started；记录设置准备完成后，在配置互斥区复核服务实例、运行配置和当前选择，再调用该服务的抓包绑定；解密设置与证书来自已启动配置。启动失败、返回期间取消或状态确认失败会回收本次已启动会话。切换远程会话停止本地抓包，远程会话拒绝读取或操作本机记录与证书。核心协议、路由、限额和停止行为见 [libbox.md](libbox.md#httphttps-请求调试)。
 

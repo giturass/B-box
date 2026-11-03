@@ -182,6 +182,14 @@ class _HomePageState extends State<HomePage> {
       ],
     );
     return Scaffold(
+        bottomNavigationBar: mobile && !floating ? NavigationBar(
+          height: 64,
+          selectedIndex: _index,
+          onDestinationSelected: (index) => setState(() => _index = index),
+          destinations: [for (final (i, item) in _items.indexed)
+            NavigationDestination(icon: AnimatedGlyph(glyph: item.$2, filled: i == _index), label: context.tr(item.$1)),
+          ],
+        ) : null,
         body: Row(children: [
           if (!mobile) NavigationRail(
             selectedIndex: _index,
@@ -191,27 +199,18 @@ class _HomePageState extends State<HomePage> {
               icon: GlyphIcon(item.$2), label: Text(context.tr(item.$1)),
             )],
           ),
-          Expanded(child: Column(children: [
-            Expanded(child: Stack(children: [
-              Positioned.fill(child: BottomInsetScope(
-                inset: mobile && floating ? NavigationDock.insetOf(context) : 0,
-                child: MediaQuery.removePadding(context: context, removeBottom: mobile, removeLeft: mobile, removeRight: mobile, child: content),
-              )),
-              if (mobile && floating) PositionedDirectional(
-                start: 0, end: 0, bottom: 0,
-                child: NavigationDock(
-                  selectedIndex: _index,
-                  onSelected: (index) => setState(() => _index = index),
-                  destinations: [for (final item in _items) NavigationDockDestination(glyph: item.$2, label: context.tr(item.$1))],
-                ),
+          Expanded(child: Stack(children: [
+            Positioned.fill(child: BottomInsetScope(
+              inset: mobile && floating ? NavigationDock.insetOf(context) : 0,
+              child: MediaQuery.removePadding(context: context, removeBottom: mobile, removeLeft: mobile, removeRight: mobile, child: content),
+            )),
+            if (mobile && floating) PositionedDirectional(
+              start: 0, end: 0, bottom: 0,
+              child: NavigationDock(
+                selectedIndex: _index,
+                onSelected: (index) => setState(() => _index = index),
+                destinations: [for (final item in _items) NavigationDockDestination(glyph: item.$2, label: context.tr(item.$1))],
               ),
-            ])),
-            if (mobile && !floating) NavigationBar(
-              selectedIndex: _index,
-              onDestinationSelected: (index) => setState(() => _index = index),
-              destinations: [for (final (i, item) in _items.indexed)
-                NavigationDestination(icon: AnimatedGlyph(glyph: item.$2, filled: i == _index), label: context.tr(item.$1)),
-              ],
             ),
           ])),
         ]),

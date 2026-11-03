@@ -135,8 +135,8 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
               widget: ConfigListPage(store: store, title: 'Rule sets', path: const ['route', 'rule_set'], initial: const {'type': 'inline', 'tag': 'new-rules', 'rules': []})),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Log settings')), widget: LogConfigPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.lock), title: const Text('MITM'), widget: MitmPage(store: store)),
-            ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Scripts')), widget: ScriptsConfigPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('HTTP rewriting')), widget: HttpRewriteConfigPage(store: store)),
+            ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Scripts')), widget: ScriptsConfigPage(store: store)),
           ], footer: store.profile['name'].toString()),
           generateSection(items: [ListItem(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Open configuration')),
             trailing: const GlyphIcon(AppGlyphs.chevronForward), onTap: () async {

@@ -58,7 +58,7 @@ class ProfileStats extends StatelessWidget {
       return LayoutBuilder(builder: (context, constraints) => FittedBox(fit: BoxFit.scaleDown, alignment: AlignmentDirectional.centerStart,
         child: ConstrainedBox(constraints: BoxConstraints(minWidth: constraints.maxWidth), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, spacing: 16, children: [
           for (final (key, name) in [('groups', 'Proxy groups'), ('outbounds', 'Outbounds'), ('rules', 'Routing rules')])
-            Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.center, children: [
               if (snapshot.connectionState == ConnectionState.waiting) SkeletonText(width: 34, style: figure)
               else Text(snapshot.data?[key]?.toString() ?? '—', maxLines: 1, style: figure),
               Text(context.tr(name), maxLines: 1, style: label),
