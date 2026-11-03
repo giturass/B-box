@@ -184,6 +184,9 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
         bottomNavigationBar: mobile && !floating ? NavigationBar(
           height: 64,
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+          elevation: 0,
+          surfaceTintColor: Colors.transparent,
           selectedIndex: _index,
           onDestinationSelected: (index) => setState(() => _index = index),
           destinations: [for (final (i, item) in _items.indexed)

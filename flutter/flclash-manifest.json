@@ -167,7 +167,7 @@
     "lib/components/theme_preview.dart": {
       "source": "lib/views/theme_preview.dart",
       "sourceSHA256": "03565aea92009f1115f1c0c774d1bfec5d07f28872e9e8aafc298aa19f3cb0b1",
-      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Docked preview proportions are compacted to reflect B-box's 64 dp navigation bar. Desktop-only controls omitted."
+      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Docked preview uses the page background and compact proportions to reflect B-box's flat 64 dp navigation bar. Desktop-only controls omitted."
     },
     "lib/components/palette.dart": {
       "source": "lib/widgets/palette.dart",

@@ -404,7 +404,10 @@ class _MiniScreenPainter extends CustomPainter {
     } else if (floatingBar) {
       _fill(canvas, geometry.bar, dock, AppShape.full, shadows: [shadow]);
     } else {
-      canvas.drawRect(geometry.bar, Paint()..color = dock);
+      canvas.drawRect(
+        geometry.bar,
+        Paint()..color = SurfaceLevel.page.colorOf(colorScheme),
+      );
     }
     _paintDestinations(canvas, geometry.bar, unit);
   }
