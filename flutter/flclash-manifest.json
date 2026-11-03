@@ -450,7 +450,7 @@
             "flutter/lib/pages/configuration.dart",
             "flutter/lib/pages/mitm_certificate.dart"
           ],
-          "changes": "Reference for explicit CA operations and certificate setup. B-box uses independent profile MITM with an allowlist (empty decrypts nothing), optional TLS/TCP streams and no exclusions. HTTP rewriting and HTTP/cron scripts are separate B-box extensions. Certificate rotation is blocked during capture or active MITM. Shared form/navigation components are reused; no Mihomo configuration."
+          "changes": "Reference for explicit CA operations and certificate setup. B-box uses independent profile MITM with an allowlist (empty decrypts nothing), optional TLS/TCP streams and no exclusions. Decryption controls and one certificate entry share the MITM page; certificate access does not require a loaded profile. JSON editing covers additional ports/packages settings. HTTP rewriting and HTTP/cron scripts are separate B-box extensions. Certificate rotation is blocked during capture or active MITM. Shared form/navigation components are reused; no Mihomo configuration."
         },
         {
           "source": "lib/features/connection/mitm_exchanges.dart",

@@ -111,7 +111,9 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
   @override void dispose() { _store?.dispose(); super.dispose(); }
   @override Widget build(BuildContext context) {
     final store = context.box.remote ? null : _store;
-    final title = widget.section == 'mitm' ? 'MITM' : widget.section == 'scripts' ? 'Scripts' : widget.resources ? 'Resources' : 'Advanced configuration';
+    // Certificate access is independent of profile loading.
+    if (widget.section == 'mitm') return MitmConfigPage(store: store);
+    final title = widget.section == 'scripts' ? 'Scripts' : widget.resources ? 'Resources' : 'Advanced configuration';
     if (store == null) return CommonScaffold(title: context.tr(title),
       body: NullStatus(label: context.tr(context.box.remote ? 'Disconnect remote session to edit local profiles' : 'No profile'),
         illustration: NullStatusIllustration.profile, action: context.box.remote ? null : TonalButton(size: TonalButtonSize.bar,
@@ -119,7 +121,6 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
     return ListenableBuilder(listenable: store, builder: (context, _) {
       if (!store.ready) return CommonScaffold(title: context.tr(title),
         body: store.error == null ? const Center(child: CommonCircleLoading.page()) : ErrorState(store.error!, retry: store.load));
-      if (widget.section == 'mitm') return MitmConfigPage(store: store);
       if (widget.section == 'scripts') return ScriptsConfigPage(store: store);
       if (widget.resources) return ConfigListPage(store: store, title: 'Rule sets', path: const ['route', 'rule_set'],
         initial: const {'type': 'inline', 'tag': 'new-rules', 'rules': []});
@@ -197,27 +198,33 @@ class HttpRewriteConfigPage extends StatelessWidget {
 class MitmPage extends StatelessWidget {
   const MitmPage({super.key, this.store});
   final ProfileConfigStore? store;
-  @override Widget build(BuildContext context) => BoxPage(title: 'MITM', children: [
-    ListFooter(text: context.tr('Decrypt only domains configured in the profile. An empty domain list decrypts nothing.')),
-    generateSection(items: [
-      ListItem.open(leading: const GlyphIcon(AppGlyphs.settings), title: Text(context.tr('MITM configuration')),
-        widget: store == null ? const ProfileConfigurationPage(section: 'mitm') : MitmConfigPage(store: store!)),
-      ListItem.open(leading: const GlyphIcon(AppGlyphs.key), title: Text(context.tr('MITM certificate')), widget: const MitmCertificatePage()),
-    ]),
-  ]);
+  @override Widget build(BuildContext context) => store == null
+    ? const ProfileConfigurationPage(section: 'mitm') : MitmConfigPage(store: store);
 }
 
 class MitmConfigPage extends StatelessWidget {
   const MitmConfigPage({super.key, required this.store});
-  final ProfileConfigStore store;
+  final ProfileConfigStore? store;
   static const path = ['experimental', 'mitm'];
-  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) {
-    final revision = store.revision;
+  @override Widget build(BuildContext context) {
+    final store = this.store;
+    return store == null ? _build(context, null)
+      : ListenableBuilder(listenable: store, builder: (context, _) => _build(context, store));
+  }
+
+  Widget _build(BuildContext context, ProfileConfigStore? store) {
+    final revision = store?.revision;
     if (context.box.remote) return const BoxPage(title: 'MITM', children: [EmptyState('Disconnect remote session to edit local profiles')]);
-    final hosts = (store.value([...path, 'hosts']) as List? ?? []).cast<String>();
-    return ProcessingConfigScaffold(title: 'MITM configuration', store: store, children: [
+    final hosts = (store?.value([...path, 'hosts']) as List? ?? []).cast<String>();
+    return ProcessingConfigScaffold(title: 'MITM', store: store, children: [
       ListFooter(text: context.tr('Decrypt only domains configured in the profile. An empty domain list decrypts nothing.')),
-      generateSection(items: [
+      if (store == null) EmptyState('No profile', glyph: AppGlyphs.profiles,
+        action: TonalButton(size: TonalButtonSize.bar, glyph: AppGlyphs.profiles, label: context.tr('Profiles'),
+          onPressed: () => openForm(context, const ProfilesPage(picker: true))))
+      else if (!store.ready) Padding(padding: const EdgeInsets.symmetric(vertical: 24),
+        child: store.error == null ? const Center(child: CommonCircleLoading.page())
+          : TextButton(onPressed: store.load, child: Text(context.tr('Reload'))))
+      else generateSection(items: [
         ListItem.toggle(key: const ValueKey('mitm-enabled'), title: Text(context.tr('Decrypt HTTPS')),
           value: store.value([...path, 'enabled']) == true,
           onChanged: store.saving ? null : (value) => store.set([...path, 'enabled'], value)),
@@ -233,12 +240,12 @@ class MitmConfigPage extends StatelessWidget {
       ]),
       generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.key), title: Text(context.tr('MITM certificate')), widget: const MitmCertificatePage()),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit MITM options')),
+        if (store != null && store.ready) ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit MITM options')),
           widget: ConfigValueEditor(title: 'MITM configuration', initial: store.value(path) ?? const {'enabled': false, 'hosts': [], 'tcp': false, 'block_quic': false},
             onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
       ]),
     ]);
-  });
+  }
 }
 
 class MitmHostsEditor extends StatefulWidget {
@@ -319,16 +326,18 @@ class ScriptsConfigPage extends StatelessWidget {
 class ProcessingConfigScaffold extends StatelessWidget {
   const ProcessingConfigScaffold({super.key, required this.title, required this.store, required this.children});
   final String title;
-  final ProfileConfigStore store;
+  final ProfileConfigStore? store;
   final List<Widget> children;
   @override Widget build(BuildContext context) {
     final inset = context.appBarInset;
     final gap = context.contentTopPadding - inset;
-    return CommonScaffold(title: context.tr(title), isLoading: store.saving,
+    final profile = store?.profile;
+    final error = store?.error;
+    return CommonScaffold(title: context.tr(title), isLoading: store?.saving ?? false,
       body: Padding(padding: EdgeInsets.only(top: inset), child: ListView(
         padding: EdgeInsets.fromLTRB(16, gap > 0 ? gap : 0, 16, 24 + context.bottomInset), children: [
-          ListFooter(text: store.profile['name']?.toString() ?? ''),
-          if (store.error != null) SelectableText(store.error!, style: TextStyle(color: context.colorScheme.error)),
+          if (profile != null) ListFooter(text: profile['name']?.toString() ?? ''),
+          if (error != null) SelectableText(error, style: TextStyle(color: context.colorScheme.error)),
           ...children,
         ],
       )));

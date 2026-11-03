@@ -184,11 +184,11 @@ void main() {
     final store = ProfileConfigStore(box, {'id': 7, 'name': 'Profile'});
     addTearDown(store.dispose);
     await store.load();
-    await open(tester, MitmConfigPage(store: store));
+    await open(tester, MitmPage(store: store));
     expect(find.text('No domains selected'), findsOneWidget);
     expect(find.text('HTTPS excluded domains'), findsNothing);
     await capture(tester, 'independent-mitm-config');
-    Navigator.pop(tester.element(find.byType(MitmConfigPage))); await tester.pumpAndSettle();
+    Navigator.pop(tester.element(find.byType(MitmPage))); await tester.pumpAndSettle();
     await open(tester, ScriptsConfigPage(store: store));
     await capture(tester, 'independent-scripts-cron');
     final list = find.descendant(of: find.byType(ScriptsConfigPage), matching: find.byType(ListView)).first;
@@ -576,9 +576,12 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
-  testWidgets('MITM CA is generated explicitly and cancelled exports never imply trust', (tester) async {
+  testWidgets('MITM CA is accessible without a profile, generated explicitly, and cancelled exports never imply trust', (tester) async {
     await mount(tester);
-    await open(tester, const MitmCertificatePage());
+    await open(tester, const RequestSettingsPage(initial: {}));
+    await tester.tap(find.text('MITM')); await tester.pumpAndSettle();
+    expect(find.text('No profile'), findsOneWidget);
+    await tester.tap(find.text('MITM certificate')); await tester.pumpAndSettle();
     expect(calls.where((call) => call.method == 'capture.ca.generate'), isEmpty);
     expect(find.text('No MITM certificate'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('mitm-ca-generate'))); await tester.pumpAndSettle();

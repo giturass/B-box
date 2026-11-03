@@ -85,7 +85,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 原始 JSON 编辑器使用 [code_editor.dart](flutter/lib/components/code_editor.dart) 显示从 1 开始的逻辑行号，空行和末尾换行保留编号；长行折行不增加行号，行号随正文滚动。行号布局与正文使用相同的字形、字号比例和换行宽度，仅创建可见编号；搜索、格式化、撤销及修订校验沿用原编辑流程。
 
-配置“编辑”页的高级配置依次提供“MITM”、“HTTP 改写”和“脚本”，由 [configuration.dart](flutter/lib/pages/configuration.dart) 复用共享分组、规则列表、排序及 JSON 表单。MITM 下分配置与证书设置；配置编辑 HTTPS、允许域名、TCP 和 QUIC 回退。HTTP 改写仅编辑 Header/URL/Body Rewrite、Map Remote、Map Local 与静态资源；脚本独立编辑启用状态、HTTP 规则、Cron 任务和资源。新建规则与任务提供默认禁用的示例，完整 JSON 仍可编辑。字段与执行语义见 [libbox.md](libbox.md#独立脚本与-cron)。
+配置“编辑”页的高级配置依次提供“MITM”、“HTTP 改写”和“脚本”，由 [configuration.dart](flutter/lib/pages/configuration.dart) 复用共享分组、规则列表、排序及 JSON 表单。MITM 一级页直接编辑 HTTPS、允许域名、TCP 和 QUIC 回退，并提供单一证书入口；证书入口独立于配置加载。端口、应用等扩展字段通过同页的 MITM JSON 编辑入口修改。HTTP 改写仅编辑 Header/URL/Body Rewrite、Map Remote、Map Local 与静态资源；脚本独立编辑启用状态、HTTP 规则、Cron 任务和资源。新建规则与任务提供默认禁用的示例，完整 JSON 仍可编辑。字段与执行语义见 [libbox.md](libbox.md#独立脚本与-cron)。
 
 所有修改通过 ProfileConfigStore.set 保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
 
@@ -130,7 +130,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [access_test.dart](flutter/test/access_test.dart) 覆盖进入托管页面不扫描、加载期间接收最新托管选择、显示范围与隐藏选择保留、保存失败后重试、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。它验证交互和调用行为，不代替实机加载耗时或视觉验收。
 
-[requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口、远程隔离、本机设置修订、MITM 域名选择、端口、启动确认及后台轮询/迟到结果；证书测试检查明确生成、取消导出、活跃 MITM 禁止重生成、远程切换和信任刷新。其他回归包括 HAR 搜索、TCP 流完成/导出限制、既有 socket 元数据、报文菜单、字段/Cookie 复制及正文格式/Unicode 展开。窄屏、大字号深色及宽屏截图位于 build/screenshots/requests/，包含独立配置、请求设置、证书、列表及报文详情；桥接替身不能代替实际 TLS 或系统安装验收。
+[requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口、远程隔离、本机设置修订、MITM 域名选择、端口、启动确认及后台轮询/迟到结果；证书测试检查无配置时从抓包设置经 MITM 页进入证书、明确生成、取消导出、活跃 MITM 禁止重生成、远程切换和信任刷新。其他回归包括 HAR 搜索、TCP 流完成/导出限制、既有 socket 元数据、报文菜单、字段/Cookie 复制及正文格式/Unicode 展开。窄屏、大字号深色及宽屏截图位于 build/screenshots/requests/，包含独立配置、请求设置、证书、列表及报文详情；桥接替身不能代替实际 TLS 或系统安装验收。
 
 配置页面将滚动视口放在共享标题下方，避免文字穿过标题；测试核对几何位置与 320 宽、1.3 倍字号深色主题。当前独立 MITM/TCP/Cron 的实际验证见 [app.md](app.md#独立-mitmtcpcron-验证)，截图检查范围记录在本节末尾。
 
