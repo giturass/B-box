@@ -172,9 +172,22 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### JSON 配置改写验证
+
+2026-11-03，配置改写的验证源码为 `e62ddbe724a1b5f61e3bff96e48b1ba8e82c94fc`，包含最后的标题重叠修正。下表记录实际运行结果；后续仅记录结果的文档提交不改变应用源码。
+
+| Actions | 检出源码 SHA | 实际结果 |
+| --- | --- | --- |
+| [Core and Flutter validation](https://github.com/giturass/B-box/actions/runs/41575286785) | `e62ddbe724a1b5f61e3bff96e48b1ba8e82c94fc` | Go 扩展/schema、HTTP/MITM/改写/JS 的 `-race`、原路由及重定向布局回归通过；Flutter 分析、203 项测试及 ARM64 Flutter AAR 构建通过 |
+| [Android regression and smoke](https://github.com/giturass/B-box/actions/runs/41575670538) | `e62ddbe724a1b5f61e3bff96e48b1ba8e82c94fc` | 44 项 JVM 测试无失败或跳过，`play`/`other` 编译和模拟器应用/仪器测试 APK 构建通过；API 24/31/35 的 UI smoke 与各 18 项仪器测试全部通过 |
+
+已核对三个 `android-smoke-api-*` Artifact 的 `results.json`：源码 SHA 一致，UI/native 均成功；每份 `native-tests.txt` 都记录 18 项通过，且 `profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 成功。该回归的实际覆盖见 [配置驱动的 HTTP 改写](#配置驱动的-http-改写)。模拟器中的自有 TLS 客户端显式信任本次 CA，测试没有安装系统证书或 Root 模块。
+
+本机完成 `git diff --check`、`python3 tools/verify_newui.py`、Go 格式、Python 语法、配置示例/来源清单 JSON 及文档链接静态检查，未在本机构建或执行 Go/Flutter/Android 测试。最终截图的检查范围见 [flclash.md](flclash.md#验证与升级参考版本)。本次未运行签名 ARM64 Release/R8，未发布 APK 或 GitHub Release；下文旧 Release 不包含本次配置改写。ARM64 实机、真实 Root CA 模块安装与第三方应用信任仍未验收。Surge 配置/脚本支持范围以 [核心文档](libbox.md#json-配置中的-http-改写) 为准。
+
 ### MITM 分支验证
 
-2026-11-03，`feat/mitm-requests` 的实际验证结果如下。三个 SHA 的 Android 主应用、Go 扩展和 Flutter 生产源码相同；`8869e69` 之后只调整了 Android 仪器测试、smoke 脚本、Flutter CI 的 NDK 准备及文档，未把测试修正记为新的应用实现。后续仅记录结果的文档提交不改变 APK。
+以下为 2026-11-03 在 JSON 配置改写加入前的请求录制与 CA 验证，不覆盖上述新扩展。三个 SHA 的 Android 主应用、Go 扩展和 Flutter 生产源码相同；`8869e69` 之后只调整了 Android 仪器测试、smoke 脚本、Flutter CI 的 NDK 准备及文档，未把测试修正记为新的应用实现。后续仅记录结果的文档提交不改变 APK。
 
 | Actions | 检出源码 SHA | 实际结果 |
 | --- | --- | --- |

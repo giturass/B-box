@@ -141,4 +141,6 @@ HTTP 改写另覆盖停止录制后的独立状态及 CA 轮换禁用；上述 r
 
 这些测试只覆盖声明的页面和情景，不等于全应用逐像素一致或已经完成实机验收。升级参考版本时同步审查来源清单、适配文件、许可和独立参考渲染器，按实际 Actions 运行记录结果；Android 验证入口见 [app.md](app.md)。
 
-2026-11-03 的 MITM 分支视觉检查读取 [Actions 41545838495](https://github.com/giturass/B-box/actions/runs/41545838495) 在 `8869e6992a59327c11d39ad98457a22f402a23cb` 生成的 `newui-validation` 截图：核对 320 宽、1.3 倍字号的抓包诊断，以及 360 宽、1.4 倍字号的深色设置、证书和导出区域。日志统计标签改为名称和值分行，避免窄列拆词；长证书指纹和说明可换行，导出区域可滚动访问。这些是英文 Flutter fixture 截图，未覆盖系统证书设置页面或 Root 管理器。其他检查及各次源码差异见 [MITM 分支验证](app.md#mitm-分支验证)。
+2026-11-03 的配置改写视觉检查读取 [Actions 41575286785](https://github.com/giturass/B-box/actions/runs/41575286785) 在 `e62ddbe724a1b5f61e3bff96e48b1ba8e82c94fc` 生成的 `newui-validation` 截图：核对停止录制后的改写状态，以及 320 宽、1.3 倍字号深色主题下的配置页首屏和资源区域；规则名称/数量可读，资源入口可滚动访问，标题与滚动内容不再重叠。产物名称为 `profile-rewriting-recording-off.png`、`profile-rewriting-config.png` 和 `profile-rewriting-config-resources.png`，均在 requests 截图目录。这些为英文 Flutter fixture，未覆盖中文实机或系统证书设置；完整结果与未覆盖范围见 [JSON 配置改写验证](app.md#json-配置改写验证)。
+
+此前的 MITM 分支视觉检查读取 [Actions 41545838495](https://github.com/giturass/B-box/actions/runs/41545838495) 在 `8869e6992a59327c11d39ad98457a22f402a23cb` 生成的 `newui-validation` 截图：核对 320 宽、1.3 倍字号的抓包诊断，以及 360 宽、1.4 倍字号的深色设置、证书和导出区域。日志统计标签改为名称和值分行，避免窄列拆词；长证书指纹和说明可换行，导出区域可滚动访问。这些是英文 Flutter fixture 截图，未覆盖系统证书设置页面或 Root 管理器。其他检查及各次源码差异见 [MITM 分支验证](app.md#mitm-分支验证)。
