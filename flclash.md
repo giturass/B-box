@@ -153,6 +153,8 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 这些为英文 Flutter fixture 截图，未覆盖中文实机、系统证书设置或 Root 管理器；完整结果及未覆盖范围见 [独立 MITM/TCP/Cron 验证](app.md#独立-mitmtcpcron-验证)。此前配置改写和请求录制/CA 的截图记录可通过本文 Git 历史查询，对应运行分别见 [JSON 配置改写验证](app.md#json-配置改写验证) 与 [MITM 分支验证](app.md#mitm-分支验证)。
 
-### 连接与请求合并的提交前检查
+### 连接与请求合并验证
 
-2026-11-04，针对 `f7ecec18a8982486f8f542f9a0b04db765beab97` 基础上的改动，提交前已执行 `git diff --check`、`python3 tools/verify_newui.py` 及本文与 app.md 的本地链接/标题锚点检查，均通过。此记录仅包含提交前静态检查；合并页的 Flutter 分析、交互测试、布局截图及构建结果应按实际源码 SHA 和 Actions 链接另行记录，实机行为仍待验证。
+2026-11-04，源码 `d6013c3bfb5cbfb944ef8a641c4b37d91f7276c4` 通过 [Actions 41718985934](https://github.com/giturass/B-box/actions/runs/41718985934) 的核心扩展、HTTP/MITM 与路由测试，Flutter 分析、全部 208 项交互/布局测试，以及 ARM64 Flutter Debug/Release AAR 构建。分析使用工作流既有的 `--no-fatal-infos`，有 146 条 info、无 warning/error；测试日志没有点击未命中警告。本机仅执行 `git diff --check`、`python3 tools/verify_newui.py` 和本文本地链接/标题锚点检查，均通过。
+
+实际查看同次 `newui-validation` 产物中 requests 目录的 `connections-requests-pagination.png`、`360-1.0-light-list.png` 和 `360-1.4-dark-list.png`：360×900 的分页按钮位于固定搜索栏上方，360×800 的浅色及 1.4 倍字号深色列表保留连接和请求的各自标记。这些为英文 Flutter fixture 截图；本次未运行 Android 应用回归、API 24/31/35 smoke 或实机验收。
