@@ -204,7 +204,8 @@ void main() {
     expect(tester.getTopLeft(find.byType(RequestRecord)).dy, greaterThan(tester.getTopLeft(find.byType(ConnectionRecord).last).dy));
     final queries = calls.where((call) => call.method == 'capture.snapshot').length;
     events.add({'type': 'connections', 'value': [connection('shared', download: 8192), connection('closed', closed: true)]});
-    await tester.pump();
+    // Deliver the asynchronous event and render the frame it schedules.
+    await tester.pumpAndSettle();
     expect(tester.widget<ConnectionRecord>(find.byType(ConnectionRecord).first).connection['download'], 8192);
     expect(find.byType(RequestRecord), findsOneWidget);
     expect(calls.where((call) => call.method == 'capture.snapshot'), hasLength(queries));
@@ -350,6 +351,10 @@ void main() {
     expect(find.text('https://match-0.test/request'), findsOneWidget);
     final scrollable = find.descendant(of: find.byType(ConnectionsPage), matching: find.byType(Scrollable)).first;
     await tester.scrollUntilVisible(find.text('Show more'), 600, scrollable: scrollable);
+    await tester.pumpAndSettle();
+    expect(find.text('Show more').hitTestable(), findsOneWidget,
+      reason: 'The pagination button must scroll clear of the docked search field.');
+    await capture(tester, 'connections-requests-pagination');
     await tester.tap(find.text('Show more'));
     await tester.pumpAndSettle();
     expect(json(calls.lastWhere((call) => call.method == 'capture.snapshot').arguments), {'query': 'match', 'limit': 100});

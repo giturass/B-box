@@ -460,7 +460,7 @@
             "flutter/lib/pages/connections.dart",
             "flutter/lib/pages/requests.dart"
           ],
-          "changes": "Reference for HTTP exchange information. B-box combines live connections with bounded libbox request and TLS/TCP records in Connections and requests. The default view shows all connections with capture off and appends captured records while recording; history remains available through a request filter. Connection controls and capture actions keep separate data sources, and remote sessions expose only their connections. Recording controls have no profile-rewrite banner or dedicated capture logs."
+          "changes": "Reference for HTTP exchange information. B-box combines live connections with bounded libbox request and TLS/TCP records in Connections and requests. The default view shows all connections with capture off and appends captured records while recording; history remains available through a request filter. Connection controls and capture actions keep separate data sources, and remote sessions expose only their connections. The list reads insets below the scaffold so pagination stays clear of docked search. Recording controls have no profile-rewrite banner or dedicated capture logs."
         },
         {
           "source": "lib/features/connection/detail_tabs.dart",

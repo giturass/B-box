@@ -109,7 +109,8 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
           }),
         ],
       ],
-      body: ListView.builder(
+      // Read the insets below the scaffold, including its docked search field.
+      body: Builder(builder: (context) => ListView.builder(
         padding: EdgeInsets.only(top: context.contentTopPadding, bottom: 24 + context.bottomInset),
         itemCount: recordCount + 2,
         itemBuilder: (context, index) {
@@ -158,7 +159,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
             child: isRequest ? RequestRecord(request: item) : ConnectionRecord(connection: item),
           );
         },
-      ),
+      )),
     );
   }
 
