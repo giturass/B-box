@@ -156,7 +156,13 @@ class HttpRewriteConfigPage extends StatelessWidget {
       ('Map Local / API Mock', 'map_local', {'status': 200, 'data_type': 'text', 'data': '{}', 'headers': [{'name': 'Content-Type', 'value': 'application/json'}]}),
       ('JavaScript', 'scripts', {'phase': 'response', 'requires_body': true, 'source': r'$done({body: $response.body});'}),
     ];
-    return BoxPage(title: 'HTTP rewriting', loading: store.saving, children: [
+    // Keep scrolling rule names below the shared floating title.
+    final inset = context.appBarInset;
+    final contentGap = context.contentTopPadding - inset;
+    return CommonScaffold(title: context.tr('HTTP rewriting'), isLoading: store.saving,
+      body: Padding(padding: EdgeInsets.only(top: inset), child: ListView(
+        padding: EdgeInsets.fromLTRB(16, contentGap > 0 ? contentGap : 0, 16, 24 + context.bottomInset),
+        children: [
       ListFooter(text: context.tr('Rules belong to this JSON profile and run with the local service. Request recording is controlled separately.')),
       if (store.error != null) SelectableText(store.error!, style: TextStyle(color: context.colorScheme.error)),
       generateSection(items: [
@@ -182,7 +188,7 @@ class HttpRewriteConfigPage extends StatelessWidget {
           widget: ConfigValueEditor(title: 'HTTP rewriting', initial: store.value(path) ?? const {'enabled': false},
             onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
       ]),
-    ]);
+    ])));
   });
 }
 

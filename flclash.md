@@ -131,7 +131,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口、远程隔离、本机设置修订、HTTPS 域名选择、端口和启动确认；检查日志统计、历史/搜索/复制/导出、清日志与清请求隔离、后台/遮挡轮询及迟到结果。证书测试检查明确生成、取消导出不报成功、运行中禁止重生成、远程切换/迟到快照和信任刷新。其他回归保留 HAR 搜索、已有 socket 元数据读取、报文菜单、字段/Cookie 复制、正文格式切换和 Unicode 分批展开。窄屏、大字号深色和宽屏截图在 `build/screenshots/requests/`，包含设置、证书/导出、日志、列表、详情、头部、正文和 Cookies，显式加载 Roboto 和 JetBrains Mono。桥接替身与截图不等于实际 TLS 或系统证书安装验收；验证分工见 [libbox.md](libbox.md#构建同步和验证) 与 [app.md](app.md#验证与历史记录)。
 
-HTTP 改写另覆盖停止录制后的独立状态及 CA 轮换禁用；上述 requests 截图包含处理状态，以及 320 宽、1.3 倍字号深色主题下的配置规则与内嵌资源入口。[configuration_test.dart](flutter/test/configuration_test.dart) 检查启用改写保留原出站和其他 experimental 字段、写入携带配置修订，以及校验失败后保留已有内容。
+HTTP 改写另覆盖停止录制后的独立状态及 CA 轮换禁用；上述 requests 截图包含处理状态，以及 320 宽、1.3 倍字号深色主题下的配置规则与内嵌资源入口。该配置页将列表视口放在共用标题栏下方，避免滚动文字透过渐变标题相互重叠；测试同时核对视口与标题的几何位置。[configuration_test.dart](flutter/test/configuration_test.dart) 检查启用改写保留原出站和其他 experimental 字段、写入携带配置修订，以及校验失败后保留已有内容。
 
 [http_message_test.dart](flutter/test/http_message_test.dart) 检查 JSON 数值/重复键/转义保真、无效或过大内容回退，以及重复 Cookie、空值、等号和 Expires 逗号。请求正文不完整或截断时不提供 cURL 导出。
 
