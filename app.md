@@ -176,7 +176,16 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 ### 独立 MITM/TCP/Cron 验证
 
-当前改动的 Go、Flutter 和 Android 验证交由 GitHub Actions；本机仅执行源码与文档静态检查。独立 MITM/脚本、TCP 解密、Cron、配置迁移及抓包日志移除不在下文旧提交的验证范围内。结果完成后记录对应源码 SHA、Actions 链接及未覆盖范围。
+2026-11-03，独立 MITM/脚本、TCP 解密、Cron、配置迁移及抓包日志移除的验证结果如下。`339ecfc8bf42c4a07d800a6b8024d2e02a466ae9` 相对 `e1bbf0fcb1e3b06d4f4912943f3aa3487892b169` 仅修正 Flutter 测试的域名选择入口定位；Android、Go 与 Flutter 生产源码相同。后续记录结果的文档提交不改变应用源码。
+
+| Actions | 检出源码 SHA | 实际结果 |
+| --- | --- | --- |
+| [Core and Flutter validation](https://github.com/giturass/B-box/actions/runs/41637368901) | `339ecfc8bf42c4a07d800a6b8024d2e02a466ae9` | Go 扩展/schema、HTTP/MITM/TCP/脚本/Cron 的 `-race`、原路由及 Android 重定向布局回归通过；Flutter 分析、201 项测试及 ARM64 Flutter AAR 构建通过 |
+| [Android regression and smoke](https://github.com/giturass/B-box/actions/runs/41636466736) | `e1bbf0fcb1e3b06d4f4912943f3aa3487892b169` | 44 项 JVM 测试无失败或跳过，`play`/`other` 编译及模拟器应用/仪器测试 APK 构建通过；API 24/31/35 的 UI smoke 与各 19 项仪器测试全部通过 |
+
+已核对三个 `android-smoke-api-*` Artifact：`results.json` 的源码 SHA 一致，UI/native 均成功，`native-tests.txt` 均记录 19 项通过，包含原路由 HTTPS/TCP 解密、独立 MITM/脚本与改写的应用恢复，以及独立 Cron 的路由请求和服务生命周期回归。各份 `mitm-origin.json` 均记录 `/probe?raw=1;2` 与 `/tcp-stream` 两次请求，Host 保留 `origin.test:<实际端口>`。具体覆盖见 [请求抓取与 MITM](#请求抓取与-mitm) 和 [配置处理生命周期](#配置处理生命周期)。
+
+本机完成 `git diff --check`、`python3 tools/verify_newui.py`、Go 格式、Python 语法、配置示例/来源清单 JSON、核心补丁应用及文档链接静态检查，未在本机构建或执行 Go/Flutter/Android 测试。截图检查范围见 [flclash.md](flclash.md#验证与升级参考版本)。本次未运行签名 ARM64 Release/R8，未发布 APK 或 GitHub Release；下文旧 Release 不包含本次变更。模拟器的自有客户端显式信任测试 CA，尚未验收 ARM64 实机、真实 Root CA 模块安装、第三方应用信任或完整系统证书设置交互。
 
 ### JSON 配置改写验证
 

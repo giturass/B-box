@@ -23,7 +23,7 @@
 
 ## 界面复用与业务适配
 
-Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。复用 FlClash 的控件、字形、形状、排版、字体、动效、弹层及导航；页面状态和操作经 Android 桥接接入 B-box 的 Room 与 libbox。没有引入 FlClash/Mihomo 原生库、Clash 配置模型、Mihomo 配置覆写脚本、订阅转换器或 Clash 专用服务。B-box 请求/响应脚本的范围见 [核心 HTTP 改写](libbox.md#json-配置中的-http-改写)。
+Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。复用 FlClash 的控件、字形、形状、排版、字体、动效、弹层及导航；页面状态和操作经 Android 桥接接入 B-box 的 Room 与 libbox。没有引入 FlClash/Mihomo 原生库、Clash 配置模型、Mihomo 配置覆写脚本、订阅转换器或 Clash 专用服务。B-box 请求/响应脚本与定时任务的范围见 [独立脚本与 Cron](libbox.md#独立脚本与-cron)。
 
 | 区域 | 主要实现 | 当前适配 |
 | --- | --- | --- |
@@ -131,7 +131,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口、远程隔离、本机设置修订、MITM 域名选择、端口、启动确认及后台轮询/迟到结果；证书测试检查明确生成、取消导出、活跃 MITM 禁止重生成、远程切换和信任刷新。其他回归包括 HAR 搜索、TCP 流完成/导出限制、既有 socket 元数据、报文菜单、字段/Cookie 复制及正文格式/Unicode 展开。窄屏、大字号深色及宽屏截图位于 build/screenshots/requests/，包含独立配置、请求设置、证书、列表及报文详情；桥接替身不能代替实际 TLS 或系统安装验收。
 
-配置页面将滚动视口放在共享标题下方，避免文字穿过标题；测试核对几何位置与 320 宽、1.3 倍字号深色主题。当前独立 MITM/TCP/Cron 的实际验证见 [app.md](app.md#独立-mitmtcpcron-验证)，下文旧截图不覆盖此次修改。
+配置页面将滚动视口放在共享标题下方，避免文字穿过标题；测试核对几何位置与 320 宽、1.3 倍字号深色主题。当前独立 MITM/TCP/Cron 的实际验证见 [app.md](app.md#独立-mitmtcpcron-验证)，截图检查范围记录在本节末尾。
 
 [http_message_test.dart](flutter/test/http_message_test.dart) 检查 JSON 数值/重复键/转义保真、无效或过大内容回退，以及重复 Cookie、空值、等号和 Expires 逗号。请求正文不完整或截断时不提供 cURL 导出。
 
@@ -141,6 +141,6 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 这些测试只覆盖声明的页面和情景，不等于全应用逐像素一致或已经完成实机验收。升级参考版本时同步审查来源清单、适配文件、许可和独立参考渲染器，按实际 Actions 运行记录结果；Android 验证入口见 [app.md](app.md)。
 
-2026-11-03 的配置改写视觉检查读取 [Actions 41575286785](https://github.com/giturass/B-box/actions/runs/41575286785) 在 `e62ddbe724a1b5f61e3bff96e48b1ba8e82c94fc` 生成的 `newui-validation` 截图：核对停止录制后的改写状态，以及 320 宽、1.3 倍字号深色主题下的配置页首屏和资源区域；规则名称/数量可读，资源入口可滚动访问，标题与滚动内容不再重叠。产物名称为 `profile-rewriting-recording-off.png`、`profile-rewriting-config.png` 和 `profile-rewriting-config-resources.png`，均在 requests 截图目录。这些为英文 Flutter fixture，未覆盖中文实机或系统证书设置；完整结果与未覆盖范围见 [JSON 配置改写验证](app.md#json-配置改写验证)。
+2026-11-03 的独立 MITM/TCP/Cron 视觉检查读取 [Actions 41637368901](https://github.com/giturass/B-box/actions/runs/41637368901) 在 `339ecfc8bf42c4a07d800a6b8024d2e02a466ae9` 生成的 `newui-validation` 产物，实际查看 requests 截图目录中的 `independent-mitm-config.png`、`independent-scripts-cron.png`、`profile-rewriting-config.png` 和 `requests-recording-off.png`。前三张为 320 宽、1.3 倍字号深色主题：独立 MITM 的解密域名与 TCP 开关、脚本的 HTTP/Cron 入口、改写规则名称和数量均可读，标题与滚动内容分离。MITM 下方设置继续通过滚动访问，首屏截图不覆盖全部内容。请求页为浅色停止录制状态，只显示请求记录状态，已移除配置改写生效横幅。
 
-此前的 MITM 分支视觉检查读取 [Actions 41545838495](https://github.com/giturass/B-box/actions/runs/41545838495) 在 `8869e6992a59327c11d39ad98457a22f402a23cb` 生成的 `newui-validation` 截图：核对 320 宽、1.3 倍字号的抓包诊断，以及 360 宽、1.4 倍字号的深色设置、证书和导出区域。日志统计标签改为名称和值分行，避免窄列拆词；长证书指纹和说明可换行，导出区域可滚动访问。这些是英文 Flutter fixture 截图，未覆盖系统证书设置页面或 Root 管理器。其他检查及各次源码差异见 [MITM 分支验证](app.md#mitm-分支验证)。
+这些为英文 Flutter fixture 截图，未覆盖中文实机、系统证书设置或 Root 管理器；完整结果及未覆盖范围见 [独立 MITM/TCP/Cron 验证](app.md#独立-mitmtcpcron-验证)。此前配置改写和请求录制/CA 的截图记录可通过本文 Git 历史查询，对应运行分别见 [JSON 配置改写验证](app.md#json-配置改写验证) 与 [MITM 分支验证](app.md#mitm-分支验证)。
