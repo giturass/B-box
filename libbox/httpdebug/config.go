@@ -1,5 +1,6 @@
 // Package httpdebug records routed HTTP streams and opt-in HTTPS MITM sessions.
-// Settings are private application data, never sing-box configuration options.
+// Config contains private capture settings; RewriteConfig is the separate,
+// validated B-box profile extension for HTTP processing.
 package httpdebug
 
 import (
@@ -144,6 +145,7 @@ type TLSMetadata struct {
 	UpstreamVersion     string `json:"upstreamVersion"`
 	ALPN                string `json:"alpn"`
 	UpstreamCertificate string `json:"upstreamCertificate"`
+	UpstreamServerName  string `json:"upstreamServerName,omitempty"`
 }
 
 type SocketMetadata struct {

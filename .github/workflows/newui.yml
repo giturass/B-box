@@ -30,7 +30,7 @@ jobs:
       - name: HTTP, routed IP and LAN tests against the matching core
         working-directory: .core
         run: go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1
-      - name: HTTP and MITM capture, storage and route tests
+      - name: HTTP/MITM, profile rewrite, JavaScript, storage and route tests
         working-directory: .core
         run: |
           go test -race ./experimental/httpdebug -count=1 -timeout=5m

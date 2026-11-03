@@ -88,8 +88,8 @@ class _MitmCertificatePageState extends State<MitmCertificatePage> with WidgetsB
           if (!usable) ListItem(title: Text(context.tr('Certificate expired or signing key unavailable. Regenerate the CA.'))),
         ],
         ListItem(key: const ValueKey('mitm-ca-generate'), title: Text(context.tr(exists ? 'Regenerate CA' : 'Generate CA')),
-          subtitle: _state!['captureActive'] == true ? Text(context.tr('Stop capture before changing the MITM certificate')) : null,
-          onTap: _busy || _state!['captureActive'] == true ? null : () => _run('capture.ca.generate')),
+          subtitle: _state!['captureActive'] == true || _state!['rewriteActive'] == true ? Text(context.tr('Stop capture and the local service before changing the MITM certificate')) : null,
+          onTap: _busy || _state!['captureActive'] == true || _state!['rewriteActive'] == true ? null : () => _run('capture.ca.generate')),
       ]),
       if (exists) generateSection(title: context.tr('Install and export'), footer: context.tr('On Android 11 or later, export the certificate first, then choose CA certificate in Android security settings. For system trust, install the exported module with Magisk, KernelSU or APatch and reboot.'), items: [
         ListItem(key: const ValueKey('mitm-ca-export'), title: Text(context.tr('Export public CA certificate')),

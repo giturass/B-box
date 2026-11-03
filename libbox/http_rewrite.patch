@@ -1,0 +1,66 @@
+diff --git a/option/experimental.go b/option/experimental.go
+--- a/option/experimental.go
++++ b/option/experimental.go
+@@ -7,6 +7,7 @@
+ )
+ 
+ type ExperimentalOptions struct {
++	HTTPRewrite *HTTPRewriteOptions `json:"http_rewrite,omitempty"`
+ 	CacheFile *CacheFileOptions `json:"cache_file,omitempty"`
+ 	ClashAPI  *ClashAPIOptions  `json:"clash_api,omitempty"`
+ 	V2RayAPI  *V2RayAPIOptions  `json:"v2ray_api,omitempty"`
+diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command_server.go
+--- a/experimental/libbox/command_server.go
++++ b/experimental/libbox/command_server.go
+@@ -181,7 +181,7 @@
+ func (s *CommandServer) Close() {
+ 	uiCaptureLifecycle.Lock()
+ 	defer uiCaptureLifecycle.Unlock()
+-	StopUICapture()
++	stopUIHTTPProcessing()
+ 	if s.grpcServer != nil {
+ 		s.grpcServer.Stop()
+ 	}
+@@ -196,17 +196,24 @@
+ 	AutoRedirect   bool
+ 	IncludePackage StringIterator
+ 	ExcludePackage StringIterator
++	RewriteDirectory string
++	RewriteCertificate string
++	RewriteSigner UICaptureSigner
+ }
+ 
+ func (s *CommandServer) StartOrReloadService(configContent string, options *OverrideOptions) error {
+ 	uiCaptureLifecycle.Lock()
+ 	defer uiCaptureLifecycle.Unlock()
+-	StopUICapture()
++	preparedRewrite, err := s.prepareUIHTTPRewrite(configContent, options)
++	if err != nil {
++		return err
++	}
++	stopUIHTTPProcessing()
+ 	saveConfigSnapshot(configContent)
+ 	if s.powerManager.Recorder() != nil {
+ 		copyConfigSnapshot(filepath.Join(sWorkingPath, powerreport.DraftDirectoryName))
+ 	}
+-	err := s.StartedService.StartOrReloadService(s.ctx, configContent, &daemon.OverrideOptions{
++	err = s.StartedService.StartOrReloadService(s.ctx, configContent, &daemon.OverrideOptions{
+ 		AutoRedirect:   options.AutoRedirect,
+ 		IncludePackage: iteratorToArray(options.IncludePackage),
+ 		ExcludePackage: iteratorToArray(options.ExcludePackage),
+@@ -215,13 +222,14 @@
+ 	if err != nil {
+ 		return E.Cause(err, "start or reload service")
+ 	}
++	activateUIHTTPRewrite(preparedRewrite)
+ 	return nil
+ }
+ 
+ func (s *CommandServer) CloseService() error {
+ 	uiCaptureLifecycle.Lock()
+ 	defer uiCaptureLifecycle.Unlock()
+-	StopUICapture()
++	stopUIHTTPProcessing()
+ 	return s.StartedService.CloseService()
+ }
+ 

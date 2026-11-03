@@ -75,6 +75,54 @@ void main() {
     expect(store.revision, 'new');
   });
 
+  testWidgets('HTTP rewrite editing saves through the profile revision and preserves the original configuration', (tester) async {
+    reportFlutterErrors();
+    const channel = MethodChannel('test.http-rewrite-config');
+    final events = StreamController<dynamic>.broadcast();
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var content = jsonEncode({'outbounds': [{'type': 'direct', 'tag': 'kept'}], 'experimental': {'cache_file': {'enabled': true}}});
+    var revision = 'before', reject = false;
+    Json wire() => {'formatted': content, 'content': content, 'revision': revision};
+    final writes = <Json>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'ready') return {'version': 'test', 'dashboard': {'status': 'Stopped'}};
+      if (call.method == 'profiles.config') return wire();
+      if (call.method == 'profiles.write') {
+        final args = json(call.arguments);
+        expect(args['revision'], revision);
+        if (reject) throw PlatformException(code: 'config', message: 'Invalid rewrite pattern');
+        content = args['content'] as String;
+        writes.add(json(jsonDecode(content)));
+        revision = 'after';
+        return wire();
+      }
+      return null;
+    });
+    final box = BoxController(channel: channel, events: events.stream);
+    final store = ProfileConfigStore(box, {'id': 7, 'name': 'Profile'});
+    await store.load();
+    await tester.pumpWidget(BoxApp(controller: box));
+    await tester.pumpAndSettle();
+    openPage(tester.element(find.byType(HomePage)), HttpRewriteConfigPage(store: store));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('http-rewrite-enabled')));
+    await tester.pumpAndSettle();
+    expect(writes.single['outbounds'], [{'type': 'direct', 'tag': 'kept'}]);
+    expect(json(writes.single['experimental'])['cache_file'], {'enabled': true});
+    expect(store.value(['experimental', 'http_rewrite', 'enabled']), isTrue);
+    reject = true;
+    expect(await store.set(['experimental', 'http_rewrite', 'body_rewrite'], [{'pattern': '['}]), isFalse);
+    expect(store.value(['experimental', 'http_rewrite', 'body_rewrite']), isNull);
+    expect(store.value(['experimental', 'http_rewrite', 'enabled']), isTrue);
+    expect(store.revision, 'after');
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    store.dispose();
+    await events.close();
+    messenger.setMockMethodCallHandler(channel, null);
+  });
+
   testWidgets('config sheet keeps edits after canceling dismissal and a failed save', (tester) async {
     reportFlutterErrors();
     const channel = MethodChannel('test.config-sheet');

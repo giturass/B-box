@@ -3,6 +3,7 @@ package httpdebug
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -25,6 +26,8 @@ type DialFunc func(context.Context) (net.Conn, error)
 
 type Engine struct {
 	config               Config
+	captureEnabled       bool
+	rewrite              *RewriteProgram
 	ca                   *authority
 	store                *Store
 	ctx                  context.Context
@@ -47,27 +50,30 @@ type Engine struct {
 }
 
 func newEngine(config Config, store *Store) *Engine {
-	e := &Engine{config: config, store: store, connections: make(map[net.Conn]context.CancelFunc)}
+	e := &Engine{config: config, captureEnabled: true, store: store, connections: make(map[net.Conn]context.CancelFunc)}
 	e.ctx, e.cancel = context.WithCancel(context.Background())
 	return e
 }
 
 func (e *Engine) Candidate(metadata Metadata) bool {
-	return e.config.candidate(metadata)
+	return e.captureEnabled && e.config.candidate(metadata) || e.rewrite != nil && e.rewrite.scope.candidate(metadata)
 }
 
-func (e *Engine) Matches(metadata Metadata) bool { return e.config.matches(metadata) }
+func (e *Engine) Matches(metadata Metadata) bool {
+	return e.captureEnabled && e.config.matches(metadata) || e.rewrite != nil && e.rewrite.scope.matches(metadata)
+}
 
 func (e *Engine) WantsQUIC(metadata Metadata) bool {
 	metadata.Protocol = "tls"
-	return (e.config.ExtractHosts || e.config.HTTPS && e.config.BlockQUIC) && e.config.candidate(metadata)
+	return e.captureEnabled && (e.config.ExtractHosts || e.config.HTTPS && e.config.BlockQUIC) && e.config.candidate(metadata) ||
+		e.rewrite != nil && e.rewrite.scope.HTTPS && e.rewrite.scope.BlockQUIC && e.rewrite.scope.candidate(metadata)
 }
 
 // The caller must have observed a QUIC ClientHello, never just an IP/UDP port.
 func (e *Engine) RejectQUIC(metadata Metadata) bool {
 	metadata.Protocol = "tls"
 	e.Observe(metadata, "QUIC")
-	if !e.config.BlockQUIC || !e.Matches(metadata) {
+	if !(e.captureEnabled && e.config.BlockQUIC && e.config.matches(metadata) || e.rewrite != nil && e.rewrite.scope.BlockQUIC && e.rewrite.scope.matches(metadata)) {
 		return false
 	}
 	e.mu.Lock()
@@ -80,6 +86,10 @@ func (e *Engine) RejectQUIC(metadata Metadata) bool {
 }
 
 func (e *Engine) Handle(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, roots *x509.CertPool, onClose func(error)) bool {
+	return e.HandleRouted(ctx, conn, metadata, dial, nil, roots, onClose)
+}
+
+func (e *Engine) HandleRouted(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, mapped RewriteDialFunc, roots *x509.CertPool, onClose func(error)) bool {
 	if !e.Matches(metadata) || metadata.Protocol == "tls" && e.ca == nil {
 		return false
 	}
@@ -87,6 +97,13 @@ func (e *Engine) Handle(ctx context.Context, conn net.Conn, metadata Metadata, d
 	if e.closed || len(e.connections)+e.preparing >= MaxConnections {
 		e.skipped.Add(1)
 		e.mu.Unlock()
+		if e.rewrite != nil && e.rewrite.scope.matches(metadata) {
+			conn.Close()
+			if onClose != nil {
+				onClose(errors.New("HTTP rewrite connection capacity exceeded or service stopped"))
+			}
+			return true
+		}
 		return false
 	}
 	ctx, cancel := context.WithCancel(ctx)
@@ -96,7 +113,7 @@ func (e *Engine) Handle(ctx context.Context, conn net.Conn, metadata Metadata, d
 	go func() {
 		defer e.wg.Done()
 		stopClose := context.AfterFunc(ctx, func() { conn.Close() })
-		err := e.serve(ctx, conn, metadata, dial, roots)
+		err := e.serve(ctx, conn, metadata, dial, mapped, roots)
 		stopClose()
 		cancel()
 		conn.Close()
@@ -126,7 +143,7 @@ func (e *Engine) Close() {
 	e.wg.Wait()
 }
 
-func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, roots *x509.CertPool) error {
+func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, mapped RewriteDialFunc, roots *x509.CertPool) error {
 	dial = bindDialLifetime(ctx, dial)
 	transport := newTransport(dial)
 	scheme := "http"
@@ -144,8 +161,13 @@ func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, di
 		e.plaintextConnections.Add(1)
 	}
 	defer transport.CloseIdleConnections()
+	var mappedTransport *http.Transport
+	if mapped != nil {
+		mappedTransport = newRewriteTransport(ctx, mapped, roots)
+		defer mappedTransport.CloseIdleConnections()
+	}
 	target := &url.URL{Scheme: scheme, Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))}
-	handler := e.handler(metadata, target, transport)
+	handler := e.handler(metadata, target, transport, mappedTransport)
 	base := &http.Server{
 		Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
 		MaxHeaderBytes: MaxHeaderBytes, ErrorLog: log.New(io.Discard, "", 0),
@@ -216,7 +238,7 @@ func newTransport(dial DialFunc) *http.Transport {
 	}
 }
 
-func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.RoundTripper) http.Handler {
+func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.RoundTripper, mapped *http.Transport) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		e.mu.Lock()
 		if e.closed {
@@ -254,7 +276,7 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 		requestMetadata := metadata
 		requestMetadata.Host = requestHost
 		id := ""
-		selected := e.config.matches(requestMetadata)
+		selected := e.captureEnabled && e.config.matches(requestMetadata)
 		e.parsedRequests.Add(1)
 		if selected {
 			id = e.store.begin(requestMetadata, display, e.config.BodyLimit)
@@ -278,14 +300,48 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 			return
 		}
 		request.URL = display.URL
+		originalURL := *request.URL
+		var program *RewriteProgram
+		if e.rewrite != nil && e.rewrite.scope.matches(requestMetadata) {
+			program = e.rewrite
+		}
+		scriptID := id
+		if scriptID == "" {
+			scriptID = rand.Text()
+		}
+		note := func(message string) { e.store.addNote(id, message) }
+		var local *http.Response
+		if program != nil {
+			// Limit reads of a selected request body, including slow/chunked uploads.
+			controller := http.NewResponseController(w)
+			_ = controller.SetReadDeadline(time.Now().Add(15 * time.Second))
+			local, err = program.request(request, scriptID, originalURL.String(), note)
+			_ = controller.SetReadDeadline(time.Time{})
+			if err != nil {
+				e.store.setError(id, err)
+				e.reportError("HTTP request rewrite: " + err.Error())
+				status := http.StatusBadGateway
+				if errors.Is(err, errRewriteSize) {
+					status = http.StatusRequestEntityTooLarge
+				}
+				http.Error(w, "B-box: request rewrite failed; see capture logs", status)
+				return
+			}
+			e.store.rewrittenRequest(id, request, originalURL.String())
+			if !sameRewriteOrigin(request.URL, &originalURL) {
+				note("Mapped destination uses sing-box routing; connection metadata describes the original client route")
+			}
+		}
 		if request.Body != nil && request.Body != http.NoBody {
 			request.Body = &tapBody{ReadCloser: request.Body, store: e.store, id: id, expected: request.ContentLength, trailers: request.Trailer, engine: e}
 			defer request.Body.Close()
 		}
 		proxy := &httputil.ReverseProxy{
 			Rewrite: func(r *httputil.ProxyRequest) {
-				r.Out.URL.Scheme = target.Scheme
-				r.Out.URL.Host = target.Host
+				if sameRewriteOrigin(r.In.URL, &originalURL) {
+					r.Out.URL.Scheme = target.Scheme
+					r.Out.URL.Host = target.Host
+				}
 				r.Out.URL.User = nil
 				// ReverseProxy otherwise cleans query parameters before Rewrite.
 				// Debugging must preserve the client's original request target.
@@ -302,9 +358,25 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 				}
 			},
 			Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-				response, err := transport.RoundTrip(r)
+				var response *http.Response
+				var err error
+				if local != nil {
+					response = local
+				} else if sameRewriteOrigin(request.URL, &originalURL) {
+					response, err = transport.RoundTrip(r)
+				} else if mapped != nil {
+					response, err = mapped.RoundTrip(r)
+				} else {
+					err = errors.New("mapped destination requires a sing-box route dialer")
+				}
 				if err != nil {
 					return nil, err
+				}
+				if program != nil {
+					if err = program.response(request, response, scriptID, originalURL.String(), note); err != nil {
+						response.Body.Close()
+						return nil, err
+					}
 				}
 				e.store.response(id, response)
 				if response.StatusCode != http.StatusSwitchingProtocols && response.Body != nil && response.Body != http.NoBody {
@@ -328,7 +400,7 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 // Domain observations do not imply that TLS plaintext was captured.
 func (e *Engine) Observe(metadata Metadata, protocol string) {
 	metadata.Protocol = "tls"
-	if !e.config.ExtractHosts || !e.config.candidate(metadata) || !validHost(normalizeHost(metadata.Host)) {
+	if !e.captureEnabled || !e.config.ExtractHosts || !e.config.candidate(metadata) || !validHost(normalizeHost(metadata.Host)) {
 		return
 	}
 	e.mu.Lock()

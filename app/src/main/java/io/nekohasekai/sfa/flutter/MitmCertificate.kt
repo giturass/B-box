@@ -21,7 +21,7 @@ import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
 import java.util.UUID
 
-/** Call under BoxCapture's process mutex. Only the public certificate is persisted. */
+/** Shared by capture and profile processing. Only the public certificate is persisted. */
 internal class MitmCertificate(context: Context, directory: File = File(context.noBackupFilesDir, "http-debug")) {
     private val file = AtomicFile(File(directory, "mitm-authority.json"))
     private val keyStore get() = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -59,71 +59,84 @@ internal class MitmCertificate(context: Context, directory: File = File(context.
     }
 
     fun material(): Pair<String, UICaptureSigner> {
-        val value = record()
-        val certificate = parse(value)
-        certificate.checkValidity()
-        val key = keyStore.getKey(value.getString("alias"), null) as? PrivateKey
-            ?: error("MITM signing key is unavailable; regenerate the CA")
-        return value.getString("certificate") to PlatformSigner(key)
+        synchronized(accessLock) {
+            val value = record()
+            val certificate = parse(value)
+            certificate.checkValidity()
+            val key = keyStore.getKey(value.getString("alias"), null) as? PrivateKey
+                ?: error("MITM signing key is unavailable; regenerate the CA")
+            return value.getString("certificate") to PlatformSigner(key)
+        }
     }
 
     fun snapshot(): Map<String, Any?> {
-        val raw = read()
-        if (raw.isEmpty()) return mapOf("exists" to false, "revision" to ProfileContent.revision(raw))
-        val value = record()
-        val certificate = parse(value)
-        val trust = KeyStore.getInstance("AndroidCAStore").apply { load(null) }
-        var system = false
-        var user = false
-        // Match DER identity in both stores, including hash.N collisions. Store
-        // presence is not evidence that an arbitrary app accepts this CA.
-        for (alias in trust.aliases().toList()) {
-            if (trust.getCertificate(alias)?.encoded?.contentEquals(certificate.encoded) != true) continue
-            system = system || alias.startsWith("system:")
-            user = user || alias.startsWith("user:")
+        synchronized(accessLock) {
+            val raw = read()
+            if (raw.isEmpty()) return mapOf("exists" to false, "revision" to ProfileContent.revision(raw))
+            val value = record()
+            val certificate = parse(value)
+            val trust = KeyStore.getInstance("AndroidCAStore").apply { load(null) }
+            var system = false
+            var user = false
+            // Match DER identity in both stores, including hash.N collisions. Store
+            // presence is not evidence that an arbitrary app accepts this CA.
+            for (alias in trust.aliases().toList()) {
+                if (trust.getCertificate(alias)?.encoded?.contentEquals(certificate.encoded) != true) continue
+                system = system || alias.startsWith("system:")
+                user = user || alias.startsWith("user:")
+            }
+            return mapOf(
+                "exists" to true, "revision" to ProfileContent.revision(raw),
+                "subject" to certificate.subjectX500Principal.name, "fingerprint" to fingerprint(certificate),
+                "expiresAt" to certificate.notAfter.time, "systemTrusted" to system, "userTrusted" to user,
+                "valid" to runCatching { certificate.checkValidity(); true }.getOrDefault(false),
+                "keyAvailable" to keyStore.containsAlias(value.getString("alias")),
+            )
         }
-        return mapOf(
-            "exists" to true, "revision" to ProfileContent.revision(raw),
-            "subject" to certificate.subjectX500Principal.name, "fingerprint" to fingerprint(certificate),
-            "expiresAt" to certificate.notAfter.time, "systemTrusted" to system, "userTrusted" to user,
-            "valid" to runCatching { certificate.checkValidity(); true }.getOrDefault(false),
-            "keyAvailable" to keyStore.containsAlias(value.getString("alias")),
-        )
     }
 
     fun generate(expectedRevision: String): Map<String, Any?> {
-        val old = read()
-        require(ProfileContent.revision(old) == expectedRevision) { "MITM certificate changed; refresh before continuing" }
-        val oldAlias = old.takeIf(String::isNotEmpty)?.let { record().getString("alias") }
-        val alias = "b_box_mitm_v2_${UUID.randomUUID()}"
-        try {
-            val pair = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore").run {
-                initialize(KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
-                    .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
-                    .setDigests(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256)
-                    .setUserAuthenticationRequired(false).build())
-                generateKeyPair()
+        synchronized(accessLock) {
+            val processing = JSONObject(Libbox.readUICaptureStatus())
+            require(!processing.optBoolean("active") && !processing.optBoolean("rewriteActive")) {
+                "Stop capture and the local service before changing the MITM certificate"
             }
-            val pem = Libbox.generateUICaptureCA(pair.public.encoded, PlatformSigner(pair.private))
-            val value = JSONObject().put("version", 1).put("alias", alias).put("certificate", pem)
-            parse(value).verify(pair.public)
-            writeCaptureFile(file, value.toString())
-        } catch (error: Exception) {
-            runCatching { keyStore.deleteEntry(alias) }
-            throw error
+            val old = read()
+            require(ProfileContent.revision(old) == expectedRevision) { "MITM certificate changed; refresh before continuing" }
+            val oldAlias = old.takeIf(String::isNotEmpty)?.let { record().getString("alias") }
+            val alias = "b_box_mitm_v2_${UUID.randomUUID()}"
+            try {
+                val pair = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore").run {
+                    initialize(KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
+                        .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
+                        .setDigests(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256)
+                        .setUserAuthenticationRequired(false).build())
+                    generateKeyPair()
+                }
+                val pem = Libbox.generateUICaptureCA(pair.public.encoded, PlatformSigner(pair.private))
+                val value = JSONObject().put("version", 1).put("alias", alias).put("certificate", pem)
+                parse(value).verify(pair.public)
+                writeCaptureFile(file, value.toString())
+            } catch (error: Exception) {
+                runCatching { keyStore.deleteEntry(alias) }
+                throw error
+            }
+            if (oldAlias != null) runCatching { keyStore.deleteEntry(oldAlias) }.onFailure {
+                Libbox.appendUICaptureLog("warn", "Unable to remove the previous MITM signing key: ${it.message}")
+            }
+            return snapshot()
         }
-        if (oldAlias != null) runCatching { keyStore.deleteEntry(oldAlias) }.onFailure {
-            Libbox.appendUICaptureLog("warn", "Unable to remove the previous MITM signing key: ${it.message}")
-        }
-        return snapshot()
     }
 
     fun publicCertificate(expectedRevision: String): X509Certificate {
-        require(ProfileContent.revision(read()) == expectedRevision) { "MITM certificate changed; refresh before continuing" }
-        return parse(record()).also { it.checkValidity() }
+        synchronized(accessLock) {
+            require(ProfileContent.revision(read()) == expectedRevision) { "MITM certificate changed; refresh before continuing" }
+            return parse(record()).also { it.checkValidity() }
+        }
     }
 
     companion object {
+        internal val accessLock = Any()
         fun fingerprint(certificate: X509Certificate): String = MessageDigest.getInstance("SHA-256")
             .digest(certificate.encoded).joinToString("") { "%02x".format(it.toInt() and 255) }
 

@@ -17,6 +17,7 @@
 | 出口探测绑定 | [ui_egress.go](libbox/ui_egress.go) | 可取消的设备网络/运行中路由探测、出口 IP 多源查询与质量请求传输 |
 | 局域网代理配置绑定 | [ui_lan.go](libbox/ui_lan.go) | 读取 mixed/http/socks 监听端点、修改 listen 或显式新增 mixed 入站 |
 | HTTP/HTTPS 请求抓取 | [httpdebug.patch](libbox/httpdebug.patch)、[httpdebug/](libbox/httpdebug/)、[route/](libbox/route/)、[ui_capture.go](libbox/ui_capture.go) | HTTP 录制、HTTPS MITM、平台签名、域名提取、记录及导出绑定 |
+| JSON 配置驱动的 HTTP 改写 | [http_rewrite.patch](libbox/http_rewrite.patch)、[rewrite_config.go](libbox/httpdebug/rewrite_config.go)、[ui_http_rewrite.go](libbox/ui_http_rewrite.go) | MITM、Map Remote、Header/URL/Body Rewrite、Map Local/API Mock 与 JavaScript 请求/响应脚本 |
 
 ## 新增接口与行为
 
@@ -56,7 +57,7 @@
 
 ### HTTP/HTTPS 请求调试
 
-[httpdebug/](libbox/httpdebug/) 在 sing-box 已选定路由后记录 HTTP，并按本机设置接管 HTTPS。它没有另开代理监听端口，不修改配置、DNS 映射或出站选择。参考 mitmproxy 的上游优先握手及证书校验设计，核对版本为 [`b08148b35d7679bc9be8d4a3d85b32bcea5ce250`](https://github.com/mitmproxy/mitmproxy/tree/b08148b35d7679bc9be8d4a3d85b32bcea5ce250)，主要依据 `addons/tlsconfig.py`、`proxy/layers/tls.py` 和 `certs.py`；生产代码使用 Go `crypto/tls`，没有嵌入 mitmproxy。FlClash 的独立补充参考见 [界面来源](flclash.md#参考版本与来源清单)。
+[httpdebug/](libbox/httpdebug/) 在 sing-box 已选定路由后记录 HTTP，并按本机设置接管 HTTPS。仅抓取时不修改配置、DNS 映射或出站选择；可选的配置改写另见 [JSON 配置中的 HTTP 改写](#json-配置中的-http-改写)。它没有另开代理监听端口。抓取模式参考 mitmproxy 的上游优先握手及证书校验设计，核对版本为 [`b08148b35d7679bc9be8d4a3d85b32bcea5ce250`](https://github.com/mitmproxy/mitmproxy/tree/b08148b35d7679bc9be8d4a3d85b32bcea5ce250)，主要依据 `addons/tlsconfig.py`、`proxy/layers/tls.py` 和 `certs.py`；生产代码使用 Go `crypto/tls`，没有嵌入 mitmproxy。FlClash 的独立补充参考见 [界面来源](flclash.md#参考版本与来源清单)。
 
 [路由钩子](libbox/route/httpdebug.go) 将嗅探结果仅用于抓取选择。转发继续调用原选定出站的 `ConnectionHandler` 或原连接管理器，保留原目的地址、解析结果、网络策略、TLS 分片、规则、代理组和应用归属。CONNECT/SOCKS 隧道先通过核心握手成功接口响应客户端，再等待请求或 ClientHello，避免双方等待。需要观察的流通过普通 stream 路径处理；未命中流保留嗅探读到的所有字节继续原路由。
 
@@ -79,6 +80,79 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 [抓包日志](libbox/httpdebug/logs.go) 与请求存储独立，记录启停、握手阶段和失败原因，不记录正文。缓冲最多 1000 条、512 KiB，每条 4 KiB，UTF-8 截断安全。状态统计实际握手尝试/失败、QUIC 拒绝、解密连接、正文字节、解析/筛选/保存数量；停抓保留本次计数，下次开始重置。清日志不清请求，进程退出清内存日志，保存记录在停服后仍可读取。
 
 `CommandServer.StartUICapture(directory, config, certificate, signer)` 与核心重载/关闭串行；`GenerateUICaptureCA(publicKeyDER, UICaptureSigner)` 只接收平台公钥和签名回调，不接收或导出根私钥。其他 `Open/Validate/Stop/Read/List/Clear/ExportUICapture*`、`ExtractUICaptureHosts` 及日志绑定提供本地访问，轮询只传有界预览，正文文件通过导出读取。Root 采集器、FD 管道和手动 TLS 偏移已移除；普通 Root/Shizuku 与完整核心协议保持原有能力。
+
+### JSON 配置中的 HTTP 改写
+
+在原 sing-box JSON 的 `experimental` 中添加 `http_rewrite`，保留原入站、DNS、出站和路由。此字段是 B-box 的真实核心扩展，出现在生成的配置 schema 中；`Libbox.checkConfig` 同时校验字段、正则、静态响应和 JavaScript 语法，格式化、分享及备份保留它。它不是 Surge INI 导入器，也不是 Mihomo 配置覆写。完整示例见 [examples/http-rewrite.json](examples/http-rewrite.json)。该示例使用测试域名，HTTPS 默认关闭；移植时替换匹配域名和映射地址，将 `experimental.http_rewrite` 合并到自己的配置即可。
+
+最小本地 Mock 示例：
+
+```json
+{
+  "experimental": {
+    "http_rewrite": {
+      "enabled": true,
+      "mitm": {"enabled": true, "hosts": ["api.example.test"]},
+      "map_local": [{
+        "pattern": "^https://api\\.example\\.test/mock$",
+        "status": 200,
+        "data_type": "text",
+        "data": "{\"ok\":true}",
+        "headers": [{"name": "Content-Type", "value": "application/json"}]
+      }]
+    }
+  }
+}
+```
+
+启用 HTTPS 前，通过“工具 → 请求 → MITM 证书”生成并安装本机 CA；证书与私钥不写入 JSON。`enabled` 默认 false，启用后的规则随本地服务启动/重载生效，服务停止或移除该字段后结束。请求记录仍由抓包开关控制；停止记录会关闭旧拦截连接，但不会停用配置中的规则。应用失败恢复及证书生命周期见 [app.md](app.md#配置驱动的-http-改写)。
+
+顶层选项：
+
+| 字段 | 含义 |
+| --- | --- |
+| `enabled` | 启用此配置的 HTTP 处理，默认 false |
+| `ports` / `packages` | 原始目标端口及应用范围；端口默认 80、443、8080、8443，最多 32 个；应用为空表示不限 |
+| `mitm.enabled` | 是否解密 HTTPS，默认 false |
+| `mitm.hosts` / `mitm.excluded_hosts` | 精确域名、IP 或 `*.example.com`；启用 MITM 必须填写包含列表，排除优先；不接受 Surge 的 `*`、`?`、端口内嵌或负号列表语法 |
+| `mitm.block_quic` | 按已观测的名称及配置范围拒绝 QUIC，默认 false，要求 MITM 已开启 |
+| `max_body_bytes` | 改写正文的缓冲与输出上限，1～1048576 字节，默认 1 MiB；与抓包保存前缀的限额独立 |
+| `resources` | JSON 内嵌资源字典，值为 `{ "data_type": "text"或"base64", "data": "..." }`；静态响应与 JS 可按名称引用 |
+
+规则总数最多 256，扩展 JSON 最多 2 MiB。每条规则都有必填 `pattern`、可选 `name` 和 `disabled`（默认 false）。`pattern` 对进入引擎时的完整 URL（含查询参数）匹配；请求和响应阶段使用相同的原始 URL，避免映射后响应规则失配。声明式正则使用 Go RE2，最多 4096 字节、32 个捕获组，不支持前后查找或反向引用；替换模板支持 `$1`、`${name}` 和 `$$`。正文正则中的 `^`、`$` 按行匹配。
+
+| 能力 / 字段 | 规则内容及行为 |
+| --- | --- |
+| Header Rewrite / `header_rewrite` | `phase`: `request`或`response`；`operation`: `add`、`delete`、`replace`、`replace_regex`；指定 `header`，普通操作使用 `value`，正则操作使用 `regex`/`replacement`。`add` 保留重复字段；`replace` 只替换已存在字段，新增或覆盖可依次 delete/add。请求 Host 仅允许 replace/replace_regex |
+| URL Rewrite / `url_rewrite` | `action`: `header` 透明改写并更新 Host，`302`/`307` 返回重定向，`reject` 返回 403。前两类使用绝对 HTTP(S) `replacement` 模板；首条命中生效 |
+| Map Remote / `map_remote` | `replacement` 指定绝对 HTTP(S) URL 模板，默认更新 Host，`preserve_host: true` 保留已有 Host；首条命中生效。与 URL header 规则同时匹配时，Map Remote 决定最终目标 |
+| Body Rewrite / `body_rewrite` | `phase`、URL `pattern`、正文 `regex` 和 `replacement`；所有命中规则依次执行，可以从空正文生成内容 |
+| Map Local / `map_local` | 首条命中返回本地响应，不请求原 HTTP 服务器。`status` 为 200～599，默认 200；`headers` 为保留重复字段的 `{name,value}` 数组；`data_type` 为 `text`（默认）、`base64` 或 `tiny-gif`，`data` 为内容；也可用 `resource` 引用内嵌资源，与 data/data_type 互斥 |
+| API Mock | 静态使用 Map Local；动态使用请求脚本的 `$done({response:{...}})` |
+| JavaScript / `scripts` | `phase`、URL `pattern`，以及 `source` 或 `resource`；每个方向只执行第一条启用且匹配的脚本 |
+
+处理顺序为请求 Header → URL → Map Remote → Body → 请求脚本 → Map Local → 上游 → 响应 Header → Body → 响应脚本。重定向、拒绝或脚本 Mock 会提前结束请求路径，生成的响应仍经过响应阶段。首条命中脚本失败不会改用下一条脚本。错误写入诊断；脚本异常、超时、非法结果或上游失败返回 502，超限请求正文返回 413，不把失败改写默认为成功。
+
+脚本接口由 [rewrite_script.go](libbox/httpdebug/rewrite_script.go) 提供：
+
+- `$request`: `url`、`method`、`headers`、稳定的 `id`；请求脚本设置 `requires_body: true` 时提供 `body`。响应脚本中的 request 不携带正文。URL 是前序规则处理后的值。
+- `$response`: 响应脚本可读取 `status`、`headers`，`requires_body: true` 时提供 `body`。先执行静态正文改写，脚本读取其结果。
+- `$done()`/`$done({})` 原样继续并结束脚本；请求结果可含 `url`、`headers`、`body`、`response`、`abort`，另支持 B-box 的 `method`。脚本修改 URL 默认保留 Host，需要时一起返回 headers；响应结果可含 `status`、`headers`、`body`、`abort`。动态 response 支持 status/headers/body。
+- 默认正文为 UTF-8 字符串；`binary_body: true` 使用 `Uint8Array`。替换当前报文 body 要求 `requires_body: true`；动态 Mock 的 response.body 不要求读取原请求正文。
+- `full_headers: true` 将头部作为 `{field,value}` 数组传入，保留重复 Cookie 等字段；结果同时接受对象或数组。普通对象输入每个字段取首值，需完整保留重复字段的脚本应使用 full_headers。
+- `argument` 通过 `$argument` 提供；`$script` 包含 name/type/binaryBodyMode；`console.log/info/warn/error/debug` 写入有界诊断日志（每次最多 10 条、每条最多 2 KiB）。只有脚本显式打印的内容进入这些日志。
+
+脚本正文限额可用 `max_body_bytes` 降低，不能超过配置限额；`timeout_ms` 默认 200，范围 1～2000。每次创建独立 Goja runtime，同时最多执行 4 个，调用栈最多 256 层；原生 JS 正则另设 200 毫秒的匹配截止时间。超时是执行限制，不是独立进程的硬内存隔离。未实现网络请求、持久存储、定时器、Node.js 模块、通知、cron、Surge 的完整 JS API 或 jq；不自动执行外链脚本，不把资源名称解释为本机文件路径。配置及备份可以完整携带内嵌 JS 和静态资源。
+
+正文与协议边界：只缓冲命中的报文，支持 identity/gzip/deflate，压缩前后分别检查限额；不支持的编码和非 UTF-8 文本改写会保留原报文并记录原因。响应超限会回放已读前缀并继续原样转发，不截断数据；SSE、WebSocket 升级、HEAD 和 206 响应跳过正文处理。改写后移除旧压缩、摘要、ETag、范围及 trailer 信息，重新计算 Content-Length；禁止规则/脚本手动改变消息分帧或升级头，HEAD/204/205/304 不发送不允许的正文。
+
+最初连接仍须通过 sing-box 路由选择，改写不会绕过原路由的拒绝。未改变 origin 的请求沿用原出站、解析结果及网络选项；跨 origin 的目标经 [route/httpdebug.go](libbox/route/httpdebug.go) 重新进入同一核心，保留入站、来源和应用归属，清除旧目的地/规则缓存，并阻止递归改写。没有直连回退。记录保存改写后的请求/响应、原 URL 与命中说明；映射条目的连接路由字段仍表示原连接，界面明确标为原连接出站/规则。
+
+配置 MITM 允许 Map Local 和脚本在原服务器离线时响应，因此 [rewrite_transport.go](libbox/httpdebug/rewrite_transport.go) 先完成客户端握手，实际需要上游时再连接；每次真实 HTTPS 上游（含映射目标）仍验证证书链、名称和有效期。本地 Mock 不伪造上游 TLS 信息，实际转发后才记录上游 TLS 和证书。仅手动抓包的连接继续使用前文的上游优先握手。CA 信任、证书固定校验、ECH、HTTP/3 及连接/HTTP2 并发边界仍见前文。
+
+参考依据为 2026-11-03 读取的 Surge [HTTP Processing](https://manual.nssurge.com/http/overview.html)、[MITM](https://manual.nssurge.com/http/mitm.html)、[URL Rewrite](https://manual.nssurge.com/http/url-rewrite.html)、[Header Rewrite](https://manual.nssurge.com/http/header-rewrite.html)、[Body Rewrite](https://manual.nssurge.com/http/body-rewrite.html)、[Map Local](https://manual.nssurge.com/http/map-local.html)、[请求脚本](https://manual.nssurge.com/scripting/http-request.html)和[响应脚本](https://manual.nssurge.com/scripting/http-response.html)。Surge 的 URL header 模式提供透明远端映射；B-box 另提供 map_remote 列表。上表明确 B-box 的字段、顺序与支持范围，不宣称配置或脚本完全兼容 Surge。
+
+核心集成固定 [Goja `a177d211bf606f6275674a35bc0d31d8ee0ee396`](https://github.com/dop251/goja/tree/a177d211bf606f6275674a35bc0d31d8ee0ee396)，模块版本 `v0.0.0-20261102223426-a177d211bf60`。共享 setup-core 将核心模块最低 Go 版本调整为 1.26.0，实际构建仍用 version.properties 的 go1.26.10；Goja 依赖将 x/text 提升到 v0.43.0，并引入 regexp2/v2、sourcemap 和 pprof。许可证随 Flutter assets 打包并在许可证页注册；三个上游基线不变。Release、Flutter 核心验证和 Android smoke 都使用同一个安装入口。
 
 ### 旧抓包配置清理
 

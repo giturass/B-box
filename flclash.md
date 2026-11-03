@@ -23,7 +23,7 @@
 
 ## 界面复用与业务适配
 
-Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。复用 FlClash 的控件、字形、形状、排版、字体、动效、弹层及导航；页面状态和操作经 Android 桥接接入 B-box 的 Room 与 libbox。没有引入 FlClash/Mihomo 原生库、Clash 配置模型、脚本、订阅转换器或 Clash 专用服务。
+Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。复用 FlClash 的控件、字形、形状、排版、字体、动效、弹层及导航；页面状态和操作经 Android 桥接接入 B-box 的 Room 与 libbox。没有引入 FlClash/Mihomo 原生库、Clash 配置模型、Mihomo 配置覆写脚本、订阅转换器或 Clash 专用服务。B-box 请求/响应脚本的范围见 [核心 HTTP 改写](libbox.md#json-配置中的-http-改写)。
 
 | 区域 | 主要实现 | 当前适配 |
 | --- | --- | --- |
@@ -83,6 +83,12 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 编辑保留 B-box 已有的本地/远程类型切换；不会因视觉对齐加入参考版的 age 密钥等未接入能力。保存、修订冲突、配置应用及失败恢复继续由既有桥接处理，见 [app.md](app.md#配置服务应用与备份)。
 
 原始 JSON 编辑器使用 [code_editor.dart](flutter/lib/components/code_editor.dart) 显示从 1 开始的逻辑行号，空行和末尾换行保留编号；长行折行不增加行号，行号随正文滚动。行号布局与正文使用相同的字形、字号比例和换行宽度，仅创建可见编号；搜索、格式化、撤销及修订校验沿用原编辑流程。
+
+高级配置新增“HTTP 改写”，由 [configuration.dart](flutter/lib/pages/configuration.dart) 的 `HttpRewriteConfigPage` 复用共享分组、规则列表、排序及 JSON 表单，编辑配置启用状态、MITM 范围、Header/URL/Body Rewrite、Map Remote、Map Local/API Mock、JS 和内嵌资源。新建规则提供禁用的示例，用户修改匹配条件与内容后启用；完整 JSON 仍可直接编辑。字段及执行语义统一见 [libbox.md](libbox.md#json-配置中的-http-改写)。
+
+所有修改继续调用 `ProfileConfigStore.set`，保留其他 JSON 字段、内容修订和原生校验/失败恢复；关闭失败表单前保留草稿。页面中的证书入口打开既有本机证书页，不把 CA 写入配置。请求页和诊断页单独显示 `rewriteActive`，说明停记录后规则仍生效；映射请求详情把连接出站/规则标为原连接，避免与映射目标的新路由混淆。证书页在配置处理运行时禁用重新生成。没有改动 FlClash 直接导入组件，来源清单中的相关设计说明已同步。
+
+`configuration_test.dart` 覆盖改写开关通过配置修订保存、保留其他字段及失败恢复；`requests_test.dart` 覆盖仅改写运行时的状态和证书禁用，并生成 `requests/profile-rewriting-recording-off.png`。这些新增测试由 Core and Flutter validation 执行；其视觉与运行结果须按实际源码 SHA 记录，不能沿用前次 MITM 验证。
 
 ### 状态卡片与出口查询
 

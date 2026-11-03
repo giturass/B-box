@@ -33,6 +33,7 @@ import io.nekohasekai.sfa.constant.Alert
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.flutter.MitmCertificate
 import io.nekohasekai.sfa.ktx.hasPermission
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -158,22 +159,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             DefaultNetworkMonitor.start()
 
             try {
-                commandServer.startOrReloadService(
-                    content,
-                    OverrideOptions().apply {
-                        autoRedirect = Settings.autoRedirect
-                        if (Settings.perAppProxyEnabled) {
-                            val appList = Settings.getEffectivePerAppProxyList()
-                            if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
-                                includePackage =
-                                    PlatformInterfaceWrapper.StringArray((appList + Application.application.packageName).iterator())
-                            } else {
-                                excludePackage =
-                                    PlatformInterfaceWrapper.StringArray((appList - Application.application.packageName).iterator())
-                            }
-                        }
-                    },
-                )
+                startOrReloadCore(content)
             } catch (e: Exception) {
                 stopAndAlert(Alert.CreateService, e.message)
                 return
@@ -243,20 +229,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
         lastProfileName = profile.name
         try {
-            commandServer.startOrReloadService(
-                content,
-                OverrideOptions().apply {
-                    autoRedirect = Settings.autoRedirect
-                    if (Settings.perAppProxyEnabled) {
-                        val appList = Settings.getEffectivePerAppProxyList()
-                        if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
-                            includePackage = PlatformInterfaceWrapper.StringArray((appList + Application.application.packageName).iterator())
-                        } else {
-                            excludePackage = PlatformInterfaceWrapper.StringArray((appList - Application.application.packageName).iterator())
-                        }
-                    }
-                },
-            )
+            startOrReloadCore(content)
         } catch (e: Exception) {
             stopAndAlert(Alert.CreateService, e.message)
             // Return reload failures to the command client so configuration
@@ -278,6 +251,29 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 return
             }
         }
+    }
+
+    private fun startOrReloadCore(content: String) = synchronized(MitmCertificate.accessLock) {
+        val overrides = OverrideOptions().apply {
+            autoRedirect = Settings.autoRedirect
+            if (Settings.perAppProxyEnabled) {
+                val appList = Settings.getEffectivePerAppProxyList()
+                if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
+                    includePackage = PlatformInterfaceWrapper.StringArray((appList + Application.application.packageName).iterator())
+                } else {
+                    excludePackage = PlatformInterfaceWrapper.StringArray((appList - Application.application.packageName).iterator())
+                }
+            }
+            rewriteDirectory = File(service.noBackupFilesDir, "http-debug/captures").absolutePath
+            if (Libbox.needsUIHTTPRewriteCA(content)) {
+                val material = MitmCertificate(service).material()
+                rewriteCertificate = material.first
+                rewriteSigner = material.second
+            }
+        }
+        // The libbox lifecycle prepares the rules/CA, starts the core, then
+        // activates profile processing before reporting startup success.
+        commandServer.startOrReloadService(content, overrides)
     }
 
     override fun getSystemProxyStatus(): SystemProxyStatus? {

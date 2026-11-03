@@ -50,7 +50,10 @@ internal class BoxCapture(private val activity: BoxActivity) {
                     requireLocal()
                     if (method != "capture.logs" && method != "capture.logs.clear" && !method.startsWith("capture.ca.")) Libbox.openUICapture(captures.absolutePath)
                     when (method) {
-                        "capture.ca.snapshot" -> certificate.snapshot() + ("captureActive" to status().optBoolean("active"))
+                        "capture.ca.snapshot" -> certificate.snapshot() + mapOf(
+                            "captureActive" to status().optBoolean("active"),
+                            "rewriteActive" to status().optBoolean("rewriteActive"),
+                        )
                         "capture.ca.generate" -> {
                             require(!status().optBoolean("active")) { "Stop capture before changing the MITM certificate" }
                             certificate.generate(args["revision"] as? String ?: error("Missing certificate revision"))
@@ -101,7 +104,6 @@ internal class BoxCapture(private val activity: BoxActivity) {
         require(activity.serviceStatus.value == Status.Started) { "Start the local service before capturing requests" }
         val running = BoxService.dashboardConfig.value ?: error("Local service is not running")
         val value = settings.config()
-        val material = if (JSONObject(value).optBoolean("https")) certificate.material() else null
         return ProfileContent.mutex.withLock {
             requireLocal()
             require(activity.serviceStatus.value == Status.Started &&
@@ -109,7 +111,10 @@ internal class BoxCapture(private val activity: BoxActivity) {
                 running === BoxService.dashboardConfig.value && running.server === BoxService.dashboardServer) {
                 "Local service changed; start capture again"
             }
-            running.server.startUICapture(captures.absolutePath, value, material?.first.orEmpty(), material?.second)
+            synchronized(MitmCertificate.accessLock) {
+                val material = if (JSONObject(value).optBoolean("https")) certificate.material() else null
+                running.server.startUICapture(captures.absolutePath, value, material?.first.orEmpty(), material?.second)
+            }
             onStarted()
             currentCoroutineContext().ensureActive()
             requireLocal()

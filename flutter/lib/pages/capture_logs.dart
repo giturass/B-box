@@ -62,6 +62,8 @@ class _CaptureLogsPageState extends State<CaptureLogsPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch, spacing: 12, children: [
                   if (snapshot != null) generateGroup([
                     ListItem(title: Text(context.tr('Status')), subtitle: Text(context.tr(active ? 'Capturing new connections' : 'Capture stopped'))),
+                    if (state['rewriteActive'] == true) ListItem(title: Text(context.tr('Profile HTTP rewriting is active')),
+                      subtitle: Text(context.tr('Rules remain active when request recording is stopped.'))),
                     if (active) ListItem(title: Text(state['backend']?.toString() ?? 'HTTP'),
                       subtitle: Text(context.tr('Reconnect target applications to capture new connections.'))),
                     if ((state['skipped'] as num? ?? 0) > 0) DetailRow.text(title: context.tr('Connections skipped or interrupted'), value: state['skipped'].toString(), stacked: true),

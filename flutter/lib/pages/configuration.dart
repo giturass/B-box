@@ -2,6 +2,7 @@ import 'dart:convert';
 import '../widgets.dart';
 import 'profiles.dart';
 import 'profile_editor.dart';
+import 'mitm_certificate.dart';
 
 const configEncoder = JsonEncoder.withIndent('  ');
 
@@ -127,6 +128,7 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
             ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Rule sets')),
               widget: ConfigListPage(store: store, title: 'Rule sets', path: const ['route', 'rule_set'], initial: const {'type': 'inline', 'tag': 'new-rules', 'rules': []})),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Log settings')), widget: LogConfigPage(store: store)),
+            ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('HTTP rewriting')), widget: HttpRewriteConfigPage(store: store)),
           ], footer: store.profile['name'].toString()),
           generateSection(items: [ListItem(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Open configuration')),
             trailing: const GlyphIcon(AppGlyphs.chevronForward), onTap: () async {
@@ -136,6 +138,52 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
         ]);
     });
   }
+}
+
+class HttpRewriteConfigPage extends StatelessWidget {
+  const HttpRewriteConfigPage({super.key, required this.store});
+  final ProfileConfigStore store;
+  static const path = ['experimental', 'http_rewrite'];
+
+  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) {
+    final revision = store.revision;
+    const pattern = r'^https?://example\.com/(.*)';
+    final sections = <(String, String, Json)>[
+      ('Header Rewrite', 'header_rewrite', {'phase': 'request', 'operation': 'add', 'header': 'X-B-box', 'value': '1'}),
+      ('URL Rewrite', 'url_rewrite', {'action': 'header', 'replacement': r'https://example.com/$1'}),
+      ('Map Remote', 'map_remote', {'replacement': r'https://example.net/$1'}),
+      ('Body Rewrite', 'body_rewrite', {'phase': 'response', 'regex': 'old', 'replacement': 'new'}),
+      ('Map Local / API Mock', 'map_local', {'status': 200, 'data_type': 'text', 'data': '{}', 'headers': [{'name': 'Content-Type', 'value': 'application/json'}]}),
+      ('JavaScript', 'scripts', {'phase': 'response', 'requires_body': true, 'source': r'$done({body: $response.body});'}),
+    ];
+    return BoxPage(title: 'HTTP rewriting', loading: store.saving, children: [
+      ListFooter(text: context.tr('Rules belong to this JSON profile and run with the local service. Request recording is controlled separately.')),
+      if (store.error != null) SelectableText(store.error!, style: TextStyle(color: context.colorScheme.error)),
+      generateSection(items: [
+        ListItem.toggle(key: const ValueKey('http-rewrite-enabled'), title: Text(context.tr('Enable HTTP rewriting')),
+          value: store.value([...path, 'enabled']) == true,
+          onChanged: store.saving ? null : (value) => store.set([...path, 'enabled'], value)),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.lock), title: const Text('MITM'),
+          subtitle: Text(context.tr('Choose HTTPS hosts in this profile')),
+          widget: ConfigValueEditor(title: 'MITM', initial: store.value([...path, 'mitm']) ?? const {'enabled': false, 'hosts': [], 'excluded_hosts': [], 'block_quic': false},
+            onSave: (value) => store.set([...path, 'mitm'], value, expectedRevision: revision, rethrowFailure: true))),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.key), title: Text(context.tr('MITM certificate')), widget: const MitmCertificatePage()),
+      ]),
+      generateSection(items: [
+        for (final (title, key, initial) in sections)
+          ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(title), subtitle: Text('${store.entries([...path, key]).length}'),
+            widget: ConfigListPage(store: store, title: title, path: [...path, key], initial: {'pattern': pattern, 'disabled': true, ...initial})),
+      ], footer: context.tr('New example rules are disabled. Edit their pattern and content, then set disabled to false.')),
+      generateSection(items: [
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Embedded rewrite resources')),
+          widget: ConfigValueEditor(title: 'Embedded rewrite resources', initial: store.value([...path, 'resources']) ?? const {},
+            onSave: (value) => store.set([...path, 'resources'], value, expectedRevision: revision, rethrowFailure: true))),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit HTTP rewrite options')),
+          widget: ConfigValueEditor(title: 'HTTP rewriting', initial: store.value(path) ?? const {'enabled': false},
+            onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
+      ]),
+    ]);
+  });
 }
 
 class DnsConfigPage extends StatelessWidget {

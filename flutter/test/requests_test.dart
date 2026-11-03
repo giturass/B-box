@@ -137,6 +137,27 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('profile rewrite status stays visible with request recording stopped', (tester) async {
+    await mount(tester);
+    snapshot['state'] = {'active': false, 'rewriteActive': true, 'rewriteRules': 3};
+    await open(tester, const RequestsPage());
+    expect(find.text('Profile HTTP rewriting is active'), findsOneWidget);
+    expect(find.textContaining('Rules remain active when request recording is stopped.'), findsOneWidget);
+    expect(calls.where((call) => call.method == 'capture.start'), isEmpty);
+    await capture(tester, 'profile-rewriting-recording-off');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a profile using MITM prevents certificate rotation while recording is off', (tester) async {
+    await mount(tester);
+    caState = {'exists': false, 'revision': 'ca-empty', 'captureActive': false, 'rewriteActive': true};
+    await open(tester, const MitmCertificatePage());
+    expect(find.text('Stop capture and the local service before changing the MITM certificate'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('mitm-ca-generate')));
+    await tester.pumpAndSettle();
+    expect(calls.where((call) => call.method == 'capture.ca.generate'), isEmpty);
+  });
+
   testWidgets('empty HTTPS list stays unrestricted and retired domain filters are dropped', (tester) async {
     await mount(tester);
     await open(tester, const RequestSettingsPage(initial: {

@@ -2,6 +2,7 @@ package httpdebug
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -206,6 +207,16 @@ func (s *Store) response(id string, response *http.Response) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if record := s.records[id]; record != nil {
+		if response.TLS != nil && record.Metadata.TLS != nil {
+			metadata := *record.Metadata.TLS
+			metadata.UpstreamVersion = tlsVersion(response.TLS.Version)
+			metadata.UpstreamServerName = response.TLS.ServerName
+			if len(response.TLS.PeerCertificates) > 0 {
+				fingerprint := sha256.Sum256(response.TLS.PeerCertificates[0].Raw)
+				metadata.UpstreamCertificate = hex.EncodeToString(fingerprint[:])
+			}
+			record.Metadata.TLS = &metadata
+		}
 		headers, truncated := captureHeaders(response.Header, "")
 		record.Response = Message{
 			Status: response.StatusCode, Protocol: response.Proto, Headers: headers, HeadersTruncated: truncated,
@@ -217,6 +228,20 @@ func (s *Store) response(id string, response *http.Response) {
 		}
 		s.persistLocked(record)
 		s.trimLocked()
+	}
+}
+
+func (s *Store) rewrittenRequest(id string, request *http.Request, originalURL string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record := s.records[id]; record != nil {
+		if originalURL != request.URL.String() {
+			record.OriginalURL = originalURL
+		}
+		record.Request.URL = request.URL.String()
+		record.Request.Method = request.Method
+		record.Request.Headers, record.Request.HeadersTruncated = captureHeaders(request.Header, request.Host)
+		record.Request.BodyComplete = request.Body == nil || request.Body == http.NoBody
 	}
 }
 

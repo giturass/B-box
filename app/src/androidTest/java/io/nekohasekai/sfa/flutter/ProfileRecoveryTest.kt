@@ -52,6 +52,105 @@ import kotlin.concurrent.thread
 
 @RunWith(AndroidJUnit4::class)
 class ProfileRecoveryTest {
+    @Test fun profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery() {
+        withRunningProfile { activity, profiles, id ->
+            val authority = MitmCertificate(activity)
+            val createdCA = authority.snapshot()["exists"] != true
+            val generated = if (createdCA) authority.generate(authority.snapshot()["revision"] as String) else authority.snapshot()
+            val caFile = File(activity.noBackupFilesDir, "http-debug/mitm-authority.json")
+            val createdAlias = if (createdCA) JSONObject(caFile.readText()).getString("alias") else null
+            try {
+                val certificate = authority.publicCertificate(generated["revision"] as String)
+                val trustStore = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("mitm", certificate) }
+                val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(trustStore) }
+                val ssl = SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, SecureRandom()) }
+                val proxyPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+                fun request(host: String, port: Int, path: String, secure: Boolean): String = Socket("127.0.0.1", proxyPort).use { tunnel ->
+                    tunnel.soTimeout = 10_000
+                    tunnel.getOutputStream().write("CONNECT $host:$port HTTP/1.1\r\nHost: $host:$port\r\n\r\n".toByteArray())
+                    val reply = StringBuilder()
+                    while (!reply.endsWith("\r\n\r\n")) {
+                        val value = tunnel.getInputStream().read()
+                        check(value >= 0 && reply.length < 8192) { "Invalid rewrite CONNECT response: $reply" }
+                        reply.append(value.toChar())
+                    }
+                    assertTrue(reply.toString().startsWith("HTTP/1.1 200"))
+                    val client = if (secure) (ssl.socketFactory.createSocket(tunnel, host, port, true) as SSLSocket).apply {
+                        soTimeout = 10_000
+                        sslParameters = sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS"; serverNames = listOf(SNIHostName(host)) }
+                        startHandshake()
+                        (session.peerCertificates[0] as X509Certificate).verify(certificate.publicKey)
+                    } else tunnel
+                    client.use {
+                        it.getOutputStream().write("GET $path HTTP/1.1\r\nHost: $host:$port\r\nConnection: close\r\n\r\n".toByteArray())
+                        it.getInputStream().readBytes().toString(Charsets.UTF_8)
+                    }
+                }
+                SubscriptionServer("""{"message":"old"}""").use { origin ->
+                    val originPort = java.net.URI(origin.url).port
+                    val extension = JSONObject("""{
+                        "enabled":true,"ports":[80,443],"mitm":{"enabled":true,"hosts":["offline.test"]},
+                        "map_local":[{"pattern":"/static$","data":"local-response","status":201}],
+                        "map_remote":[{"pattern":"^http://source\\.test:80/remote$","replacement":"http://mapped.test:$originPort/profile.json"}],
+                        "body_rewrite":[{"pattern":"/remote$","phase":"response","regex":"old","replacement":"static"}]
+                    }""").put("scripts", JSONArray()
+                        .put(JSONObject().put("pattern", "/dynamic$").put("phase", "request")
+                            .put("source", "${'$'}done({response:{status:202,body:'script-mock'}});"))
+                        .put(JSONObject().put("pattern", "/remote$").put("phase", "response").put("requires_body", true)
+                            .put("source", "${'$'}done({body:${'$'}response.body.replace('static','script')});")))
+                    val config = JSONObject("""{
+                        "inbounds":[{"type":"mixed","tag":"rewrite-in","listen":"127.0.0.1","listen_port":$proxyPort}],
+                        "outbounds":[{"type":"direct","tag":"original"},{"type":"direct","tag":"mapped"}],
+                        "route":{"rules":[
+                            {"domain":["offline.test","source.test"],"action":"route","outbound":"original","override_address":"127.0.0.1"},
+                            {"inbound":["rewrite-in"],"domain":["mapped.test"],"action":"route","outbound":"mapped","override_address":"127.0.0.1"}
+                        ]}
+                    }""").put("experimental", JSONObject().put("http_rewrite", extension)).toString()
+                    profiles.writeContent(id, config, BoxProfiles.revision(profiles.read(id)))
+                    assertEquals(Status.Started, activity.serviceStatus.value)
+                    assertTrue(JSONObject(Libbox.readUICaptureStatus()).getBoolean("rewriteActive"))
+                    assertFalse(JSONObject(Libbox.readUICaptureStatus()).getBoolean("active"))
+                    val static = request("offline.test", 443, "/static", true)
+                    assertTrue(static.startsWith("HTTP/1.1 201"))
+                    assertTrue(static.endsWith("local-response"))
+                    assertTrue(request("offline.test", 443, "/dynamic", true).endsWith("script-mock"))
+                    assertEquals(0, origin.requests.get())
+
+                    val captures = File(activity.noBackupFilesDir, "http-debug/captures")
+                    Libbox.openUICapture(captures.absolutePath)
+                    Libbox.clearUICapture()
+                    BoxService.dashboardServer!!.startUICapture(captures.absolutePath, "{}", "", null)
+                    assertTrue(request("source.test", 80, "/remote", false).contains("\"message\":\"script\""))
+                    assertEquals(1, origin.requests.get())
+                    Libbox.stopUICapture()
+                    assertTrue(JSONObject(Libbox.readUICaptureStatus()).getBoolean("rewriteActive"))
+                    assertFalse(JSONObject(Libbox.readUICaptureStatus()).getBoolean("active"))
+                    assertTrue(request("offline.test", 443, "/static", true).endsWith("local-response"))
+                    assertTrue(runCatching { authority.generate(authority.snapshot()["revision"] as String) }.isFailure)
+
+                    // A failed new listener must restore the profile, CA-backed
+                    // processing and confirmed service state, not just the JSON.
+                    ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { occupied ->
+                        val invalid = JSONObject(config).apply { getJSONArray("inbounds").getJSONObject(0).put("listen_port", occupied.localPort) }.toString()
+                        assertTrue(runCatching { profiles.writeContent(id, invalid, BoxProfiles.revision(profiles.read(id))) }.isFailure)
+                        assertEquals(config, profiles.read(id))
+                        assertEquals(Status.Started, activity.serviceStatus.value)
+                        assertTrue(JSONObject(Libbox.readUICaptureStatus()).getBoolean("rewriteActive"))
+                        assertTrue(request("offline.test", 443, "/dynamic", true).endsWith("script-mock"))
+                    }
+                    profiles.writeContent(id, "{}", BoxProfiles.revision(profiles.read(id)))
+                    assertFalse(JSONObject(Libbox.readUICaptureStatus()).getBoolean("rewriteActive"))
+                }
+            } catch (error: Exception) {
+                throw AssertionError("Profile HTTP rewrite failed: ${Libbox.readUICaptureLogs()}", error)
+            } finally {
+                withContext(Dispatchers.Main) { activity.stopService() }
+                withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+                createdAlias?.let { KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry(it) }; caFile.delete() }
+            }
+        }
+    }
+
     @Test fun routedMITMUsesKeystoreAndTheOriginalOutbound() {
         val arguments = InstrumentationRegistry.getArguments()
         val originPort = arguments.getString("mitmOriginPort")?.toInt() ?: error("Run with tools/android_smoke.py TLS fixture")

@@ -450,7 +450,7 @@
             "flutter/lib/pages/request_settings.dart",
             "flutter/lib/pages/mitm_certificate.dart"
           ],
-          "changes": "Reference for explicit CA operations, HTTPS inclusion/exclusion and certificate setup. B-box uses private versioned settings and existing shared components; no Mihomo configuration, rewrites or scripts."
+          "changes": "Reference for explicit CA operations, HTTPS inclusion/exclusion and certificate setup. B-box uses private capture settings and shared components; profile HTTP rewriting is a separate B-box implementation documented in libbox.md. Certificate rotation is blocked while either capture or profile processing uses it; no Mihomo configuration."
         },
         {
           "source": "lib/features/connection/mitm_exchanges.dart",

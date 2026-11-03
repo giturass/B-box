@@ -25,7 +25,7 @@ var errHelloInspected = errors.New("ClientHello inspected without a TLS response
 // replayed, including on timeout, oversized/unsupported hellos and exclusions.
 // The probe cannot write an alert or a ServerHello to the real client.
 func (e *Engine) SelectTLS(ctx context.Context, conn net.Conn, metadata Metadata) (net.Conn, Metadata, bool) {
-	if !e.config.HTTPS || !e.Candidate(metadata) {
+	if e.ca == nil || !e.Candidate(metadata) {
 		return conn, metadata, false
 	}
 	e.mu.Lock()
@@ -101,6 +101,9 @@ func (c *replayConn) Read(buffer []byte) (int, error) { return c.reader.Read(buf
 // The verified upstream connection is then consumed by the HTTP transport; it
 // is not a disposable probe followed by an unrelated second connection.
 func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, dial DialFunc, roots *x509.CertPool) (net.Conn, *http.Transport, Metadata, func(), error) {
+	if e.rewrite != nil && e.rewrite.scope.matches(metadata) {
+		return e.openRewriteMITM(ctx, raw, metadata, dial, roots)
+	}
 	e.tlsOpened.Add(1)
 	metadata.CaptureSource = "MITM"
 	metadata.TLSAdapter = "Go crypto/tls"
@@ -230,6 +233,9 @@ type cancelConn struct {
 func (c *cancelConn) Close() error { c.cancel(); return c.Conn.Close() }
 
 func (e *Engine) recordTLSFailure(metadata Metadata, err error) {
+	if !e.captureEnabled || !e.config.matches(metadata) {
+		return
+	}
 	request := &http.Request{Method: "TLS", Proto: "TLS", Header: make(http.Header),
 		URL: &url.URL{Scheme: "https", Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))}}
 	id := e.store.begin(metadata, request, e.config.BodyLimit)

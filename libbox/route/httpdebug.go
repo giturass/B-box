@@ -12,8 +12,11 @@ import (
 	"github.com/sagernet/sing-box/experimental/httpdebug"
 	"github.com/sagernet/sing/common/buf"
 	"github.com/sagernet/sing/common/bufio"
+	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 )
+
+type httpRewriteRouteKey struct{}
 
 func debugMetadata(m adapter.InboundContext) httpdebug.Metadata {
 	host := m.Domain
@@ -40,6 +43,9 @@ func debugMetadata(m adapter.InboundContext) httpdebug.Metadata {
 // The route is already selected. Sniff a COPY solely for capture selection;
 // never feed a recovered name or an HTTP Host back into routing or DNS.
 func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, outbound adapter.Outbound, onClose N.CloseHandlerFunc) (net.Conn, bool) {
+	if ctx.Value(httpRewriteRouteKey{}) != nil {
+		return conn, false
+	}
 	engine := httpdebug.Current()
 	if engine == nil || !engine.Candidate(debugMetadata(metadata)) {
 		return conn, false
@@ -91,7 +97,26 @@ func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata ada
 		}()
 		return local, nil
 	}
-	return conn, engine.Handle(ctx, conn, info, dial, adapter.RootPoolFromContext(r.ctx), onClose)
+	mapped := func(dialCtx context.Context, address string) (net.Conn, error) {
+		if err := dialCtx.Err(); err != nil {
+			return nil, err
+		}
+		destination := M.ParseSocksaddr(address)
+		if !destination.IsValid() || destination.Port == 0 {
+			return nil, errors.New("invalid HTTP rewrite destination")
+		}
+		local, routed := net.Pipe()
+		// Re-evaluate the new destination through sing-box. Preserve source and
+		// ownership, but never reuse the old resolved addresses, route overrides,
+		// rule caches, outbound chain or sniffed domain. Avoid recursive rewriting.
+		mappedMetadata := adapter.InboundContext{Inbound: metadata.Inbound, InboundType: metadata.InboundType,
+			Source: metadata.Source, User: metadata.User, Network: N.NetworkTCP, Destination: destination,
+			ProcessInfo: metadata.ProcessInfo, SourceMACAddress: metadata.SourceMACAddress, SourceHostname: metadata.SourceHostname}
+		mappedCtx := adapter.WithContext(context.WithValue(dialCtx, httpRewriteRouteKey{}, true), &mappedMetadata)
+		go r.RouteConnectionEx(mappedCtx, routed, mappedMetadata, func(error) { routed.Close() })
+		return local, nil
+	}
+	return conn, engine.HandleRouted(ctx, conn, info, dial, mapped, adapter.RootPoolFromContext(r.ctx), onClose)
 }
 
 func debugNeedsStream(m adapter.InboundContext) bool {

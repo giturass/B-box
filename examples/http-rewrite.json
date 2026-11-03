@@ -1,0 +1,147 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "http-tools",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "experimental": {
+    "http_rewrite": {
+      "enabled": true,
+      "ports": [
+        80,
+        443,
+        8080,
+        8443
+      ],
+      "mitm": {
+        "enabled": false,
+        "hosts": [
+          "api.example.test"
+        ],
+        "excluded_hosts": [],
+        "block_quic": false
+      },
+      "max_body_bytes": 1048576,
+      "header_rewrite": [
+        {
+          "name": "Request header",
+          "pattern": "^https?://api\\.example\\.test/",
+          "phase": "request",
+          "operation": "add",
+          "header": "X-Debug",
+          "value": "B-box"
+        },
+        {
+          "name": "Response header",
+          "pattern": "^https?://api\\.example\\.test/",
+          "phase": "response",
+          "operation": "add",
+          "header": "X-Rewritten",
+          "value": "1"
+        }
+      ],
+      "url_rewrite": [
+        {
+          "name": "Redirect",
+          "pattern": "^https?://api\\.example\\.test/old$",
+          "action": "307",
+          "replacement": "https://api.example.test/new"
+        },
+        {
+          "name": "Reject",
+          "pattern": "^https?://api\\.example\\.test/ads/",
+          "action": "reject"
+        }
+      ],
+      "map_remote": [
+        {
+          "name": "Alternate server",
+          "pattern": "^https?://api\\.example\\.test/remote/(.*)$",
+          "replacement": "https://backend.example.test/$1",
+          "preserve_host": false
+        }
+      ],
+      "body_rewrite": [
+        {
+          "name": "Request text",
+          "pattern": "^https?://api\\.example\\.test/echo$",
+          "phase": "request",
+          "regex": "old-value",
+          "replacement": "new-value"
+        },
+        {
+          "name": "Response text",
+          "pattern": "^https?://api\\.example\\.test/echo$",
+          "phase": "response",
+          "regex": "old-result",
+          "replacement": "new-result"
+        }
+      ],
+      "map_local": [
+        {
+          "name": "Static API mock",
+          "pattern": "^https?://api\\.example\\.test/mock$",
+          "status": 200,
+          "resource": "mock.json",
+          "headers": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        {
+          "name": "Empty pixel",
+          "pattern": "^https?://api\\.example\\.test/pixel$",
+          "data_type": "tiny-gif"
+        }
+      ],
+      "scripts": [
+        {
+          "name": "Dynamic API mock",
+          "pattern": "^https?://api\\.example\\.test/dynamic$",
+          "phase": "request",
+          "source": "$done({response:{status:200,headers:{'Content-Type':'application/json'},body:JSON.stringify({ok:true,method:$request.method})}});"
+        },
+        {
+          "name": "Request JSON",
+          "pattern": "^https?://api\\.example\\.test/json$",
+          "phase": "request",
+          "requires_body": true,
+          "source": "const body=JSON.parse($request.body); body.debug=true; $done({body:JSON.stringify(body)});"
+        },
+        {
+          "name": "Response JSON",
+          "pattern": "^https?://api\\.example\\.test/json$",
+          "phase": "response",
+          "requires_body": true,
+          "full_headers": true,
+          "timeout_ms": 200,
+          "resource": "response.js"
+        }
+      ],
+      "resources": {
+        "mock.json": {
+          "data_type": "text",
+          "data": "{\"ok\":true,\"source\":\"Map Local\"}"
+        },
+        "response.js": {
+          "data_type": "text",
+          "data": "const body=JSON.parse($response.body); body.debug=true; $response.headers.push({field:'X-Script',value:'B-box'}); $done({headers:$response.headers,body:JSON.stringify(body)});"
+        }
+      }
+    }
+  }
+}

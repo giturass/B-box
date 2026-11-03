@@ -94,6 +94,20 @@ Root/eBPF 采集器、目标 TLS 库发现、FD 会话和手动函数偏移已�
 
 HAR/cURL、域名、CRT 和模块导出使用 Android 文档选择器，取消返回 false，写入失败不报告成功；证书在选择文件后再次检查修订。请求导出的私有临时文件用后删除。独立 `capture.logs` / `capture.logs.clear` 读取和清空抓包诊断，CA/服务准备失败也写入日志；日志读取不依赖请求存储，清日志不删除请求。
 
+### 配置驱动的 HTTP 改写
+
+配置支持 B-box 的 `experimental.http_rewrite` 扩展，字段、完整示例、Surge 参考及 JS 支持范围统一见 [libbox.md](libbox.md#json-配置中的-http-改写)。规则与内嵌资源属于配置，因此随原始/高级编辑、分享、订阅更新及配置备份保存；本机抓包设置、CA 和记录仍不进入备份。旧 `http_debug` 和旧抓包设置中的脚本不会自动迁移或执行。
+
+[BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 在启动/重载时检查该配置是否需要 MITM CA，通过新增 OverrideOptions 的 RewriteDirectory/RewriteCertificate/RewriteSigner 传入私有存储路径、公钥证书与 Keystore 签名回调。没有证书时启用 HTTPS 会启动失败，应用不自动生成密钥或安装证书。libbox 先校验规则/CA 并准备存储，再启动核心，成功后在同一生命周期锁内激活改写，最后向 Android 返回成功。
+
+保存及应用继续经过 ProfileContent 的修订校验、完整 `Libbox.checkConfig`、原子写入与既有失败恢复；配置应用、恢复及后台启动使用同一服务入口。切换或重载配置会结束旧拦截连接并加载新规则，恢复旧配置也会重新加载旧规则。启动失败不能留下仅部分生效的改写或报告服务成功。
+
+`ReadUICaptureStatus` 新增 `rewriteActive` / `rewriteRules`，原 `active` 仍表示手动请求记录。开始记录时合并本机记录范围与配置处理范围，各自按自己的筛选执行；停止记录恢复为仅配置处理。服务关闭结束两者，切换到远程会话仍禁止操作本机记录/证书并停止手动记录；已经运行的本地配置规则随其本地服务生命周期继续生效，不作为远端状态展示。
+
+CA 管理与服务启动共用 `MitmCertificate.accessLock`，防止加载签名器期间轮换密钥；运行中的手动抓包或配置处理会拒绝重新生成 CA。界面为原有证书页增加相应禁用状态。HTTP 改写编辑与状态展示见 [flclash.md](flclash.md#配置页与内核差异)。
+
+`ProfileRecoveryTest.profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 使用实际 gomobile、Keystore、mixed CONNECT 和独立本地 HTTP 服务器，覆盖 HTTPS 离线静态/脚本 Mock、跨域 Map Remote 重新匹配 sing-box 入站/目标规则、Body Rewrite 后的 JS 响应改写、停记录后继续处理、证书轮换拒绝、端口占用导致的配置回滚和服务恢复。该用例由 API 24/31/35 smoke 运行，测试的存在不代表当前源码已执行通过。
+
 ## 已移除能力与兼容入口
 
 - **Xposed/LSPosed：** 删除模块 API、Hook、Provider/AIDL、模块注册、vendored `libxposed-api`、Gradle 子项目/依赖及特权增强页面/设置。普通 VPN、Root/Shizuku 查询、桥接/自动重定向、Shell 和报告继续保留。
