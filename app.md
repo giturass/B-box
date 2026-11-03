@@ -76,6 +76,8 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 ## 请求抓取与 MITM
 
+使用入口为“工具 → 请求”。先在“MITM 证书”中生成 CA，导出并通过 Android 设置或 Root 管理器安装，返回后刷新信任；随后在抓包设置中开启 HTTPS 并设置范围，启动本地服务和抓包，再重连目标应用。安装路径和目标应用的信任限制见下文；HTTP 抓取不需要 CA。
+
 [BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 提供本地请求启停、筛选、列表/详情、域名、HAR/cURL 导出以及 CA 管理。开始抓包需本地服务已 Started；设置和证书准备完成后，在配置互斥区复核服务实例、运行配置和当前选择，再调用该服务的 MITM 绑定。启动失败、返回期间取消或状态确认失败会回收本次已启动会话。切换远程会话停止本地抓包，远程会话拒绝读取或操作本机记录与证书。核心协议、路由、限额和停止行为见 [libbox.md](libbox.md#httphttps-请求调试)。
 
 [CaptureSettings.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureSettings.kt) 将 version 2 的 HTTPS、应用/端口、域名包含/排除、QUIC 回退、域名提取和正文限额保存到私有 `noBackupFilesDir/http-debug/settings.json`，最多 64 KiB。多个 Activity 共用操作互斥锁，保存检查内容修订并用 AtomicFile；读取恢复中断写入的备份，再核对大小。抓包期间不能改设置，保存不启动抓包或重载配置。旧版本设置迁移保留有效筛选，同时关闭 HTTPS，避免将被动观察设置直接变成主动 MITM；旧库路径、函数偏移、改写、脚本等字段被删除，新保存拒绝退役字段。配置和备份不携带抓包设置、记录或证书。旧配置扩展与遗留数据的清理见 [核心兼容说明](libbox.md#旧抓包配置清理)。
@@ -155,5 +157,21 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 [LogStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/LogStreamTest.kt) 覆盖日志快照、增量、淘汰边界、等级更新、清空、重新订阅和缓冲重置，并检查 3000 条缓冲新增一条时只编码一条。[VisiblePollingTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/VisiblePollingTest.kt) 用虚拟时间检查不可见/后台/熄屏时零采样、恢复立即采样及取消在途任务；两者由 Android smoke 和 Release 的 JVM 测试运行，Flutter 通知与订阅测试见 [flclash.md](flclash.md#验证与升级参考版本)。这些调用计数不代表实测内存或帧率收益。
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
+
+### MITM 分支验证
+
+2026-11-03，`feat/mitm-requests` 的实际验证结果如下。三个 SHA 的 Android 主应用、Go 扩展和 Flutter 生产源码相同；`8869e69` 之后只调整了 Android 仪器测试、smoke 脚本、Flutter CI 的 NDK 准备及文档，未把测试修正记为新的应用实现。后续仅记录结果的文档提交不改变 APK。
+
+| Actions | 检出源码 SHA | 实际结果 |
+| --- | --- | --- |
+| [Core and Flutter validation](https://github.com/giturass/B-box/actions/runs/41549420394) | `b3dfe817c7838a7485497eced0aa1bcebe1ae6d6` | Go 扩展、HTTP/MITM `-race`、原路由回归、Flutter 分析/交互/布局测试和 ARM64 Flutter AAR 全部通过；显式安装 NDK 后打包成功 |
+| [Android regression and smoke](https://github.com/giturass/B-box/actions/runs/41548479075) | `8cc2ca6b64963891d479a671b4a6a58521a16ba1` | 44 项 JVM 测试、`play`/`other` Kotlin、模拟器应用及测试 APK 编译通过；API 24/31/35 的 UI smoke 和各 17 项仪器测试全部通过，含实际 Keystore 签名与原出站 HTTPS MITM |
+| [ARM64 Release 构建](https://github.com/giturass/B-box/actions/runs/41546076303) | `8869e6992a59327c11d39ad98457a22f402a23cb` | 复用核心/Flutter 验证，44 项 JVM 测试、R8 签名构建、API 24/ARM64/安装身份/模块资源及签名校验通过；`publish_release=false`，发布步骤跳过 |
+
+三个模拟器的 `mitm-origin.json` 均记录独立 HTTPS 服务器只收到一次 `/probe?raw=1;2`，Host 保留 `origin.test:<实际端口>`；仪器测试同时核对叶证书由本次 Keystore CA 签发、重复 Cookie、响应正文、原 selector 路由、TLS 元数据、cURL 和配置重载停抓。完整结果与诊断在对应运行的 `android-smoke-api-*` Artifact 中。Flutter 截图检查范围见 [flclash.md](flclash.md#验证与升级参考版本)。
+
+[签名 APK Artifact](https://github.com/giturass/B-box/actions/runs/41546076303/artifacts/13189531900) 包含 `B-box-1.15.0-alpha.13-arm64-v8a.apk`，SHA-256 为 `28065565867c0642f1a4f1e784309823b23d4e3d3a63a0a399bd44f76b3621c6`，保留期按 Release 工作流的 30 天设置。该构建未发布 GitHub Release。
+
+本机完成 `git diff --check`、`python3 tools/verify_newui.py`、Python/模块脚本语法、来源清单及文档链接静态检查。模拟器测试使用显式信任本次 CA 的自有客户端；尚未验收真实 Magisk/KernelSU/APatch 安装与重启、第三方目标应用信任、ARM64 实机运行或完整系统证书设置交互。协议支持与限制见 [libbox.md](libbox.md#httphttps-请求调试)，不能由这些通过记录推断全应用均可解密。
 
 原 `MODIFICATIONS.md` 与 `NEWUI.md` 已按领域归入这四份文档。历史 MOD-001～004、007～008、012 的 Compose 界面由 Flutter 替代；MOD-005/006/009 的品牌、安装身份及发布约定在本文继续维护；MOD-011/015/016 的删除项以本次迁移后的现状为准；MOD-013/014 的核心与工具裁剪已回退；MOD-017 的 UI 适配见 [flclash.md](flclash.md)。旧实现、逐次构建日志与产物哈希可通过 `git log --all -- MODIFICATIONS.md NEWUI.md` 和对应提交的文件内容查询，不再混入当前项目约束。

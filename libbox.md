@@ -115,4 +115,4 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 
 升级核心时先检查补丁是否仍准确排除 legacy 分支，核对 sing-tun 依赖版本及自动重定向补丁，检查 HTTP 调试路由/服务生命周期补丁及覆盖文件，再逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对共享准备 Action 的安装范围及三条工作流的调用。
 
-以上是源码和工作流的覆盖范围，不是本次测试通过记录；实际结果须对应提交 SHA 和 Actions 运行。本机构建限制见 [AGENTS.md](AGENTS.md)。
+以上列出源码和工作流的覆盖范围；MITM 分支的实际检查、源码 SHA、Actions 运行及未覆盖范围见 [验证记录](app.md#mitm-分支验证)。本机构建限制见 [AGENTS.md](AGENTS.md)。
