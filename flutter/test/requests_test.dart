@@ -9,6 +9,7 @@ import 'package:b_box_ui/pages/request_settings.dart';
 import 'package:b_box_ui/pages/mitm_certificate.dart';
 import 'package:b_box_ui/pages/capture_domains.dart';
 import 'package:b_box_ui/pages/capture_logs.dart';
+import 'package:b_box_ui/pages/configuration.dart';
 import 'package:b_box_ui/components/captured_body.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
@@ -145,6 +146,24 @@ void main() {
     expect(find.textContaining('Rules remain active when request recording is stopped.'), findsOneWidget);
     expect(calls.where((call) => call.method == 'capture.start'), isEmpty);
     await capture(tester, 'profile-rewriting-recording-off');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('profile rewrite configuration stays readable on a narrow screen with larger text', (tester) async {
+    await mount(tester, dark: true, scale: 1.3, size: const Size(320, 900));
+    extra = (call) async => call.method == 'profiles.config' ? {
+      'formatted': r'{"experimental":{"http_rewrite":{"enabled":true,"mitm":{"enabled":false},"map_local":[{"pattern":"/mock$","data":"{}"}]}}}',
+      'revision': 'rewrite-screenshot',
+    } : null;
+    final store = ProfileConfigStore(box, {'id': 7, 'name': 'Profile'});
+    addTearDown(store.dispose);
+    await store.load();
+    await open(tester, HttpRewriteConfigPage(store: store));
+    await capture(tester, 'profile-rewriting-config');
+    final scrollable = find.descendant(of: find.byType(HttpRewriteConfigPage), matching: find.byType(Scrollable)).first;
+    await tester.scrollUntilVisible(find.text('Edit HTTP rewrite options'), 260, scrollable: scrollable);
+    await tester.pumpAndSettle();
+    await capture(tester, 'profile-rewriting-config-resources');
     expect(tester.takeException(), isNull);
   });
 
