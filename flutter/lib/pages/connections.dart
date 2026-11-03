@@ -1,6 +1,9 @@
 import 'package:flutter/services.dart';
 import '../widgets.dart';
+import '../components/capture_poll.dart';
 import '../components/record.dart';
+import 'request_settings.dart';
+import 'requests.dart';
 
 class ConnectionsPage extends StatefulWidget {
   const ConnectionsPage({super.key});
@@ -8,7 +11,10 @@ class ConnectionsPage extends StatefulWidget {
 }
 class _ConnectionsPageState extends State<ConnectionsPage> {
   BoxController? _box;
-  String _query = '', _filter = 'Active', _sort = 'Speed';
+  String _query = '', _filter = 'All', _sort = 'Speed';
+  int _limit = 50, _revision = 0;
+  bool _busy = false;
+
   @override void didChangeDependencies() {
     super.didChangeDependencies();
     if (_box == null) {
@@ -24,47 +30,142 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     final box = context.box;
     if (await confirm(context, 'Close all active connections?', action: 'Close')) await box.act('connections.closeAll');
   }
-  @override Widget build(BuildContext context) {
+
+  Future<void> _captureAction(String method, [Json arguments = const {}]) async {
+    if (_busy || context.box.remote) return;
+    setState(() => _busy = true);
+    await context.box.act(method, arguments);
+    if (mounted) setState(() { _busy = false; _revision++; });
+  }
+
+  Future<void> _captureSettings() async {
+    if (_busy || context.box.remote) return;
+    setState(() => _busy = true);
+    try {
+      final source = json(await context.box.call('capture.settings'));
+      if (mounted && !context.box.remote) {
+        await openPage(context, RequestSettingsPage(initial: json(source['config']), source: source));
+      }
+    } catch (error) {
+      if (mounted) context.box.messages.add(BoxController.describe(error));
+    } finally {
+      if (mounted) setState(() { _busy = false; _revision++; });
+    }
+  }
+
+  void _search(String query) => setState(() { _query = query; _limit = 50; });
+
+  Widget _buildList(BuildContext context, Json? snapshot, Object? error, VoidCallback? refresh) {
     final box = context.watchBox(BoxAspect.connections);
-    final list = box.connections.where((connection) {
+    final state = json(snapshot?['state']), page = json(snapshot?['page']);
+    final active = !box.remote && state['active'] == true;
+    // A remote session always shows its connections, even after viewing local history.
+    final filter = box.remote && _filter == 'Requests' ? 'All' : _filter;
+    final showConnections = filter != 'Requests';
+    final showRequests = !box.remote && (filter == 'Requests' || filter == 'All' && active);
+    final requests = rows(page['items']);
+    final words = _query.toLowerCase().trim().split(RegExp(r'\s+'));
+    final connections = box.connections.where((connection) {
+      if (!showConnections) return false;
       final closed = (connection['closedAt'] as num? ?? 0) > 0;
-      if (_filter == 'Active' && closed || _filter == 'Closed' && !closed) return false;
+      if (filter == 'Active' && closed || filter == 'Closed' && !closed) return false;
       final search = [
-        connection['destination'], connection['domain'], connection['outbound'],
-        connection['network'], connection['rule'], connection['source'], connection['process'],
+        connection['displayDestination'], connection['destination'], connection['domain'], connection['outbound'],
+        connection['network'], connection['protocol'], connection['rule'], connection['source'], connection['process'],
       ].join(' ').toLowerCase();
-      return _query.toLowerCase().split(' ').every(search.contains);
+      return words.every(search.contains);
     }).toList();
     final key = {'Created': 'createdAt', 'Upload': 'uploadTotal', 'Download': 'downloadTotal'}[_sort];
     num rank(Json c) => key == null ? (c['upload'] as num? ?? 0) + (c['download'] as num? ?? 0) : c[key] as num? ?? 0;
-    list.sort((a, b) => rank(b).compareTo(rank(a)));
+    connections.sort((a, b) => rank(b).compareTo(rank(a)));
+    final recordCount = connections.length + (showRequests ? requests.length : 0);
     return CommonScaffold(
-      title: context.tr('Connections'),
-      onKeywordsUpdate: (words) => setState(() => _query = words.join(' ')),
-      searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
-      iconActions: [IconButtonData(glyph: AppGlyphs.clearAll, tooltip: context.tr('Close all connections'), onPressed: box.running ? _closeAll : null)],
-      menuItems: [
-        for (final filter in ['Active', 'Closed', 'All'])
-          CommonPopupMenuItem(label: context.tr(filter), checked: filter == _filter,
-            section: filter == 'Active' ? CommonPopupMenuSection(title: context.tr('Connections')) : null,
-            onPressed: () => setState(() => _filter = filter)),
-        for (final sort in ['Speed', 'Created', 'Upload', 'Download'])
-          CommonPopupMenuItem(glyph: AppGlyphs.sort, label: context.tr(sort), checked: sort == _sort, onPressed: () => setState(() => _sort = sort)),
+      title: context.tr('Connections and requests'), isLoading: _busy,
+      onKeywordsUpdate: (words) => _search(words.join(' ')),
+      searchState: AppBarSearchState(onSearch: _search),
+      iconActions: [
+        if (!box.remote) IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Refresh'), onPressed: refresh),
+        IconButtonData(glyph: AppGlyphs.clearAll, tooltip: context.tr('Close all connections'), onPressed: box.running ? _closeAll : null),
       ],
-      body: NullStatusSwitcher(
-        isEmpty: list.isEmpty, isSearching: _query.trim().isNotEmpty,
-        nullStatus: NullStatus(label: context.tr('No connections'), illustration: NullStatusIllustration.connections),
-        child: ListView.separated(
-            padding: EdgeInsets.only(top: context.contentTopPadding, bottom: 16 + context.bottomInset),
-            itemCount: list.length,
-            separatorBuilder: (_, _) => const SizedBox(height: recordListGap),
-            itemBuilder: (context, index) {
-              final connection = list[index];
-              return ConnectionRecord(connection: connection);
-            },
-          ),
+      menuItems: [
+        CommonPopupMenuItem(glyph: AppGlyphs.filter, label: context.tr('Show records'), subItems: [
+          for (final value in ['All', 'Connections', 'Active', 'Closed', if (!box.remote) 'Requests'])
+            CommonPopupMenuItem(label: context.tr(switch (value) {
+              'Active' => 'Active connections', 'Closed' => 'Closed connections', _ => value,
+            }), checked: value == filter, onPressed: () => setState(() => _filter = value)),
+        ]),
+        if (showConnections) CommonPopupMenuItem(glyph: AppGlyphs.sort, label: context.tr('Connection sorting'), subItems: [
+          for (final sort in ['Speed', 'Created', 'Upload', 'Download'])
+            CommonPopupMenuItem(label: context.tr(sort), checked: sort == _sort, onPressed: () => setState(() => _sort = sort)),
+        ]),
+        if (!box.remote) ...[
+          CommonPopupMenuItem(glyph: AppGlyphs.sliders, label: context.tr('Capture settings'),
+            section: CommonPopupMenuSection(title: context.tr('Requests')),
+            onPressed: _busy || active || snapshot == null ? null : _captureSettings),
+          CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'),
+            onPressed: _busy || requests.isEmpty ? null : () => _captureAction('capture.export', {'format': 'har', 'query': _query})),
+          CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear requests'), onPressed: _busy || snapshot == null ? null : () async {
+            if (await confirm(context, 'Clear captured requests?') && mounted) await _captureAction('capture.clear');
+          }),
+        ],
+      ],
+      body: ListView.builder(
+        padding: EdgeInsets.only(top: context.contentTopPadding, bottom: 24 + context.bottomInset),
+        itemCount: recordCount + 2,
+        itemBuilder: (context, index) {
+          if (index == 0) return Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (!box.remote) ...[
+                generateGroup([
+                  ListItem.toggle(key: const ValueKey('capture-toggle'), title: Text(context.tr('Capture requests')),
+                    subtitle: Text(context.tr(active ? 'Capturing new connections' : 'Capture stopped')), value: active,
+                    onChanged: _busy || snapshot == null || !box.running || box.transitioning ? null : (_) => _captureAction(active ? 'capture.stop' : 'capture.start')),
+                ]),
+                if (!box.running) Padding(padding: const EdgeInsets.all(12), child: Text(context.tr('Start the local service before capturing requests'))),
+              ],
+              Padding(padding: const EdgeInsets.all(12), child: Text([
+                if (showConnections) '${connections.length} ${context.tr('Connections')}',
+                if (showRequests && snapshot != null) '${page['total'] ?? 0} ${context.tr('Requests')} · ${bytes(page['storedBytes'] as num? ?? 0)} / 32 MiB',
+              ].join(' · '), style: context.listSubtitleStyle)),
+              if (!box.remote) ...[
+                if (!showRequests && (page['total'] as num? ?? 0) > 0) Align(alignment: Alignment.centerLeft, child: TextButton(
+                  onPressed: () => setState(() => _filter = 'Requests'),
+                  child: Text('${context.tr('View captured requests')} (${page['total']})'),
+                )),
+                if ((page['error'] as String? ?? '').isNotEmpty) Text(page['error'].toString(), style: TextStyle(color: context.colorScheme.error)),
+                if (error != null) ErrorState(error, retry: refresh),
+                if (snapshot == null && error == null) const Center(child: CircularProgressIndicator()),
+              ],
+              if (recordCount == 0 && (!showRequests || snapshot != null)) EmptyState(
+                _query.trim().isNotEmpty ? 'No results' : showRequests
+                  ? showConnections ? 'No connections or captured requests' : 'No captured requests'
+                  : 'No connections',
+                message: showRequests && _query.trim().isEmpty
+                  ? 'Capture follows the local service. Configure MITM domains and trust the CA to record HTTPS or TLS/TCP. Start capture, then reconnect the target app.' : null,
+              ),
+            ],
+          ));
+          if (index > recordCount) return showRequests && (page['total'] as num? ?? 0) > requests.length && _limit < 300
+            ? TextButton(onPressed: () => setState(() => _limit = (_limit + 50).clamp(1, 300).toInt()), child: Text(context.tr('Show more')))
+            : const SizedBox.shrink();
+          final connectionIndex = index - 1;
+          final isRequest = connectionIndex >= connections.length;
+          final item = isRequest ? requests[connectionIndex - connections.length] : connections[connectionIndex];
+          return Padding(
+            key: ValueKey('${isRequest ? 'request' : 'connection'}-${item['id']}'),
+            padding: const EdgeInsets.only(bottom: recordListGap),
+            child: isRequest ? RequestRecord(request: item) : ConnectionRecord(connection: item),
+          );
+        },
       ),
     );
+  }
+
+  @override Widget build(BuildContext context) {
+    if (context.box.remote) return _buildList(context, null, null, null);
+    return CapturePoll(method: 'capture.snapshot', arguments: {'query': _query, 'limit': _limit}, revision: _revision,
+      builder: (context, snapshot, error, refresh) => _buildList(context, snapshot, error, refresh));
   }
 }
 
@@ -81,6 +182,7 @@ class ConnectionRecord extends StatelessWidget {
       header: RecordHeader(
         children: [
           RecordTimestamp(recordTime(c['createdAt'])),
+          RecordLabel(label: context.tr('Connection')),
           RecordLabel(label: c['network'].toString().toUpperCase(), onPressed: () => context.commonScaffoldState?.addKeyword(c['network'].toString())),
           if (closed) RecordLabel(label: context.tr('Closed')),
         ],

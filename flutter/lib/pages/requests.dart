@@ -4,95 +4,28 @@ import '../common/http_message.dart';
 import '../components/capture_poll.dart';
 import '../components/captured_body.dart';
 import '../components/record.dart';
-import 'request_settings.dart';
 
-class RequestsPage extends StatefulWidget {
-  const RequestsPage({super.key});
-  @override State<RequestsPage> createState() => _RequestsPageState();
-}
-
-class _RequestsPageState extends State<RequestsPage> {
-  String _query = '';
-  int _limit = 50, _revision = 0;
-  bool _busy = false;
-
-  Future<void> _act(String method, [Json arguments = const {}]) async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    await context.box.act(method, arguments);
-    if (mounted) setState(() { _busy = false; _revision++; });
-  }
+class RequestRecord extends StatelessWidget {
+  const RequestRecord({super.key, required this.request});
+  final Json request;
 
   @override Widget build(BuildContext context) {
-    final box = context.box;
-    if (box.remote) return const BoxPage(title: 'Requests', children: [EmptyState('HTTP debugging is only available for the local service')]);
-    return CapturePoll(method: 'capture.snapshot', arguments: {'query': _query, 'limit': _limit}, revision: _revision,
-      builder: (context, snapshot, error, refresh) {
-        final state = json(snapshot?['state']), page = json(snapshot?['page']);
-        final active = state['active'] == true, entries = rows(page['items']);
-        return CommonScaffold(
-          title: context.tr('Requests'), isLoading: _busy,
-          searchState: AppBarSearchState(onSearch: (query) => setState(() { _query = query; _limit = 50; })),
-          onKeywordsUpdate: (words) => setState(() { _query = words.join(' '); _limit = 50; }),
-          iconActions: [IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Refresh'), onPressed: refresh)],
-          menuItems: [
-            CommonPopupMenuItem(glyph: AppGlyphs.sliders, label: context.tr('Capture settings'), onPressed: _busy || active ? null : () async {
-              setState(() => _busy = true);
-              try {
-                final source = json(await context.box.call('capture.settings'));
-                if (context.mounted) await openPage(context, RequestSettingsPage(initial: json(source['config']), source: source));
-              } catch (error) { if (context.mounted) context.box.messages.add(BoxController.describe(error)); }
-              finally { if (mounted) setState(() { _busy = false; _revision++; }); }
-            }),
-            CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'), onPressed: _busy || entries.isEmpty ? null : () => _act('capture.export', {'format': 'har', 'query': _query})),
-            CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear requests'), onPressed: _busy ? null : () async {
-              if (await confirm(context, 'Clear captured requests?') && mounted) await _act('capture.clear');
-            }),
-          ],
-          body: ListView.builder(
-            padding: EdgeInsets.only(top: context.contentTopPadding, bottom: 24 + context.bottomInset),
-            itemCount: entries.length + 2,
-            itemBuilder: (context, index) {
-              if (index == 0) return Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                generateGroup([
-                  ListItem.toggle(key: const ValueKey('capture-toggle'), title: Text(context.tr('Capture requests')),
-                    subtitle: Text(context.tr(active ? 'Capturing new connections' : 'Capture stopped')), value: active,
-                    onChanged: _busy || snapshot == null || !box.running || box.transitioning ? null : (_) => _act(active ? 'capture.stop' : 'capture.start')),
-                ]),
-                if (!box.running) Padding(padding: const EdgeInsets.all(12), child: Text(context.tr('Start the local service before capturing requests'))),
-                if (snapshot != null) Padding(padding: const EdgeInsets.all(12), child: Text(
-                  '${page['total'] ?? 0} ${context.tr('Requests')} · ${bytes(page['storedBytes'] as num? ?? 0)} / 32 MiB',
-                  style: context.listSubtitleStyle,
-                )),
-                if ((page['error'] as String? ?? '').isNotEmpty) Text(page['error'].toString(), style: TextStyle(color: context.colorScheme.error)),
-                if (error != null) ErrorState(error, retry: refresh),
-                if (snapshot == null && error == null) const Center(child: CircularProgressIndicator()),
-                if (snapshot != null && entries.isEmpty) EmptyState(_query.isEmpty ? 'No captured requests' : 'No results',
-                  message: _query.isEmpty ? 'Capture follows the local service. Configure MITM domains and trust the CA to record HTTPS or TLS/TCP. Start capture, then reconnect the target app.' : null),
-              ]));
-              if (index > entries.length) return (page['total'] as num? ?? 0) > entries.length
-                ? TextButton(onPressed: () => setState(() => _limit = (_limit + 50).clamp(1, 300).toInt()), child: Text(context.tr('Show more')))
-                : const SizedBox.shrink();
-              final item = entries[index - 1];
-              final styles = RecordTextStyles.of(context);
-              return Padding(padding: const EdgeInsets.only(bottom: recordListGap), child: RecordListItem(
-                key: ValueKey(item['id']), onTap: () => openPage(context, RequestDetailPage(id: item['id'].toString())),
-                header: RecordHeader(children: [
-                  RecordTimestamp(recordTime(item['startedAt'])),
-                  RecordLabel(label: item['method']?.toString() ?? ''),
-                  RecordLabel(label: item['domainOnly'] == true ? context.tr('Domain only') : (item['status'] as num? ?? 0) > 0 ? item['status'].toString() : context.tr(item['complete'] != true ? 'Active' : item['protocol'] == 'TLS/TCP' && (item['error'] as String? ?? '').isEmpty ? 'Complete' : 'Error')),
-                ]),
-                body: Column(crossAxisAlignment: CrossAxisAlignment.start, spacing: 4, children: [
-                  Text(item['url']?.toString() ?? '', maxLines: 2, overflow: TextOverflow.ellipsis, style: styles.title),
-                  Text('${item['protocol'] ?? ''} · ${item['durationMs'] ?? 0} ms · ${bytes(item['bytes'] as num? ?? 0)}', style: styles.secondary),
-                  if ((item['packages'] as List? ?? []).isNotEmpty) Text((item['packages'] as List).join(', '), maxLines: 1, overflow: TextOverflow.ellipsis, style: styles.secondary),
-                  if ((item['error'] as String? ?? '').isNotEmpty) Text(item['error'].toString(), maxLines: 2, overflow: TextOverflow.ellipsis, style: styles.secondary.copyWith(color: context.colorScheme.error)),
-                ]),
-              ));
-            },
-          ),
-        );
-      });
+    final item = request, styles = RecordTextStyles.of(context);
+    return RecordListItem(
+      onTap: () => openPage(context, RequestDetailPage(id: item['id'].toString())),
+      header: RecordHeader(children: [
+        RecordTimestamp(recordTime(item['startedAt'])),
+        RecordLabel(label: context.tr('Request')),
+        RecordLabel(label: item['method']?.toString() ?? ''),
+        RecordLabel(label: item['domainOnly'] == true ? context.tr('Domain only') : (item['status'] as num? ?? 0) > 0 ? item['status'].toString() : context.tr(item['complete'] != true ? 'Active' : item['protocol'] == 'TLS/TCP' && (item['error'] as String? ?? '').isEmpty ? 'Complete' : 'Error')),
+      ]),
+      body: Column(crossAxisAlignment: CrossAxisAlignment.start, spacing: 4, children: [
+        Text(item['url']?.toString() ?? '', maxLines: 2, overflow: TextOverflow.ellipsis, style: styles.title),
+        Text('${item['protocol'] ?? ''} · ${item['durationMs'] ?? 0} ms · ${bytes(item['bytes'] as num? ?? 0)}', style: styles.secondary),
+        if ((item['packages'] as List? ?? []).isNotEmpty) Text((item['packages'] as List).join(', '), maxLines: 1, overflow: TextOverflow.ellipsis, style: styles.secondary),
+        if ((item['error'] as String? ?? '').isNotEmpty) Text(item['error'].toString(), maxLines: 2, overflow: TextOverflow.ellipsis, style: styles.secondary.copyWith(color: context.colorScheme.error)),
+      ]),
+    );
   }
 }
 
