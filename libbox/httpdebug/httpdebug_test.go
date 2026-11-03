@@ -19,39 +19,46 @@ import (
 	"time"
 )
 
+func mitmConfig(t *testing.T, content string) *MITMConfig {
+	t.Helper()
+	var config MITMConfig
+	if err := json.Unmarshal([]byte(content), &config); err != nil {
+		t.Fatal(err)
+	}
+	return &config
+}
+
 func TestDomainSelection(t *testing.T) {
 	for _, test := range []struct {
-		name           string
-		config         Config
-		host, protocol string
-		want           bool
+		name, config, host string
+		want               bool
 	}{
-		{"http default", Config{}, "example.com", "http", true},
-		{"https off", Config{}, "example.com", "tls", false},
-		{"empty decrypt list is unrestricted", Config{HTTPS: true}, "any.example", "tls", true},
-		{"exact", Config{HTTPS: true, DecryptHosts: []string{"EXAMPLE.com."}}, "example.com", "tls", true},
-		{"exact excludes subdomain", Config{HTTPS: true, DecryptHosts: []string{"example.com"}}, "api.example.com", "tls", false},
-		{"wildcard", Config{HTTPS: true, DecryptHosts: []string{"*.example.com"}}, "api.example.com", "tls", true},
-		{"wildcard excludes apex", Config{HTTPS: true, DecryptHosts: []string{"*.example.com"}}, "example.com", "tls", false},
-		{"suffix boundary", Config{HTTPS: true, DecryptHosts: []string{"*.example.com"}}, "otherexample.com", "tls", false},
-		{"exclude wins", Config{HTTPS: true, DecryptHosts: []string{"*.example.com"}, DecryptBypassHosts: []string{"api.example.com"}}, "api.example.com", "tls", false},
-		{"empty list still honors excludes", Config{HTTPS: true, DecryptBypassHosts: []string{"private.example"}}, "private.example", "tls", false},
-		{"HTTPS filters do not restrict HTTP", Config{HTTPS: true, DecryptHosts: []string{"api.example"}, DecryptBypassHosts: []string{"other.example"}}, "other.example", "http", true},
-		{"ipv6", Config{HTTPS: true, DecryptHosts: []string{"::1"}}, "[::1]", "tls", true},
+		{"off", `{}`, "example.com", false},
+		{"empty allowlist", `{"enabled":true}`, "any.example", false},
+		{"exact", `{"enabled":true,"hosts":["EXAMPLE.com."]}`, "example.com", true},
+		{"exact is not suffix", `{"enabled":true,"hosts":["example.com"]}`, "api.example.com", false},
+		{"wildcard", `{"enabled":true,"hosts":["*.example.com"]}`, "api.example.com", true},
+		{"wildcard not apex", `{"enabled":true,"hosts":["*.example.com"]}`, "example.com", false},
+		{"suffix boundary", `{"enabled":true,"hosts":["*.example.com"]}`, "otherexample.com", false},
+		{"ipv6", `{"enabled":true,"hosts":["::1"]}`, "[::1]", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if err := test.config.validate(); err != nil {
-				t.Fatal(err)
-			}
-			if got := test.config.matches(Metadata{Host: test.host, Port: 443, Protocol: test.protocol}); got != test.want {
+			config := mitmConfig(t, test.config)
+			if got := config.matches(Metadata{Host: test.host, Port: 443, Protocol: "tls"}); got != test.want {
 				t.Fatalf("matches = %v, want %v", got, test.want)
 			}
 		})
 	}
 	for _, host := range []string{"*", "https://example.com", "example.com:443", "a..b", "-bad.example", "*.127.0.0.1", ".example.com", "hello world", "example.com/"} {
-		c := Config{DecryptHosts: []string{host}}
+		c := MITMConfig{Hosts: []string{host}}
 		if c.validate() == nil {
 			t.Errorf("accepted invalid filter %q", host)
+		}
+	}
+	for _, invalid := range []string{`{"excluded_hosts":[]}`, `{"hosts":["*"]}`, `{"ports":[0]}`, `null`} {
+		var c MITMConfig
+		if json.Unmarshal([]byte(invalid), &c) == nil {
+			t.Fatalf("accepted invalid MITM settings: %s", invalid)
 		}
 	}
 	c := Config{Packages: []string{"com.test"}}
@@ -63,6 +70,13 @@ func TestDomainSelection(t *testing.T) {
 	}
 	if !c.matches(Metadata{Host: "example.com", Port: 80, Protocol: "http", Packages: []string{"com.shared", "com.test"}}) {
 		t.Fatal("shared UID did not match")
+	}
+	e, _ := testEngine(t, Config{})
+	if e.Matches(Metadata{Host: "any.test", Port: 443, Protocol: "tls"}) {
+		t.Fatal("recording alone enabled TLS interception")
+	}
+	if !e.Matches(Metadata{Host: "any.test", Port: 80, Protocol: "http"}) {
+		t.Fatal("MITM list restricted ordinary HTTP recording")
 	}
 }
 
@@ -264,7 +278,8 @@ func TestStoreBoundsPersistenceClearAndCurl(t *testing.T) {
 }
 
 func TestTLSRequiresAuthorityAndStoppedEngineRejectsHTTP(t *testing.T) {
-	e, _ := testEngine(t, Config{HTTPS: true})
+	e, _ := testEngine(t, Config{})
+	e.mitm = mitmConfig(t, `{"enabled":true,"hosts":["test.example"]}`)
 	a, b := net.Pipe()
 	defer a.Close()
 	defer b.Close()

@@ -11,8 +11,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dop251/goja"
-	"github.com/dop251/goja/parser"
 	"golang.org/x/net/http/httpguts"
 )
 
@@ -30,22 +28,13 @@ type RewriteConfig struct {
 	Enabled       bool                       `json:"enabled,omitempty"`
 	Ports         []uint16                   `json:"ports,omitempty"`
 	Packages      []string                   `json:"packages,omitempty"`
-	MITM          RewriteMITM                `json:"mitm,omitempty"`
 	MaxBodyBytes  int64                      `json:"max_body_bytes,omitempty"`
 	HeaderRewrite []HeaderRewrite            `json:"header_rewrite,omitempty"`
 	URLRewrite    []URLRewrite               `json:"url_rewrite,omitempty"`
 	MapRemote     []MapRemote                `json:"map_remote,omitempty"`
 	BodyRewrite   []BodyRewrite              `json:"body_rewrite,omitempty"`
 	MapLocal      []MapLocal                 `json:"map_local,omitempty"`
-	Scripts       []RewriteScript            `json:"scripts,omitempty"`
 	Resources     map[string]RewriteResource `json:"resources,omitempty"`
-}
-
-type RewriteMITM struct {
-	Enabled       bool     `json:"enabled,omitempty"`
-	Hosts         []string `json:"hosts,omitempty"`
-	ExcludedHosts []string `json:"excluded_hosts,omitempty"`
-	BlockQUIC     bool     `json:"block_quic,omitempty"`
 }
 
 type RewriteMatch struct {
@@ -97,19 +86,6 @@ type RewriteResource struct {
 	Data     string `json:"data"`
 }
 
-type RewriteScript struct {
-	RewriteMatch
-	Phase        string `json:"phase"`
-	Source       string `json:"source,omitempty"`
-	Resource     string `json:"resource,omitempty"`
-	RequiresBody bool   `json:"requires_body,omitempty"`
-	BinaryBody   bool   `json:"binary_body,omitempty"`
-	FullHeaders  bool   `json:"full_headers,omitempty"`
-	MaxBodyBytes int64  `json:"max_body_bytes,omitempty"`
-	TimeoutMS    int    `json:"timeout_ms,omitempty"`
-	Argument     string `json:"argument,omitempty"`
-}
-
 func (c *RewriteConfig) UnmarshalJSON(data []byte) error {
 	if len(data) > MaxRewriteConfigBytes || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
 		return errors.New("http_rewrite must be an object of at most 2 MiB")
@@ -133,13 +109,7 @@ type compiledRule[T any] struct {
 	label   string
 }
 
-type compiledScript struct {
-	compiledRule[RewriteScript]
-	program *goja.Program
-}
-
 // RewriteProgram is immutable and can be shared by concurrent HTTP/2 streams.
-// Each script invocation creates its own JavaScript runtime.
 type RewriteProgram struct {
 	scope   Config
 	limit   int64
@@ -149,7 +119,6 @@ type RewriteProgram struct {
 	bodies  []compiledRule[BodyRewrite]
 	local   []compiledRule[MapLocal]
 	data    [][]byte
-	scripts []compiledScript
 	count   int
 }
 
@@ -163,20 +132,12 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 	if c.MaxBodyBytes < 1 || c.MaxBodyBytes > MaxBodyLimit {
 		return nil, errors.New("max_body_bytes must be between 1 and 1048576")
 	}
-	if len(c.HeaderRewrite)+len(c.URLRewrite)+len(c.MapRemote)+len(c.BodyRewrite)+len(c.MapLocal)+len(c.Scripts) > MaxRewriteRules {
+	if len(c.HeaderRewrite)+len(c.URLRewrite)+len(c.MapRemote)+len(c.BodyRewrite)+len(c.MapLocal) > MaxRewriteRules {
 		return nil, errors.New("http_rewrite supports at most 256 rules")
 	}
-	scope := Config{HTTPS: c.MITM.Enabled, DecryptHosts: append([]string(nil), c.MITM.Hosts...),
-		DecryptBypassHosts: append([]string(nil), c.MITM.ExcludedHosts...), BlockQUIC: c.MITM.BlockQUIC,
-		Ports: append([]uint16(nil), c.Ports...), Packages: append([]string(nil), c.Packages...)}
+	scope := Config{Ports: append([]uint16(nil), c.Ports...), Packages: append([]string(nil), c.Packages...)}
 	if err := scope.validate(); err != nil {
 		return nil, fmt.Errorf("http_rewrite scope: %w", err)
-	}
-	if c.MITM.Enabled && len(c.MITM.Hosts) == 0 {
-		return nil, errors.New("http_rewrite MITM requires an explicit hosts list")
-	}
-	if c.MITM.BlockQUIC && !c.MITM.Enabled {
-		return nil, errors.New("block_quic requires MITM to be enabled")
 	}
 	p := &RewriteProgram{scope: scope, limit: c.MaxBodyBytes}
 	resources := make(map[string][]byte)
@@ -299,53 +260,7 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 			p.data = append(p.data, data)
 		}
 	}
-	for i, rule := range c.Scripts {
-		item, err := compileRewriteRule(rule, rule.RewriteMatch, "scripts", i)
-		if err != nil {
-			return nil, err
-		}
-		if !rewritePhase(rule.Phase) {
-			return nil, fmt.Errorf("%s: phase must be request or response", item.label)
-		}
-		if rule.TimeoutMS == 0 {
-			item.options.TimeoutMS = 200
-		}
-		if item.options.TimeoutMS < 1 || item.options.TimeoutMS > 2000 {
-			return nil, fmt.Errorf("%s: timeout_ms must be between 1 and 2000", item.label)
-		}
-		if rule.MaxBodyBytes == 0 {
-			item.options.MaxBodyBytes = c.MaxBodyBytes
-		}
-		if item.options.MaxBodyBytes < 1 || item.options.MaxBodyBytes > c.MaxBodyBytes {
-			return nil, fmt.Errorf("%s: script body limit exceeds profile limit", item.label)
-		}
-		source := rule.Source
-		if rule.Resource != "" {
-			if source != "" {
-				return nil, fmt.Errorf("%s: use source or resource, not both", item.label)
-			}
-			data, found := resources[rule.Resource]
-			if !found {
-				return nil, fmt.Errorf("%s: unknown script resource %q", item.label, rule.Resource)
-			}
-			source = string(data)
-		}
-		if source == "" || len(source) > MaxScriptBytes {
-			return nil, fmt.Errorf("%s: script source must contain 1 to 131072 bytes", item.label)
-		}
-		ast, err := parser.ParseFile(nil, item.label+".js", source, 0, parser.WithDisableSourceMaps)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", item.label, err)
-		}
-		program, err := goja.CompileAST(ast, false)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", item.label, err)
-		}
-		if !rule.Disable {
-			p.scripts = append(p.scripts, compiledScript{item, program})
-		}
-	}
-	p.count = len(p.headers) + len(p.urls) + len(p.remote) + len(p.bodies) + len(p.local) + len(p.scripts)
+	p.count = len(p.headers) + len(p.urls) + len(p.remote) + len(p.bodies) + len(p.local)
 	return p, nil
 }
 

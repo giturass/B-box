@@ -17,8 +17,8 @@ import (
 )
 
 // Limit concurrent interpreters across all intercepted connections. Runtimes
-// never share globals and have no host filesystem, process or network APIs.
-var rewriteScriptSlots = make(chan struct{}, 4)
+// never share globals or expose host files/processes. Cron gets routed HTTP only.
+var scriptSlots = make(chan struct{}, 4)
 var scriptFinished = errors.New("script called $done")
 
 func init() {
@@ -38,7 +38,7 @@ type scriptResult struct {
 	response          *http.Response
 }
 
-func (p *RewriteProgram) runScript(request *http.Request, response *http.Response, script *compiledScript, id string, data []byte, note func(string)) (scriptResult, error) {
+func runHTTPScript(request *http.Request, response *http.Response, script *compiledScript, id string, data []byte, note func(string)) (scriptResult, error) {
 	if script.options.RequiresBody {
 		if int64(len(data)) > script.options.MaxBodyBytes {
 			return scriptResult{}, errRewriteSize
@@ -48,33 +48,55 @@ func (p *RewriteProgram) runScript(request *http.Request, response *http.Respons
 			return scriptResult{}, nil
 		}
 	}
-	ctx, cancel := context.WithTimeout(request.Context(), time.Duration(script.options.TimeoutMS)*time.Millisecond)
+	var result scriptResult
+	err := executeScript(request.Context(), script.program, script.label, "http-"+script.options.Phase,
+		script.options.TimeoutMS, script.options.Argument, script.options.BinaryBody,
+		func(vm *goja.Runtime, ctx context.Context) {
+			requestValue := map[string]any{"url": request.URL.String(), "method": request.Method,
+				"headers": scriptHeaders(vm, request.Header, request.Host, script.options.FullHeaders), "id": id}
+			if response == nil && script.options.RequiresBody {
+				requestValue["body"] = scriptBodyValue(vm, data, script.options.BinaryBody)
+			}
+			_ = vm.Set("$request", requestValue)
+			if response != nil {
+				value := map[string]any{"status": response.StatusCode, "headers": scriptHeaders(vm, response.Header, "", script.options.FullHeaders)}
+				if script.options.RequiresBody {
+					value["body"] = scriptBodyValue(vm, data, script.options.BinaryBody)
+				}
+				_ = vm.Set("$response", value)
+			}
+		}, func(vm *goja.Runtime, value goja.Value) error {
+			var err error
+			result, err = decodeScriptResult(vm, value, request, response, script.options)
+			return err
+		})
+	if err == nil {
+		note(script.label)
+	}
+	return result, err
+}
+
+// Each invocation has one VM and a cancellation deadline. All host callbacks
+// execute on its calling goroutine; only Interrupt is called concurrently.
+func executeScript(parent context.Context, program *goja.Program, label, kind string, timeout int, argument string, binary bool,
+	setup func(*goja.Runtime, context.Context), done func(*goja.Runtime, goja.Value) error) error {
+	ctx, cancel := context.WithTimeout(parent, time.Duration(timeout)*time.Millisecond)
 	defer cancel()
 	select {
-	case rewriteScriptSlots <- struct{}{}:
-		defer func() { <-rewriteScriptSlots }()
+	case scriptSlots <- struct{}{}:
+		defer func() { <-scriptSlots }()
 	case <-ctx.Done():
-		return scriptResult{}, fmt.Errorf("%s: %w", script.label, ctx.Err())
+		return fmt.Errorf("%s: %w", label, ctx.Err())
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%s: %w", label, err)
 	}
 	vm := goja.New()
 	vm.SetMaxCallStackSize(256)
 	stop := context.AfterFunc(ctx, func() { vm.Interrupt(ctx.Err()) })
 	defer stop()
-	requestValue := map[string]any{"url": request.URL.String(), "method": request.Method,
-		"headers": scriptHeaders(vm, request.Header, request.Host, script.options.FullHeaders), "id": id}
-	if response == nil && script.options.RequiresBody {
-		requestValue["body"] = scriptBodyValue(vm, data, script.options.BinaryBody)
-	}
-	_ = vm.Set("$request", requestValue)
-	if response != nil {
-		value := map[string]any{"status": response.StatusCode, "headers": scriptHeaders(vm, response.Header, "", script.options.FullHeaders)}
-		if script.options.RequiresBody {
-			value["body"] = scriptBodyValue(vm, data, script.options.BinaryBody)
-		}
-		_ = vm.Set("$response", value)
-	}
-	_ = vm.Set("$argument", script.options.Argument)
-	_ = vm.Set("$script", map[string]any{"name": script.label, "type": "http-" + script.options.Phase, "binaryBodyMode": script.options.BinaryBody})
+	_ = vm.Set("$argument", argument)
+	_ = vm.Set("$script", map[string]any{"name": label, "type": kind, "binaryBodyMode": binary})
 	logs := 0
 	console := make(map[string]any)
 	for _, level := range []string{"log", "info", "warn", "error", "debug"} {
@@ -84,27 +106,29 @@ func (p *RewriteProgram) runScript(request *http.Request, response *http.Respons
 			}
 			logs++
 			var message strings.Builder
-			for _, argument := range call.Arguments {
-				if message.Len() > 2048 {
+			for _, value := range call.Arguments {
+				if message.Len() >= 2048 {
 					break
 				}
 				if message.Len() > 0 {
 					message.WriteByte(' ')
 				}
-				value := argument.String()
-				message.WriteString(value[:min(len(value), 2048-message.Len())])
+				part := value.String()
+				message.WriteString(part[:min(len(part), 2048-message.Len())])
 			}
-			AppendCaptureLog("info", script.label+": "+strings.ToValidUTF8(message.String(), ""))
+			logLevel := level
+			if logLevel == "log" {
+				logLevel = "info"
+			}
+			writeLog(logLevel, label+": "+strings.ToValidUTF8(message.String(), ""))
 			return goja.Undefined()
 		}
 	}
 	_ = vm.Set("console", console)
-	var result scriptResult
+	setup(vm, ctx)
 	completed := false
 	_ = vm.Set("$done", func(call goja.FunctionCall) goja.Value {
-		var err error
-		result, err = decodeScriptResult(vm, call.Argument(0), request, response, script.options)
-		if err != nil {
+		if err := done(vm, call.Argument(0)); err != nil {
 			panic(vm.NewGoError(err))
 		}
 		completed = true
@@ -113,16 +137,18 @@ func (p *RewriteProgram) runScript(request *http.Request, response *http.Respons
 		vm.Interrupt(scriptFinished)
 		return goja.Undefined()
 	})
-	_, err := vm.RunProgram(script.program)
+	_, err := vm.RunProgram(program)
 	var interrupted *goja.InterruptedError
 	if completed && errors.As(err, &interrupted) && interrupted.Value() == scriptFinished {
-		note(script.label)
-		return result, nil
+		if ctx.Err() != nil {
+			return fmt.Errorf("%s: %w", label, ctx.Err())
+		}
+		return nil
 	}
 	if err == nil {
-		err = errors.New("HTTP script must call $done()")
+		err = errors.New("script must call $done()")
 	}
-	return scriptResult{}, fmt.Errorf("%s: %w", script.label, err)
+	return fmt.Errorf("%s: %w", label, err)
 }
 
 func scriptHeaders(vm *goja.Runtime, headers http.Header, host string, full bool) goja.Value {
@@ -171,7 +197,7 @@ func scriptBodyValue(vm *goja.Runtime, data []byte, binary bool) any {
 
 func bytesClone(value []byte) []byte { return append([]byte{}, value...) }
 
-func decodeScriptResult(vm *goja.Runtime, value goja.Value, request *http.Request, response *http.Response, options RewriteScript) (scriptResult, error) {
+func decodeScriptResult(vm *goja.Runtime, value goja.Value, request *http.Request, response *http.Response, options HTTPScript) (scriptResult, error) {
 	var result scriptResult
 	if missingScriptValue(value) {
 		return result, nil

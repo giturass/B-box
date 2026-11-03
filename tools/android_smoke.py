@@ -189,6 +189,12 @@ def mitm_origin():
                 self.send_header("Connection", "close")
                 self.end_headers()
                 self.wfile.write(body)
+                if self.path == "/tcp-stream":
+                    # Raw TLS streams have no Content-Length framing. Exchange
+                    # close_notify so the capture can prove a complete stream.
+                    self.wfile.flush()
+                    self.connection.settimeout(10)
+                    self.connection.unwrap().close()
 
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -202,7 +208,8 @@ def mitm_origin():
                 adb("reverse", f"tcp:{port}", f"tcp:{port}")
                 yield ["-e", "mitmOriginPort", str(port), "-e", "mitmOriginCA",
                        base64.b64encode((root / "root.pem").read_bytes()).decode("ascii")]
-                assert requests == [{"path": "/probe?raw=1;2", "host": f"origin.test:{port}"}], requests
+                assert requests == [{"path": path, "host": f"origin.test:{port}"}
+                                    for path in ("/probe?raw=1;2", "/tcp-stream")], requests
             finally:
                 server.shutdown()
                 try:

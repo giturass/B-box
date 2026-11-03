@@ -3,6 +3,8 @@ import '../widgets.dart';
 import 'profiles.dart';
 import 'profile_editor.dart';
 import 'mitm_certificate.dart';
+import 'capture_domains.dart';
+import '../components/form.dart';
 
 const configEncoder = JsonEncoder.withIndent('  ');
 
@@ -89,9 +91,10 @@ class ProfileConfigStore extends ChangeNotifier {
 }
 
 class ProfileConfigurationPage extends StatefulWidget {
-  const ProfileConfigurationPage({super.key, this.profile, this.resources = false});
+  const ProfileConfigurationPage({super.key, this.profile, this.resources = false, this.section});
   final Json? profile;
   final bool resources;
+  final String? section;
   @override State<ProfileConfigurationPage> createState() => _ProfileConfigurationPageState();
 }
 
@@ -107,14 +110,17 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
   }
   @override void dispose() { _store?.dispose(); super.dispose(); }
   @override Widget build(BuildContext context) {
-    final store = _store;
-    if (store == null) return CommonScaffold(title: context.tr(widget.resources ? 'Resources' : 'Advanced configuration'),
+    final store = context.box.remote ? null : _store;
+    final title = widget.section == 'mitm' ? 'MITM' : widget.section == 'scripts' ? 'Scripts' : widget.resources ? 'Resources' : 'Advanced configuration';
+    if (store == null) return CommonScaffold(title: context.tr(title),
       body: NullStatus(label: context.tr(context.box.remote ? 'Disconnect remote session to edit local profiles' : 'No profile'),
         illustration: NullStatusIllustration.profile, action: context.box.remote ? null : TonalButton(size: TonalButtonSize.bar,
           glyph: AppGlyphs.profiles, label: context.tr('Profiles'), onPressed: () => openForm(context, const ProfilesPage(picker: true)))));
     return ListenableBuilder(listenable: store, builder: (context, _) {
-      if (!store.ready) return CommonScaffold(title: context.tr(widget.resources ? 'Resources' : 'Advanced configuration'),
+      if (!store.ready) return CommonScaffold(title: context.tr(title),
         body: store.error == null ? const Center(child: CommonCircleLoading.page()) : ErrorState(store.error!, retry: store.load));
+      if (widget.section == 'mitm') return MitmConfigPage(store: store);
+      if (widget.section == 'scripts') return ScriptsConfigPage(store: store);
       if (widget.resources) return ConfigListPage(store: store, title: 'Rule sets', path: const ['route', 'rule_set'],
         initial: const {'type': 'inline', 'tag': 'new-rules', 'rules': []});
       return BoxPage(title: 'Advanced configuration', loading: store.saving,
@@ -128,6 +134,8 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
             ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Rule sets')),
               widget: ConfigListPage(store: store, title: 'Rule sets', path: const ['route', 'rule_set'], initial: const {'type': 'inline', 'tag': 'new-rules', 'rules': []})),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Log settings')), widget: LogConfigPage(store: store)),
+            ListItem.open(leading: const GlyphIcon(AppGlyphs.lock), title: const Text('MITM'), widget: MitmPage(store: store)),
+            ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Scripts')), widget: ScriptsConfigPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('HTTP rewriting')), widget: HttpRewriteConfigPage(store: store)),
           ], footer: store.profile['name'].toString()),
           generateSection(items: [ListItem(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Open configuration')),
@@ -154,7 +162,6 @@ class HttpRewriteConfigPage extends StatelessWidget {
       ('Map Remote', 'map_remote', {'replacement': r'https://example.net/$1'}),
       ('Body Rewrite', 'body_rewrite', {'phase': 'response', 'regex': 'old', 'replacement': 'new'}),
       ('Map Local / API Mock', 'map_local', {'status': 200, 'data_type': 'text', 'data': '{}', 'headers': [{'name': 'Content-Type', 'value': 'application/json'}]}),
-      ('JavaScript', 'scripts', {'phase': 'response', 'requires_body': true, 'source': r'$done({body: $response.body});'}),
     ];
     // Keep scrolling rule names below the shared floating title.
     final inset = context.appBarInset;
@@ -169,11 +176,6 @@ class HttpRewriteConfigPage extends StatelessWidget {
         ListItem.toggle(key: const ValueKey('http-rewrite-enabled'), title: Text(context.tr('Enable HTTP rewriting')),
           value: store.value([...path, 'enabled']) == true,
           onChanged: store.saving ? null : (value) => store.set([...path, 'enabled'], value)),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.lock), title: const Text('MITM'),
-          subtitle: Text(context.tr('Choose HTTPS hosts in this profile')),
-          widget: ConfigValueEditor(title: 'MITM', initial: store.value([...path, 'mitm']) ?? const {'enabled': false, 'hosts': [], 'excluded_hosts': [], 'block_quic': false},
-            onSave: (value) => store.set([...path, 'mitm'], value, expectedRevision: revision, rethrowFailure: true))),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.key), title: Text(context.tr('MITM certificate')), widget: const MitmCertificatePage()),
       ]),
       generateSection(items: [
         for (final (title, key, initial) in sections)
@@ -190,6 +192,147 @@ class HttpRewriteConfigPage extends StatelessWidget {
       ]),
     ])));
   });
+}
+
+class MitmPage extends StatelessWidget {
+  const MitmPage({super.key, this.store});
+  final ProfileConfigStore? store;
+  @override Widget build(BuildContext context) => BoxPage(title: 'MITM', children: [
+    ListFooter(text: context.tr('Decrypt only domains configured in the profile. An empty domain list decrypts nothing.')),
+    generateSection(items: [
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.settings), title: Text(context.tr('MITM configuration')),
+        widget: store == null ? const ProfileConfigurationPage(section: 'mitm') : MitmConfigPage(store: store!)),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.key), title: Text(context.tr('MITM certificate')), widget: const MitmCertificatePage()),
+    ]),
+  ]);
+}
+
+class MitmConfigPage extends StatelessWidget {
+  const MitmConfigPage({super.key, required this.store});
+  final ProfileConfigStore store;
+  static const path = ['experimental', 'mitm'];
+  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) {
+    final revision = store.revision;
+    if (context.box.remote) return const BoxPage(title: 'MITM', children: [EmptyState('Disconnect remote session to edit local profiles')]);
+    final hosts = (store.value([...path, 'hosts']) as List? ?? []).cast<String>();
+    return ProcessingConfigScaffold(title: 'MITM configuration', store: store, children: [
+      ListFooter(text: context.tr('Decrypt only domains configured in the profile. An empty domain list decrypts nothing.')),
+      generateSection(items: [
+        ListItem.toggle(key: const ValueKey('mitm-enabled'), title: Text(context.tr('Decrypt HTTPS')),
+          value: store.value([...path, 'enabled']) == true,
+          onChanged: store.saving ? null : (value) => store.set([...path, 'enabled'], value)),
+        ListItem.open(key: const ValueKey('mitm-hosts'), leading: const GlyphIcon(AppGlyphs.dns), title: Text(context.tr('Decryption domains')),
+          subtitle: Text(hosts.isEmpty ? context.tr('No domains selected') : hosts.join(', ')), widget: MitmHostsEditor(store: store)),
+        ListItem.toggle(key: const ValueKey('mitm-tcp'), title: Text(context.tr('Decrypt non-HTTP TLS over TCP')),
+          subtitle: Text(context.tr('TLS connections without a negotiated HTTP protocol are forwarded and recorded as TCP streams.')),
+          value: store.value([...path, 'tcp']) == true,
+          onChanged: store.saving ? null : (value) => store.set([...path, 'tcp'], value)),
+        ListItem.toggle(title: Text(context.tr('Request TCP fallback for QUIC')), value: store.value([...path, 'block_quic']) == true,
+          subtitle: Text(context.tr('Reject only observed QUIC connections whose names match the HTTPS filters. Apps may retry over TCP. Unknown names and other UDP stay unchanged.')),
+          onChanged: store.saving ? null : (value) => store.set([...path, 'block_quic'], value)),
+      ]),
+      generateSection(items: [
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.key), title: Text(context.tr('MITM certificate')), widget: const MitmCertificatePage()),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit MITM options')),
+          widget: ConfigValueEditor(title: 'MITM configuration', initial: store.value(path) ?? const {'enabled': false, 'hosts': [], 'tcp': false, 'block_quic': false},
+            onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
+      ]),
+    ]);
+  });
+}
+
+class MitmHostsEditor extends StatefulWidget {
+  const MitmHostsEditor({super.key, required this.store});
+  final ProfileConfigStore store;
+  @override State<MitmHostsEditor> createState() => _MitmHostsEditorState();
+}
+class _MitmHostsEditorState extends State<MitmHostsEditor> {
+  late final _hosts = TextEditingController(text: (widget.store.value([...MitmConfigPage.path, 'hosts']) as List? ?? []).join('\n'));
+  late final _revision = widget.store.revision;
+  bool _busy = false, _dirty = false;
+  String? _error;
+  List<String> _lines() => _hosts.text.split(RegExp(r'[\s,;]+')).where((host) => host.isNotEmpty).toSet().toList();
+  @override void dispose() { _hosts.dispose(); super.dispose(); }
+  Future<void> _save() async {
+    if (_busy || context.box.remote) return;
+    setState(() { _busy = true; _error = null; });
+    try {
+      final saved = await widget.store.set([...MitmConfigPage.path, 'hosts'], _lines(), expectedRevision: _revision, rethrowFailure: true);
+      if (saved && mounted) { setState(() { _dirty = false; _busy = false; }); Navigator.pop(context); }
+    } catch (error) { if (mounted) setState(() => _error = BoxController.describe(error)); }
+    finally { if (mounted) setState(() => _busy = false); }
+  }
+  @override Widget build(BuildContext context) => BoxEditGuard(dirty: _dirty, busy: _busy, child: FormPage(
+    title: 'Decryption domains', saving: _busy, error: _error, onSave: _save, children: [
+      ListFooter(text: context.tr('Exact names and *.example.com are accepted. Leave empty to decrypt nothing.')),
+      TextField(key: const ValueKey('mitm-domain-input'), controller: _hosts, minLines: 4, maxLines: 8, readOnly: _busy,
+        autocorrect: false, enableSuggestions: false, keyboardType: TextInputType.multiline,
+        decoration: const InputDecoration(hintText: 'api.example.com\n*.example.net'),
+        onChanged: (_) => setState(() => _dirty = true)),
+      ListItem(key: const ValueKey('add-https-hosts'), title: Text(context.tr('Add captured domains')), onTap: _busy ? null : () async {
+        final selected = await openPage<List<String>>(context, const CaptureDomainsPage(select: true));
+        if (selected != null && selected.isNotEmpty && mounted) setState(() { _hosts.text = {..._lines(), ...selected}.join('\n'); _dirty = true; });
+      }),
+    ],
+  ));
+}
+
+class ScriptsConfigPage extends StatelessWidget {
+  const ScriptsConfigPage({super.key, required this.store});
+  final ProfileConfigStore store;
+  static const path = ['experimental', 'scripts'];
+  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) {
+    final revision = store.revision;
+    if (context.box.remote) return const BoxPage(title: 'Scripts', children: [EmptyState('Disconnect remote session to edit local profiles')]);
+    return ProcessingConfigScaffold(title: 'Scripts', store: store, children: [
+      ListFooter(text: context.tr('HTTP scripts and cron tasks run independently of HTTP rewriting. HTTPS scripts use the MITM domain settings.')),
+      generateSection(items: [
+        ListItem.toggle(key: const ValueKey('scripts-enabled'), title: Text(context.tr('Enable scripts')),
+          value: store.value([...path, 'enabled']) == true,
+          onChanged: store.saving ? null : (value) => store.set([...path, 'enabled'], value)),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('HTTP scripts')),
+          subtitle: Text('${store.entries([...path, 'http']).length}'),
+          widget: ConfigListPage(store: store, title: 'HTTP scripts', path: [...path, 'http'], initial: const {
+            'name': 'HTTP script', 'disabled': true, 'pattern': r'^https?://example\.com/', 'phase': 'response',
+            'requires_body': true, 'source': r'$done({body: $response.body});',
+          })),
+        ListItem.open(key: const ValueKey('cron-scripts'), leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Cron tasks')),
+          subtitle: Text('${store.entries([...path, 'cron']).length}'),
+          widget: ConfigListPage(store: store, title: 'Cron tasks', path: [...path, 'cron'], initial: const {
+            'name': 'Scheduled task', 'disabled': true, 'cron': '0 2 * * *', 'timeout_ms': 5000,
+            'source': r'console.log($cronexp); $done();',
+          })),
+      ], footer: context.tr('Cron accepts five fields, or six with seconds first. The default timezone follows the device when the service starts.')),
+      ListFooter(text: context.tr('Cron runs while the local service is running. Missed intervals are not replayed.')),
+      generateSection(items: [
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Embedded script resources')),
+          widget: ConfigValueEditor(title: 'Embedded script resources', initial: store.value([...path, 'resources']) ?? const {},
+            onSave: (value) => store.set([...path, 'resources'], value, expectedRevision: revision, rethrowFailure: true))),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit script options')),
+          widget: ConfigValueEditor(title: 'Scripts', initial: store.value(path) ?? const {'enabled': false},
+            onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
+      ], footer: context.tr('New example rules are disabled. Edit their pattern and content, then set disabled to false.')),
+    ]);
+  });
+}
+
+class ProcessingConfigScaffold extends StatelessWidget {
+  const ProcessingConfigScaffold({super.key, required this.title, required this.store, required this.children});
+  final String title;
+  final ProfileConfigStore store;
+  final List<Widget> children;
+  @override Widget build(BuildContext context) {
+    final inset = context.appBarInset;
+    final gap = context.contentTopPadding - inset;
+    return CommonScaffold(title: context.tr(title), isLoading: store.saving,
+      body: Padding(padding: EdgeInsets.only(top: inset), child: ListView(
+        padding: EdgeInsets.fromLTRB(16, gap > 0 ? gap : 0, 16, 24 + context.bottomInset), children: [
+          ListFooter(text: store.profile['name']?.toString() ?? ''),
+          if (store.error != null) SelectableText(store.error!, style: TextStyle(color: context.colorScheme.error)),
+          ...children,
+        ],
+      )));
+  }
 }
 
 class DnsConfigPage extends StatelessWidget {
@@ -311,7 +454,7 @@ class ConfigListPage extends StatelessWidget {
             itemBuilder: (context, index) {
               final entry = entries[index];
               final revision = store.revision;
-              final label = entry['tag'] ?? entry['action'] ?? entry['type'] ?? '${context.tr(title)} ${index + 1}';
+              final label = entry['name'] ?? entry['tag'] ?? entry['action'] ?? entry['type'] ?? '${context.tr(title)} ${index + 1}';
               final menu = [
                 CommonPopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => _edit(context, index)),
                 CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Delete'), danger: true, onPressed: () async {

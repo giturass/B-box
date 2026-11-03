@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings as AndroidSettings
 import android.security.KeyChain
+import android.util.Log
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.constant.Status
@@ -48,11 +49,11 @@ internal class BoxCapture(private val activity: BoxActivity) {
             try {
                 withContext(Dispatchers.IO) {
                     requireLocal()
-                    if (method != "capture.logs" && method != "capture.logs.clear" && !method.startsWith("capture.ca.")) Libbox.openUICapture(captures.absolutePath)
+                    if (!method.startsWith("capture.ca.")) Libbox.openUICapture(captures.absolutePath)
                     when (method) {
                         "capture.ca.snapshot" -> certificate.snapshot() + mapOf(
                             "captureActive" to status().optBoolean("active"),
-                            "rewriteActive" to status().optBoolean("rewriteActive"),
+                            "mitmActive" to status().optBoolean("mitmActive"),
                         )
                         "capture.ca.generate" -> {
                             require(!status().optBoolean("active")) { "Stop capture before changing the MITM certificate" }
@@ -66,8 +67,6 @@ internal class BoxCapture(private val activity: BoxActivity) {
                             ))),
                         )
                         "capture.settings" -> settings.snapshot()
-                        "capture.logs" -> jsonObject(JSONObject(Libbox.readUICaptureLogs()))
-                        "capture.logs.clear" -> { Libbox.clearUICaptureLogs(); null }
                         "capture.configure" -> {
                             require(!status().optBoolean("active")) { "Stop capture before changing its settings" }
                             @Suppress("UNCHECKED_CAST")
@@ -92,7 +91,7 @@ internal class BoxCapture(private val activity: BoxActivity) {
                     runCatching { Libbox.stopUICapture() }.onFailure(error::addSuppressed)
                 }
                 if (method == "capture.start" && error !is CancellationException) {
-                    Libbox.appendUICaptureLog("error", "Capture startup failed: ${error.message}")
+                    Log.e("BoxCapture", "Capture startup failed", error)
                 }
                 throw error
             }
@@ -112,8 +111,7 @@ internal class BoxCapture(private val activity: BoxActivity) {
                 "Local service changed; start capture again"
             }
             synchronized(MitmCertificate.accessLock) {
-                val material = if (JSONObject(value).optBoolean("https")) certificate.material() else null
-                running.server.startUICapture(captures.absolutePath, value, material?.first.orEmpty(), material?.second)
+                running.server.startUICapture(captures.absolutePath, value, "", null)
             }
             onStarted()
             currentCoroutineContext().ensureActive()

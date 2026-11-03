@@ -43,7 +43,7 @@ func debugMetadata(m adapter.InboundContext) httpdebug.Metadata {
 // The route is already selected. Sniff a COPY solely for capture selection;
 // never feed a recovered name or an HTTP Host back into routing or DNS.
 func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, outbound adapter.Outbound, onClose N.CloseHandlerFunc) (net.Conn, bool) {
-	if ctx.Value(httpRewriteRouteKey{}) != nil {
+	if ctx.Value(httpRewriteRouteKey{}) != nil || httpdebug.ProcessingDisabled(ctx) {
 		return conn, false
 	}
 	engine := httpdebug.Current()

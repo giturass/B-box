@@ -13,7 +13,32 @@ import (
 	"golang.org/x/net/http/httpguts"
 )
 
-func (p *RewriteProgram) request(request *http.Request, id, address string, note func(string)) (*http.Response, error) {
+// Compose separately scoped HTTP rules and scripts for one request. Neither
+// extension enables the other, and only MITM may admit a TLS connection.
+type httpProgram struct {
+	*RewriteProgram
+	scripts *ScriptProgram
+}
+
+func (e *Engine) httpProgram(metadata Metadata) *httpProgram {
+	var rewrite *RewriteProgram
+	var scripts *ScriptProgram
+	if e.rewrite != nil && e.rewrite.scope.matches(metadata) {
+		rewrite = e.rewrite
+	}
+	if e.scripts != nil && len(e.scripts.http) > 0 && e.scripts.scope.matches(metadata) {
+		scripts = e.scripts
+	}
+	if rewrite == nil && scripts == nil {
+		return nil
+	}
+	if rewrite == nil {
+		rewrite = &RewriteProgram{limit: scripts.limit}
+	}
+	return &httpProgram{rewrite, scripts}
+}
+
+func (p *httpProgram) request(request *http.Request, id, address string, note func(string)) (*http.Response, error) {
 	if err := p.rewriteHeader("request", address, request.Header, &request.Host, note); err != nil {
 		return nil, err
 	}
@@ -86,7 +111,7 @@ func (p *RewriteProgram) request(request *http.Request, id, address string, note
 	}
 	if script != nil {
 		if !script.options.RequiresBody || available {
-			result, err := p.runScript(request, nil, script, id, data, note)
+			result, err := runHTTPScript(request, nil, script, id, data, note)
 			if err != nil {
 				return nil, err
 			}
@@ -142,7 +167,7 @@ func (p *RewriteProgram) request(request *http.Request, id, address string, note
 	return nil, nil
 }
 
-func (p *RewriteProgram) response(request *http.Request, response *http.Response, id, address string, note func(string)) error {
+func (p *httpProgram) response(request *http.Request, response *http.Response, id, address string, note func(string)) error {
 	if err := p.rewriteHeader("response", address, response.Header, nil, note); err != nil {
 		return err
 	}
@@ -179,7 +204,7 @@ func (p *RewriteProgram) response(request *http.Request, response *http.Response
 		if script.options.RequiresBody && (!available || int64(len(data)) > script.options.MaxBodyBytes) {
 			note(script.label + ": skipped unavailable or oversized response body")
 		} else {
-			result, err := p.runScript(request, response, script, id, data, note)
+			result, err := runHTTPScript(request, response, script, id, data, note)
 			if err != nil {
 				return err
 			}
@@ -259,9 +284,12 @@ func (p *RewriteProgram) rewriteHeader(phase, address string, header http.Header
 	return nil
 }
 
-func (p *RewriteProgram) script(phase, address string) *compiledScript {
-	for i := range p.scripts {
-		script := &p.scripts[i]
+func (p *httpProgram) script(phase, address string) *compiledScript {
+	if p.scripts == nil {
+		return nil
+	}
+	for i := range p.scripts.http {
+		script := &p.scripts.http[i]
 		if script.options.Phase == phase && script.pattern.MatchString(address) {
 			return script
 		}

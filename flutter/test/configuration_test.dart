@@ -75,7 +75,7 @@ void main() {
     expect(store.revision, 'new');
   });
 
-  testWidgets('HTTP rewrite editing saves through the profile revision and preserves the original configuration', (tester) async {
+  testWidgets('MITM, scripts and HTTP rewrite save independently with profile revisions', (tester) async {
     reportFlutterErrors();
     const channel = MethodChannel('test.http-rewrite-config');
     final events = StreamController<dynamic>.broadcast();
@@ -95,7 +95,7 @@ void main() {
         if (reject) throw PlatformException(code: 'config', message: 'Invalid rewrite pattern');
         content = args['content'] as String;
         writes.add(json(jsonDecode(content)));
-        revision = 'after';
+        revision = 'after-${writes.length}';
         return wire();
       }
       return null;
@@ -118,11 +118,52 @@ void main() {
     expect(writes.single['outbounds'], [{'type': 'direct', 'tag': 'kept'}]);
     expect(json(writes.single['experimental'])['cache_file'], {'enabled': true});
     expect(store.value(['experimental', 'http_rewrite', 'enabled']), isTrue);
+    expect(store.value(MitmConfigPage.path), isNull);
+    expect(store.value(ScriptsConfigPage.path), isNull);
+    openPage(tester.element(find.byType(HttpRewriteConfigPage)), MitmConfigPage(store: store));
+    await tester.pumpAndSettle();
+    expect(find.text('No domains selected'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('mitm-enabled')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('mitm-tcp')));
+    await tester.tap(find.byKey(const ValueKey('mitm-tcp')));
+    await tester.pumpAndSettle();
+    expect(store.value(MitmConfigPage.path), {'enabled': true, 'tcp': true});
+    expect(store.value(ScriptsConfigPage.path), isNull);
+    openPage(tester.element(find.byType(MitmConfigPage)), ScriptsConfigPage(store: store));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scripts-enabled')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('cron-scripts')));
+    await tester.tap(find.byKey(const ValueKey('cron-scripts')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Add').last);
+    await tester.pumpAndSettle();
+    final cronDraft = json(jsonDecode(tester.widget<TextField>(find.byType(TextField).last).controller!.text));
+    expect(cronDraft['disabled'], isTrue);
+    expect(cronDraft['cron'], '0 2 * * *');
+    await tester.tap(find.text('Save').last);
+    await tester.pumpAndSettle();
+    expect(store.entries([...ScriptsConfigPage.path, 'cron']).single, cronDraft);
+    Navigator.pop(tester.element(find.byType(ConfigListPage)));
+    await tester.pumpAndSettle();
+    Navigator.pop(tester.element(find.byType(ScriptsConfigPage)));
+    await tester.pumpAndSettle();
+    Navigator.pop(tester.element(find.byType(MitmConfigPage)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('http-rewrite-enabled')));
+    await tester.pumpAndSettle();
+    expect(store.value(['experimental', 'http_rewrite', 'enabled']), isFalse);
+    expect(store.value([...ScriptsConfigPage.path, 'enabled']), isTrue);
+    expect(store.value(MitmConfigPage.path), {'enabled': true, 'tcp': true});
+    expect(json(writes.last['experimental'])['cache_file'], {'enabled': true});
+    expect(writes.last['outbounds'], [{'type': 'direct', 'tag': 'kept'}]);
+    final savedRevision = revision;
     reject = true;
     expect(await store.set(['experimental', 'http_rewrite', 'body_rewrite'], [{'pattern': '['}]), isFalse);
     expect(store.value(['experimental', 'http_rewrite', 'body_rewrite']), isNull);
-    expect(store.value(['experimental', 'http_rewrite', 'enabled']), isTrue);
-    expect(store.revision, 'after');
+    expect(store.value(['experimental', 'http_rewrite', 'enabled']), isFalse);
+    expect(store.revision, savedRevision);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });

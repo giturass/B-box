@@ -1,11 +1,13 @@
 diff --git a/option/experimental.go b/option/experimental.go
 --- a/option/experimental.go
 +++ b/option/experimental.go
-@@ -7,6 +7,7 @@
+@@ -7,6 +7,9 @@
  )
  
  type ExperimentalOptions struct {
 +	HTTPRewrite *HTTPRewriteOptions `json:"http_rewrite,omitempty"`
++	MITM *MITMOptions `json:"mitm,omitempty"`
++	Scripts *ScriptsOptions `json:"scripts,omitempty"`
  	CacheFile *CacheFileOptions `json:"cache_file,omitempty"`
  	ClashAPI  *ClashAPIOptions  `json:"clash_api,omitempty"`
  	V2RayAPI  *V2RayAPIOptions  `json:"v2ray_api,omitempty"`
@@ -17,34 +19,38 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
  	uiCaptureLifecycle.Lock()
  	defer uiCaptureLifecycle.Unlock()
 -	StopUICapture()
-+	stopUIHTTPProcessing()
++	stopUIProcessing()
  	if s.grpcServer != nil {
  		s.grpcServer.Stop()
  	}
-@@ -196,17 +196,24 @@
+@@ -196,17 +196,27 @@
  	AutoRedirect   bool
  	IncludePackage StringIterator
  	ExcludePackage StringIterator
-+	RewriteDirectory string
-+	RewriteCertificate string
-+	RewriteSigner UICaptureSigner
++	ProcessingDirectory string
++	MitmCertificate string
++	MitmSigner UICaptureSigner
++	ScriptTimezone string
  }
  
  func (s *CommandServer) StartOrReloadService(configContent string, options *OverrideOptions) error {
  	uiCaptureLifecycle.Lock()
  	defer uiCaptureLifecycle.Unlock()
 -	StopUICapture()
-+	preparedRewrite, err := s.prepareUIHTTPRewrite(configContent, options)
++	normalizedContent, err := RemoveUIRetiredCaptureOptions(configContent)
++	if err != nil { return err }
++	preparedProcessing, err := s.prepareUIProcessing(normalizedContent, options)
 +	if err != nil {
 +		return err
 +	}
-+	stopUIHTTPProcessing()
- 	saveConfigSnapshot(configContent)
++	stopUIProcessing()
+-	saveConfigSnapshot(configContent)
++	saveConfigSnapshot(normalizedContent)
  	if s.powerManager.Recorder() != nil {
  		copyConfigSnapshot(filepath.Join(sWorkingPath, powerreport.DraftDirectoryName))
  	}
 -	err := s.StartedService.StartOrReloadService(s.ctx, configContent, &daemon.OverrideOptions{
-+	err = s.StartedService.StartOrReloadService(s.ctx, configContent, &daemon.OverrideOptions{
++	err = s.StartedService.StartOrReloadService(s.ctx, normalizedContent, &daemon.OverrideOptions{
  		AutoRedirect:   options.AutoRedirect,
  		IncludePackage: iteratorToArray(options.IncludePackage),
  		ExcludePackage: iteratorToArray(options.ExcludePackage),
@@ -52,7 +58,7 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
  	if err != nil {
  		return E.Cause(err, "start or reload service")
  	}
-+	activateUIHTTPRewrite(preparedRewrite)
++	s.activateUIProcessing(preparedProcessing)
  	return nil
  }
  
@@ -60,7 +66,30 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
  	uiCaptureLifecycle.Lock()
  	defer uiCaptureLifecycle.Unlock()
 -	StopUICapture()
-+	stopUIHTTPProcessing()
++	stopUIProcessing()
  	return s.StartedService.CloseService()
  }
  
+diff --git a/daemon/instance.go b/daemon/instance.go
+--- a/daemon/instance.go
++++ b/daemon/instance.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"bytes"
+ 	"context"
++	"crypto/x509"
+ 
+ 	"github.com/sagernet/sing-box"
+ 	"github.com/sagernet/sing-box/adapter"
+@@ -196,6 +197,11 @@
+ 	})
+ }
+ 
++// UIRootPool exposes the current profile's certificate store to routed scripts.
++func (i *Instance) UIRootPool() *x509.CertPool {
++    return adapter.RootPoolFromContext(i.ctx)
++}
++
+ func (i *Instance) Box() *box.Box {
+ 	return i.instance
+ }

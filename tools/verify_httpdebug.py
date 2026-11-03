@@ -31,6 +31,7 @@ def main():
             "module github.com/sagernet/sing-box/experimental/httpdebug\n\ngo 1.26.0\n\n"
             "require (\n golang.org/x/net v0.57.0\n golang.org/x/text v0.43.0\n"
             " github.com/dop251/goja v0.0.0-20261102223426-a177d211bf60\n"
+            " github.com/robfig/cron/v3 v3.0.1\n"
             ")\n"
         )
         subprocess.run(["go", "version"], env=env, check=True)

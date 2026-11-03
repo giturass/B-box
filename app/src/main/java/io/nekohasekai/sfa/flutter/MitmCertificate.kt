@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import android.util.Base64
+import android.util.Log
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.UICaptureSigner
 import io.nekohasekai.sfa.database.ProfileContent
@@ -98,7 +99,7 @@ internal class MitmCertificate(context: Context, directory: File = File(context.
     fun generate(expectedRevision: String): Map<String, Any?> {
         synchronized(accessLock) {
             val processing = JSONObject(Libbox.readUICaptureStatus())
-            require(!processing.optBoolean("active") && !processing.optBoolean("rewriteActive")) {
+            require(!processing.optBoolean("active") && !processing.optBoolean("mitmActive")) {
                 "Stop capture and the local service before changing the MITM certificate"
             }
             val old = read()
@@ -122,7 +123,7 @@ internal class MitmCertificate(context: Context, directory: File = File(context.
                 throw error
             }
             if (oldAlias != null) runCatching { keyStore.deleteEntry(oldAlias) }.onFailure {
-                Libbox.appendUICaptureLog("warn", "Unable to remove the previous MITM signing key: ${it.message}")
+                Log.w("MitmCertificate", "Unable to remove the previous MITM signing key", it)
             }
             return snapshot()
         }

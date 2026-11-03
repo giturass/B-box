@@ -17,6 +17,14 @@
     }
   ],
   "experimental": {
+    "mitm": {
+      "enabled": false,
+      "hosts": [
+        "api.example.test"
+      ],
+      "block_quic": false,
+      "tcp": false
+    },
     "http_rewrite": {
       "enabled": true,
       "ports": [
@@ -25,14 +33,6 @@
         8080,
         8443
       ],
-      "mitm": {
-        "enabled": false,
-        "hosts": [
-          "api.example.test"
-        ],
-        "excluded_hosts": [],
-        "block_quic": false
-      },
       "max_body_bytes": 1048576,
       "header_rewrite": [
         {
@@ -108,38 +108,10 @@
           "data_type": "tiny-gif"
         }
       ],
-      "scripts": [
-        {
-          "name": "Dynamic API mock",
-          "pattern": "^https?://api\\.example\\.test/dynamic$",
-          "phase": "request",
-          "source": "$done({response:{status:200,headers:{'Content-Type':'application/json'},body:JSON.stringify({ok:true,method:$request.method})}});"
-        },
-        {
-          "name": "Request JSON",
-          "pattern": "^https?://api\\.example\\.test/json$",
-          "phase": "request",
-          "requires_body": true,
-          "source": "const body=JSON.parse($request.body); body.debug=true; $done({body:JSON.stringify(body)});"
-        },
-        {
-          "name": "Response JSON",
-          "pattern": "^https?://api\\.example\\.test/json$",
-          "phase": "response",
-          "requires_body": true,
-          "full_headers": true,
-          "timeout_ms": 200,
-          "resource": "response.js"
-        }
-      ],
       "resources": {
         "mock.json": {
           "data_type": "text",
           "data": "{\"ok\":true,\"source\":\"Map Local\"}"
-        },
-        "response.js": {
-          "data_type": "text",
-          "data": "const body=JSON.parse($response.body); body.debug=true; $response.headers.push({field:'X-Script',value:'B-box'}); $done({headers:$response.headers,body:JSON.stringify(body)});"
         }
       }
     }

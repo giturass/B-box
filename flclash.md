@@ -36,7 +36,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 | 系统 HTTP 代理 | [system_proxy_panel.dart](flutter/lib/components/system_proxy_panel.dart) | 采用参考版 VPN 卡片的布局、状态徽章和紧凑开关，使用 B-box 自有的大陆轮廓地球字形；开关接入内核上报状态及既有 Android 桥接 |
 | 外观与关于 | [appearance.dart](flutter/lib/pages/appearance.dart)、[about.dart](flutter/lib/pages/about.dart) | 复用主题预览、调色和版本/许可布局，保持 B-box 品牌及其 Release 来源 |
 | 备份 | [backup.dart](flutter/lib/pages/backup.dart)、[form.dart](flutter/lib/components/form.dart) | 复用本地/远程分区、WebDAV 表单、连通状态、恢复范围及策略，后端使用 `bbox-1` 格式 |
-| 请求调试 | [requests.dart](flutter/lib/pages/requests.dart)、[request_settings.dart](flutter/lib/pages/request_settings.dart)、[mitm_certificate.dart](flutter/lib/pages/mitm_certificate.dart)、[capture_logs.dart](flutter/lib/pages/capture_logs.dart)、[capture_domains.dart](flutter/lib/pages/capture_domains.dart) | 请求列表/详情、本机筛选、HTTPS MITM 与证书、诊断、域名选择及 HAR/cURL 导出；复用共享列表、表单和导航 |
+| 请求调试 | [requests.dart](flutter/lib/pages/requests.dart)、[request_settings.dart](flutter/lib/pages/request_settings.dart)、[mitm_certificate.dart](flutter/lib/pages/mitm_certificate.dart)、[capture_domains.dart](flutter/lib/pages/capture_domains.dart) | 请求列表/详情、本机筛选、独立 MITM 与证书、TCP 流、域名选择及 HAR/cURL 导出；复用共享列表、表单和导航 |
 
 ### 导航与交互约定
 
@@ -44,10 +44,10 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 - 出站模式只显示内核提供的值。规则、全局、直连使用参考版字形，名称和选中态忽略大小写，排列和切换参数保留内核原值。系统 HTTP 代理卡片按内核能力显示，支持首页编辑中的排序、移除和重新添加；能力暂不可用时保留顺序和隐藏偏好。卡片沿用参考版 VPN 卡片的 48 像素徽章、加粗标题、启用/禁用副标题及紧凑开关；启用时徽章为主题色六瓣形，禁用时为低强调圆形。卡片和首页编辑列表共用 [system_proxy_glyph.dart](flutter/lib/components/system_proxy_glyph.dart) 中的大陆轮廓地球字形，使用共享 Glyph 的线宽与圆角；全局出站模式保留参考版经纬线球体字形。
 - 服务按钮的暂停图形表示停止服务，不新增暂停核心能力。远程会话、启停过渡和不可用操作必须反映真实状态。
 - 工具页远程控制紧跟终端；终端设置在终端内，仪表盘编辑在首页工具栏。设置依次为外观、常规、访问控制、备份与恢复；高级配置从配置的“编辑”页进入，不保留重复资源入口。
-- “请求”紧挨在工具页“连接”上方；列表沿用连接页的卡片、左右边距、行间距和字形，支持搜索和分批加载。详情使用同一点击复制行及反馈，长 URL、头部与 Cookie 分行显示；右上角菜单切换请求、响应和 Cookies，请求与响应 Cookie 分组展示，保留重复 `Set-Cookie`、空值、值中的等号及属性，点击 Cookie 复制该条原文。抓取开关等待原生确认，停服时保留历史记录；远程会话显示不可用。
-- 抓包设置使用共享分组表单，提供 HTTPS/MITM、证书管理、域名包含/排除、应用、原始目标端口、正文限额、可见域名提取及可选 QUIC TCP 回退。保存检查本机修订，失败保留草稿，运行中不能改设置。证书入口也在请求菜单中；生成 CA 是明确操作，重新生成需要确认，打开页面不生成、不安装、不启用抓包。证书页显示有效期、公钥 SHA-256、用户/系统信任及私钥可用性，提供 CRT/系统模块导出和 Android 设置入口；返回前台可刷新信任，远程会话不读本机证书，迟到结果不覆盖新会话。平台边界见 [app.md](app.md#请求抓取与-mitm)。
-- 请求菜单提供抓包设置、MITM 证书、“抓包日志”、当前搜索的 HAR 导出和清空请求。日志页集中展示当前后端、实际 TLS 尝试/失败、解密连接/正文字节、QUIC 回退和解析/筛选/保存计数，支持搜索、复制、导出与独立清空。启动或握手失败可在日志中查看，不把开启开关当作收到 HTTPS 请求；日志来源及限额见 [libbox.md](libbox.md#httphttps-请求调试)。
-- 请求详情保留重复头部、Cookie、正文状态及 trailers，显示原路由/应用、真实 SNI、双方 TLS 版本、ALPN 和上游证书 SHA-256，字段支持复制。已有记录中保存过的 PID/socket 字段仍可读，缺失值保持未知。域名观察与握手失败标为“仅域名”，不能导出 cURL；请求正文/头部不完整、截断或含 trailers 也不能导出 cURL。页面复用现有共享组件，没有修改 FlClash 直接导入文件。
+- 工具页提供独立的“请求”、“MITM”、“脚本”和“连接”入口；列表沿用连接页的卡片、左右边距、行间距和字形，支持搜索和分批加载。详情使用同一点击复制行及反馈，长 URL、头部与 Cookie 分行显示；右上角菜单切换请求、响应和 Cookies，请求与响应 Cookie 分组展示，保留重复 `Set-Cookie`、空值、值中的等号及属性，点击 Cookie 复制该条原文。抓取开关等待原生确认，停服时保留历史记录；远程会话显示不可用。
+- 抓包设置只提供记录应用、原始目标端口、正文限额和可见域名提取，保存检查本机修订，失败保留草稿。MITM 独立提供配置及证书设置，默认关闭，只解密配置的域名；空列表不解密，无排除列表，可开启 TCP 解密及 QUIC 回退。证书页显示有效期、公钥 SHA-256、用户/系统信任和私钥可用性，提供 CRT/系统模块导出与 Android 设置入口；打开页面不生成证书，生成是明确操作，重新生成需确认，返回前台可刷新信任。远程会话隔离与平台边界见 [app.md](app.md#请求抓取与-mitm)。
+- 请求菜单提供抓包设置、MITM、当前搜索的 HAR 导出和清空请求；只显示请求录制状态，移除“配置中的 HTTP 改写已生效”提示及抓包日志功能。运行错误和脚本 console 输出进入应用现有日志，见 [libbox.md](libbox.md#httphttps-请求调试)。
+- 请求详情保留重复头部、Cookie、正文状态及 trailers，显示原路由/应用、真实 SNI、双方 TLS 版本、ALPN 和上游证书 SHA-256，字段支持复制。已有记录中保存过的 PID/socket 字段仍可读，缺失值保持未知。域名观察与握手失败标为“仅域名”，不能导出 cURL；请求正文/头部不完整、截断或含 trailers 也不能导出 cURL。TLS/TCP 详情分别显示两个方向的原始字节，不显示 HTTP 状态、头部和 Cookies，禁用 cURL；正常完成的流显示“已完成”。页面复用现有共享组件，没有修改 FlClash 直接导入文件。
 - 常规服务页使用即时应用的开关，保存和重启期间显示进度并禁用开关，底部没有“应用服务设置”按钮；启动确认及失败恢复见 [app.md](app.md#配置服务应用与备份)。
 - 日志页默认选择“跟随配置”，显示内核上报的日志级别及更严重的记录；菜单同时显示当前级别，仍可手动选择“全部”或单一级别，手动筛选不会被后续状态更新覆盖。搜索、暂停和导出沿用同一筛选结果；默认级别尚未收到时保留已接收记录。日志来源及本地重载同步见 [app.md](app.md#配置服务应用与备份)。
 - 应用始终跟随系统语言并响应运行时变化。旧设置及备份中的语言选项丢弃，其他偏好保留。
@@ -60,7 +60,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [data_subscription.dart](flutter/lib/components/data_subscription.dart) 按页面活动状态、TickerMode 和应用生命周期合并内存/日志订阅；卡片与详情页共享一个原生采样请求，最后一个可见消费者退出时停止。日志增量保留既有记录对象，暂停快照独立于后续追加和淘汰，恢复可见时重新同步原生缓冲。原生采样与消息边界见 [app.md](app.md#配置服务应用与备份)。
 
-[capture_poll.dart](flutter/lib/components/capture_poll.dart) 仅在本地请求列表/详情或抓包日志页活动、TickerMode 开启且应用前台时每两秒查询；调用不重叠，筛选变化合并刷新，并忽略旧筛选或会话的迟到结果。日志使用独立的 `capture.logs` 查询，请求列表不拉取日志历史。隐藏页面停止轮询，抓取引擎与日志记录继续运行至用户或服务停止。页面为 B-box 业务代码，没有直接修改 FlClash 导入文件。
+[capture_poll.dart](flutter/lib/components/capture_poll.dart) 仅在本地请求列表/详情活动、TickerMode 开启且应用前台时每两秒查询；调用不重叠，筛选变化合并刷新，忽略旧筛选或会话的迟到结果。隐藏页面停止轮询，后台录制继续随服务运行。页面为 B-box 业务代码，没有修改 FlClash 直接导入文件。
 
 [captured_body.dart](flutter/lib/components/captured_body.dart) 将正文预览放在等宽、自动折行、有界滚动的卡片中，展示内容类型、保存/总字节数及 Base64、截断、未完成状态。完整 JSON 可切换格式化与原文；[http_message.dart](flutter/lib/common/http_message.dart) 仅调整 JSON 字符串外的空白，保留数值字面量、重复键及转义，无法解析或超过格式化限额时显示原文。长预览分批展开，边界不拆开 UTF-16 代理对；复制始终使用内核返回的原始预览，不受当前格式或已展开长度影响，也不代表未保存的完整正文。
 
@@ -84,11 +84,11 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 原始 JSON 编辑器使用 [code_editor.dart](flutter/lib/components/code_editor.dart) 显示从 1 开始的逻辑行号，空行和末尾换行保留编号；长行折行不增加行号，行号随正文滚动。行号布局与正文使用相同的字形、字号比例和换行宽度，仅创建可见编号；搜索、格式化、撤销及修订校验沿用原编辑流程。
 
-高级配置新增“HTTP 改写”，由 [configuration.dart](flutter/lib/pages/configuration.dart) 的 `HttpRewriteConfigPage` 复用共享分组、规则列表、排序及 JSON 表单，编辑配置启用状态、MITM 范围、Header/URL/Body Rewrite、Map Remote、Map Local/API Mock、JS 和内嵌资源。新建规则提供禁用的示例，用户修改匹配条件与内容后启用；完整 JSON 仍可直接编辑。字段及执行语义统一见 [libbox.md](libbox.md#json-配置中的-http-改写)。
+高级配置并列提供“MITM”、“脚本”和“HTTP 改写”，由 [configuration.dart](flutter/lib/pages/configuration.dart) 复用共享分组、规则列表、排序及 JSON 表单。MITM 下分配置与证书设置；配置编辑 HTTPS、允许域名、TCP 和 QUIC 回退。脚本独立编辑启用状态、HTTP 规则、Cron 任务和资源；HTTP 改写仅编辑 Header/URL/Body Rewrite、Map Remote、Map Local 与静态资源。新建规则与任务提供默认禁用的示例，完整 JSON 仍可编辑。字段与执行语义见 [libbox.md](libbox.md#独立脚本与-cron)。
 
-所有修改继续调用 `ProfileConfigStore.set`，保留其他 JSON 字段、内容修订和原生校验/失败恢复；关闭失败表单前保留草稿。页面中的证书入口打开既有本机证书页，不把 CA 写入配置。请求页和诊断页单独显示 `rewriteActive`，说明停记录后规则仍生效；映射请求详情把连接出站/规则标为原连接，避免与映射目标的新路由混淆。证书页在配置处理运行时禁用重新生成。没有改动 FlClash 直接导入组件，来源清单中的相关设计说明已同步。
+所有修改通过 ProfileConfigStore.set 保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
 
-`configuration_test.dart` 覆盖改写开关通过配置修订保存、保留其他字段及失败恢复；`requests_test.dart` 覆盖仅改写运行时的状态和证书禁用，并生成 `requests/profile-rewriting-recording-off.png`。这些新增测试由 Core and Flutter validation 执行；其视觉与运行结果须按实际源码 SHA 记录，不能沿用前次 MITM 验证。
+[configuration_test.dart](flutter/test/configuration_test.dart) 验证三种开关及 Cron 草稿通过独立路径保存，关闭改写保留 MITM/脚本，校验失败保留内容；[requests_test.dart](flutter/test/requests_test.dart) 覆盖空域名、域名选择、旧记录设置清理、无改写横幅/抓包日志入口及 TCP 详情。生成的独立配置截图为 requests/independent-mitm-config.png、requests/independent-scripts-cron.png；结果按实际源码 SHA 记录。
 
 ### 状态卡片与出口查询
 
@@ -129,9 +129,9 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [access_test.dart](flutter/test/access_test.dart) 覆盖进入托管页面不扫描、加载期间接收最新托管选择、显示范围与隐藏选择保留、保存失败后重试、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。它验证交互和调用行为，不代替实机加载耗时或视觉验收。
 
-[requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口、远程隔离、本机设置修订、HTTPS 域名选择、端口和启动确认；检查日志统计、历史/搜索/复制/导出、清日志与清请求隔离、后台/遮挡轮询及迟到结果。证书测试检查明确生成、取消导出不报成功、运行中禁止重生成、远程切换/迟到快照和信任刷新。其他回归保留 HAR 搜索、已有 socket 元数据读取、报文菜单、字段/Cookie 复制、正文格式切换和 Unicode 分批展开。窄屏、大字号深色和宽屏截图在 `build/screenshots/requests/`，包含设置、证书/导出、日志、列表、详情、头部、正文和 Cookies，显式加载 Roboto 和 JetBrains Mono。桥接替身与截图不等于实际 TLS 或系统证书安装验收；验证分工见 [libbox.md](libbox.md#构建同步和验证) 与 [app.md](app.md#验证与历史记录)。
+[requests_test.dart](flutter/test/requests_test.dart) 覆盖工具入口、远程隔离、本机设置修订、MITM 域名选择、端口、启动确认及后台轮询/迟到结果；证书测试检查明确生成、取消导出、活跃 MITM 禁止重生成、远程切换和信任刷新。其他回归包括 HAR 搜索、TCP 流完成/导出限制、既有 socket 元数据、报文菜单、字段/Cookie 复制及正文格式/Unicode 展开。窄屏、大字号深色及宽屏截图位于 build/screenshots/requests/，包含独立配置、请求设置、证书、列表及报文详情；桥接替身不能代替实际 TLS 或系统安装验收。
 
-HTTP 改写另覆盖停止录制后的独立状态及 CA 轮换禁用；上述 requests 截图包含处理状态，以及 320 宽、1.3 倍字号深色主题下的配置规则与内嵌资源入口。该配置页将列表视口放在共用标题栏下方，避免滚动文字透过渐变标题相互重叠；测试同时核对视口与标题的几何位置。[configuration_test.dart](flutter/test/configuration_test.dart) 检查启用改写保留原出站和其他 experimental 字段、写入携带配置修订，以及校验失败后保留已有内容。
+配置页面将滚动视口放在共享标题下方，避免文字穿过标题；测试核对几何位置与 320 宽、1.3 倍字号深色主题。当前独立 MITM/TCP/Cron 的实际验证见 [app.md](app.md#独立-mitmtcpcron-验证)，下文旧截图不覆盖此次修改。
 
 [http_message_test.dart](flutter/test/http_message_test.dart) 检查 JSON 数值/重复键/转义保真、无效或过大内容回退，以及重复 Cookie、空值、等号和 Expires 逗号。请求正文不完整或截断时不提供 cURL 导出。
 

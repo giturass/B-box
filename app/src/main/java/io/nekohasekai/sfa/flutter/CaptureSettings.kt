@@ -40,11 +40,12 @@ internal class CaptureSettings(private val directory: File, private val retiredK
             if (previous != null) {
                 val value = JSONObject(previous)
                 val retired = listOf("blockQUIC", "rewriteEnabled", "headerRewrite", "urlRewrite", "bodyRewrite", "mapLocal", "scripts",
-                    "captureNetwork", "captureTlsKeys", "includeHosts", "excludeHosts", "tlsLibraries", "tlsOffsets")
-                if (value.optInt("version") != 2) {
+                    "captureNetwork", "captureTlsKeys", "includeHosts", "excludeHosts", "tlsLibraries", "tlsOffsets", "https", "decryptHosts", "decryptBypassHosts")
+                if (value.optInt("version") in 0..2) {
                     retired.forEach(value::remove)
-                    // Passive capture consent does not enable active TLS interception.
-                    value.put("version", 2).put("https", false)
+                    // Decryption now belongs to the selected profile. Never promote old
+                    // unrestricted/exclusion settings into a new active allowlist.
+                    value.put("version", 3)
                     writeCaptureFile(file, Libbox.validateUICaptureConfig(value.toString()))
                 }
             }

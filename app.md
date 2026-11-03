@@ -76,13 +76,13 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 ## 请求抓取与 MITM
 
-使用入口为“工具 → 请求”。先在“MITM 证书”中生成 CA，导出并通过 Android 设置或 Root 管理器安装，返回后刷新信任；随后在抓包设置中开启 HTTPS 并设置范围，启动本地服务和抓包，再重连目标应用。安装路径和目标应用的信任限制见下文；HTTP 抓取不需要 CA。
+“工具 → MITM”独立提供配置和证书设置；“工具 → 脚本”独立编辑 HTTP 脚本与 Cron。先准备并安装 CA，再在选中配置的 MITM 中开启 HTTPS、填写允许解密的域名，并按需开启 TCP 解密。空域名列表不解密，无 HTTPS 排除列表。配置随本地服务生效；“工具 → 请求”只控制记录，开启后让目标应用重新连接。HTTP 明文记录不需要 CA，核心支持范围见 [libbox.md](libbox.md#独立-mitm-配置)。
 
-[BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 提供本地请求启停、筛选、列表/详情、域名、HAR/cURL 导出以及 CA 管理。开始抓包需本地服务已 Started；设置和证书准备完成后，在配置互斥区复核服务实例、运行配置和当前选择，再调用该服务的 MITM 绑定。启动失败、返回期间取消或状态确认失败会回收本次已启动会话。切换远程会话停止本地抓包，远程会话拒绝读取或操作本机记录与证书。核心协议、路由、限额和停止行为见 [libbox.md](libbox.md#httphttps-请求调试)。
+[BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 提供本地请求启停、筛选、列表/详情、域名、HAR/cURL 导出以及 CA 管理。开始抓包需本地服务已 Started；记录设置准备完成后，在配置互斥区复核服务实例、运行配置和当前选择，再调用该服务的抓包绑定；解密设置与证书来自已启动配置。启动失败、返回期间取消或状态确认失败会回收本次已启动会话。切换远程会话停止本地抓包，远程会话拒绝读取或操作本机记录与证书。核心协议、路由、限额和停止行为见 [libbox.md](libbox.md#httphttps-请求调试)。
 
-[CaptureSettings.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureSettings.kt) 将 version 2 的 HTTPS、应用/端口、域名包含/排除、QUIC 回退、域名提取和正文限额保存到私有 `noBackupFilesDir/http-debug/settings.json`，最多 64 KiB。多个 Activity 共用操作互斥锁，保存检查内容修订并用 AtomicFile；读取恢复中断写入的备份，再核对大小。抓包期间不能改设置，保存不启动抓包或重载配置。旧版本设置迁移保留有效筛选，同时关闭 HTTPS，避免将被动观察设置直接变成主动 MITM；旧库路径、函数偏移、改写、脚本等字段被删除，新保存拒绝退役字段。配置和备份不携带抓包设置、记录或证书。旧配置扩展与遗留数据的清理见 [核心兼容说明](libbox.md#旧抓包配置清理)。
+[CaptureSettings.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureSettings.kt) 将 version 3 的应用/端口、域名提取和正文限额保存到私有 `noBackupFilesDir/http-debug/settings.json`，最多 64 KiB。多个 Activity 共用互斥锁，保存检查修订并使用 AtomicFile，读取恢复中断写入后再检查大小。抓包期间不能改记录设置。version 0～2 原子迁移保留记录筛选，删除旧 HTTPS、解密包含/排除、QUIC、库路径、函数偏移及本机改写/脚本字段，新保存拒绝这些字段；不会将旧本机解密策略提升为配置。配置和备份不携带抓包设置、记录或 CA。其他旧扩展清理见 [核心兼容说明](libbox.md#旧抓包配置清理)。
 
-[MitmCertificate.kt](app/src/main/java/io/nekohasekai/sfa/flutter/MitmCertificate.kt) 只在用户点击生成时创建 CA。P-256 根私钥使用随机独立 alias 保存到 Android Keystore，不可导出；Go 传入 SHA-256 摘要，由 `NONEwithECDSA` 签名，再由 Go 验证。API 24 起所需操作依据 [AOSP Android 7 Keystore 实现](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-7.0.0_r1/keystore/java/android/security/keystore/AndroidKeyStoreECDSASignatureSpi.java)。公钥证书和 alias 保存于不参与备份的 `http-debug/mitm-authority.json`，AtomicFile 记录最多 32 KiB。重新生成检查修订、先创建新密钥并签发，原子写入成功后才删除旧 alias；失败保留旧记录，清理本次新密钥。运行中不能重新生成，生成本身不安装或启用抓包。
+[MitmCertificate.kt](app/src/main/java/io/nekohasekai/sfa/flutter/MitmCertificate.kt) 只在用户点击生成时创建 CA。P-256 根私钥使用随机独立 alias 保存到 Android Keystore，不可导出；Go 传入 SHA-256 摘要，由 `NONEwithECDSA` 签名，再由 Go 验证。API 24 起所需操作依据 [AOSP Android 7 Keystore 实现](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-7.0.0_r1/keystore/java/android/security/keystore/AndroidKeyStoreECDSASignatureSpi.java)。公钥证书和 alias 保存于不参与备份的 `http-debug/mitm-authority.json`，AtomicFile 记录最多 32 KiB。重新生成检查修订、先创建新密钥并签发，原子写入成功后才删除旧 alias；失败保留旧记录，清理本次新密钥。手动抓包或配置 MITM 正在运行时不能重新生成；单独运行改写或脚本不占用 CA。生成本身不安装证书或启用解密。
 
 证书快照分别报告有效期、私钥可用性、SHA-256、公钥身份及 AndroidCAStore 中按完整 DER 匹配的用户/系统信任。匹配遍历所有 alias，兼容 subject-hash 冲突；进程内信任库存在该证书不代表任意目标应用会信任。Android 7 起很多应用默认不信任用户 CA，pinning、自有证书库、工作资料和独立 namespace 也会限制抓取。界面安装/刷新流程见 [flclash.md](flclash.md#导航与交互约定)。
 
@@ -92,21 +92,23 @@ CA 导出仅包含公钥 CRT。Android 7–10 使用 KeyChain 安装入口，And
 
 Root/eBPF 采集器、目标 TLS 库发现、FD 会话和手动函数偏移已移除。[IRootService](app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl) 的事务 10 退役，不复用；原 2/3 空缺保持，普通 Root/Shizuku、VPN 授权、自动重定向和 Shell 能力保留。
 
-HAR/cURL、域名、CRT 和模块导出使用 Android 文档选择器，取消返回 false，写入失败不报告成功；证书在选择文件后再次检查修订。请求导出的私有临时文件用后删除。独立 `capture.logs` / `capture.logs.clear` 读取和清空抓包诊断，CA/服务准备失败也写入日志；日志读取不依赖请求存储，清日志不删除请求。
+HAR/cURL、域名、CRT 和模块导出使用 Android 文档选择器，取消返回 false，写入失败不报告成功；证书在选择文件后再次检查修订。请求导出的私有临时文件用后删除。抓包日志页面、缓冲和 `capture.logs` / `capture.logs.clear` 平台方法已移除；运行错误及脚本 console 输出使用现有服务日志，Android 证书清理/抓包准备异常使用普通 Android 日志。
 
-### 配置驱动的 HTTP 改写
+### 配置处理生命周期
 
-配置支持 B-box 的 `experimental.http_rewrite` 扩展，字段、完整示例、Surge 参考及 JS 支持范围统一见 [libbox.md](libbox.md#json-配置中的-http-改写)。规则与内嵌资源属于配置，因此随原始/高级编辑、分享、订阅更新及配置备份保存；本机抓包设置、CA 和记录仍不进入备份。旧 `http_debug` 和旧抓包设置中的脚本不会自动迁移或执行。
+`experimental.mitm`、`experimental.scripts` 和 `experimental.http_rewrite` 相互独立；字段、迁移及执行范围由 [libbox.md](libbox.md#独立-mitm-配置) 维护。规则与资源随原始/高级编辑、分享、订阅更新及配置备份保存，本机记录设置、CA 与记录继续留在设备私有目录。
 
-[BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 在启动/重载时检查该配置是否需要 MITM CA，通过新增 OverrideOptions 的 RewriteDirectory/RewriteCertificate/RewriteSigner 传入私有存储路径、公钥证书与 Keystore 签名回调。没有证书时启用 HTTPS 会启动失败，应用不自动生成密钥或安装证书。libbox 先校验规则/CA 并准备存储，再启动核心，成功后在同一生命周期锁内激活改写，最后向 Android 返回成功。
+[BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 启动/重载时调用 `NeedsUIMITMCA`，只有启用且非空的 MITM 域名配置要求 CA。OverrideOptions 的 ProcessingDirectory/MitmCertificate/MitmSigner 传入私有路径、公钥证书及 Keystore 回调，ScriptTimezone 传入设备时区。缺少所需 CA 时明确失败，不自动生成或安装。
 
-保存及应用继续经过 ProfileContent 的修订校验、完整 `Libbox.checkConfig`、原子写入与既有失败恢复；配置应用、恢复及后台启动使用同一服务入口。切换或重载配置会结束旧拦截连接并加载新规则，恢复旧配置也会重新加载旧规则。启动失败不能留下仅部分生效的改写或报告服务成功。
+libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理、启动核心，成功后才激活 MITM/改写/脚本和 Cron。Cron 使用已启动实例的路由及证书库；配置校验和预览不执行脚本。重载/停止取消在途任务，等待调度退出；手动抓包启停不会重建调度。
 
-`ReadUICaptureStatus` 新增 `rewriteActive` / `rewriteRules`，原 `active` 仍表示手动请求记录。开始记录时合并本机记录范围与配置处理范围，各自按自己的筛选执行；停止记录恢复为仅配置处理。服务关闭结束两者，切换到远程会话仍禁止操作本机记录/证书并停止手动记录；已经运行的本地配置规则随其本地服务生命周期继续生效，不作为远端状态展示。
+所有保存继续经过 ProfileContent 修订检查、完整 Libbox.checkConfig、原子写入及失败恢复。配置应用、恢复和后台启动使用同一入口；失败不能留下部分生效的处理或被报告为启动成功。旧嵌套配置的保守迁移见 [核心说明](libbox.md#旧抓包配置清理)。
 
-CA 管理与服务启动共用 `MitmCertificate.accessLock`，防止加载签名器期间轮换密钥；运行中的手动抓包或配置处理会拒绝重新生成 CA。界面为原有证书页增加相应禁用状态。HTTP 改写编辑与状态展示见 [flclash.md](flclash.md#配置页与内核差异)。
+`ReadUICaptureStatus` 的 active 仅表示手动记录，mitmActive/scriptsActive/rewriteActive 分别报告配置状态，scriptRules/cronJobs/rewriteRules 报告规则数量。开始记录合并各自范围，停止记录只取消录制连接，配置处理继续运行。服务关闭结束全部处理；切换远程会话停止本地记录并禁止本机记录/证书操作，本地配置继续随本地服务运行，不作为远端状态展示。
 
-`ProfileRecoveryTest.profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 使用实际 gomobile、Keystore、mixed CONNECT 和独立本地 HTTP 服务器，覆盖 HTTPS 离线静态/脚本 Mock、跨域 Map Remote 重新匹配 sing-box 入站/目标规则、Body Rewrite 后的 JS 响应改写、停记录后继续处理、证书轮换拒绝、端口占用导致的配置回滚和服务恢复。该用例由 API 24/31/35 smoke 运行，测试的存在不代表当前源码已执行通过。
+CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期间不能轮换密钥；活跃 MITM 或手动抓包拒绝重新生成。界面入口及状态展示见 [flclash.md](flclash.md#配置页与内核差异)。
+
+`ProfileRecoveryTest.profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 使用实际 gomobile、Keystore、mixed CONNECT 和 HTTP 服务器，覆盖平级 MITM/脚本与改写、HTTPS 离线 Mock、跨域映射重新匹配路由、响应改写、停记录后继续处理及应用失败恢复。`independentCronUsesRoutingAndStopsWithTheService` 覆盖仅启用脚本时的定时路由请求、抓包启停、非法 Cron 保存拒绝及移除配置后不再发请求；Go 测试补充回调结果与任务取消检查。这些测试由 API 24/31/35 smoke 运行，实际结果见验证记录。
 
 ## 已移除能力与兼容入口
 
@@ -160,9 +162,9 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 `ProfileRecoveryTest.localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。
 
-`ProfileRecoveryTest.captureSettingsAreLocalAndCheckRevisions` 使用实际 libbox 和 AtomicFile，覆盖 version 2 设置迁移/保存/重新打开、修订冲突、主动 MITM 默认关闭和退役选项拒绝。[MitmCertificateTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/MitmCertificateTest.kt) 在 API 24/31/35 使用实际 Android Keystore 与 gomobile，验证 CA 自签名、预哈希签名、私钥不可导出、无自动生成、修订冲突/轮换、AtomicFile 恢复、密钥缺失、大小限制，以及 CRT/模块仅含公钥和完整脚本；不安装设备证书或 Root 模块。
+`ProfileRecoveryTest.captureSettingsAreLocalAndCheckRevisions` 使用实际 libbox 和 AtomicFile，覆盖 version 3 设置迁移/保存/重新打开、修订冲突、本机 HTTPS 字段移除和退役选项拒绝。[MitmCertificateTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/MitmCertificateTest.kt) 在 API 24/31/35 使用实际 Android Keystore 与 gomobile，验证 CA 自签名、预哈希签名、私钥不可导出、无自动生成、修订冲突/轮换、AtomicFile 恢复、密钥缺失、大小限制，以及 CRT/模块仅含公钥和完整脚本；不安装设备证书或 Root 模块。
 
-`ProfileRecoveryTest.routedMITMUsesKeystoreAndTheOriginalOutbound` 将实际 Android TLS 客户端经 mixed CONNECT 入口送入本地服务，使用 Keystore CA 解密、原 selector/direct 出站与独立证书库验证 HTTPS 测试服务器，再核对 URL、响应、重复 Cookie、原路由、TLS 元数据、cURL 导出及重载停抓。[android_smoke.py](tools/android_smoke.py) 在 CI 临时目录生成独立测试服务器证书，经 ADB reverse 提供 HTTPS 服务，只把公钥 CA 传给仪器测试；私钥不写入仓库、设备或上传产物，套件结束删除。单独运行这条仪器测试需要脚本提供的 `mitmOriginPort` / `mitmOriginCA` 参数。模拟器中的测试客户端显式信任本次 CA，不代表第三方目标应用信任或 Root 模块已经实机通过。
+`ProfileRecoveryTest.routedMITMUsesKeystoreAndTheOriginalOutbound` 将实际 Android TLS 客户端经 mixed CONNECT 入口送入本地服务，使用 Keystore CA 解密、原 selector/direct 出站与独立证书库验证 HTTPS 测试服务器，分别核对 HTTP 和原始 TCP 模式的 URL、响应、原路由及 TLS 元数据；HTTP 检查重复 Cookie/cURL，TCP 检查两个方向前缀与 cURL 拒绝，并验证重载停抓。[android_smoke.py](tools/android_smoke.py) 在 CI 临时目录生成独立测试服务器证书，经 ADB reverse 提供 HTTPS 服务，只把公钥 CA 传给仪器测试；私钥不写入仓库、设备或上传产物，套件结束删除。单独运行这条仪器测试需要脚本提供的 `mitmOriginPort` / `mitmOriginCA` 参数。模拟器中的测试客户端显式信任本次 CA，不代表第三方目标应用信任或 Root 模块已经实机通过。
 
 [DashboardConfigCacheTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/DashboardConfigCacheTest.kt) 通过调用计数覆盖重复轮询不再读取/哈希/解析、地址变化、配置切换、写入/回滚、运行快照更新及错误/取消重试；`ProfileRecoveryTest.lanCacheTracksEqualSizeWritesSuccessfulReloadsAndRecovery` 使用实际文件和 libbox，覆盖同大小同时间戳写入、保存与运行配置分离、成功重载、失败恢复和停服后的 LAN 状态。它们由 Android smoke 的 JVM/仪器测试步骤运行，Release 运行其中的 JVM 测试。
 
@@ -171,6 +173,10 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 [LogStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/LogStreamTest.kt) 覆盖日志快照、增量、淘汰边界、等级更新、清空、重新订阅和缓冲重置，并检查 3000 条缓冲新增一条时只编码一条。[VisiblePollingTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/VisiblePollingTest.kt) 用虚拟时间检查不可见/后台/熄屏时零采样、恢复立即采样及取消在途任务；两者由 Android smoke 和 Release 的 JVM 测试运行，Flutter 通知与订阅测试见 [flclash.md](flclash.md#验证与升级参考版本)。这些调用计数不代表实测内存或帧率收益。
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
+
+### 独立 MITM/TCP/Cron 验证
+
+当前改动的 Go、Flutter 和 Android 验证交由 GitHub Actions；本机仅执行源码与文档静态检查。独立 MITM/脚本、TCP 解密、Cron、配置迁移及抓包日志移除不在下文旧提交的验证范围内。结果完成后记录对应源码 SHA、Actions 链接及未覆盖范围。
 
 ### JSON 配置改写验证
 
@@ -181,7 +187,7 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 | [Core and Flutter validation](https://github.com/giturass/B-box/actions/runs/41575286785) | `e62ddbe724a1b5f61e3bff96e48b1ba8e82c94fc` | Go 扩展/schema、HTTP/MITM/改写/JS 的 `-race`、原路由及重定向布局回归通过；Flutter 分析、203 项测试及 ARM64 Flutter AAR 构建通过 |
 | [Android regression and smoke](https://github.com/giturass/B-box/actions/runs/41575670538) | `e62ddbe724a1b5f61e3bff96e48b1ba8e82c94fc` | 44 项 JVM 测试无失败或跳过，`play`/`other` 编译和模拟器应用/仪器测试 APK 构建通过；API 24/31/35 的 UI smoke 与各 18 项仪器测试全部通过 |
 
-已核对三个 `android-smoke-api-*` Artifact 的 `results.json`：源码 SHA 一致，UI/native 均成功；每份 `native-tests.txt` 都记录 18 项通过，且 `profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 成功。该回归的实际覆盖见 [配置驱动的 HTTP 改写](#配置驱动的-http-改写)。模拟器中的自有 TLS 客户端显式信任本次 CA，测试没有安装系统证书或 Root 模块。
+已核对三个 `android-smoke-api-*` Artifact 的 `results.json`：源码 SHA 一致，UI/native 均成功；每份 `native-tests.txt` 都记录 18 项通过，且 `profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 成功。该回归的实际覆盖见 [配置处理生命周期](#配置处理生命周期)。模拟器中的自有 TLS 客户端显式信任本次 CA，测试没有安装系统证书或 Root 模块。
 
 本机完成 `git diff --check`、`python3 tools/verify_newui.py`、Go 格式、Python 语法、配置示例/来源清单 JSON 及文档链接静态检查，未在本机构建或执行 Go/Flutter/Android 测试。最终截图的检查范围见 [flclash.md](flclash.md#验证与升级参考版本)。本次未运行签名 ARM64 Release/R8，未发布 APK 或 GitHub Release；下文旧 Release 不包含本次配置改写。ARM64 实机、真实 Root CA 模块安装与第三方应用信任仍未验收。Surge 配置/脚本支持范围以 [核心文档](libbox.md#json-配置中的-http-改写) 为准。
 

@@ -89,11 +89,12 @@ class ProfileRecoveryTest {
                 SubscriptionServer("""{"message":"old"}""").use { origin ->
                     val originPort = java.net.URI(origin.url).port
                     val extension = JSONObject("""{
-                        "enabled":true,"ports":[80,443],"mitm":{"enabled":true,"hosts":["offline.test"]},
+                        "enabled":true,"ports":[80,443],
                         "map_local":[{"pattern":"/static$","data":"local-response","status":201}],
                         "map_remote":[{"pattern":"^http://source\\.test:80/remote$","replacement":"http://mapped.test:$originPort/profile.json"}],
                         "body_rewrite":[{"pattern":"/remote$","phase":"response","regex":"old","replacement":"static"}]
-                    }""").put("scripts", JSONArray()
+                    }""")
+                    val scripts = JSONObject().put("enabled", true).put("http", JSONArray()
                         .put(JSONObject().put("pattern", "/dynamic$").put("phase", "request")
                             .put("source", "${'$'}done({response:{status:202,body:'script-mock'}});"))
                         .put(JSONObject().put("pattern", "/remote$").put("phase", "response").put("requires_body", true)
@@ -105,7 +106,8 @@ class ProfileRecoveryTest {
                             {"domain":["offline.test","source.test"],"action":"route","outbound":"original","override_address":"127.0.0.1"},
                             {"inbound":["rewrite-in"],"domain":["mapped.test"],"action":"route","outbound":"mapped","override_address":"127.0.0.1"}
                         ]}
-                    }""").put("experimental", JSONObject().put("http_rewrite", extension)).toString()
+                    }""").put("experimental", JSONObject().put("http_rewrite", extension).put("scripts", scripts)
+                        .put("mitm", JSONObject().put("enabled", true).put("hosts", JSONArray().put("offline.test")))).toString()
                     profiles.writeContent(id, config, BoxProfiles.revision(profiles.read(id)))
                     assertEquals(Status.Started, activity.serviceStatus.value)
                     assertTrue(JSONObject(Libbox.readUICaptureStatus()).getBoolean("rewriteActive"))
@@ -142,7 +144,7 @@ class ProfileRecoveryTest {
                     assertFalse(JSONObject(Libbox.readUICaptureStatus()).getBoolean("rewriteActive"))
                 }
             } catch (error: Exception) {
-                throw AssertionError("Profile HTTP rewrite failed: ${Libbox.readUICaptureLogs()}", error)
+                throw AssertionError("Profile HTTP rewrite failed: ${Libbox.readUICaptureStatus()}", error)
             } finally {
                 withContext(Dispatchers.Main) { activity.stopService() }
                 withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
@@ -156,89 +158,143 @@ class ProfileRecoveryTest {
         val originPort = arguments.getString("mitmOriginPort")?.toInt() ?: error("Run with tools/android_smoke.py TLS fixture")
         val originCA = android.util.Base64.decode(arguments.getString("mitmOriginCA"), android.util.Base64.DEFAULT).toString(Charsets.US_ASCII)
         withRunningProfile { activity, profiles, id ->
-            val directory = File(activity.cacheDir, "mitm-route-${UUID.randomUUID()}").apply { mkdirs() }
+            val directory = File(activity.noBackupFilesDir, "http-debug")
             val authority = MitmCertificate(activity, directory)
             var alias: String? = null
             try {
-                val generated = authority.generate(authority.snapshot()["revision"] as String)
-                alias = JSONObject(File(directory, "mitm-authority.json").readText()).getString("alias")
+                val old = authority.snapshot()
+                val generated = if (old["exists"] == true) old else authority.generate(old["revision"] as String).also {
+                    alias = JSONObject(File(directory, "mitm-authority.json").readText()).getString("alias")
+                }
                 val certificate = authority.publicCertificate(generated["revision"] as String)
                 val proxyPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
                 val config = JSONObject("""{
+                    "experimental":{"mitm":{"enabled":true,"hosts":["origin.test"],"ports":[$originPort]}},
                     "inbounds":[{"type":"mixed","tag":"mitm-in","listen":"127.0.0.1","listen_port":$proxyPort}],
                     "outbounds":[{"type":"selector","tag":"mitm-route","outbounds":["fixture-direct"]},{"type":"direct","tag":"fixture-direct"}],
                     "route":{"rules":[{"domain":["origin.test"],"action":"route","outbound":"mitm-route","override_address":"127.0.0.1"}]}
                 }""").put("certificate", JSONObject().put("store", "none").put("certificate", JSONArray().put(originCA))).toString()
-                profiles.writeContent(id, config, BoxProfiles.revision(profiles.read(id)))
-                assertEquals(Status.Started, activity.serviceStatus.value)
-                val captures = File(activity.noBackupFilesDir, "http-debug/captures")
-                Libbox.openUICapture(captures.absolutePath)
-                Libbox.clearUICapture()
-                val material = authority.material()
-                BoxService.dashboardServer!!.startUICapture(captures.absolutePath,
-                    """{"version":2,"https":true,"ports":[$originPort],"decryptHosts":["origin.test"]}""", material.first, material.second)
-                assertTrue(JSONObject(Libbox.readUICaptureStatus()).getBoolean("active"))
+                for (tcp in listOf(false, true)) {
+                    val candidate = JSONObject(config).apply { getJSONObject("experimental").getJSONObject("mitm").put("tcp", tcp) }.toString()
+                    val path = if (tcp) "/tcp-stream" else "/probe?raw=1;2"
+                    profiles.writeContent(id, candidate, BoxProfiles.revision(profiles.read(id)))
+                    assertEquals(Status.Started, activity.serviceStatus.value)
+                    val captures = File(activity.noBackupFilesDir, "http-debug/captures")
+                    Libbox.openUICapture(captures.absolutePath)
+                    Libbox.clearUICapture()
+                    BoxService.dashboardServer!!.startUICapture(captures.absolutePath,
+                        """{"version":3,"ports":[$originPort]}""", "", null)
+                    assertTrue(JSONObject(Libbox.readUICaptureStatus()).getBoolean("active"))
 
-                val trustStore = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("mitm", certificate) }
-                val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(trustStore) }
-                val ssl = SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, SecureRandom()) }
-                Socket("127.0.0.1", proxyPort).use { tunnel ->
-                    tunnel.soTimeout = 10_000
-                    tunnel.getOutputStream().write("CONNECT origin.test:$originPort HTTP/1.1\r\nHost: origin.test:$originPort\r\n\r\n".toByteArray())
-                    val reply = StringBuilder()
-                    while (!reply.endsWith("\r\n\r\n")) {
-                        val value = tunnel.getInputStream().read()
-                        check(value >= 0 && reply.length < 8192) { "Invalid CONNECT response: $reply" }
-                        reply.append(value.toChar())
-                    }
-                    assertTrue(reply.toString().startsWith("HTTP/1.1 200"))
-                    (ssl.socketFactory.createSocket(tunnel, "origin.test", originPort, true) as SSLSocket).use { client ->
-                        client.soTimeout = 10_000
-                        client.sslParameters = client.sslParameters.apply {
-                            endpointIdentificationAlgorithm = "HTTPS"
-                            serverNames = listOf(SNIHostName("origin.test"))
+                    val trustStore = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("mitm", certificate) }
+                    val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(trustStore) }
+                    val ssl = SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, SecureRandom()) }
+                    Socket("127.0.0.1", proxyPort).use { tunnel ->
+                        tunnel.soTimeout = 10_000
+                        tunnel.getOutputStream().write("CONNECT origin.test:$originPort HTTP/1.1\r\nHost: origin.test:$originPort\r\n\r\n".toByteArray())
+                        val reply = StringBuilder()
+                        while (!reply.endsWith("\r\n\r\n")) {
+                            val value = tunnel.getInputStream().read()
+                            check(value >= 0 && reply.length < 8192) { "Invalid CONNECT response: $reply" }
+                            reply.append(value.toChar())
                         }
-                        client.startHandshake()
-                        // Conscrypt may discard peer certificates after receiving
-                        // close_notify. Verify the live session before reading EOF.
-                        val peer = client.session.peerCertificates[0] as X509Certificate
-                        assertFalse(peer.encoded.contentEquals(certificate.encoded))
-                        peer.verify(certificate.publicKey)
-                        client.getOutputStream().write("GET /probe?raw=1;2 HTTP/1.1\r\nHost: origin.test:$originPort\r\nConnection: close\r\n\r\n".toByteArray())
-                        val response = client.getInputStream().readBytes().toString(Charsets.UTF_8)
-                        assertTrue(response.startsWith("HTTP/1.1 200"))
-                        assertTrue(response.contains("through-original-route"))
+                        assertTrue(reply.toString().startsWith("HTTP/1.1 200"))
+                        (ssl.socketFactory.createSocket(tunnel, "origin.test", originPort, true) as SSLSocket).use { client ->
+                            client.soTimeout = 10_000
+                            client.sslParameters = client.sslParameters.apply {
+                                endpointIdentificationAlgorithm = "HTTPS"
+                                serverNames = listOf(SNIHostName("origin.test"))
+                            }
+                            client.startHandshake()
+                            // Conscrypt may discard peer certificates after receiving
+                            // close_notify. Verify the live session before reading EOF.
+                            val peer = client.session.peerCertificates[0] as X509Certificate
+                            assertFalse(peer.encoded.contentEquals(certificate.encoded))
+                            peer.verify(certificate.publicKey)
+                            client.getOutputStream().write("GET $path HTTP/1.1\r\nHost: origin.test:$originPort\r\nConnection: close\r\n\r\n".toByteArray())
+                            val response = client.getInputStream().readBytes().toString(Charsets.UTF_8)
+                            assertTrue(response.startsWith("HTTP/1.1 200"))
+                            assertTrue(response.contains("through-original-route"))
+                        }
+                    }
+                    val detail = withTimeout(5_000) {
+                        var result: JSONObject? = null
+                        while (result == null) {
+                            val items = JSONObject(Libbox.listUICapture(10, "origin.test")).getJSONArray("items")
+                            if (items.length() == 1 && items.getJSONObject(0).getBoolean("complete")) {
+                                result = JSONObject(Libbox.readUICapture(items.getJSONObject(0).getString("id")))
+                            } else delay(20)
+                        }
+                        checkNotNull(result)
+                    }
+                    val metadata = detail.getJSONObject("metadata")
+                    assertEquals("MITM", metadata.getString("captureSource"))
+                    assertEquals("mitm-in", metadata.getString("inbound"))
+                    assertEquals("mitm-route", metadata.getString("outbound"))
+                    assertEquals("origin.test", metadata.getJSONObject("tls").getString("serverName"))
+                    assertEquals("${if (tcp) "tls" else "https"}://origin.test:$originPort${if (tcp) "" else path}", detail.getJSONObject("request").getString("url"))
+                    assertTrue(detail.getJSONObject("responsePreview").getString("text").contains("through-original-route"))
+                    assertTrue(detail.getJSONObject("response").getBoolean("bodyComplete"))
+                    assertEquals(tcp, metadata.optBoolean("rawTCP"))
+                    if (tcp) {
+                        assertEquals("TLS/TCP", detail.getJSONObject("request").getString("protocol"))
+                        assertTrue(detail.getJSONObject("requestPreview").getString("text").contains("GET /tcp-stream HTTP/1.1"))
+                        assertTrue(runCatching { Libbox.exportUICaptureCurl(detail.getString("id")) }.isFailure)
+                    } else {
+                        val headers = detail.getJSONObject("response").getJSONArray("headers")
+                        assertEquals(2, (0 until headers.length()).count { headers.getJSONObject(it).getString("name").equals("Set-Cookie", true) })
+                        assertTrue(Libbox.exportUICaptureCurl(detail.getString("id")).contains("origin.test:$originPort"))
                     }
                 }
-                val detail = withTimeout(5_000) {
-                    var result: JSONObject? = null
-                    while (result == null) {
-                        val items = JSONObject(Libbox.listUICapture(10, "origin.test")).getJSONArray("items")
-                        if (items.length() == 1 && items.getJSONObject(0).getBoolean("complete")) {
-                            result = JSONObject(Libbox.readUICapture(items.getJSONObject(0).getString("id")))
-                        } else delay(20)
-                    }
-                    checkNotNull(result)
-                }
-                val metadata = detail.getJSONObject("metadata")
-                assertEquals("MITM", metadata.getString("captureSource"))
-                assertEquals("mitm-in", metadata.getString("inbound"))
-                assertEquals("mitm-route", metadata.getString("outbound"))
-                assertEquals("origin.test", metadata.getJSONObject("tls").getString("serverName"))
-                assertEquals("https://origin.test:$originPort/probe?raw=1;2", detail.getJSONObject("request").getString("url"))
-                assertTrue(detail.getJSONObject("responsePreview").getString("text").contains("through-original-route"))
-                assertTrue(detail.getJSONObject("response").getBoolean("bodyComplete"))
-                val headers = detail.getJSONObject("response").getJSONArray("headers")
-                assertEquals(2, (0 until headers.length()).count { headers.getJSONObject(it).getString("name").equals("Set-Cookie", true) })
-                assertTrue(Libbox.exportUICaptureCurl(detail.getString("id")).contains("origin.test:$originPort"))
                 profiles.writeContent(id, "{}", BoxProfiles.revision(profiles.read(id)))
                 assertFalse(JSONObject(Libbox.readUICaptureStatus()).getBoolean("active"))
             } catch (error: Exception) {
-                throw AssertionError("Android routed MITM failed: ${Libbox.readUICaptureLogs()}", error)
+                throw AssertionError("Android routed MITM failed: ${Libbox.readUICaptureStatus()}", error)
             } finally {
                 Libbox.stopUICapture()
-                alias?.let { KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry(it) } }
-                directory.deleteRecursively()
+                withContext(Dispatchers.Main) { activity.stopService() }
+                withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+                alias?.let { KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry(it) }; File(directory, "mitm-authority.json").delete() }
+            }
+        }
+    }
+
+    @Test fun independentCronUsesRoutingAndStopsWithTheService() {
+        withRunningProfile { activity, profiles, id ->
+            SubscriptionServer("cron-ok").use { origin ->
+                val originPort = java.net.URI(origin.url).port
+                val script = "${'$'}httpClient.get(${'$'}argument, function(error,response,data) { if(error || response.status !== 200 || data !== 'cron-ok') throw Error(error || data); console.log('android-cron-success'); ${'$'}done(); });"
+                val config = JSONObject("""{
+                    "outbounds":[{"type":"direct","tag":"cron-direct"}],
+                    "route":{"rules":[{"inbound":["b-box-scripts"],"domain":["cron.test"],"action":"route","outbound":"cron-direct","override_address":"127.0.0.1"}]}
+                }""").put("experimental", JSONObject().put("scripts", JSONObject().put("enabled", true).put("cron", JSONArray().put(
+                    JSONObject().put("cron", "* * * * * *").put("timeout_ms", 5000)
+                        .put("argument", "http://cron.test:$originPort/profile.json").put("source", script)
+                )))).toString()
+                profiles.writeContent(id, config, BoxProfiles.revision(profiles.read(id)))
+                val state = JSONObject(Libbox.readUICaptureStatus())
+                assertTrue(state.getBoolean("scriptsActive"))
+                assertFalse(state.getBoolean("rewriteActive"))
+                assertFalse(state.getBoolean("mitmActive"))
+                assertEquals(1, state.getInt("cronJobs"))
+                withTimeout(10_000) { while (origin.requests.get() == 0) delay(50) }
+                val before = origin.requests.get()
+                assertTrue(before > 0)
+                BoxService.dashboardServer!!.startUICapture(File(activity.noBackupFilesDir, "http-debug/captures").absolutePath, "{}", "", null)
+                Libbox.stopUICapture()
+                assertTrue(JSONObject(Libbox.readUICaptureStatus()).getBoolean("scriptsActive"))
+                withTimeout(5_000) { while (origin.requests.get() <= before) delay(50) }
+                val invalid = JSONObject(config).apply {
+                    getJSONObject("experimental").getJSONObject("scripts").getJSONArray("cron").getJSONObject(0).put("cron", "invalid")
+                }.toString()
+                assertTrue(runCatching { profiles.writeContent(id, invalid, BoxProfiles.revision(profiles.read(id))) }.isFailure)
+                assertEquals(Status.Started, activity.serviceStatus.value)
+                assertEquals(config, profiles.read(id))
+                profiles.writeContent(id, "{}", BoxProfiles.revision(profiles.read(id)))
+                assertFalse(JSONObject(Libbox.readUICaptureStatus()).getBoolean("scriptsActive"))
+                val stopped = origin.requests.get()
+                delay(1500)
+                assertEquals(stopped, origin.requests.get())
             }
         }
     }
@@ -252,14 +308,14 @@ class ProfileRecoveryTest {
             File(directory, "ca.json").writeText("retired material")
             val settings = CaptureSettings(directory, retiredKeyAlias = null)
             val initial = settings.snapshot()
-            assertEquals(false, (initial["config"] as Map<*, *>)["https"])
+            assertFalse((initial["config"] as Map<*, *>).containsKey("https"))
             assertFalse((initial["config"] as Map<*, *>).containsKey("rewriteEnabled"))
             assertFalse((initial["config"] as Map<*, *>).containsKey("captureNetwork"))
             assertFalse((initial["config"] as Map<*, *>).containsKey("captureTlsKeys"))
             assertFalse((initial["config"] as Map<*, *>).containsKey("includeHosts"))
             assertFalse((initial["config"] as Map<*, *>).containsKey("excludeHosts"))
-            assertEquals(listOf("api.test"), (initial["config"] as Map<*, *>)["decryptHosts"])
-            assertEquals(listOf("private.test"), (initial["config"] as Map<*, *>)["decryptBypassHosts"])
+            assertFalse((initial["config"] as Map<*, *>).containsKey("decryptHosts"))
+            assertFalse((initial["config"] as Map<*, *>).containsKey("decryptBypassHosts"))
             assertEquals(listOf("com.test"), (initial["config"] as Map<*, *>)["packages"])
             assertEquals(listOf(8443), (initial["config"] as Map<*, *>)["ports"])
             assertEquals(131072, ((initial["config"] as Map<*, *>)["bodyLimit"] as Number).toInt())
@@ -270,11 +326,11 @@ class ProfileRecoveryTest {
             assertFalse(File(directory, "ca.json").exists())
             assertEquals(initial, CaptureSettings(directory, retiredKeyAlias = null).snapshot())
             val revision = initial["revision"] as String
-            val saved = settings.save(revision, """{"version":2,"https":true,"decryptHosts":["api.test"],"blockQUIC":true}""")
+            val saved = settings.save(revision, """{"version":3,"extractHosts":true,"ports":[443]}""")
             assertNotEquals(revision, saved["revision"])
             assertTrue(runCatching { settings.save(revision, "{}") }.isFailure)
             val previous = File(directory, "settings.json").readText()
-            for (retired in listOf("""{"scripts":[]}""", """{"captureNetwork":true}""", """{"captureTlsKeys":true}""",
+            for (retired in listOf("""{"https":true}""", """{"decryptBypassHosts":[]}""", """{"scripts":[]}""", """{"captureNetwork":true}""", """{"captureTlsKeys":true}""",
                 """{"includeHosts":["api.test"]}""", """{"excludeHosts":["private.test"]}""")) {
                 assertTrue(runCatching { settings.save(saved["revision"] as String, retired) }.isFailure)
                 assertEquals(previous, File(directory, "settings.json").readText())
@@ -283,8 +339,8 @@ class ProfileRecoveryTest {
             assertEquals(previous, File(directory, "settings.json").readText())
             val reloaded = CaptureSettings(directory, retiredKeyAlias = null).snapshot()
             assertEquals(saved, reloaded)
-            assertEquals(true, (reloaded["config"] as Map<*, *>)["https"])
-            assertEquals(true, (reloaded["config"] as Map<*, *>)["blockQUIC"])
+            assertFalse((reloaded["config"] as Map<*, *>).containsKey("https"))
+            assertEquals(true, (reloaded["config"] as Map<*, *>)["extractHosts"])
             val profile = """{"log":{"level":"warn"},"experimental":{"http_debug":{"scripts":[]},"cache_file":{"enabled":true}}}"""
             val cleaned = Libbox.removeUIRetiredCaptureOptions(profile)
             assertFalse(cleaned.contains("http_debug"))
@@ -304,7 +360,7 @@ class ProfileRecoveryTest {
             val settings = CaptureSettings(directory, retiredKeyAlias = null)
             val recovered = settings.snapshot()
             val config = recovered["config"] as Map<*, *>
-            assertEquals(false, config["https"])
+            assertFalse(config.containsKey("https"))
             assertEquals(listOf(8443), config["ports"])
             assertFalse(config.containsKey("scripts"))
             assertFalse(config.containsKey("captureNetwork"))

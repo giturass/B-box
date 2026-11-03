@@ -25,8 +25,8 @@ import (
 
 func mitmEngine(t *testing.T, config Config) (*Engine, *Store, *x509.CertPool) {
 	t.Helper()
-	config.HTTPS = true
 	e, store := testEngine(t, config)
+	e.mitm = &MITMConfig{Enabled: true, Hosts: []string{"origin.test"}}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -275,21 +275,21 @@ func TestMITMClientPinningFailureClosesVerifiedUpstream(t *testing.T) {
 	e.Close()
 }
 
-func TestMITMSelectionReplaysExcludedAndNonHTTPClientHello(t *testing.T) {
-	for _, kind := range []string{"excluded", "unselected", "non-http"} {
+func TestMITMSelectionReplaysUnselectedAndNonHTTPClientHello(t *testing.T) {
+	for _, kind := range []string{"empty-list", "unselected", "non-http"} {
 		t.Run(kind, func(t *testing.T) {
 			config := Config{}
 			protos := []string{"http/1.1"}
-			if kind == "excluded" {
-				config.DecryptBypassHosts = []string{"origin.test"}
-			}
-			if kind == "unselected" {
-				config.DecryptHosts = []string{"other.test"}
-			}
 			if kind == "non-http" {
 				protos = []string{"mqtt"}
 			}
 			e, store, _ := mitmEngine(t, config)
+			if kind == "empty-list" {
+				e.mitm.Hosts = nil
+			}
+			if kind == "unselected" {
+				e.mitm.Hosts = []string{"other.test"}
+			}
 			cert, roots := originCertificate(t, "origin.test", false)
 			rawClient, inbound := net.Pipe()
 			defer rawClient.Close()
@@ -299,7 +299,7 @@ func TestMITMSelectionReplaysExcludedAndNonHTTPClientHello(t *testing.T) {
 			completed := make(chan error, 1)
 			go func() { completed <- client.Handshake() }()
 			replay, metadata, selected := e.SelectTLS(context.Background(), inbound, Metadata{Host: "old-dns-mapping.test", Port: 443, Protocol: "tls"})
-			if selected || metadata.Host != "origin.test" {
+			if selected || kind != "empty-list" && metadata.Host != "origin.test" {
 				t.Fatal("TLS selection ignored actual SNI or bypass")
 			}
 			server := tls.Server(replay, &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: protos})
@@ -426,8 +426,8 @@ func TestMITMStopCancelsAnUpstreamHandshake(t *testing.T) {
 }
 
 func TestMITMQUICRequiresOptInNameAndApplicationMatch(t *testing.T) {
-	e, _, _ := mitmEngine(t, Config{BlockQUIC: true, DecryptHosts: []string{"*.example.test"},
-		DecryptBypassHosts: []string{"pinned.example.test"}, Packages: []string{"com.test"}})
+	e, _, _ := mitmEngine(t, Config{})
+	e.mitm = mitmConfig(t, `{"enabled":true,"block_quic":true,"hosts":["api.example.test"],"packages":["com.test"]}`)
 	for _, test := range []struct {
 		host     string
 		packages []string

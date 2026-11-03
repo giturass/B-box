@@ -18,13 +18,26 @@ import (
 	"time"
 )
 
-func rewriteProgram(t *testing.T, content string) *RewriteProgram {
+func rewriteProgram(t *testing.T, content string) *httpProgram {
 	t.Helper()
 	var config RewriteConfig
 	if err := json.Unmarshal([]byte(content), &config); err != nil {
 		t.Fatal(err)
 	}
 	program, err := CompileRewrite(&config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &httpProgram{RewriteProgram: program}
+}
+
+func scriptProgram(t *testing.T, content string) *ScriptProgram {
+	t.Helper()
+	var config ScriptsConfig
+	if err := json.Unmarshal([]byte(content), &config); err != nil {
+		t.Fatal(err)
+	}
+	program, err := CompileScripts(&config, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,10 +69,7 @@ func TestRewriteConfigValidation(t *testing.T) {
 			t.Errorf("accepted invalid extension: %s", invalid)
 		}
 	}
-	program := rewriteProgram(t, `{"enabled":true,"mitm":{"enabled":true,"hosts":["*.example.test"],"excluded_hosts":["private.example.test"]},"resources":{"script.js":{"data":"$done({});"}},"scripts":[{"pattern":".","phase":"request","resource":"script.js"}]}`)
-	if program.scope.matches(Metadata{Host: "private.example.test", Port: 443, Protocol: "tls"}) || !program.scope.matches(Metadata{Host: "api.example.test", Port: 443, Protocol: "tls"}) {
-		t.Fatal("profile MITM exclusions not enforced")
-	}
+
 }
 
 func TestRewritePipelineAndRecordedMessages(t *testing.T) {
@@ -84,24 +94,8 @@ func TestRewritePipelineAndRecordedMessages(t *testing.T) {
 	}))
 	defer origin.Close()
 	e, store := testEngine(t, Config{})
-	e.rewrite = rewriteProgram(t, `{
-		"enabled":true,
-		"header_rewrite":[
-			{"pattern":"original$","phase":"request","operation":"add","header":"X-Add","value":"two"},
-			{"pattern":"original$","phase":"request","operation":"delete","header":"Cookie"},
-			{"pattern":"original$","phase":"request","operation":"replace_regex","header":"User-Agent","regex":"old","replacement":"new"},
-			{"pattern":"original$","phase":"response","operation":"add","header":"X-Response","value":"rewritten"}
-		],
-		"url_rewrite":[{"pattern":"^http://example.test/original$","action":"header","replacement":"http://example.test/changed"}],
-		"body_rewrite":[
-			{"pattern":"original$","phase":"request","regex":"old","replacement":"static"},
-			{"pattern":"original$","phase":"response","regex":"old","replacement":"new"}
-		],
-		"scripts":[
-			{"pattern":"original$","phase":"request","requires_body":true,"source":"$done({body: $request.body + '-script'});"},
-			{"pattern":"original$","phase":"response","requires_body":true,"full_headers":true,"source":"$response.headers.push({field:'X-Script',value:$request.id}); $done({status:202, headers:$response.headers, body:$response.body + '-script'}); throw new Error('after done');"}
-		]
-	}`)
+	e.rewrite = rewriteProgram(t, `{"enabled":true,"header_rewrite":[{"pattern":"original$","phase":"request","operation":"add","header":"X-Add","value":"two"},{"pattern":"original$","phase":"request","operation":"delete","header":"Cookie"},{"pattern":"original$","phase":"request","operation":"replace_regex","header":"User-Agent","regex":"old","replacement":"new"},{"pattern":"original$","phase":"response","operation":"add","header":"X-Response","value":"rewritten"}],"url_rewrite":[{"pattern":"^http://example.test/original$","action":"header","replacement":"http://example.test/changed"}],"body_rewrite":[{"pattern":"original$","phase":"request","regex":"old","replacement":"static"},{"pattern":"original$","phase":"response","regex":"old","replacement":"new"}]}`).RewriteProgram
+	e.scripts = scriptProgram(t, `{"enabled":true,"http":[{"pattern":"original$","phase":"request","requires_body":true,"source":"$done({body: $request.body + '-script'});"},{"pattern":"original$","phase":"response","requires_body":true,"full_headers":true,"source":"$response.headers.push({field:'X-Script',value:$request.id}); $done({status:202, headers:$response.headers, body:$response.body + '-script'}); throw new Error('after done');"}]}`)
 	client := debugClient(t, e, origin.Listener.Addr().String())
 	request, _ := http.NewRequest("POST", "http://example.test/original", strings.NewReader("old"))
 	request.Header.Set("Cookie", "secret=1")
@@ -134,7 +128,9 @@ func TestRewriteHTTPSOfflineMockAndRecordingOff(t *testing.T) {
 		t.Run(map[bool]string{false: "http1", true: "http2"}[h2], func(t *testing.T) {
 			e, store, ca := mitmEngine(t, Config{})
 			e.captureEnabled = false
-			e.rewrite = rewriteProgram(t, `{"enabled":true,"mitm":{"enabled":true,"hosts":["origin.test"]},"map_local":[{"pattern":"/static$","status":201,"data":"local","headers":[{"name":"Set-Cookie","value":"a=1"},{"name":"Set-Cookie","value":"b=2"}]}],"scripts":[{"pattern":"/dynamic$","phase":"request","source":"$done({response:{status:202,headers:{'Content-Type':'application/json'},body:JSON.stringify({method:$request.method})}});"}]}`)
+			e.rewrite = rewriteProgram(t, `{"enabled":true,"map_local":[{"pattern":"/static$","status":201,"data":"local","headers":[{"name":"Set-Cookie","value":"a=1"},{"name":"Set-Cookie","value":"b=2"}]}]}`).RewriteProgram
+			e.scripts = scriptProgram(t, `{"enabled":true,"http":[{"pattern":"/dynamic$","phase":"request","source":"$done({response:{status:202,headers:{'Content-Type':'application/json'},body:JSON.stringify({method:$request.method})}});"}]}`)
+			e.mitm = mitmConfig(t, `{"enabled":true,"hosts":["origin.test"]}`)
 			client, dials := mitmClient(t, e, "127.0.0.1:1", ca, nil, h2)
 			for _, path := range []string{"static", "dynamic"} {
 				response, err := client.Get("https://origin.test/" + path)
@@ -174,7 +170,7 @@ func TestRewriteRemoteUsesMappedDialAndVerifiesTLS(t *testing.T) {
 		t.Run(map[bool]string{true: "trusted", false: "untrusted"}[trusted], func(t *testing.T) {
 			e, _ := testEngine(t, Config{})
 			content, _ := json.Marshal(map[string]any{"enabled": true, "map_remote": []any{map[string]any{"pattern": "^http://example.test/(.*)", "replacement": origin.URL + "/$1"}}})
-			e.rewrite = rewriteProgram(t, string(content))
+			e.rewrite = rewriteProgram(t, string(content)).RewriteProgram
 			var originalDials, mappedDials atomic.Int32
 			roots := x509.NewCertPool()
 			if trusted {
@@ -246,7 +242,8 @@ func TestRewriteOversizedAndStreamingResponsesAreUnchanged(t *testing.T) {
 			}))
 			defer origin.Close()
 			e, store := testEngine(t, Config{})
-			e.rewrite = rewriteProgram(t, `{"enabled":true,"max_body_bytes":128,"body_rewrite":[{"pattern":".","phase":"response","regex":"old","replacement":"new"}],"scripts":[{"pattern":".","phase":"response","requires_body":true,"source":"$done({body:'bad'});"}]}`)
+			e.rewrite = rewriteProgram(t, `{"enabled":true,"max_body_bytes":128,"body_rewrite":[{"pattern":".","phase":"response","regex":"old","replacement":"new"}]}`).RewriteProgram
+			e.scripts = scriptProgram(t, `{"enabled":true,"max_body_bytes":128,"http":[{"pattern":".","phase":"response","requires_body":true,"source":"$done({body:'bad'});"}]}`)
 			client := debugClient(t, e, origin.Listener.Addr().String())
 			client.Transport.(*http.Transport).DisableCompression = true
 			response, err := client.Get("http://example.test/large")
@@ -275,25 +272,25 @@ func TestRewriteScriptsIsolationBinaryAndErrors(t *testing.T) {
 		"$done({headers:{'Content-Length':'999'}});",
 		"console.log('forgot done');",
 	} {
-		content, _ := json.Marshal(map[string]any{"scripts": []any{map[string]any{"pattern": ".", "phase": "request", "source": source, "timeout_ms": 50, "requires_body": strings.Contains(source, "get body")}}})
-		program := rewriteProgram(t, string(content))
+		content, _ := json.Marshal(map[string]any{"http": []any{map[string]any{"pattern": ".", "phase": "request", "source": source, "timeout_ms": 50, "requires_body": strings.Contains(source, "get body")}}})
+		program := scriptProgram(t, string(content))
 		request, _ := http.NewRequest("GET", "http://example.test/", nil)
 		start := time.Now()
-		if _, err := program.runScript(request, nil, &program.scripts[0], "test", nil, func(string) {}); err == nil {
+		if _, err := runHTTPScript(request, nil, &program.http[0], "test", nil, func(string) {}); err == nil {
 			t.Errorf("script unexpectedly succeeded: %s", source)
 		}
 		if time.Since(start) > 3*time.Second {
 			t.Fatal("script timeout did not interrupt execution")
 		}
 	}
-	program := rewriteProgram(t, `{"scripts":[{"pattern":".","phase":"request","requires_body":true,"binary_body":true,"source":"globalThis.counter=(globalThis.counter||0)+1; if(counter!==1) throw Error('shared runtime'); $request.body[0]=255; $done({body:$request.body});"}]}`)
+	program := scriptProgram(t, `{"http":[{"pattern":".","phase":"request","requires_body":true,"binary_body":true,"source":"globalThis.counter=(globalThis.counter||0)+1; if(counter!==1) throw Error('shared runtime'); $request.body[0]=255; $done({body:$request.body});"}]}`)
 	var wait sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
 			request, _ := http.NewRequest("POST", "http://example.test/", nil)
-			result, err := program.runScript(request, nil, &program.scripts[0], "test", []byte{0, 1, 2}, func(string) {})
+			result, err := runHTTPScript(request, nil, &program.http[0], "test", []byte{0, 1, 2}, func(string) {})
 			if err != nil || !bytes.Equal(result.body, []byte{255, 1, 2}) {
 				t.Errorf("isolated binary script: %v %v", result.body, err)
 			}
@@ -337,10 +334,11 @@ func TestRewriteUpgradePreservesProtocolAndSkipsBody(t *testing.T) {
 		{"status rejected", "$done({status:200});", false, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			content, _ := json.Marshal(map[string]any{"scripts": []any{map[string]any{
+			content, _ := json.Marshal(map[string]any{"http": []any{map[string]any{
 				"pattern": ".", "phase": "response", "source": test.source, "requires_body": test.requiresBody,
 			}}})
-			program := rewriteProgram(t, string(content))
+			scripts := scriptProgram(t, string(content))
+			program := &httpProgram{RewriteProgram: &RewriteProgram{limit: scripts.limit}, scripts: scripts}
 			request, _ := http.NewRequest("GET", "http://example.test/socket", nil)
 			body := io.NopCloser(strings.NewReader("opaque websocket frames"))
 			response := &http.Response{StatusCode: http.StatusSwitchingProtocols, Body: body,
@@ -392,14 +390,14 @@ func TestRewriteLifecycleKeepsRulesWhenRecordingStops(t *testing.T) {
 		t.Fatal(err)
 	}
 	directory := t.TempDir()
-	prepared, err := PrepareRewrite(directory, &config, "", nil)
+	prepared, err := PrepareProcessing(directory, nil, &config, nil, "", nil, "UTC")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if Current() != nil {
 		t.Fatal("preparation activated interception")
 	}
-	ActivateRewrite(prepared)
+	ActivateProcessing(prepared, nil, nil)
 	if state := Status(); !state.RewriteActive || state.Active || state.RewriteRules != 1 {
 		t.Fatalf("profile status: %+v", state)
 	}

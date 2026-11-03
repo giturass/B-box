@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -8,7 +9,6 @@ import 'package:b_box_ui/pages/requests.dart';
 import 'package:b_box_ui/pages/request_settings.dart';
 import 'package:b_box_ui/pages/mitm_certificate.dart';
 import 'package:b_box_ui/pages/capture_domains.dart';
-import 'package:b_box_ui/pages/capture_logs.dart';
 import 'package:b_box_ui/pages/configuration.dart';
 import 'package:b_box_ui/components/captured_body.dart';
 import 'package:flutter/services.dart';
@@ -80,8 +80,6 @@ void main() {
       if (call.method == 'capture.ca.export' || call.method == 'capture.ca.module') return false;
       if (call.method == 'capture.ca.install') return true;
       if (call.method == 'capture.snapshot') return snapshot;
-      if (call.method == 'capture.logs') return {'state': snapshot['state'], 'logs': snapshot['logs'] ?? []};
-      if (call.method == 'capture.logs.clear') { snapshot['logs'] = []; return null; }
       if (call.method == 'capture.settings') return {'revision': 'saved-revision', 'config': snapshot['config']};
       if (call.method == 'capture.domains') return ['api.test', 'pinned.test'];
       if (call.method == 'capture.start') { snapshot['state'] = {'active': true}; return snapshot['state']; }
@@ -138,21 +136,27 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('profile rewrite status stays visible with request recording stopped', (tester) async {
+  testWidgets('Requests only shows recording state and has no capture log entry', (tester) async {
     await mount(tester);
     snapshot['state'] = {'active': false, 'rewriteActive': true, 'rewriteRules': 3};
     await open(tester, const RequestsPage());
-    expect(find.text('Profile HTTP rewriting is active'), findsOneWidget);
-    expect(find.textContaining('Rules remain active when request recording is stopped.'), findsOneWidget);
+    expect(find.text('Profile HTTP rewriting is active'), findsNothing);
+    expect(find.text('Capture stopped'), findsOneWidget);
+    await tester.tap(find.byTooltip('More').last);
+    await tester.pumpAndSettle();
+    expect(find.text('MITM'), findsOneWidget);
+    expect(find.text('Capture logs'), findsNothing);
+    Navigator.pop(tester.element(find.text('Export HAR').last));
+    await tester.pumpAndSettle();
     expect(calls.where((call) => call.method == 'capture.start'), isEmpty);
-    await capture(tester, 'profile-rewriting-recording-off');
+    await capture(tester, 'requests-recording-off');
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('profile rewrite configuration stays readable on a narrow screen with larger text', (tester) async {
     await mount(tester, dark: true, scale: 1.3, size: const Size(320, 900));
     extra = (call) async => call.method == 'profiles.config' ? {
-      'formatted': r'{"experimental":{"http_rewrite":{"enabled":true,"mitm":{"enabled":false},"map_local":[{"pattern":"/mock$","data":"{}"}]}}}',
+      'formatted': r'{"experimental":{"http_rewrite":{"enabled":true,"map_local":[{"pattern":"/mock$","data":"{}"}]}}}',
       'revision': 'rewrite-screenshot',
     } : null;
     final store = ProfileConfigStore(box, {'id': 7, 'name': 'Profile'});
@@ -171,9 +175,31 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('independent MITM and cron configuration fit a narrow screen', (tester) async {
+    await mount(tester, dark: true, scale: 1.3, size: const Size(320, 900));
+    extra = (call) async => call.method == 'profiles.config' ? {
+      'formatted': r'{"experimental":{"mitm":{"enabled":false,"hosts":[]},"scripts":{"enabled":false,"cron":[{"name":"Daily task","cron":"0 2 * * *","source":"$done();"}]},"http_rewrite":{"enabled":false}}}',
+      'revision': 'independent-screenshot',
+    } : null;
+    final store = ProfileConfigStore(box, {'id': 7, 'name': 'Profile'});
+    addTearDown(store.dispose);
+    await store.load();
+    await open(tester, MitmConfigPage(store: store));
+    expect(find.text('No domains selected'), findsOneWidget);
+    expect(find.text('HTTPS excluded domains'), findsNothing);
+    await capture(tester, 'independent-mitm-config');
+    Navigator.pop(tester.element(find.byType(MitmConfigPage))); await tester.pumpAndSettle();
+    await open(tester, ScriptsConfigPage(store: store));
+    await capture(tester, 'independent-scripts-cron');
+    final list = find.descendant(of: find.byType(ScriptsConfigPage), matching: find.byType(ListView)).first;
+    expect(tester.getTopLeft(list).dy, greaterThanOrEqualTo(tester.getBottomLeft(find.text('Scripts')).dy));
+    expect(find.byKey(const ValueKey('cron-scripts')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a profile using MITM prevents certificate rotation while recording is off', (tester) async {
     await mount(tester);
-    caState = {'exists': false, 'revision': 'ca-empty', 'captureActive': false, 'rewriteActive': true};
+    caState = {'exists': false, 'revision': 'ca-empty', 'captureActive': false, 'mitmActive': true};
     await open(tester, const MitmCertificatePage());
     expect(find.text('Stop capture and the local service before changing the MITM certificate'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('mitm-ca-generate')));
@@ -181,21 +207,23 @@ void main() {
     expect(calls.where((call) => call.method == 'capture.ca.generate'), isEmpty);
   });
 
-  testWidgets('empty HTTPS list stays unrestricted and retired domain filters are dropped', (tester) async {
+  testWidgets('capture settings cannot enable decryption and drop old HTTPS fields', (tester) async {
     await mount(tester);
     await open(tester, const RequestSettingsPage(initial: {
       'https': true, 'decryptHosts': [], 'excludeHosts': ['private.example'], 'includeHosts': ['*.example'], 'packages': ['com.example'],
       'decryptBypassHosts': ['private.example'],
     }));
-    expect(find.text('Leave empty to decrypt all HTTPS domains. Exact names and *.example.com are accepted; exclusions take priority.'), findsOneWidget);
+    expect(find.text('Decrypt HTTPS'), findsNothing);
+    expect(find.text('HTTPS excluded domains'), findsNothing);
+    expect(find.text('MITM'), findsOneWidget);
     await tester.tap(find.byTooltip('Save').last);
     await tester.pumpAndSettle();
     final config = json(json(calls.singleWhere((call) => call.method == 'capture.configure').arguments)['config']);
-    expect(config['https'], isTrue);
-    expect(config['decryptHosts'], isEmpty);
+    expect(config.containsKey('https'), isFalse);
+    expect(config.containsKey('decryptHosts'), isFalse);
     expect(config.containsKey('excludeHosts'), isFalse);
     expect(config.containsKey('includeHosts'), isFalse);
-    expect(config['decryptBypassHosts'], ['private.example']);
+    expect(config.containsKey('decryptBypassHosts'), isFalse);
     expect(config['packages'], ['com.example']);
     expect(config['bodyLimit'], 65536);
     expect(tester.takeException(), isNull);
@@ -214,10 +242,9 @@ void main() {
     final saved = json(args['config']);
     expect(saved.containsKey('tlsLibraries'), isFalse);
     expect(saved['extractHosts'], isTrue);
-    expect(saved.keys.toSet(), {'version', 'https', 'decryptHosts', 'packages',
-      'ports', 'bodyLimit', 'decryptBypassHosts', 'extractHosts', 'blockQUIC'});
-    expect(saved['version'], 2);
-    expect(saved['blockQUIC'], isFalse);
+    expect(saved.keys.toSet(), {'version', 'packages', 'ports', 'bodyLimit', 'extractHosts'});
+    expect(saved['version'], 3);
+    expect(saved.containsKey('blockQUIC'), isFalse);
     expect(saved.containsKey('tlsOffsets'), isFalse);
     expect(calls.where((call) => call.method == 'capture.start'), isEmpty);
   });
@@ -237,20 +264,6 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('diagnostics distinguish observed plaintext parsed and filtered requests', (tester) async {
-    await mount(tester);
-    snapshot['state'] = {'active': false, 'backend': 'MITM', 'tlsOpened': 8, 'tlsFailed': 2,
-      'plaintextConnections': 5, 'plaintextBytes': 4096, 'parsedRequests': 12, 'filteredRequests': 3,
-      'recordedRequests': 9, 'blockedQUIC': 4};
-    await open(tester, const CaptureLogsPage());
-    expect(find.text('TLS 8 · Plaintext 5 · Parsed 12'), findsOneWidget);
-    expect(find.text('Capture stopped'), findsOneWidget);
-    await tester.tap(find.text('Capture statistics')); await tester.pumpAndSettle();
-    expect(find.text('Requests excluded by filters'), findsOneWidget);
-    expect(find.text('Requests saved'), findsOneWidget);
-    await capture(tester, 'capture-statistics');
-    expect(tester.takeException(), isNull);
-  });
 
   testWidgets('request detail copies observed socket endpoints and retains FD zero', (tester) async {
     await mount(tester);
@@ -270,18 +283,31 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('HTTPS exclusions can be selected from captured hostnames', (tester) async {
+  testWidgets('MITM domains are saved in the profile and can be selected from captured names', (tester) async {
     await mount(tester);
-    await open(tester, const RequestSettingsPage(initial: {'https': true, 'decryptBypassHosts': ['existing.test']}));
-    final add = find.byKey(const ValueKey('add-bypass-hosts')).first;
-    await tester.scrollUntilVisible(add, 250, scrollable: find.descendant(of: find.byType(RequestSettingsPage), matching: find.byType(Scrollable)).first);
-    await tester.tap(add); await tester.pumpAndSettle();
+    var content = jsonEncode({'experimental': {'mitm': {'hosts': ['existing.test']}, 'http_rewrite': {'enabled': false}}});
+    extra = (call) async {
+      if (call.method == 'profiles.config') return {'formatted': content, 'revision': 'before'};
+      if (call.method == 'capture.domains') return ['api.test', 'pinned.test'];
+      if (call.method == 'profiles.write') {
+        expect(json(call.arguments)['revision'], 'before');
+        content = json(call.arguments)['content'] as String;
+        return {'formatted': content, 'revision': 'after'};
+      }
+      return null;
+    };
+    final store = ProfileConfigStore(box, {'id': 7, 'name': 'Profile'});
+    addTearDown(store.dispose);
+    await store.load();
+    await open(tester, MitmHostsEditor(store: store));
+    await tester.tap(find.byKey(const ValueKey('add-https-hosts'))); await tester.pumpAndSettle();
     expect(find.byType(CaptureDomainsPage), findsOneWidget);
     await tester.tap(find.text('pinned.test')); await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Add domains').last); await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    final config = json(json(calls.singleWhere((call) => call.method == 'capture.configure').arguments)['config']);
-    expect(config['decryptBypassHosts'], ['existing.test', 'pinned.test']);
+    expect(store.value(['experimental', 'mitm', 'hosts']), ['existing.test', 'pinned.test']);
+    expect(store.value(['experimental', 'http_rewrite', 'enabled']), isFalse);
+    expect(calls.where((call) => call.method == 'capture.configure'), isEmpty);
   });
 
   testWidgets('domain extraction uses the search filter and copies complete hostnames', (tester) async {
@@ -320,84 +346,31 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('MITM errors and counters appear in capture logs without rebuilding the request list', (tester) async {
-    await mount(tester, size: const Size(320, 900), scale: 1.3);
-    const warning = 'Upstream TLS for origin.test: certificate has expired';
-    snapshot['state'] = {'active': true, 'backend': 'MITM', 'tlsFailed': 2, 'error': warning, 'skipped': 4};
+
+
+
+  testWidgets('TCP records show stream completion and disable HTTP exports and menus', (tester) async {
+    await mount(tester);
+    snapshot['page'] = {'items': [{'id': 'tcp', 'url': 'tls://stream.test:8883', 'method': 'TCP',
+      'protocol': 'TLS/TCP', 'complete': true, 'bytes': 6}], 'total': 1};
     await open(tester, const RequestsPage());
-    expect(find.text(warning), findsNothing);
-    expect(calls.where((call) => call.method == 'capture.logs'), isEmpty);
-    await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
-    expect(find.text('MITM certificate'), findsOneWidget);
-    await tester.tap(find.text('Capture logs').last); await tester.pumpAndSettle();
-    expect(find.text('MITM'), findsOneWidget);
-    expect(find.text(warning), findsOneWidget);
-    expect(find.text('Connections skipped or interrupted'), findsOneWidget);
-    await capture(tester, 'mitm-diagnostics-narrow-large-text');
-    Navigator.pop(tester.element(find.byType(CaptureLogsPage))); await tester.pumpAndSettle();
-    expect(find.text(warning), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('Capture history survives stopped capture and supports filtered copy export and clear', (tester) async {
-    await mount(tester);
-    snapshot['state'] = {'active': false, 'error': 'capture stopped after service reload'};
-    snapshot['logs'] = [
-      {'id': 1, 'receivedAt': 1700000000100, 'level': 'info', 'message': 'MITM capture started'},
-      // Startup diagnostics arrive after ready but retain their earlier time.
-      {'id': 2, 'receivedAt': 1700000000000, 'level': 'debug', 'message': 'upstream certificate verified'},
-      {'id': 3, 'receivedAt': 1700000000200, 'level': 'error', 'message': 'Client TLS for origin.test: certificate rejected'},
-    ];
-    await open(tester, const CaptureLogsPage());
-    expect(find.text('Capture stopped'), findsOneWidget);
-    expect(find.text('capture stopped after service reload'), findsOneWidget);
+    expect(find.text('Complete'), findsOneWidget);
+    expect(find.text('Error'), findsNothing);
+    extra = (call) async => call.method == 'capture.detail' ? {
+      'id': 'tcp', 'metadata': {'rawTCP': true, 'host': 'stream.test', 'port': 8883},
+      'request': {'url': 'tls://stream.test:8883', 'method': 'TCP', 'protocol': 'TLS/TCP', 'bodyComplete': true},
+      'response': {'status': 0, 'bodyComplete': true, 'bodyBytes': 6, 'capturedBytes': 6},
+      'responsePreview': {'encoding': 'base64', 'text': 'AAECAwQF'},
+    } : null;
+    await tester.tap(find.text('tls://stream.test:8883'));
+    await tester.pumpAndSettle();
+    final scaffold = tester.widget<CommonScaffold>(find.descendant(of: find.byType(RequestDetailPage), matching: find.byType(CommonScaffold)).first);
+    expect(scaffold.iconActions.last.onPressed, isNull);
     await tester.tap(find.byTooltip('More').last);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Copy logs'));
-    await tester.pumpAndSettle();
-    expect(copied.last, contains('[debug] upstream certificate verified'));
-    expect(copied.last.indexOf('upstream certificate'), lessThan(copied.last.indexOf('MITM capture started')));
-    expect(copied.last, contains('[error] Client TLS for origin.test: certificate rejected'));
-    final scaffold = tester.widget<CommonScaffold>(find.descendant(of: find.byType(CaptureLogsPage), matching: find.byType(CommonScaffold)).first);
-    scaffold.onKeywordsUpdate!(['origin.test']);
-    await tester.pumpAndSettle();
-    expect(find.text('Client TLS for origin.test: certificate rejected'), findsOneWidget);
-    expect(find.text('upstream certificate verified'), findsNothing);
-    await tester.tap(find.byTooltip('More').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Export').last);
-    await tester.pumpAndSettle();
-    final exported = json(calls.singleWhere((call) => call.method == 'document.save').arguments);
-    expect(exported['name'], 'B-box-capture.log');
-    expect(exported['content'], contains('[error] Client TLS for origin.test: certificate rejected'));
-    expect(exported['content'], isNot(contains('upstream certificate')));
-    await tester.tap(find.byTooltip('More').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Clear').last);
-    await tester.pumpAndSettle();
-    expect(calls.where((call) => call.method == 'capture.logs.clear'), hasLength(1));
-    expect(calls.where((call) => call.method == 'capture.clear'), isEmpty);
-    expect(find.text('Client TLS for origin.test: certificate rejected'), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('Capture log polling follows page visibility and refuses remote records', (tester) async {
-    await mount(tester);
-    await open(tester, const CaptureLogsPage());
-    final count = calls.where((call) => call.method == 'capture.logs').length;
-    openPage(tester.element(find.byType(CaptureLogsPage)), const BoxPage(title: 'Covered', children: []));
-    await tester.pumpAndSettle();
-    await tester.pump(const Duration(seconds: 8));
-    expect(calls.where((call) => call.method == 'capture.logs'), hasLength(count));
-    Navigator.pop(tester.element(find.text('Covered')));
-    await tester.pumpAndSettle();
-    expect(calls.where((call) => call.method == 'capture.logs').length, greaterThan(count));
-    events.add({'type': 'dashboard', 'value': {'status': 'Started', 'remote': 'Server', 'remoteConnected': true}});
-    await tester.pumpAndSettle();
-    final beforeRemoteWait = calls.where((call) => call.method == 'capture.logs').length;
-    await tester.pump(const Duration(seconds: 8));
-    expect(calls.where((call) => call.method == 'capture.logs'), hasLength(beforeRemoteWait));
-    expect(find.text('HTTP debugging is only available for the local service'), findsOneWidget);
+    expect(find.text('Cookies'), findsNothing);
+    expect(find.text('Request'), findsOneWidget);
+    expect(find.text('Response'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -545,7 +518,7 @@ void main() {
         'https': true, 'decryptHosts': ['*.example.test', 'api.example.test'],
         'decryptBypassHosts': ['private.example.test'],
       }));
-      await tester.enterText(find.byKey(const ValueKey('HTTPS domains')), '*.example.test\napi.example.test');
+      expect(find.text('Decrypt HTTPS'), findsNothing);
       await tester.pumpAndSettle();
       await capture(tester, '$label-settings');
       final ports = find.byKey(const ValueKey('Capture ports'));
@@ -557,9 +530,9 @@ void main() {
       await tester.tap(find.byTooltip('Save').last);
       await tester.pumpAndSettle();
       final saved = json(json(calls.singleWhere((call) => call.method == 'capture.configure').arguments)['config']);
-      expect(saved['decryptHosts'], ['*.example.test', 'api.example.test']);
+      expect(saved.containsKey('decryptHosts'), isFalse);
       expect(saved['ports'], [80, 443, 8443]);
-      expect(saved['decryptBypassHosts'], ['private.example.test']);
+      expect(saved.containsKey('decryptBypassHosts'), isFalse);
       expect(tester.takeException(), isNull);
       snapshot['page'] = {'items': [{'id': 'long', 'url': 'https://example.test/${'long-path/' * 30}',
         'method': 'POST', 'status': 200, 'protocol': 'HTTP/2.0', 'packages': ['com.example.long.app.name'], 'bytes': 65536, 'durationMs': 120}], 'total': 1};
@@ -567,20 +540,6 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.textContaining('https://example.test/'), findsOneWidget);
       await capture(tester, '$label-list');
-      snapshot['state'] = {'active': true, 'backend': 'MITM', 'libraries': 3, 'scanning': false};
-      final diagnostic = 'Upstream TLS for ${'long-domain-' * 12}example.test: certificate verification failed';
-      snapshot['logs'] = [{'id': 1, 'receivedAt': 1700000000000, 'level': 'info', 'message': diagnostic}];
-      await tester.tap(find.byTooltip('More').last);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Capture logs').last);
-      await tester.pumpAndSettle();
-      await capture(tester, '$label-mitm-logs');
-      await tester.scrollUntilVisible(find.text(diagnostic), 250,
-        scrollable: find.descendant(of: find.byType(CaptureLogsPage), matching: find.byType(Scrollable)).first);
-      await capture(tester, '$label-mitm-log-details');
-      expect(tester.takeException(), isNull);
-      Navigator.pop(tester.element(find.byType(CaptureLogsPage)));
-      await tester.pumpAndSettle();
       extra = (call) async => call.method == 'capture.detail' ? {
         'id': 'long', 'startedAt': 1700000000000, 'durationMs': 120,
         'request': {'url': 'https://example.test/', 'method': 'POST', 'protocol': 'HTTP/2.0', 'bodyComplete': true, 'bodyTruncated': true,

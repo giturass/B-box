@@ -1,47 +1,19 @@
 package libbox
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 )
 
-func TestUICaptureLogsAreAvailableWithoutStartingCapture(t *testing.T) {
-	ClearUICaptureLogs()
-	t.Cleanup(ClearUICaptureLogs)
-	AppendUICaptureLog("error", "MITM signing key unavailable")
-	value, err := ReadUICaptureLogs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var result struct {
-		Logs []struct {
-			Level      string `json:"level"`
-			Message    string `json:"message"`
-			ReceivedAt int64  `json:"receivedAt"`
-		} `json:"logs"`
-	}
-	if err = json.Unmarshal([]byte(value), &result); err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Logs) != 1 || result.Logs[0].Message != "MITM signing key unavailable" || result.Logs[0].Level != "error" || result.Logs[0].ReceivedAt <= 0 {
-		t.Fatalf("startup diagnostics not exposed: %s", value)
-	}
-	ClearUICaptureLogs()
-	if value, err = ReadUICaptureLogs(); err != nil || !strings.Contains(value, `"logs":[]`) {
-		t.Fatalf("log history not cleared: %s, %v", value, err)
-	}
-}
-
 func TestUICaptureSettingsAreLocalAndRejectRetiredFeatures(t *testing.T) {
-	if _, err := ValidateUICaptureConfig(`{"version":2,"https":true,"decryptHosts":["api.test"],"blockQUIC":true}`); err != nil {
+	if _, err := ValidateUICaptureConfig(`{"version":3,"ports":[8443],"extractHosts":true}`); err != nil {
 		t.Fatal(err)
 	}
 	for _, invalid := range []string{
 		`{"rewriteEnabled":true}`, `{"scripts":[]}`, `{"mapLocal":[]}`, `{"version":99}`, `{"tlsOffsets":[]}`,
 		`{"captureNetwork":true}`, `{"captureTlsKeys":true}`, `{"captureNetwork":false}`, `{"captureTlsKeys":false}`,
 		`{"includeHosts":["api.test"]}`, `{"excludeHosts":["private.test"]}`, `{"includeHosts":[]}`, `{"excludeHosts":[]}`,
-		`{"tlsLibraries":["relative.so"]}`,
+		`{"tlsLibraries":["relative.so"]}`, `{"https":true}`, `{"decryptHosts":[]}`, `{"decryptBypassHosts":[]}`, `{"blockQUIC":true}`,
 	} {
 		if _, err := ValidateUICaptureConfig(invalid); err == nil {
 			t.Fatalf("accepted retired or invalid settings: %s", invalid)

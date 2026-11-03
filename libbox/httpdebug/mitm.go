@@ -22,10 +22,10 @@ import (
 var errHelloInspected = errors.New("ClientHello inspected without a TLS response")
 
 // SelectTLS reads only the ClientHello, using Go's TLS parser. All bytes are
-// replayed, including on timeout, oversized/unsupported hellos and exclusions.
+// replayed, including on timeout, oversized/unsupported hellos and unmatched names.
 // The probe cannot write an alert or a ServerHello to the real client.
 func (e *Engine) SelectTLS(ctx context.Context, conn net.Conn, metadata Metadata) (net.Conn, Metadata, bool) {
-	if e.ca == nil || !e.Candidate(metadata) {
+	if e.ca == nil || !e.mitm.candidate(metadata) {
 		return conn, metadata, false
 	}
 	e.mu.Lock()
@@ -56,7 +56,7 @@ func (e *Engine) SelectTLS(ctx context.Context, conn net.Conn, metadata Metadata
 	replay := &replayConn{Conn: conn, reader: io.MultiReader(bytes.NewReader(probe.data), conn)}
 	if !inspected {
 		e.skipped.Add(1)
-		AppendCaptureLog("warn", "TLS passed through: ClientHello could not be inspected for "+metadata.Host)
+		writeLog("warn", "TLS passed through: ClientHello could not be inspected for "+metadata.Host)
 		return replay, metadata, false
 	}
 	if name != "" {
@@ -65,11 +65,16 @@ func (e *Engine) SelectTLS(ctx context.Context, conn net.Conn, metadata Metadata
 		// Do not turn a DNS mapping or an outbound override into a claimed SNI.
 		return replay, metadata, false
 	}
-	if len(protos) > 0 && !slices.Contains(protos, "h2") && !slices.Contains(protos, "http/1.1") {
-		AppendCaptureLog("debug", "TLS passed through: non-HTTP ALPN for "+metadata.Host)
+	// Any non-HTTP offer requires upstream-first negotiation, even when HTTP
+	// is also offered. openMITM chooses the final mode from the negotiated ALPN.
+	metadata.RawTCP = e.mitm.TCP && (len(protos) == 0 || slices.ContainsFunc(protos, func(proto string) bool {
+		return proto != "h2" && proto != "http/1.1"
+	}))
+	if len(protos) > 0 && !metadata.RawTCP && !slices.Contains(protos, "h2") && !slices.Contains(protos, "http/1.1") {
+		writeLog("debug", "TLS passed through: non-HTTP ALPN for "+metadata.Host)
 		return replay, metadata, false
 	}
-	return replay, metadata, e.Matches(metadata)
+	return replay, metadata, e.mitm.matches(metadata)
 }
 
 type helloProbe struct {
@@ -101,7 +106,7 @@ func (c *replayConn) Read(buffer []byte) (int, error) { return c.reader.Read(buf
 // The verified upstream connection is then consumed by the HTTP transport; it
 // is not a disposable probe followed by an unrelated second connection.
 func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, dial DialFunc, roots *x509.CertPool) (net.Conn, *http.Transport, Metadata, func(), error) {
-	if e.rewrite != nil && e.rewrite.scope.matches(metadata) {
+	if !metadata.RawTCP && e.httpProgram(metadata) != nil {
 		return e.openRewriteMITM(ctx, raw, metadata, dial, roots)
 	}
 	e.tlsOpened.Add(1)
@@ -131,7 +136,7 @@ func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, 
 				return nil, errors.New("server name changed after MITM selection")
 			}
 			for _, proto := range hello.SupportedProtos {
-				if proto == "h2" || proto == "http/1.1" {
+				if proto == "h2" || proto == "http/1.1" || e.mitm != nil && e.mitm.TCP {
 					offered = append(offered, proto)
 				}
 			}
@@ -167,6 +172,7 @@ func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, 
 		return nil, nil, metadata, nil, failure
 	}
 	clientState := client.ConnectionState()
+	metadata.RawTCP = e.mitm != nil && e.mitm.TCP && clientState.NegotiatedProtocol != "h2" && clientState.NegotiatedProtocol != "http/1.1"
 	metadata.TLS = &TLSMetadata{ServerName: metadata.Host, ClientVersion: tlsVersion(clientState.Version),
 		UpstreamVersion: tlsVersion(upstreamState.Version), ALPN: clientState.NegotiatedProtocol}
 	if len(upstreamState.PeerCertificates) > 0 {
@@ -174,7 +180,7 @@ func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, 
 		metadata.TLS.UpstreamCertificate = hex.EncodeToString(fingerprint[:])
 	}
 	e.plaintextConnections.Add(1)
-	AppendCaptureLog("info", fmt.Sprintf("MITM connected: %s; ALPN=%s; client=%s; upstream=%s", metadata.Host,
+	writeLog("info", fmt.Sprintf("MITM connected: %s; ALPN=%s; client=%s; upstream=%s", metadata.Host,
 		clientState.NegotiatedProtocol, metadata.TLS.ClientVersion, metadata.TLS.UpstreamVersion))
 	transport := newTransport(dial)
 	transport.ForceAttemptHTTP2 = true

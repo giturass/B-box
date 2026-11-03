@@ -10,11 +10,11 @@ import (
 )
 
 var (
-	managerMu        sync.Mutex
-	store            *Store
-	active           atomic.Pointer[Engine]
-	lastCaptureState State
-	profileRewrite   *PreparedRewrite
+	managerMu         sync.Mutex
+	store             *Store
+	active            atomic.Pointer[Engine]
+	lastCaptureState  State
+	profileProcessing *PreparedProcessing
 )
 
 // Open initializes the private store even when capture is disabled, so saved
@@ -42,14 +42,6 @@ func Start(directory, configJSON, certificate string, signer crypto.Signer) erro
 	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
 		return err
 	}
-	var ca *authority
-	if config.HTTPS {
-		var err error
-		ca, err = loadAuthority(certificate, signer)
-		if err != nil {
-			return fmt.Errorf("load MITM CA: %w", err)
-		}
-	}
 	managerMu.Lock()
 	defer managerMu.Unlock()
 	if current := active.Load(); current != nil && current.captureEnabled {
@@ -59,18 +51,14 @@ func Start(directory, configJSON, certificate string, signer crypto.Signer) erro
 		return err
 	}
 	engine := newEngine(config, store)
-	engine.ca = ca
-	if profileRewrite != nil {
-		engine.rewrite = profileRewrite.program
-		if engine.ca == nil {
-			engine.ca = profileRewrite.ca
-		}
+	if profileProcessing != nil {
+		engine.rewrite, engine.mitm, engine.scripts, engine.ca = profileProcessing.rewrite, profileProcessing.mitm, profileProcessing.scripts, profileProcessing.ca
 	}
 	lastCaptureState = State{}
 	if previous := active.Swap(engine); previous != nil {
 		previous.Close()
 	}
-	AppendCaptureLog("info", fmt.Sprintf("%s capture started; ports=%v; body limit=%d bytes; reconnect target applications", engine.backend(), config.Ports, config.BodyLimit))
+	writeLog("info", fmt.Sprintf("%s capture started; ports=%v; body limit=%d bytes; reconnect target applications", engine.backend(), config.Ports, config.BodyLimit))
 	return nil
 }
 
@@ -92,13 +80,13 @@ func Stop() {
 		return
 	}
 	var replacement *Engine
-	if profileRewrite != nil {
-		replacement = newRewriteEngine(profileRewrite)
+	if profileProcessing != nil {
+		replacement = newProcessingEngine(profileProcessing)
 	}
 	if engine := active.Swap(replacement); engine != nil {
 		engine.Close()
 		lastCaptureState = engine.captureState()
-		AppendCaptureLog("info", "Capture recording stopped; profile rewrite rules remain active; reconnect intercepted connections")
+		writeLog("info", "Capture recording stopped; profile MITM, rewrites and scripts remain active; reconnect intercepted connections")
 	}
 }
 
@@ -119,6 +107,10 @@ type State struct {
 	Active               bool   `json:"active"`
 	RewriteActive        bool   `json:"rewriteActive"`
 	RewriteRules         int    `json:"rewriteRules"`
+	MITMActive           bool   `json:"mitmActive"`
+	ScriptsActive        bool   `json:"scriptsActive"`
+	ScriptRules          int    `json:"scriptRules"`
+	CronJobs             int    `json:"cronJobs"`
 	Connections          int    `json:"connections"`
 	Skipped              int64  `json:"skipped"`
 	TLSOpened            int64  `json:"tlsOpened"`
@@ -152,7 +144,12 @@ func (engine *Engine) captureState() State {
 	if engine.rewrite != nil {
 		rules = engine.rewrite.count
 	}
-	return State{Active: !engine.closed && engine.captureEnabled, RewriteActive: !engine.closed && engine.rewrite != nil, RewriteRules: rules, Backend: engine.backend(), Error: warning,
+	scriptRules, cronJobs := 0, 0
+	if engine.scripts != nil {
+		scriptRules, cronJobs = len(engine.scripts.http), len(engine.scripts.cron)
+	}
+	return State{MITMActive: !engine.closed && engine.mitm.active(), ScriptsActive: !engine.closed && engine.scripts != nil,
+		ScriptRules: scriptRules, CronJobs: cronJobs, Active: !engine.closed && engine.captureEnabled, RewriteActive: !engine.closed && engine.rewrite != nil, RewriteRules: rules, Backend: engine.backend(), Error: warning,
 		Connections: len(engine.connections) + engine.preparing,
 		Skipped:     engine.skipped.Load(), TLSFailed: engine.tlsFailed.Load(), BlockedQUIC: engine.blockedQUIC.Load(),
 		TLSOpened:            engine.tlsOpened.Load(),
@@ -161,7 +158,7 @@ func (engine *Engine) captureState() State {
 }
 
 func (engine *Engine) backend() string {
-	if engine.config.HTTPS || engine.rewrite != nil && engine.rewrite.scope.HTTPS {
+	if engine.mitm.active() {
 		return "MITM"
 	}
 	return "HTTP"

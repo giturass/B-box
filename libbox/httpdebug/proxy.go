@@ -28,6 +28,8 @@ type Engine struct {
 	config               Config
 	captureEnabled       bool
 	rewrite              *RewriteProgram
+	mitm                 *MITMConfig
+	scripts              *ScriptProgram
 	ca                   *authority
 	store                *Store
 	ctx                  context.Context
@@ -56,24 +58,33 @@ func newEngine(config Config, store *Store) *Engine {
 }
 
 func (e *Engine) Candidate(metadata Metadata) bool {
-	return e.captureEnabled && e.config.candidate(metadata) || e.rewrite != nil && e.rewrite.scope.candidate(metadata)
+	if e.mitm.candidate(metadata) {
+		return true
+	}
+	if metadata.Protocol == "tls" {
+		return e.captureEnabled && e.config.ExtractHosts && e.config.candidate(metadata)
+	}
+	return e.captureEnabled && e.config.candidate(metadata) || e.httpProgram(metadata) != nil
 }
 
 func (e *Engine) Matches(metadata Metadata) bool {
-	return e.captureEnabled && e.config.matches(metadata) || e.rewrite != nil && e.rewrite.scope.matches(metadata)
+	if metadata.Protocol == "tls" {
+		return e.mitm.matches(metadata)
+	}
+	return e.captureEnabled && e.config.matches(metadata) || e.httpProgram(metadata) != nil
 }
 
 func (e *Engine) WantsQUIC(metadata Metadata) bool {
 	metadata.Protocol = "tls"
-	return e.captureEnabled && (e.config.ExtractHosts || e.config.HTTPS && e.config.BlockQUIC) && e.config.candidate(metadata) ||
-		e.rewrite != nil && e.rewrite.scope.HTTPS && e.rewrite.scope.BlockQUIC && e.rewrite.scope.candidate(metadata)
+	return e.captureEnabled && e.config.ExtractHosts && e.config.candidate(metadata) ||
+		e.mitm.candidate(metadata) && e.mitm.BlockQUIC
 }
 
 // The caller must have observed a QUIC ClientHello, never just an IP/UDP port.
 func (e *Engine) RejectQUIC(metadata Metadata) bool {
 	metadata.Protocol = "tls"
 	e.Observe(metadata, "QUIC")
-	if !(e.captureEnabled && e.config.BlockQUIC && e.config.matches(metadata) || e.rewrite != nil && e.rewrite.scope.BlockQUIC && e.rewrite.scope.matches(metadata)) {
+	if !e.mitm.matches(metadata) || !e.mitm.BlockQUIC {
 		return false
 	}
 	e.mu.Lock()
@@ -97,10 +108,10 @@ func (e *Engine) HandleRouted(ctx context.Context, conn net.Conn, metadata Metad
 	if e.closed || len(e.connections)+e.preparing >= MaxConnections {
 		e.skipped.Add(1)
 		e.mu.Unlock()
-		if e.rewrite != nil && e.rewrite.scope.matches(metadata) {
+		if e.mitm.matches(metadata) || e.httpProgram(metadata) != nil {
 			conn.Close()
 			if onClose != nil {
-				onClose(errors.New("HTTP rewrite connection capacity exceeded or service stopped"))
+				onClose(errors.New("Profile processing connection capacity exceeded or service stopped"))
 			}
 			return true
 		}
@@ -155,6 +166,15 @@ func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, di
 			return err
 		}
 		defer cleanup()
+		if metadata.RawTCP {
+			defer transport.CloseIdleConnections()
+			upstream, err := transport.DialTLSContext(ctx, "tcp", "")
+			if err != nil {
+				return err
+			}
+			defer upstream.Close()
+			return e.serveTCP(ctx, conn, upstream, metadata)
+		}
 		scheme = "https"
 	} else {
 		metadata.CaptureSource = "HTTP"
@@ -301,10 +321,7 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 		}
 		request.URL = display.URL
 		originalURL := *request.URL
-		var program *RewriteProgram
-		if e.rewrite != nil && e.rewrite.scope.matches(requestMetadata) {
-			program = e.rewrite
-		}
+		program := e.httpProgram(requestMetadata)
 		scriptID := id
 		if scriptID == "" {
 			scriptID = rand.Text()
@@ -505,5 +522,5 @@ func (e *Engine) skippedFlow(err error) {
 func (e *Engine) reportError(message string) {
 	message = strings.ToValidUTF8(message[:min(len(message), 4096)], "")
 	e.warning.Store(&message)
-	AppendCaptureLog("error", message)
+	writeLog("error", message)
 }

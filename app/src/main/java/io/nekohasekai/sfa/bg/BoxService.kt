@@ -49,6 +49,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.TimeZone
 
 class BoxService(private val service: Service, private val platformInterface: PlatformInterface) : CommandServerHandler {
     internal data class DashboardConfig(val server: CommandServer, val profileId: Long, val content: String)
@@ -264,11 +265,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     excludePackage = PlatformInterfaceWrapper.StringArray((appList - Application.application.packageName).iterator())
                 }
             }
-            rewriteDirectory = File(service.noBackupFilesDir, "http-debug/captures").absolutePath
-            if (Libbox.needsUIHTTPRewriteCA(content)) {
+            scriptTimezone = TimeZone.getDefault().id
+            processingDirectory = File(service.noBackupFilesDir, "http-debug/captures").absolutePath
+            if (Libbox.needsUIMITMCA(content)) {
                 val material = MitmCertificate(service).material()
-                rewriteCertificate = material.first
-                rewriteSigner = material.second
+                mitmCertificate = material.first
+                mitmSigner = material.second
             }
         }
         // The libbox lifecycle prepares the rules/CA, starts the core, then

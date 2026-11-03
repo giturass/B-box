@@ -447,10 +447,10 @@
           "sourceSHA256": "44ab8149f393a7c4be5bbae25bddfc8084e3e3c117b56c5b5079e82835946f3c",
           "usage": "design",
           "localPaths": [
-            "flutter/lib/pages/request_settings.dart",
+            "flutter/lib/pages/configuration.dart",
             "flutter/lib/pages/mitm_certificate.dart"
           ],
-          "changes": "Reference for explicit CA operations, HTTPS inclusion/exclusion and certificate setup. B-box uses private capture settings and shared components; profile HTTP rewriting is a separate B-box implementation documented in libbox.md. Certificate rotation is blocked while either capture or profile processing uses it; no Mihomo configuration."
+          "changes": "Reference for explicit CA operations and certificate setup. B-box uses independent profile MITM with an allowlist (empty decrypts nothing), optional TLS/TCP streams and no exclusions. HTTP rewriting and HTTP/cron scripts are separate B-box extensions. Certificate rotation is blocked during capture or active MITM. Shared form/navigation components are reused; no Mihomo configuration."
         },
         {
           "source": "lib/features/connection/mitm_exchanges.dart",
@@ -459,7 +459,7 @@
           "localPaths": [
             "flutter/lib/pages/requests.dart"
           ],
-          "changes": "Reference for HTTP exchange information. B-box keeps bounded libbox records and its independent live Connections page."
+          "changes": "Reference for HTTP exchange information. B-box keeps bounded libbox request and TLS/TCP stream records and an independent live Connections page. Requests shows recording controls without a profile-rewrite banner or dedicated capture logs."
         },
         {
           "source": "lib/features/connection/detail_tabs.dart",
@@ -468,7 +468,7 @@
           "localPaths": [
             "flutter/lib/pages/requests.dart"
           ],
-          "changes": "Reference for per-message detail navigation; B-box retains its record menu and copyable rows with actual route/TLS metadata and trailers."
+          "changes": "Reference for per-message navigation. B-box uses its record menu and copyable rows with route/TLS metadata and trailers; raw TLS/TCP streams have two body directions without HTTP header/cookie menus or cURL export."
         },
         {
           "source": "lib/common/constant.dart",

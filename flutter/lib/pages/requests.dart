@@ -5,8 +5,7 @@ import '../components/capture_poll.dart';
 import '../components/captured_body.dart';
 import '../components/record.dart';
 import 'request_settings.dart';
-import 'capture_logs.dart';
-import 'mitm_certificate.dart';
+import 'configuration.dart';
 
 class RequestsPage extends StatefulWidget {
   const RequestsPage({super.key});
@@ -46,8 +45,7 @@ class _RequestsPageState extends State<RequestsPage> {
               } catch (error) { if (context.mounted) context.box.messages.add(BoxController.describe(error)); }
               finally { if (mounted) setState(() { _busy = false; _revision++; }); }
             }),
-            CommonPopupMenuItem(glyph: AppGlyphs.lock, label: context.tr('MITM certificate'), onPressed: () => openPage(context, const MitmCertificatePage())),
-            CommonPopupMenuItem(glyph: AppGlyphs.logs, label: context.tr('Capture logs'), onPressed: () => openPage(context, const CaptureLogsPage())),
+            CommonPopupMenuItem(glyph: AppGlyphs.lock, label: 'MITM', onPressed: () => openPage(context, const MitmPage())),
             CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'), onPressed: _busy || entries.isEmpty ? null : () => _act('capture.export', {'format': 'har', 'query': _query})),
             CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear requests'), onPressed: _busy ? null : () async {
               if (await confirm(context, 'Clear captured requests?') && mounted) await _act('capture.clear');
@@ -62,8 +60,6 @@ class _RequestsPageState extends State<RequestsPage> {
                   ListItem.toggle(key: const ValueKey('capture-toggle'), title: Text(context.tr('Capture requests')),
                     subtitle: Text(context.tr(active ? 'Capturing new connections' : 'Capture stopped')), value: active,
                     onChanged: _busy || snapshot == null || !box.running || box.transitioning ? null : (_) => _act(active ? 'capture.stop' : 'capture.start')),
-                  if (state['rewriteActive'] == true) ListItem(title: Text(context.tr('Profile HTTP rewriting is active')),
-                    subtitle: Text('${state['rewriteRules'] ?? 0} · ${context.tr('Rules remain active when request recording is stopped.')}')),
                 ]),
                 if (!box.running) Padding(padding: const EdgeInsets.all(12), child: Text(context.tr('Start the local service before capturing requests'))),
                 if (snapshot != null) Padding(padding: const EdgeInsets.all(12), child: Text(
@@ -74,7 +70,7 @@ class _RequestsPageState extends State<RequestsPage> {
                 if (error != null) ErrorState(error, retry: refresh),
                 if (snapshot == null && error == null) const Center(child: CircularProgressIndicator()),
                 if (snapshot != null && entries.isEmpty) EmptyState(_query.isEmpty ? 'No captured requests' : 'No results',
-                  message: _query.isEmpty ? 'HTTP and HTTPS capture follow the local service. HTTPS requires a trusted MITM CA. Start capture, then reconnect the target app.' : null),
+                  message: _query.isEmpty ? 'Capture follows the local service. Configure MITM domains and trust the CA to record HTTPS or TLS/TCP. Start capture, then reconnect the target app.' : null),
               ]));
               if (index > entries.length) return (page['total'] as num? ?? 0) > entries.length
                 ? TextButton(onPressed: () => setState(() => _limit = (_limit + 50).clamp(1, 300).toInt()), child: Text(context.tr('Show more')))
@@ -86,7 +82,7 @@ class _RequestsPageState extends State<RequestsPage> {
                 header: RecordHeader(children: [
                   RecordTimestamp(recordTime(item['startedAt'])),
                   RecordLabel(label: item['method']?.toString() ?? ''),
-                  RecordLabel(label: item['domainOnly'] == true ? context.tr('Domain only') : (item['status'] as num? ?? 0) > 0 ? item['status'].toString() : context.tr(item['complete'] == true ? 'Error' : 'Active')),
+                  RecordLabel(label: item['domainOnly'] == true ? context.tr('Domain only') : (item['status'] as num? ?? 0) > 0 ? item['status'].toString() : context.tr(item['complete'] != true ? 'Active' : item['protocol'] == 'TLS/TCP' && (item['error'] as String? ?? '').isEmpty ? 'Complete' : 'Error')),
                 ]),
                 body: Column(crossAxisAlignment: CrossAxisAlignment.start, spacing: 4, children: [
                   Text(item['url']?.toString() ?? '', maxLines: 2, overflow: TextOverflow.ellipsis, style: styles.title),
@@ -156,7 +152,8 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
       final values = <String, dynamic>{
         'URL': request['url'], 'Method': request['method'], 'Created': localDate(detail?['startedAt']),
         if (detail?['originalUrl'] != null) 'Original URL': detail?['originalUrl'],
-        'Duration': '${detail?['durationMs'] ?? 0} ms', 'Status': json(detail?['response'])['status'],
+        'Duration': '${detail?['durationMs'] ?? 0} ms',
+        if (metadata['rawTCP'] != true) 'Status': json(detail?['response'])['status'],
         'Protocol': request['protocol'],
         (detail?['originalUrl'] != null ? 'Original outbound' : 'Outbound'): metadata['outbound'],
         (detail?['originalUrl'] != null ? 'Original rule matched' : 'Rule matched'): metadata['rule'],
@@ -179,13 +176,13 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
       };
       return BoxPage(title: 'Request details', loading: _busy, actions: [
         IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr('Copy URL'), onPressed: detail == null ? null : () => _copy(request['url']?.toString() ?? '')),
-        IconButtonData(glyph: AppGlyphs.arrowDown, tooltip: context.tr('Export cURL'), onPressed: detail == null || _busy || request['bodyComplete'] != true || request['bodyTruncated'] == true || request['headersTruncated'] == true || rows(request['trailers']).isNotEmpty || request['trailersTruncated'] == true || request['method'] == 'TLS' ? null : () async {
+        IconButtonData(glyph: AppGlyphs.arrowDown, tooltip: context.tr('Export cURL'), onPressed: detail == null || _busy || request['bodyComplete'] != true || request['bodyTruncated'] == true || request['headersTruncated'] == true || rows(request['trailers']).isNotEmpty || request['trailersTruncated'] == true || request['method'] == 'TLS' || metadata['rawTCP'] == true ? null : () async {
           setState(() => _busy = true);
           await context.box.act('capture.export', {'format': 'curl', 'id': widget.id});
           if (mounted) setState(() => _busy = false);
         }),
       ], menuItems: [
-        for (final part in const ['Request', 'Response', 'Cookies']) CommonPopupMenuItem(label: context.tr(part),
+        for (final part in ['Request', 'Response', if (metadata['rawTCP'] != true) 'Cookies']) CommonPopupMenuItem(label: context.tr(part),
           section: part == 'Request' ? CommonPopupMenuSection(title: context.tr('Message type')) : null,
           checked: part == _part, onPressed: () => setState(() => _part = part)),
       ], children: [
@@ -198,7 +195,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
             _cookies(request, false),
             _cookies(json(detail['response']), true),
           ] else ...[
-            _headers(message, response),
+            if (metadata['rawTCP'] != true) _headers(message, response),
             CapturedBody(key: ValueKey('body-$_part'), message: message, preview: preview),
             if (rows(message['trailers']).isNotEmpty) generateSection(title: context.tr('Trailers'), items: [
               for (final trailer in rows(message['trailers'])) DetailRow.text(title: trailer['name']?.toString() ?? '', value: trailer['value']?.toString() ?? '', stacked: true),

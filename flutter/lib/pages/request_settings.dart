@@ -1,8 +1,7 @@
 import 'package:flutter/services.dart';
 import '../widgets.dart';
 import '../components/form.dart';
-import 'capture_domains.dart';
-import 'mitm_certificate.dart';
+import 'configuration.dart';
 
 class RequestSettingsPage extends StatefulWidget {
   const RequestSettingsPage({super.key, required this.initial, this.source = const {}});
@@ -12,14 +11,10 @@ class RequestSettingsPage extends StatefulWidget {
 }
 
 class _RequestSettingsPageState extends State<RequestSettingsPage> {
-  late final _decrypt = TextEditingController(text: (widget.initial['decryptHosts'] as List? ?? []).join('\n'));
-  late final _decryptBypass = TextEditingController(text: (widget.initial['decryptBypassHosts'] as List? ?? []).join('\n'));
   late final _ports = TextEditingController(text: (widget.initial['ports'] as List? ?? [80, 443, 8080, 8443]).join(', '));
-  late bool _https = widget.initial['https'] == true;
   late int _bodyKiB = ((widget.initial['bodyLimit'] as num? ?? 65536) / 1024).round();
   late List<String> _packages = (widget.initial['packages'] as List? ?? []).cast<String>().toList();
   late bool _extract = widget.initial['extractHosts'] == true;
-  late bool _blockQUIC = widget.initial['blockQUIC'] == true;
   bool _busy = false, _dirty = false;
   String? _error;
 
@@ -32,10 +27,9 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
       final ports = _lines(_ports.text).map(int.parse).toList();
       if (ports.isEmpty || ports.any((port) => port < 1 || port > 65535)) throw const FormatException('Ports must be between 1 and 65535');
       await context.box.call('capture.configure', {'revision': widget.source['revision'], 'config': {
-        'version': 2, 'https': _https, 'decryptHosts': _lines(_decrypt.text), 'packages': _packages, 'ports': ports,
+        'version': 3, 'packages': _packages, 'ports': ports,
         'bodyLimit': _bodyKiB * 1024,
-        'decryptBypassHosts': _lines(_decryptBypass.text), 'extractHosts': _extract,
-        'blockQUIC': _blockQUIC,
+        'extractHosts': _extract,
       }});
       if (mounted) { setState(() { _dirty = false; _busy = false; }); Navigator.pop(context); }
     } catch (error) {
@@ -43,15 +37,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
     }
   }
 
-  @override void dispose() { for (final c in [_decrypt, _decryptBypass, _ports]) { c.dispose(); } super.dispose(); }
-
-  Future<void> _addDomains(TextEditingController controller) async {
-    final selected = await openPage<List<String>>(context, const CaptureDomainsPage(select: true));
-    if (selected != null && selected.isNotEmpty && mounted) setState(() {
-      controller.text = {..._lines(controller.text), ...selected}.join('\n');
-      _dirty = true;
-    });
-  }
+  @override void dispose() { _ports.dispose(); super.dispose(); }
 
   Widget _field(TextEditingController controller, String label, {String? footer, String? hint, bool multiline = true}) => generateSection(
     title: context.tr(label), footer: footer == null ? null : context.tr(footer),
@@ -70,21 +56,8 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
     if (context.box.remote) return const BoxPage(title: 'Capture settings', children: [EmptyState('HTTP debugging is only available for the local service')]);
     return BoxEditGuard(dirty: _dirty, busy: _busy, child: FormPage(title: 'Capture settings', saving: _busy, error: _error, onSave: _save, children: [
       ListFooter(text: context.tr('Saved on this device. Capture stops when the local service restarts.')),
-      generateSection(title: 'HTTPS / MITM', items: [
-        ListItem.toggle(title: Text(context.tr('Decrypt HTTPS')), value: _https, onChanged: (value) => setState(() { _https = value; _dirty = true; })),
-        ListItem(title: Text(context.tr('MITM certificate')), onTap: () => openPage(context, const MitmCertificatePage())),
-      ]),
-      if (_https) ...[
-        _field(_decrypt, 'HTTPS domains', hint: '*.example.com',
-          footer: 'Leave empty to decrypt all HTTPS domains. Exact names and *.example.com are accepted; exclusions take priority.'),
-        ListItem(key: const ValueKey('add-https-hosts'), title: Text(context.tr('Add captured HTTPS domains')), onTap: () => _addDomains(_decrypt)),
-        _field(_decryptBypass, 'HTTPS excluded domains', hint: 'pinned.example.com', footer: 'Pass these TLS connections through unchanged. Visible hostnames can still be extracted.'),
-        ListItem(key: const ValueKey('add-bypass-hosts'), title: Text(context.tr('Add captured HTTPS exclusions')), onTap: () => _addDomains(_decryptBypass)),
-        ListFooter(text: context.tr('Install and trust the MITM CA, start capture, then reconnect the target app. Only traffic routed through the local service is captured. Server certificates are always verified.')),
-        generateSection(items: [ListItem.toggle(title: Text(context.tr('Request TCP fallback for QUIC')), value: _blockQUIC,
-          subtitle: Text(context.tr('Reject only observed QUIC connections whose names match the HTTPS filters. Apps may retry over TCP. Unknown names and other UDP stay unchanged.')),
-          onChanged: (value) => setState(() { _blockQUIC = value; _dirty = true; }))]),
-      ],
+      generateSection(items: [ListItem.open(leading: const GlyphIcon(AppGlyphs.lock), title: const Text('MITM'),
+        subtitle: Text(context.tr('HTTPS and TLS/TCP decryption use the selected profile.')), widget: const MitmPage())]),
       generateSection(items: [ListItem.toggle(title: Text(context.tr('Extract TLS/QUIC domains')), value: _extract,
         subtitle: Text(context.tr('Collect visible TLS/QUIC hostnames through the local service. These records contain names only.')),
         onChanged: (value) => setState(() { _extract = value; _dirty = true; })),

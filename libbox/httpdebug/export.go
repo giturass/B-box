@@ -98,9 +98,9 @@ func (s *Store) WriteHAR(output io.Writer, query string) error {
 	}
 	first := true
 	for _, summary := range page.Items {
-		if summary.DomainOnly {
+		if summary.DomainOnly || summary.Protocol == "TLS/TCP" {
 			continue
-		} // SNI observations are not HTTP exchanges.
+		} // SNI observations and TCP streams are not HTTP exchanges.
 		detail, err := s.Detail(summary.ID)
 		if err != nil {
 			continue
@@ -182,7 +182,7 @@ func (s *Store) Curl(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if d.Request.Method == "TLS" || !d.Request.BodyComplete || d.Request.BodyTruncated || d.Request.HeadersTruncated {
+	if d.DomainOnly || d.Metadata.RawTCP || !strings.HasPrefix(d.Request.Protocol, "HTTP/") || !d.Request.BodyComplete || d.Request.BodyTruncated || d.Request.HeadersTruncated {
 		return "", errors.New("cURL export requires complete, untruncated HTTP request headers and body")
 	}
 	if len(d.Request.Trailers) > 0 || d.Request.TrailersTruncated {

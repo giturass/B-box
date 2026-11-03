@@ -27,11 +27,11 @@ def main():
         shutil.copyfile(source, core / "route" / ("b_box_" + source.name))
     for source in (ROOT / "libbox").glob("ui_capture*.go"):
         shutil.copyfile(source, core / "experimental/libbox" / source.name)
-    for source in (ROOT / "libbox").glob("ui_http_rewrite*.go"):
+    for source in (ROOT / "libbox").glob("ui_processing*.go"):
         shutil.copyfile(source, core / "experimental/libbox" / source.name)
     for source in (ROOT / "libbox/option").glob("*.go"):
         shutil.copyfile(source, core / "option" / source.name)
-    print("Installed HTTP/MITM capture, profile rewriting, route hooks and libbox bindings")
+    print("Installed HTTP/MITM capture, independent MITM, rewrites, scripts/cron, route hooks and libbox bindings")
 
 
 if __name__ == "__main__":

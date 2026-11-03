@@ -24,29 +24,14 @@ func (s *CommandServer) StartUICapture(directory, configJSON, certificate string
 	if s.Instance() == nil {
 		return os.ErrClosed
 	}
-	if signer == nil {
-		return httpdebug.Start(directory, configJSON, certificate, nil)
-	}
-	ca, err := httpdebug.ParseCA(certificate)
-	if err != nil {
-		return err
-	}
-	return httpdebug.Start(directory, configJSON, certificate, &uiCaptureSigner{ca.PublicKey, signer})
+	// Parameters are retained for existing generated callers. The profile's
+	// independent MITM settings and CA exclusively control TLS decryption.
+	return httpdebug.Start(directory, configJSON, "", nil)
 }
 
 func StopUICapture() { httpdebug.Stop() }
 
 func ReadUICaptureStatus() (string, error) { return captureJSON(httpdebug.Status()) }
-
-func ReadUICaptureLogs() (string, error) {
-	return captureJSON(struct {
-		State httpdebug.State        `json:"state"`
-		Logs  []httpdebug.CaptureLog `json:"logs"`
-	}{httpdebug.Status(), httpdebug.CaptureLogs()})
-}
-
-func AppendUICaptureLog(level, message string) { httpdebug.AppendCaptureLog(level, message) }
-func ClearUICaptureLogs()                      { httpdebug.ClearCaptureLogs() }
 
 func ListUICapture(limit int32, query string) (string, error) {
 	store, err := httpdebug.Saved()

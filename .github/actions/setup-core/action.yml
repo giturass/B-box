@@ -37,9 +37,9 @@ runs:
         python3 tools/patch_sing_tun.py .core
         python3 tools/patch_httpdebug.py .core
         cp libbox/ui_*.go .core/experimental/libbox/
-    - name: Resolve the pinned HTTP rewrite runtime
+    - name: Resolve the pinned JavaScript and cron runtimes
       shell: bash
       working-directory: .core
       run: |
-        go mod edit -go=1.26.0 -require=github.com/dop251/goja@v0.0.0-20261102223426-a177d211bf60
+        go mod edit -go=1.26.0 -require=github.com/dop251/goja@v0.0.0-20261102223426-a177d211bf60 -require=github.com/robfig/cron/v3@v3.0.1
         go mod tidy

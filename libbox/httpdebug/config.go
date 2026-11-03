@@ -1,6 +1,6 @@
 // Package httpdebug records routed HTTP streams and opt-in HTTPS MITM sessions.
-// Config contains private capture settings; RewriteConfig is the separate,
-// validated B-box profile extension for HTTP processing.
+// Config contains recording filters. MITM, rewriting and scripts are separate
+// validated profile extensions with a shared local-service lifecycle.
 package httpdebug
 
 import (
@@ -24,15 +24,11 @@ const (
 )
 
 type Config struct {
-	Version            int      `json:"version"`
-	HTTPS              bool     `json:"https"`
-	Packages           []string `json:"packages"`
-	DecryptHosts       []string `json:"decryptHosts"`
-	Ports              []uint16 `json:"ports"`
-	BodyLimit          int64    `json:"bodyLimit"`
-	DecryptBypassHosts []string `json:"decryptBypassHosts,omitempty"`
-	ExtractHosts       bool     `json:"extractHosts,omitempty"`
-	BlockQUIC          bool     `json:"blockQUIC,omitempty"`
+	Version      int      `json:"version"`
+	Packages     []string `json:"packages"`
+	Ports        []uint16 `json:"ports"`
+	BodyLimit    int64    `json:"bodyLimit"`
+	ExtractHosts bool     `json:"extractHosts,omitempty"`
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
@@ -52,9 +48,9 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 
 func (c *Config) validate() error {
 	if c.Version == 0 {
-		c.Version = 2
+		c.Version = 3
 	}
-	if c.Version != 2 {
+	if c.Version != 3 {
 		return errors.New("unsupported capture settings version")
 	}
 	if c.BodyLimit == 0 {
@@ -69,26 +65,8 @@ func (c *Config) validate() error {
 	if len(c.Ports) > 32 || slices.Contains(c.Ports, 0) {
 		return errors.New("specify up to 32 ports between 1 and 65535")
 	}
-	if len(c.Packages) > 256 || len(c.DecryptHosts)+len(c.DecryptBypassHosts) > 256 {
+	if len(c.Packages) > 256 {
 		return errors.New("too many capture filters")
-	}
-	for _, hosts := range [][]string{c.DecryptHosts, c.DecryptBypassHosts} {
-		for i, host := range hosts {
-			host = strings.TrimSpace(host)
-			wildcard := strings.HasPrefix(host, "*.")
-			host = strings.TrimPrefix(host, "*.")
-			host = normalizeHost(host)
-			if !validHost(host) {
-				return errors.New("host filters must be hostnames or IP addresses, without a URL or port")
-			}
-			if wildcard {
-				if net.ParseIP(host) != nil {
-					return errors.New("IP addresses cannot have wildcard filters")
-				}
-				host = "*." + host
-			}
-			hosts[i] = host
-		}
 	}
 	for _, name := range c.Packages {
 		if name == "" || len(name) > 255 || strings.ContainsAny(name, " \t\r\n/\\") {
@@ -135,6 +113,7 @@ type Metadata struct {
 	CaptureID           string          `json:"captureId,omitempty"`
 	TLSAdapter          string          `json:"tlsAdapter,omitempty"`
 	Socket              *SocketMetadata `json:"socket,omitempty"`
+	RawTCP              bool            `json:"rawTCP,omitempty"`
 	TLS                 *TLSMetadata    `json:"tls,omitempty"`
 }
 
@@ -163,9 +142,6 @@ func (c Config) candidate(m Metadata) bool {
 	if m.Protocol != "" && m.Protocol != "http" && m.Protocol != "tls" {
 		return false
 	}
-	if m.Protocol == "tls" && !c.HTTPS && !c.ExtractHosts {
-		return false
-	}
 	if len(c.Packages) == 0 {
 		return true
 	}
@@ -177,11 +153,7 @@ func (c Config) candidate(m Metadata) bool {
 	return false // An unknown owner never matches an application allowlist.
 }
 
-func (c Config) matches(m Metadata) bool {
-	return c.candidate(m) &&
-		(m.Protocol != "tls" || c.HTTPS && validHost(normalizeHost(m.Host)) && !hostMatches(m.Host, c.DecryptBypassHosts) &&
-			(len(c.DecryptHosts) == 0 || hostMatches(m.Host, c.DecryptHosts)))
-}
+func (c Config) matches(m Metadata) bool { return c.candidate(m) }
 
 func hostMatches(host string, patterns []string) bool {
 	host = normalizeHost(host)

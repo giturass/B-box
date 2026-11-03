@@ -101,7 +101,7 @@ func TestBboxHTTPDebugKeepsSelectedRouteAndReplaysUnmatchedBytes(t *testing.T) {
 	}
 	// All capture sessions share one private store, including across restarts.
 	for _, bypass := range []bool{false, true} {
-		t.Run(map[bool]string{false: "MITM", true: "excluded-TLS"}[bypass], func(t *testing.T) {
+		t.Run(map[bool]string{false: "MITM", true: "unselected-TLS"}[bypass], func(t *testing.T) {
 			testBboxTLSRoute(t, directory, bypass)
 		})
 	}
@@ -178,12 +178,18 @@ func testBboxTLSRoute(t *testing.T, directory string, bypass bool) {
 	}
 	clientRoots := x509.NewCertPool()
 	clientRoots.AppendCertsFromPEM([]byte(pem))
-	config := `{"https":true,"ports":[443]}`
+	mitm := &httpdebug.MITMConfig{Enabled: true, Hosts: []string{"origin.test"}, Ports: []uint16{443}}
 	if bypass {
-		config = `{"https":true,"ports":[443],"decryptBypassHosts":["origin.test"]}`
+		mitm.Hosts = []string{"other.test"}
 		clientRoots = originRoots
 	}
-	if err = httpdebug.Start(directory, config, pem, key); err != nil {
+	prepared, err := httpdebug.PrepareProcessing(directory, mitm, nil, nil, pem, key, "UTC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpdebug.ActivateProcessing(prepared, nil, nil)
+	defer httpdebug.StopService()
+	if err = httpdebug.Start(directory, `{"ports":[443]}`, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	defer httpdebug.Stop()
