@@ -300,7 +300,7 @@ void main() {
     addTearDown(store.dispose);
     await store.load();
     await open(tester, MitmHostsEditor(store: store));
-    await tester.tap(find.byKey(const ValueKey('add-https-hosts'))); await tester.pumpAndSettle();
+    await tester.tap(find.text('Add captured domains')); await tester.pumpAndSettle();
     expect(find.byType(CaptureDomainsPage), findsOneWidget);
     await tester.tap(find.text('pinned.test')); await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Add domains').last); await tester.pumpAndSettle();
