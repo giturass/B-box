@@ -183,6 +183,21 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### 界面刷新与存储优化验证
+
+2026-11-04，验证源码为 `ef219625437f64eb7c6fc349d4617617bbea8dc8`，包含连接增量、启动数据拆分、工具订阅、请求存储/详情轮询及界面网络刷新优化，以及统一测试和独立手动 Release 工作流。后续记录结果的 Markdown 提交不改变应用源码。
+
+[Unit tests and regression](https://github.com/giturass/B-box/actions/runs/41760772704) 由代码 push 自动触发，最终全部成功：
+
+- Go 扩展、HTTP/MITM 存储 `-race`、原路由及 Android 重定向布局检查通过。
+- Flutter 分析（`--no-fatal-infos`）、210 项交互/布局测试及 ARM64 Flutter AAR 构建通过。
+- 50 项 JVM 测试无失败、错误或跳过，包含连接快照和网络通知合并；`play`/`other` 编译及模拟器应用/仪器测试 APK 构建通过。
+- API 24/31/35 的 UI smoke 和各 19 项原生测试通过。已读取 JVM XML、三个平台的 `results.json` 与 `native-tests.txt`，源码 SHA 均一致。
+
+API 24 首轮被模拟器自带的“Messenger has stopped”弹窗挡住首页，`window.xml` 保留该系统弹窗，19 项原生测试仍通过。仅重跑该 job 后 UI/native 均通过，见 [第二次运行](https://github.com/giturass/B-box/actions/runs/41760772704/attempts/2)；重跑复用同一源码和测试 APK。
+
+本机完成 `git diff --check`、`python3 tools/verify_newui.py`、Go 格式、来源清单 JSON、文档链接及 Actions 结构/表达式检查（`actionlint -shellcheck='' -pyflakes=''`），未在本机编译或运行 Go/Flutter/JVM/设备测试。本次未触发手动 Release/R8 构建，未发布 APK 或 GitHub Release；Release 流程的调整只完成静态检查。未测量实机 CPU、内存、帧耗时，也未实测 Wi-Fi/蜂窝切换、热点变化或新增视觉验收；模拟器结果不能代替这些结论。
+
 ### 独立 MITM/TCP/Cron 验证
 
 2026-11-03，独立 MITM/脚本、TCP 解密、Cron、配置迁移及抓包日志移除的验证结果如下。`339ecfc8bf42c4a07d800a6b8024d2e02a466ae9` 相对 `e1bbf0fcb1e3b06d4f4912943f3aa3487892b169` 仅修正 Flutter 测试的域名选择入口定位；Android、Go 与 Flutter 生产源码相同。后续记录结果的文档提交不改变应用源码。

@@ -138,6 +138,8 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [state_updates_test.dart](flutter/test/state_updates_test.dart) 检查高频数据只重建对应订阅者、服务状态仍通知、应用根部不随遥测/工具进度变化重建且外观设置继续生效，并覆盖日志增量淘汰、暂停快照、连接增量对象复用/重置及启动响应不覆盖早到事件。[data_subscription_test.dart](flutter/test/data_subscription_test.dart) 对各类数据检查卡片/详情共享订阅、隐藏页面、TickerMode、前后台和销毁时的订阅切换。[connection_list_test.dart](flutter/test/connection_list_test.dart) 覆盖搜索、过滤、各类排序和增量更新；[capture_poll_test.dart](flutter/test/capture_poll_test.dart) 检查完成详情停轮询、手动刷新和前台恢复。测试验证通知和调用行为，实际 PSS/RSS、CPU 和帧耗时仍需在同设备、同配置下测量。
 
+上述增量、订阅与轮询优化的源码 SHA、统一 Actions 结果和未覆盖范围见 [界面刷新与存储优化验证](app.md#界面刷新与存储优化验证)。
+
 [access_test.dart](flutter/test/access_test.dart) 覆盖进入托管页面不扫描、加载期间接收最新托管选择、显示范围与隐藏选择保留、保存失败后重试、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。它验证交互和调用行为，不代替实机加载耗时或视觉验收。
 
 [requests_test.dart](flutter/test/requests_test.dart) 覆盖独立工具入口、远程隔离、本机设置修订、MITM 域名选择、端口、启动确认及后台轮询/迟到结果；证书测试检查无配置时从抓包设置经 MITM 页进入证书、明确生成、取消导出、活跃 MITM 禁止重生成、远程切换和信任刷新。其他回归包括 HAR 搜索、停止抓取时的历史分页与搜索重置、TCP 流完成/导出限制、既有 socket 元数据、报文菜单、字段/Cookie 复制及正文格式/Unicode 展开；分页检查“显示更多”可实际点击并加载下一批，请求页不订阅连接。窄屏、大字号深色及宽屏测试运行后将截图写入 build/screenshots/requests/，包含独立配置、请求设置、证书、请求列表、分页按钮及报文详情；桥接替身不能代替实际 TLS 或系统安装验收。
