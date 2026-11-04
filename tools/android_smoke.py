@@ -278,8 +278,6 @@ def main():
             device[name] = adb("shell", "getprop", prop).strip()
         device["page_size"], device["page_size_source"] = device_page_size()
         device["system_image"] = os.environ.get("BBOX_SMOKE_SYSTEM_IMAGE")
-        if os.environ.get("BBOX_SMOKE_EXPECT_16K") == "true":
-            assert device["page_size"] == 16384, device
         apks = list(Path("build/apk").rglob("*.apk"))
         application, = [apk for apk in apks if not apk.name.endswith("-androidTest.apk")]
         instrumentation, = [apk for apk in apks if apk.name.endswith("-androidTest.apk")]

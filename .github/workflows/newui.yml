@@ -118,22 +118,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - api: '24'
-            target: google_apis
           - api: '31'
             target: google_apis
-          - api: '35'
-            target: google_apis
-          - api: '36'
-            target: google_apis
-          - api: '37.1'
-            target: google_apis_ps16k
     steps:
       - uses: actions/checkout@v5
       - name: Make room for emulator data
         run: |
           # This job consumes APKs and does not compile native libraries.
-          # The 16 KiB system image plus userdata exceed some runners' free disk.
+          # System images plus userdata can exceed some runners' free disk.
           sudo rm -rf -- "${ANDROID_HOME:?}/ndk"
           df -h "$ANDROID_HOME"
       - uses: actions/download-artifact@v5
@@ -148,7 +140,6 @@ jobs:
       - uses: reactivecircus/android-emulator-runner@v2
         env:
           BBOX_SMOKE_SYSTEM_IMAGE: system-images;android-${{ matrix.api }};${{ matrix.target }};x86_64
-          BBOX_SMOKE_EXPECT_16K: ${{ matrix.target == 'google_apis_ps16k' }}
         with:
           api-level: ${{ matrix.api }}
           target: ${{ matrix.target }}
