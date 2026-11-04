@@ -16,10 +16,59 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validation:
-    uses: ./.github/workflows/newui.yml
+  core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.core.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - id: core
+        uses: ./.github/actions/build-libbox
+        with:
+          platform: android/arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libbox-aar-arm64
+          path: app/libs/libbox.aar
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  flutter:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-flutter
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: >-
+            platform-tools
+            ndk;28.2.13676358
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build Flutter Release library
+        working-directory: flutter
+        run: flutter build aar --no-debug --no-profile --target-platform android-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flutter-aar-arm64
+          path: flutter/build/host/outputs/repo/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
   build:
-    needs: validation
+    needs: [core, flutter]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     defaults:
@@ -31,10 +80,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - id: core
-        uses: ./.github/actions/build-libbox
+      - name: Download core library from this run
+        uses: actions/download-artifact@v5
         with:
-          platform: android/arm64
+          name: libbox-aar-arm64
+          path: app/libs
 
       - name: Set up Java for Gradle
         uses: actions/setup-java@v5
@@ -42,33 +92,25 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - uses: android-actions/setup-android@v3
+        with:
+          log-accepted-android-sdk-licenses: false
+          packages: >-
+            platform-tools
+            platforms;android-36
+            platforms;android-37.1
+            build-tools;36.0.0
+            build-tools;37.0.0
+            ndk;28.0.13004108
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Download validated Flutter libraries
+      - name: Download Flutter Release library from this run
         uses: actions/download-artifact@v5
         with:
           name: flutter-aar-arm64
           path: flutter/build/host/outputs/repo
-
-      - name: Run unit tests
-        run: |
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
-          ./gradlew :app:testOtherDebugUnitTest -Parm64Only=true \
-            --no-daemon --console=plain --max-workers=2 \
-            '-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8' \
-            -Pkotlin.compiler.execution.strategy=in-process
-
-      - name: Upload unit test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-unit-tests
-          path: |
-            app/build/reports/tests/testOtherDebugUnitTest/
-            app/build/test-results/testOtherDebugUnitTest/*.xml
-          if-no-files-found: ignore
-          retention-days: 30
 
       - name: Prepare signing key
         env:
@@ -105,7 +147,7 @@ jobs:
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: B-box-${{ steps.core.outputs.version }}-arm64-v8a-release
+          name: B-box-${{ needs.core.outputs.version }}-arm64-v8a-release
           path: app/build/outputs/apk/other/release/*-arm64-v8a.apk
           if-no-files-found: error
           compression-level: 0
@@ -115,7 +157,7 @@ jobs:
         if: ${{ inputs.publish_release }}
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION_NAME: ${{ steps.core.outputs.version }}
+          VERSION_NAME: ${{ needs.core.outputs.version }}
         run: python3 tools/publish_release.py
 
       - name: Remove signing key

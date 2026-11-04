@@ -122,7 +122,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 ## 验证与升级参考版本
 
-[newui.yml](.github/workflows/newui.yml) 配置 Flutter 分析、测试及 AAR 构建，由 [setup-flutter](.github/actions/setup-flutter/action.yml) 固定 SDK 和依赖锁文件。测试按功能组织，覆盖导航、配置编辑、首页编辑、代理列表、备份、外观、关于、终端设置、模式、内网 IP 和 IP 查询/缓存；源码约束检查为 [verify_newui.py](tools/verify_newui.py)。截图/像素比较仍由同一测试入口运行，截图与 AAR 分别上传到 `newui-validation` 和 `flutter-aar-arm64`，Release 消费同次运行的 AAR，见 [构建与发布](app.md#构建与发布)。
+[newui.yml](.github/workflows/newui.yml) 在各分支代码推送时自动运行，统一包含核心、Flutter、JVM 和 Android smoke；[setup-flutter](.github/actions/setup-flutter/action.yml) 固定 SDK 和依赖锁文件。Flutter 测试按功能组织，覆盖导航、配置编辑、首页编辑、代理列表、备份、外观、关于、终端设置、模式、内网 IP 和 IP 查询/缓存；源码约束检查为 [verify_newui.py](tools/verify_newui.py)。截图/像素比较仍由同一测试入口运行，截图与验证 AAR 分别上传到 `newui-validation` 和 `flutter-aar-arm64`。手动 Release 构建独立准备所需的 Flutter Release AAR，不依赖测试运行，见 [构建与发布](app.md#构建与发布)。
 
 [appearance_test.dart](flutter/test/appearance_test.dart) 检查主题选择与重开页面后的偏好，以及旧字体偏好不覆盖默认字体、系统字号运行时变化和既有缩放上下限。导航、状态、内网 IP、出站模式及请求页面的字号场景通过系统缩放模拟，不依赖已退役的应用偏好。
 

@@ -36,8 +36,8 @@
 ## 上游同步与验证
 
 - Android 上游比较基线维护在 [app.md](app.md)，核心标签由 [version.properties](version.properties) 决定，FlClash 参考提交维护在 [flclash.md](flclash.md) 和来源清单。更新其中一个上游时，不自动改变另两个基线。
-- 更新核心时核对 legacy 补丁、所有 `libbox/ui_*.go` 扩展及生成的绑定，并同步检查 Release、Flutter 验证和 Android smoke 工作流。官方原版 AAR 缺少 B-box 新增绑定，不能仅凭版本相同直接替换。
+- 更新核心时核对 legacy 补丁、所有 `libbox/ui_*.go` 扩展及生成的绑定，并同步检查统一测试工作流的核心/Flutter/Android smoke 与 Release 构建。官方原版 AAR 缺少 B-box 新增绑定，不能仅凭版本相同直接替换。
 - 更新 FlClash 时检查源文件及哈希、适配差异、字体/着色器和许可。改动直接导入文件后，应如实更新来源清单及改动说明，不把业务改动伪装为机械包名替换。
 - 按受影响范围验证。本机可运行 `git diff --check` 和 `python3 tools/verify_newui.py`；文档变更还应检查链接和旧引用。后者仅检查源码约束，不证明运行行为。
-- [.github/workflows/newui.yml](.github/workflows/newui.yml) 负责 Go 扩展测试、Flutter 分析/交互/布局测试及 AAR 构建；[newui-android.yml](.github/workflows/newui-android.yml) 负责 JVM、Android 编译和 API 24/31/35 smoke；[build-release.yml](.github/workflows/build-release.yml) 负责签名 ARM64 Release 和产物校验。
+- [.github/workflows/newui.yml](.github/workflows/newui.yml) 在各分支代码推送时自动运行 Go 扩展、Flutter 分析/交互/布局、JVM 及 API 24/31/35 smoke，测试所需 AAR/APK 在同一工作流构建；纯 Markdown 推送跳过。[build-release.yml](.github/workflows/build-release.yml) 仅手动触发，独立构建签名 ARM64 Release 并校验产物，不调用或等待测试工作流。
 - 验证记录应说明源码 SHA、实际运行的检查、Actions 链接及未覆盖范围。已有 Release、旧提交的成功构建或测试代码的存在，都不等于当前源码已通过验收。仅构建下载产物时注意 Release 工作流的 `publish_release` 默认开启，具体发布规则见 [app.md](app.md)。
