@@ -100,6 +100,8 @@ CA 导出仅包含公钥 CRT。Android 7–10 使用 KeyChain 安装入口，And
 
 [模块脚本](app/src/main/assets/mitm-ca/inject.sh) 参考当前 FlClash 的 system/Conscrypt APEX namespace 处理，在各实际 namespace 内复制其原有证书集合到独立 tmpfs，补入公钥 CA、处理 hash.N 冲突并设权限/SELinux 标签，准备成功后才 bind 到目标。post-fs-data 处理启动继承路径，service 补入已运行应用 namespace；不先清空证书目录或写系统分区。挂载失败保留原证书库并记录 `mount.log`。更新/删除模块后需重启，旧版或手工安装的其他模块由用户在原管理器中移除。模块 ZIP 包含来源说明和 GPL-3.0 许可；逐文件参考见 [来源清单](flutter/flclash-manifest.json)。该路径仍需实际 Root 管理器、系统版本与目标应用验收。
 
+[Android 14 的 TrustedCertificateStore](https://android.googlesource.com/platform/external/conscrypt/+/refs/tags/android-14.0.0_r1/platform/src/main/java/org/conscrypt/TrustedCertificateStore.java) 默认优先读取非空的 `/apex/com.android.conscrypt/cacerts`，模块显式处理该路径。当前两个启动脚本均只执行一次扫描，没有等待 APEX/Zygote 就绪或持续重试；`--apps` 只枚举扫描时 Zygote 的直接子进程，后续特殊命名空间及晚出现的挂载仍可能遗漏。现有仪器测试仅验证公钥、Keystore 及模块打包，不执行 Root 安装或挂载验证，不能据此宣称 Android 14+ 的模块已全面实机通过。
+
 Root/eBPF 采集器、目标 TLS 库发现、FD 会话和手动函数偏移已移除。[IRootService](app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl) 的事务 10 退役，不复用；原 2/3 空缺保持，普通 Root/Shizuku、VPN 授权、自动重定向和 Shell 能力保留。
 
 HAR/cURL、域名、CRT 和模块导出使用 Android 文档选择器，取消返回 false，写入失败不报告成功；证书在选择文件后再次检查修订。请求导出的私有临时文件用后删除。抓包日志页面、缓冲和 `capture.logs` / `capture.logs.clear` 平台方法已移除；运行错误及脚本 console 输出使用现有服务日志，Android 证书清理/抓包准备异常使用普通 Android 日志。
@@ -166,6 +168,8 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 模拟器统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、远程 JSON 导入、VPN 授权、启停、实际内核分组及进程重启后配置保留；原生组运行全部仪器测试并拒绝零测试结果。`build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。16 KiB 镜像额外核对运行时页大小为 16384 字节。启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
 
 2026-11-04 核对 [Google 系统镜像仓库](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-3.xml)，新增镜像使用 `system-images;android-36;google_apis;x86_64` 与 `system-images;android-37.1;google_apis_ps16k;x86_64`，后者没有改写为不存在的普通 API 37 镜像。这里记录工作流配置，实际运行结果仍须附对应 SHA；自有 CA 客户端测试不等于第三方信任库、CT/ECH 或 Root 模块的兼容性验收。
+
+模拟器数据分区统一设为 4 GiB，以容纳完整核心的测试 APK 及安装数据。页大小优先使用 `getconf PAGE_SIZE`；旧系统缺少该命令时从 `/proc/self/smaps` 的 `KernelPageSize` 读取，并在结果中记录采集来源，不按 Android 版本猜测。
 
 查询策略回归在每次切换 Root/Shizuku 并刷盘后重新打开 Room 数据库读取持久值，同时核对状态流，不以读取同一内存缓存代替持久化验证。
 

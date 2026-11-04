@@ -26,6 +26,20 @@ def adb(*args, binary=False, timeout=45):
     return subprocess.check_output(["adb", *args], text=not binary, timeout=timeout)
 
 
+def device_page_size():
+    try:
+        return int(adb("shell", "getconf", "PAGE_SIZE").strip()), "getconf"
+    except (subprocess.CalledProcessError, ValueError):
+        # API 24's shell has no getconf. Read the current shell command's maps
+        # rather than guessing a page size from the Android version or ABI.
+        maps = adb("shell", "cat", "/proc/self/smaps")
+        sizes = [int(value) * 1024 for value in re.findall(
+            r"^KernelPageSize:\s+(\d+)\s+kB\s*$", maps, re.MULTILINE)]
+        if not sizes:
+            raise RuntimeError("Could not read the device's page size")
+        return min(sizes), "/proc/self/smaps"
+
+
 def nodes():
     for _ in range(4):
         try:
@@ -262,7 +276,7 @@ def main():
             "fingerprint": "ro.build.fingerprint",
         }.items():
             device[name] = adb("shell", "getprop", prop).strip()
-        device["page_size"] = int(adb("shell", "getconf", "PAGE_SIZE").strip())
+        device["page_size"], device["page_size_source"] = device_page_size()
         device["system_image"] = os.environ.get("BBOX_SMOKE_SYSTEM_IMAGE")
         if os.environ.get("BBOX_SMOKE_EXPECT_16K") == "true":
             assert device["page_size"] == 16384, device

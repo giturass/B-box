@@ -148,6 +148,7 @@ jobs:
           target: ${{ matrix.target }}
           arch: x86_64
           profile: pixel_2
+          disk-size: 4096M
           disable-animations: true
           script: python3 tools/android_smoke.py
       - uses: actions/upload-artifact@v4
