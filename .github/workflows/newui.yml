@@ -25,7 +25,7 @@ jobs:
       - name: Prepare isolated module regression
         run: |
           sudo apt-get update
-          sudo apt-get install --yes busybox-static
+          sudo apt-get install --yes busybox-static util-linux
           shellcheck --shell=sh app/src/main/assets/mitm-ca/*.sh
       - name: Exercise real mount namespaces and boot retries
         run: sudo --preserve-env=GITHUB_ACTIONS unshare --mount --pid --fork --mount-proc python3 tools/test_mitm_ca.py

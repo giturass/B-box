@@ -1,7 +1,8 @@
 """Linux namespace regression, run as PID 1 in an isolated GitHub Actions job.
 
 Uses the shipped shell scripts and real tmpfs/bind mounts in disposable Android
-filesystem fixtures. It does not install a CA on the runner or an Android device.
+filesystem fixtures. Ubuntu's BusyBox omits flock, so the fixture also includes
+util-linux's real flock. It does not install a CA on the runner or Android.
 """
 import contextlib
 import ctypes
@@ -67,6 +68,7 @@ class MountTests(unittest.TestCase):
         os.mknod(self.root / "dev/null", stat.S_IFCHR | 0o666, os.makedev(1, 3))
         shutil.copy2(shutil.which("busybox"), self.root / "bin/busybox")
         self.run_in_root("/bin/busybox", "--install", "-s", "/bin")
+        self.install_host_tool("flock")
         (self.root / "system/bin/sh").symlink_to("/bin/sh")
         self.script("getprop", 'case "$1" in ro.build.version.sdk) cat /properties/sdk;; sys.boot_completed) cat /properties/boot;; esac')
         self.script("getenforce", "cat /properties/enforce")
@@ -100,6 +102,23 @@ class MountTests(unittest.TestCase):
         path.unlink(missing_ok=True)
         path.write_text(f"#!/system/bin/sh\n{body}\n")
         path.chmod(0o755)
+
+    def install_host_tool(self, name):
+        # Ubuntu 24.04 busybox-static has CONFIG_FLOCK disabled. Keep real
+        # kernel file locking in the chroot, including its dynamic loader.
+        source = shutil.which(name)
+        self.assertIsNotNone(source, f"Missing runner tool: {name}")
+        target = self.root / "bin" / name
+        target.unlink(missing_ok=True)
+        shutil.copy2(source, target)
+        dependencies = subprocess.run(["ldd", source], text=True, capture_output=True,
+                                      check=True, timeout=10)
+        for path in dependencies.stdout.split():
+            if not path.startswith("/"):
+                continue
+            target = self.root / path[1:]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
 
     def property(self, name, value):
         (self.root / "properties" / name).write_text(value + "\n")
@@ -203,7 +222,11 @@ class MountTests(unittest.TestCase):
             if check():
                 return
             time.sleep(0.1)
-        self.fail("timed out waiting for namespace reconciliation")
+        diagnostics = []
+        for name in ("mount.status", "mount.log"):
+            path = self.module / name
+            diagnostics.append(f"{name}:\n{path.read_text() if path.exists() else '(missing)'}")
+        self.fail("timed out waiting for namespace reconciliation\n" + "\n".join(diagnostics))
 
     def remove_apex(self):
         subprocess.run(["umount", str(self.root / APEX[1:])], check=True)
