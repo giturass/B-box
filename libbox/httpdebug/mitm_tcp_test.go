@@ -72,7 +72,7 @@ func TestMITMTCPPreservesBinaryStreamsServerFirstAndHalfClose(t *testing.T) {
 			defer inbound.Close()
 			finished := make(chan error, 1)
 			go func() {
-				conn, metadata, selected := e.SelectTLS(context.Background(), inbound, Metadata{Host: "wrong-mapping.test", Port: 443, Protocol: "tls"})
+				conn, metadata, selected := e.SelectTLS(context.Background(), inbound, Metadata{ConnectionID: "tcp-client", Host: "wrong-mapping.test", Port: 443, Protocol: "tls"})
 				if !selected || !metadata.RawTCP {
 					finished <- io.ErrUnexpectedEOF
 					conn.Close()
@@ -114,7 +114,7 @@ func TestMITMTCPPreservesBinaryStreamsServerFirstAndHalfClose(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !detail.Metadata.RawTCP || detail.Request.Protocol != "TLS/TCP" || detail.Metadata.TLS.ALPN != test.negotiated ||
+			if detail.Metadata.ConnectionID != "tcp-client" || !detail.Metadata.RawTCP || detail.Request.Protocol != "TLS/TCP" || detail.Metadata.TLS.ALPN != test.negotiated ||
 				detail.Metadata.TLS.UpstreamCertificate == "" || detail.Request.BodyBytes != int64(len(payload)) ||
 				!detail.Request.BodyComplete || !detail.Response.BodyComplete || !detail.Request.BodyTruncated || len(detail.RequestBody) != 64 {
 				t.Fatalf("incorrect TCP record: %+v", detail)

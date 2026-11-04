@@ -1,5 +1,6 @@
 import '../widgets.dart';
 import 'connections.dart';
+import 'requests.dart';
 import 'logs.dart';
 import 'settings.dart';
 import 'diagnostics.dart';
@@ -13,7 +14,8 @@ class ToolsPage extends StatelessWidget {
     final box = context.box;
     return BoxPage(title: 'Tools', children: [
       generateSection(items: [
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.connections), title: Text(context.tr('Connections and requests')), widget: const ConnectionsPage()),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.filter), title: Text(context.tr('Requests')), widget: const RequestsPage()),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.connections), title: Text(context.tr('Connections')), widget: const ConnectionsPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Logs')), widget: const LogsPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Terminal')), widget: const TerminalPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(context.tr('Remote control')), widget: const RemotePage()),

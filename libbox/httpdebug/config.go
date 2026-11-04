@@ -97,6 +97,9 @@ func validHost(host string) bool {
 }
 
 type Metadata struct {
+	// ConnectionID identifies the original routed client connection, when tracked.
+	// Each exchange still has its own ID, including multiplexed HTTP/2 requests.
+	ConnectionID        string          `json:"connectionId,omitempty"`
 	Host                string          `json:"host"`
 	Port                uint16          `json:"port"`
 	Protocol            string          `json:"protocol"`

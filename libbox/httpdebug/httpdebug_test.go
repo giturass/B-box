@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -96,8 +97,10 @@ func testEngine(t *testing.T, c Config) (*Engine, *Store) {
 
 func debugClient(t *testing.T, e *Engine, origin string) *http.Client {
 	t.Helper()
-	metadata := Metadata{Host: "example.test", Port: 80, Protocol: "http", Outbound: "selected-proxy", Rule: "test rule", UID: 1234, Packages: []string{"com.test"}}
+	var connections atomic.Int32
 	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		metadata := Metadata{ConnectionID: fmt.Sprintf("http-client-%d", connections.Add(1)),
+			Host: "example.test", Port: 80, Protocol: "http", Outbound: "selected-proxy", Rule: "test rule", UID: 1234, Packages: []string{"com.test"}}
 		client, server := net.Pipe()
 		if !e.Handle(context.Background(), server, metadata, func(ctx context.Context) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "tcp", origin)
@@ -168,7 +171,11 @@ func TestHTTPStreamingBodiesHeadersAndOriginalRoute(t *testing.T) {
 			t.Fatalf("response mismatch: status=%d bytes=%d want=%d error=%v", response.StatusCode, len(got), len(body), err)
 		}
 	}
-	for _, item := range waitComplete(t, store, 2) {
+	items := waitComplete(t, store, 2)
+	if items[0].ID == items[1].ID {
+		t.Fatal("HTTP/1.1 requests on one connection shared an exchange ID")
+	}
+	for _, item := range items {
 		d, err := store.Detail(item.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -176,7 +183,7 @@ func TestHTTPStreamingBodiesHeadersAndOriginalRoute(t *testing.T) {
 		if len(d.RequestBody) != 32 || len(d.ResponseBody) != 32 || !d.Request.BodyTruncated || !d.Response.BodyComplete {
 			t.Fatalf("limits/completion: %+v", d.Exchange)
 		}
-		if d.Metadata.Outbound != "selected-proxy" || d.Metadata.UID != 1234 {
+		if d.Metadata.ConnectionID != "http-client-1" || d.Metadata.Outbound != "selected-proxy" || d.Metadata.UID != 1234 {
 			t.Fatal("route metadata lost")
 		}
 		cookies := 0
@@ -202,6 +209,16 @@ func TestHTTPStreamingBodiesHeadersAndOriginalRoute(t *testing.T) {
 	var decoded map[string]any
 	if err := json.Unmarshal(har.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
+	}
+	entries := decoded["log"].(map[string]any)["entries"].([]any)
+	if len(entries) != 2 {
+		t.Fatal("HAR lost requests sharing a connection")
+	}
+	for _, entry := range entries {
+		metadata := entry.(map[string]any)["_bBox"].(map[string]any)["metadata"].(map[string]any)
+		if metadata["connectionId"] != "http-client-1" {
+			t.Fatal("HAR lost the original connection association")
+		}
 	}
 }
 

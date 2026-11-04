@@ -63,6 +63,10 @@
 
 HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供的 Forwarded/X-Forwarded 字段。正文边转发边保存前缀，不因存储限额截断实际传输；SSE 立即刷新，WebSocket 透传升级后的连接且只记录 HTTP 握手。请求/响应 trailers 单独保存；并发 HTTP/2 流独立记录，取消保留已收到的正文及未完成标志。
 
+每条请求/响应记录保留独立 `id`，详情查询、正文文件和导出继续使用它。路由入口从 sing-box [trafficcontrol.Tracker](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/common/trafficcontrol/tracker.go) 读取原始客户端连接的 UUID，写入可选的 `metadata.connectionId`，与 libbox 连接列表的 ID 一致；读取会穿过嗅探缓存等连接包装。同一连接的 HTTP/1.1 请求和 HTTP/2 流共享此关联，HTTPS 与 TLS/TCP 记录也保留它，跨目标改写不替换为新出站连接的 ID。
+
+没有跟踪器的流、跟踪前的 QUIC 域名观察和旧记录可缺省该字段；旧 `captureId` 不作为连接 ID。关联以字符串随记录保存，连接关闭或从连接历史淘汰不删除请求记录，后者仍按自身限额清理；启停抓包接口不接收连接 ID。
+
 资源与完整性边界：
 
 - 最多接管 32 条连接（含正在检查 ClientHello 的连接），每条 HTTP/2 最多 16 个并发流。ClientHello 检查最多 64 KiB/5 秒；拨号和握手受超时及会话取消约束。服务停止、重载或启停抓包会关闭旧拦截连接，目标应用需要重新连接，抓包不会自动恢复。
@@ -205,10 +209,12 @@ Cron 专用的 [HTTP 接口](libbox/httpdebug/script_http.go) 支持 `$httpClien
 - [UI 验证工作流](.github/workflows/newui.yml) 使用共享准备 Action，运行 `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1` 及 `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`。所有生产扩展均参与编译，所有 `TestUI` 测试自动纳入，不再维护具体扩展名的筛选清单；它不构建核心 AAR。另执行 `go test -race ./experimental/httpdebug -count=1` 和 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1`，覆盖 HTTP/MITM 抓取引擎、数据竞争及原出站和嗅探字节保留。
 - 对应回归文件为 [ui_http_test.go](libbox/ui_http_test.go)、[ui_egress_test.go](libbox/ui_egress_test.go)、[ui_lan_test.go](libbox/ui_lan_test.go)，覆盖请求限制/重定向、源回退/公网 IP 校验/解析失败后继续竞速/取消/服务替换、监听转换和端点生成。
 
-[httpdebug_test.go](libbox/httpdebug/httpdebug_test.go) 覆盖 HTTP、SSE/WebSocket、存储和导出；[mitm_test.go](libbox/httpdebug/mitm_test.go) 覆盖 TLS 1.2/1.3、HTTP/1.1/2、上游连接复用、独立信任链、过期/错误名称/不受信任上游、客户端 pinning、未匹配域名和非 HTTP hello 回放、重复 Cookie、请求/响应 trailers、大正文、并发流、SSE 取消、跨 authority 拒绝、QUIC 筛选及停止/拨号超时。[authority_test.go](libbox/httpdebug/authority_test.go) 覆盖独立根身份、SAN/IP、叶证书缓存和密钥错配；[ui_capture_signer_test.go](libbox/ui_capture_signer_test.go) 验证平台签名接口的摘要、算法及返回签名校验。
+[httpdebug_test.go](libbox/httpdebug/httpdebug_test.go) 覆盖 HTTP、SSE/WebSocket、存储和导出；[mitm_test.go](libbox/httpdebug/mitm_test.go) 覆盖 TLS 1.2/1.3、HTTP/1.1/2、同连接请求的独立 ID 与连接关联、上游连接复用、独立信任链、过期/错误名称/不受信任上游、客户端 pinning、未匹配域名和非 HTTP hello 回放、重复 Cookie、请求/响应 trailers、大正文、并发流、SSE 取消、跨 authority 拒绝、QUIC 筛选及停止/拨号超时。[authority_test.go](libbox/httpdebug/authority_test.go) 覆盖独立根身份、SAN/IP、叶证书缓存和密钥错配；[ui_capture_signer_test.go](libbox/ui_capture_signer_test.go) 验证平台签名接口的摘要、算法及返回签名校验。
+
+连接关联回归还包括 [路由测试](libbox/route/httpdebug_test.go) 从真实流量跟踪器取得 UUID、穿过嗅探缓存、清空连接历史后重新打开请求存储，以及无跟踪器的 HTTP；[改写测试](libbox/httpdebug/rewrite_test.go) 检查跨目标改写仍保留原始连接 ID，[TCP 测试](libbox/httpdebug/mitm_tcp_test.go) 检查 TLS/TCP 关联，[迁移测试](libbox/httpdebug/store_migration_test.go) 检查旧记录不将 `captureId` 误认为连接 ID。
 
 [ui_capture_test.go](libbox/ui_capture_test.go) 覆盖本地设置及 schema/退役字段；[路由测试](libbox/route/httpdebug_test.go) 通过真实 TLS 握手核对原选定出站、SNI 与 DNS 映射隔离、端口覆写、CONNECT 确认顺序、证书库及未匹配流的字节回放。[mitm_tcp_test.go](libbox/httpdebug/mitm_tcp_test.go) 覆盖 TLS/TCP 二进制、混合 ALPN、服务器先发、半关闭及记录/导出边界；[script_cron_test.go](libbox/httpdebug/script_cron_test.go) 覆盖独立 HTTP 脚本、Cron 语法/时区/DST、回调、证书校验和调度生命周期；[ui_processing_test.go](libbox/ui_processing_test.go) 验证扩展 schema 及迁移；[store_migration_test.go](libbox/httpdebug/store_migration_test.go) 覆盖旧文件清理、请求保留和符号链接隔离。Android 真正的 Keystore/gomobile 签名与模块打包由 [平台测试](app.md#验证与历史记录) 覆盖；Linux 测试不能代替 Android 系统 CA 模块或目标应用的实机验收。获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py)，它不构建 Android 绑定。
 
 升级核心时先检查补丁是否仍准确排除 legacy 分支，核对 sing-tun 依赖版本及自动重定向补丁，检查 HTTP 调试路由/服务生命周期补丁及覆盖文件，再逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对共享准备 Action 的安装范围及三条工作流的调用。
 
-以上列出源码和工作流的覆盖范围。独立 MITM/TCP/Cron 的当前验证结果见 [本次验证](app.md#独立-mitmtcpcron-验证)；此前配置改写的实际检查、源码 SHA、Actions 运行及未覆盖范围见 [JSON 配置改写验证](app.md#json-配置改写验证)，此前的请求录制/CA 记录见 [MITM 分支验证](app.md#mitm-分支验证)。本机构建限制见 [AGENTS.md](AGENTS.md)。
+以上列出源码和工作流的覆盖范围。此前独立 MITM/TCP/Cron 的验证结果见 [验证记录](app.md#独立-mitmtcpcron-验证)；此前配置改写的实际检查、源码 SHA、Actions 运行及未覆盖范围见 [JSON 配置改写验证](app.md#json-配置改写验证)，此前的请求录制/CA 记录见 [MITM 分支验证](app.md#mitm-分支验证)。本机构建限制见 [AGENTS.md](AGENTS.md)。

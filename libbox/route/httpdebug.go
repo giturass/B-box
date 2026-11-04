@@ -8,8 +8,10 @@ import (
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/sniff"
+	"github.com/sagernet/sing-box/common/trafficcontrol"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/experimental/httpdebug"
+	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/buf"
 	"github.com/sagernet/sing/common/bufio"
 	M "github.com/sagernet/sing/common/metadata"
@@ -70,6 +72,12 @@ func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata ada
 		}
 	}
 	info := debugMetadata(captureMetadata)
+	// Routing registered the client connection before this hook. Unwrap sniffing
+	// caches and other upstream-aware wrappers to read the same UUID as libbox.
+	// Keep it on the original metadata even if an HTTP rewrite routes a new dial.
+	if tracker, loaded := common.Cast[trafficcontrol.Tracker](conn); loaded {
+		info.ConnectionID = tracker.Metadata().ID.String()
+	}
 	if info.Protocol == "tls" {
 		var selected bool
 		conn, info, selected = engine.SelectTLS(ctx, conn, info)

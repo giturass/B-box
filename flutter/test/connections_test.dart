@@ -8,10 +8,12 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   testWidgets('connection subscriptions are released when their page closes', (tester) async {
     final visibility = <bool>[];
+    final captureCalls = <MethodCall>[];
     final events = StreamController<dynamic>.broadcast();
     const channel = MethodChannel('test.connections');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (call) async {
       if (call.method == 'connections.visible') visibility.add((call.arguments as Map)['visible'] == true);
+      if (call.method.startsWith('capture.')) captureCalls.add(call);
       return call.method == 'ready' ? {'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Started'}} : null;
     });
     final box = BoxController(channel: channel, events: events.stream);
@@ -21,6 +23,8 @@ void main() {
     openPage(context, const ConnectionsPage());
     await tester.pumpAndSettle();
     expect(visibility, [true]);
+    expect(captureCalls, isEmpty);
+    expect(find.byKey(const ValueKey('capture-toggle')), findsNothing);
     final pageContext = tester.element(find.byType(ConnectionsPage));
     pageContext.safeNestedPop();
     await tester.pumpAndSettle();

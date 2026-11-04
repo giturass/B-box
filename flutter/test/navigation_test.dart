@@ -101,7 +101,7 @@ void main() {
       ]}});
       await tester.pumpAndSettle();
       for (final (label, page) in <(String, Widget)>[
-        ('Connections and requests', const ConnectionsPage()), ('Logs', const LogsPage()),
+        ('Connections', const ConnectionsPage()), ('Logs', const LogsPage()),
         ('Appearance', const AppearancePage()), ('Access', const AccessPage()),
         ('Service', const ServiceSettingsPage()), ('Core', const CoreSettingsPage()),
         ('Remote', const RemotePage()), ('Backup', const BackupPage()),

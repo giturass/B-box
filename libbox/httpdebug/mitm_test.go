@@ -86,6 +86,7 @@ func originCertificate(t *testing.T, host string, expired bool) (tls.Certificate
 func mitmClient(t *testing.T, e *Engine, origin string, ca, roots *x509.CertPool, h2 bool) (*http.Client, *atomic.Int32) {
 	t.Helper()
 	dials := &atomic.Int32{}
+	var connections atomic.Int32
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{RootCAs: ca, MinVersion: tls.VersionTLS12}, ForceAttemptHTTP2: h2,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -93,7 +94,7 @@ func mitmClient(t *testing.T, e *Engine, origin string, ca, roots *x509.CertPool
 			if err != nil {
 				return nil, err
 			}
-			if !e.Handle(context.Background(), inbound, Metadata{Host: "origin.test", Port: 443, Protocol: "tls",
+			if !e.Handle(context.Background(), inbound, Metadata{ConnectionID: fmt.Sprintf("mitm-client-%d", connections.Add(1)), Host: "origin.test", Port: 443, Protocol: "tls",
 				Outbound: "selected-route", Rule: "selected-rule", UID: 1234, Packages: []string{"com.test"}},
 				func(ctx context.Context) (net.Conn, error) {
 					dials.Add(1)
@@ -184,12 +185,16 @@ func TestMITMHTTP1AndHTTP2UseVerifiedConnectionAndPreserveMessages(t *testing.T)
 				if dials.Load() != 1 {
 					t.Fatalf("verified connection was discarded/replaced: %d dials", dials.Load())
 				}
-				for _, item := range waitComplete(t, store, 2) {
+				items := waitComplete(t, store, 2)
+				if items[0].ID == items[1].ID {
+					t.Fatal("HTTPS requests on one connection shared an exchange ID")
+				}
+				for _, item := range items {
 					detail, err := store.Detail(item.ID)
 					if err != nil {
 						t.Fatal(err)
 					}
-					if detail.Metadata.CaptureSource != "MITM" || detail.Metadata.Outbound != "selected-route" || detail.Metadata.UID != 1234 {
+					if detail.Metadata.ConnectionID != "mitm-client-1" || detail.Metadata.CaptureSource != "MITM" || detail.Metadata.Outbound != "selected-route" || detail.Metadata.UID != 1234 {
 						t.Fatal("original route or owner lost")
 					}
 					if detail.Metadata.TLS == nil || detail.Metadata.TLS.UpstreamVersion != tlsVersion(version) || len(detail.Metadata.TLS.UpstreamCertificate) != 64 {
@@ -384,9 +389,17 @@ func TestMITMHTTP2ConcurrentStreamsCancellationAndAuthority(t *testing.T) {
 		t.Fatal("cross-origin request recorded")
 	}
 	items := waitComplete(t, store, 9)
+	ids := make(map[string]bool)
 	for _, item := range items {
+		detail, err := store.Detail(item.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ids[item.ID] || detail.Metadata.ConnectionID != "mitm-client-1" {
+			t.Fatalf("HTTP/2 streams lost their independent IDs or shared connection: %+v", detail)
+		}
+		ids[item.ID] = true
 		if strings.HasSuffix(item.URL, "/waiting") {
-			detail, _ := store.Detail(item.ID)
 			if detail.Response.BodyComplete || !strings.Contains(string(detail.ResponseBody), "partial") {
 				t.Fatal("cancelled stream lost incomplete body")
 			}

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/trafficcontrol"
 	"github.com/sagernet/sing-box/experimental/httpdebug"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -27,6 +28,9 @@ type captureTestOutbound struct {
 	adapter.Outbound
 	metadata chan adapter.InboundContext
 }
+
+func (o *captureTestOutbound) Tag() string  { return "selected-group" }
+func (o *captureTestOutbound) Type() string { return "direct" }
 
 func (o *captureTestOutbound) NewConnection(ctx context.Context, conn net.Conn, m adapter.InboundContext, onClose N.CloseHandlerFunc) {
 	o.metadata <- m
@@ -99,11 +103,106 @@ func TestBboxHTTPDebugKeepsSelectedRouteAndReplaysUnmatchedBytes(t *testing.T) {
 	if debugNeedsStream(metadata) {
 		t.Fatal("stopped capture changed fast routing")
 	}
+	saved, err := httpdebug.Saved()
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := saved.Page(10, "observed.example").Items
+	if len(items) != 1 {
+		t.Fatalf("untracked HTTP was not retained: %+v", items)
+	}
+	detail, err := saved.Detail(items[0].ID)
+	if err != nil || detail.Metadata.ConnectionID != "" {
+		t.Fatalf("untracked HTTP gained a connection ID: %+v %v", detail, err)
+	}
 	// All capture sessions share one private store, including across restarts.
+	t.Run("connection-ID", func(t *testing.T) {
+		testBboxHTTPDebugConnectionID(t, directory)
+	})
 	for _, bypass := range []bool{false, true} {
 		t.Run(map[bool]string{false: "MITM", true: "unselected-TLS"}[bypass], func(t *testing.T) {
 			testBboxTLSRoute(t, directory, bypass)
 		})
+	}
+}
+
+func testBboxHTTPDebugConnectionID(t *testing.T, directory string) {
+	t.Helper()
+	if err := httpdebug.Start(directory, `{}`, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer httpdebug.Stop()
+	manager := trafficcontrol.NewManager()
+	defer manager.CloseAllConnections()
+	outbound := &captureTestOutbound{metadata: make(chan adapter.InboundContext, 2)}
+	metadata := adapter.InboundContext{Network: "tcp", Inbound: "tun",
+		Source: M.ParseSocksaddr("192.0.2.2:4321"), Destination: M.ParseSocksaddr("198.51.100.9:80"),
+		RouteOutbound: outbound.Tag(), OutboundChain: []adapter.Outbound{outbound}}
+	client, inbound := net.Pipe()
+	defer client.Close()
+	client.SetDeadline(time.Now().Add(5 * time.Second))
+	tracked := manager.RoutedConnection(context.Background(), inbound, metadata, nil, outbound)
+	connections := manager.Connections()
+	if len(connections) != 1 {
+		t.Fatal("original connection was not tracked")
+	}
+	connectionID := connections[0].ID
+	accepted := make(chan bool, 1)
+	go func() {
+		// No protocol hint: routeHTTPDebug adds a sniff cache above the tracker.
+		router := &Router{ctx: context.Background()}
+		_, captured := router.routeHTTPDebug(context.Background(), tracked, metadata, outbound, nil)
+		accepted <- captured
+		if !captured {
+			tracked.Close()
+		}
+	}()
+	reader := bufio.NewReader(client)
+	for _, path := range []string{"first", "second"} {
+		request, err := http.NewRequest("GET", "http://tracked.test/"+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = request.Write(client); err != nil {
+			t.Fatal(err)
+		}
+		response, err := http.ReadResponse(reader, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil || string(body) != "ok" {
+			t.Fatalf("HTTP/1.1 connection reuse failed: %q %v", body, err)
+		}
+	}
+	if !<-accepted {
+		t.Fatal("tracked connection was not captured")
+	}
+	manager.CloseAllConnections()
+	httpdebug.Stop()
+	manager.Clear()
+	if manager.Connection(connectionID) != nil || len(manager.ClosedConnections()) != 0 {
+		t.Fatal("original connection was not removed from tracking")
+	}
+	// Capture history must outlive both connection tracking and the engine.
+	saved, err := httpdebug.OpenStore(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := saved.Page(10, "tracked.test").Items
+	if len(items) != 2 || items[0].ID == items[1].ID {
+		t.Fatalf("requests on one connection need separate IDs: %+v", items)
+	}
+	for _, item := range items {
+		detail, err := saved.Detail(item.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if detail.Metadata.ConnectionID != connectionID.String() || detail.ID == connectionID.String() ||
+			!detail.Complete || string(detail.ResponseBody) != "ok" {
+			t.Fatalf("original connection association or retained request lost: %+v", detail)
+		}
 	}
 }
 
@@ -126,6 +225,9 @@ type captureTLSOutbound struct {
 	certificate tls.Certificate
 	metadata    chan adapter.InboundContext
 }
+
+func (o *captureTLSOutbound) Tag() string  { return "selected-group" }
+func (o *captureTLSOutbound) Type() string { return "direct" }
 
 func (o *captureTLSOutbound) NewConnection(ctx context.Context, raw net.Conn, m adapter.InboundContext, onClose N.CloseHandlerFunc) {
 	o.metadata <- m
@@ -202,6 +304,11 @@ func testBboxTLSRoute(t *testing.T, directory string, bypass bool) {
 	client, inbound := net.Pipe()
 	defer client.Close()
 	defer inbound.Close()
+	manager := trafficcontrol.NewManager()
+	defer manager.CloseAllConnections()
+	metadata.OutboundChain = []adapter.Outbound{outbound}
+	tracked := manager.RoutedConnection(context.Background(), &captureTunnelConn{inbound}, metadata, nil, outbound)
+	connectionID := manager.Connections()[0].ID.String()
 	client.SetDeadline(time.Now().Add(5 * time.Second))
 	finished := make(chan error, 1)
 	go func() {
@@ -235,7 +342,7 @@ func testBboxTLSRoute(t *testing.T, directory string, bypass bool) {
 		}
 		finished <- err
 	}()
-	remaining, captured := router.routeHTTPDebug(context.Background(), &captureTunnelConn{inbound}, metadata, outbound, nil)
+	remaining, captured := router.routeHTTPDebug(context.Background(), tracked, metadata, outbound, nil)
 	if captured == bypass {
 		t.Fatalf("TLS capture selection: captured=%v bypass=%v", captured, bypass)
 	}
@@ -268,6 +375,7 @@ func testBboxTLSRoute(t *testing.T, directory string, bypass bool) {
 			t.Fatal(err)
 		}
 		if detail.Metadata.TLS == nil || detail.Metadata.TLS.ServerName != "origin.test" ||
+			detail.Metadata.ConnectionID != connectionID ||
 			detail.Metadata.OriginalDestination != "198.51.100.9:443" || !strings.Contains(detail.Request.URL, "origin.test/routed") {
 			t.Fatalf("record lost original destination or actual SNI: %+v", detail)
 		}

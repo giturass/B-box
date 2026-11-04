@@ -168,7 +168,7 @@ func TestRewriteRemoteUsesMappedDialAndVerifiesTLS(t *testing.T) {
 	defer origin.Close()
 	for _, trusted := range []bool{true, false} {
 		t.Run(map[bool]string{true: "trusted", false: "untrusted"}[trusted], func(t *testing.T) {
-			e, _ := testEngine(t, Config{})
+			e, store := testEngine(t, Config{})
 			content, _ := json.Marshal(map[string]any{"enabled": true, "map_remote": []any{map[string]any{"pattern": "^http://example.test/(.*)", "replacement": origin.URL + "/$1"}}})
 			e.rewrite = rewriteProgram(t, string(content)).RewriteProgram
 			var originalDials, mappedDials atomic.Int32
@@ -178,7 +178,7 @@ func TestRewriteRemoteUsesMappedDialAndVerifiesTLS(t *testing.T) {
 			}
 			transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 				client, server := net.Pipe()
-				if !e.HandleRouted(context.Background(), server, Metadata{Host: "example.test", Port: 80, Protocol: "http"},
+				if !e.HandleRouted(context.Background(), server, Metadata{ConnectionID: "original-client", Host: "example.test", Port: 80, Protocol: "http"},
 					func(context.Context) (net.Conn, error) {
 						originalDials.Add(1)
 						return nil, errors.New("original origin must not be dialed")
@@ -213,6 +213,14 @@ func TestRewriteRemoteUsesMappedDialAndVerifiesTLS(t *testing.T) {
 			}
 			if originalDials.Load() != 0 || mappedDials.Load() != 1 {
 				t.Fatalf("wrong dialers: %d/%d", originalDials.Load(), mappedDials.Load())
+			}
+			detail, err := store.Detail(waitComplete(t, store, 1)[0].ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if detail.Metadata.ConnectionID != "original-client" || !strings.HasPrefix(detail.OriginalURL, "http://example.test/") ||
+				!strings.HasPrefix(detail.Request.URL, origin.URL+"/") {
+				t.Fatalf("rewriting lost the original connection association: %+v", detail)
 			}
 		})
 	}

@@ -25,7 +25,7 @@ func TestOpenStoreRemovesRetiredJournalsAndKeepsRequests(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			id := store.begin(Metadata{CaptureSource: "eBPF"}, request, 64)
+			id := store.begin(Metadata{CaptureSource: "eBPF", CaptureID: "old-capture-session"}, request, 64)
 			store.finish(id)
 			if err := os.Mkdir(retired, 0o700); err != nil {
 				t.Fatal(err)
@@ -56,6 +56,10 @@ func TestOpenStoreRemovesRetiredJournalsAndKeepsRequests(t *testing.T) {
 				}
 				if reopened.Page(1, "").Total != 1 {
 					t.Fatal("migration removed retained requests")
+				}
+				detail, err := reopened.Detail(id)
+				if err != nil || detail.Metadata.ConnectionID != "" || detail.Metadata.CaptureID != "old-capture-session" {
+					t.Fatalf("legacy capture identity was changed or treated as a connection ID: %+v %v", detail, err)
 				}
 				if command, err := reopened.Curl(id); err != nil || !strings.Contains(command, request.URL.String()) {
 					t.Fatal("retained request can no longer be exported", err)
