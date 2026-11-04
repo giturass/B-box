@@ -23,7 +23,7 @@ internal object MitmCertificateModule {
             }
             for (name in assets) add(name) { context.assets.open("mitm-ca/$name").use { it.copyTo(zip) } }
             add("module.prop") { zip.write((
-                "id=bbox_mitm_ca\nname=B-box MITM CA\nversion=2\nversionCode=2\nauthor=B-box / FlClash contributors\n" +
+                "id=bbox_mitm_ca\nname=B-box MITM CA\nversion=3\nversionCode=3\nauthor=B-box / FlClash contributors\n" +
                 "description=Public MITM CA $fingerprint. Reboot after installing, updating or removing.\n"
             ).toByteArray(Charsets.UTF_8)) }
             add("skip_mount") { }

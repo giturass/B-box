@@ -299,7 +299,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     @OptIn(DelicateCoroutinesApi::class)
-    private fun stopService() {
+    // Main-thread entry shared by explicit stops and startup/reload errors.
+    // Only this job may tear down the current instance. In particular, an RPC
+    // failure can wake the UI's recovery while error handling is still running.
+    private fun stopService(alert: Pair<Alert, String?>? = null) {
+        if (stopRequested) return
         if (status.value != Status.Started && status.value != Status.Starting) return
         stopRequested = true
         status.value = Status.Stopping
@@ -325,6 +329,9 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             Settings.startedByUser = false
             Settings.dataStore.flush()
             withContext(Dispatchers.Main) {
+                alert?.let { (type, message) ->
+                    binder.broadcast { callback -> callback.onServiceAlert(type.ordinal, message) }
+                }
                 status.value = Status.Stopped
                 service.stopSelf()
             }
@@ -342,31 +349,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private suspend fun stopAndAlert(type: Alert, message: String? = null) {
-        if (stopRequested) return // The stop job joins startup and owns teardown.
-        Settings.startedByUser = false
-        Settings.dataStore.flush()
-        val pfd = fileDescriptor
-        if (pfd != null) {
-            pfd.close()
-            fileDescriptor = null
-        }
-        DefaultNetworkMonitor.stop()
-        if (::commandServer.isInitialized) {
-            closeService()
-            commandServer.close()
-        }
         withContext(Dispatchers.Main) {
-            if (stopRequested) return@withContext
-            if (receiverRegistered) {
-                service.unregisterReceiver(receiver)
-                receiverRegistered = false
-            }
-            notification.close()
-            binder.broadcast { callback ->
-                callback.onServiceAlert(type.ordinal, message)
-            }
-            status.value = Status.Stopped
-            service.stopSelf()
+            // Do not join teardown here: this can be the startup job that the
+            // stop job must join. Recovery waits for its final Stopped callback.
+            stopService(type to message)
         }
     }
 

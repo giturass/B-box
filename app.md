@@ -53,6 +53,7 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 - 保存前检查内容修订和完整 `Libbox.checkConfig`，以原子写入替换内容。高级配置编辑原生 DNS、路由、规则集、入站、出站、端点和日志；原始 JSON 编辑保留配置元数据及订阅 URL。
 - 本地配置创建时在 Room 记录时间，原始/高级编辑及局域网入站变更成功保存内容时更新 `lastUpdated`；无内容变化和仅编辑名称等元数据不刷新时间。保存或应用失败与内容一起恢复旧时间。远程配置的该字段仍表示订阅更新时间，手动 JSON 编辑不覆盖它；没有时间记录的旧配置保持未知。界面展示见 [flclash.md](flclash.md#配置页与内核差异)。
 - 运行中修改选中配置需应用到服务：模式相同时重载，模式变化时停止并重新走权限/启动流程。需要重启时通过 [ServiceStartResult.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ServiceStartResult.kt) 等待 Started 回调；失败或超时恢复旧文件/设置并尝试恢复原服务。停服时普通保存不会自动启动 VPN。
+- [BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 的启动/重载错误和主动停止共用主线程上的停止入口，由唯一的清理任务等待启动结束、释放核心与命令服务器，再报告 Stopped。失败 RPC 返回后触发的恢复不能另起一条错误清理路径，避免迟到的清理注销恢复后实例的接收器、遗留核心及缓存文件锁。
 - 原始/高级 JSON 编辑、手动/自动订阅更新和配置切换共用 [ProfileChange.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileChange.kt) 的失败恢复流程。订阅保存或应用失败恢复旧内容和更新时间；切换失败恢复原选择及服务模式。恢复在不可取消的协程上下文完成，保留原错误及恢复错误；持久数据恢复失败时不启动未恢复的配置。
 - 配置切换在配置互斥区内、修改选中配置前读取最新服务状态；启动中或停止中拒绝切换，避免界面状态延迟导致启动配置与保存的选择不一致。界面禁用行为见 [flclash.md](flclash.md#配置页与内核差异)。
 - [UpdateProfileWork.kt](app/src/main/java/io/nekohasekai/sfa/bg/UpdateProfileWork.kt) 在同一互斥区内完成每个订阅的保存、应用和恢复，应用失败请求重试。[BackgroundProfileService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BackgroundProfileService.kt) 通过本机服务连接确认状态，模式相同重载，模式变化及失败恢复时等待停止和 Started 回调；后台重启所需 VPN/通知权限未授予时更新失败并回滚。更新未选中配置或停服时不启动服务，远程会话不接收本机订阅的重载。
@@ -98,9 +99,13 @@ MITM 配置、证书设置及 HTTP 脚本/Cron 的入口见 [高级配置](flcla
 
 CA 导出仅包含公钥 CRT。Android 7–10 使用 KeyChain 安装入口，Android 11 及以后打开安全设置，由用户先导出、再在设置中选择 CA 文件；返回值仅表示设置已打开，不能作为安装成功证明。[MitmCertificateModule.kt](app/src/main/java/io/nekohasekai/sfa/flutter/MitmCertificateModule.kt) 可导出 `bbox_mitm_ca` ZIP，交给 Magisk、KernelSU 或 APatch 管理器安装并重启，应用不执行自动 Root 注入。
 
-[模块脚本](app/src/main/assets/mitm-ca/inject.sh) 参考当前 FlClash 的 system/Conscrypt APEX namespace 处理，在各实际 namespace 内复制其原有证书集合到独立 tmpfs，补入公钥 CA、处理 hash.N 冲突并设权限/SELinux 标签，准备成功后才 bind 到目标。post-fs-data 处理启动继承路径，service 补入已运行应用 namespace；不先清空证书目录或写系统分区。挂载失败保留原证书库并记录 `mount.log`。更新/删除模块后需重启，旧版或手工安装的其他模块由用户在原管理器中移除。模块 ZIP 包含来源说明和 GPL-3.0 许可；逐文件参考见 [来源清单](flutter/flclash-manifest.json)。该路径仍需实际 Root 管理器、系统版本与目标应用验收。
+[模块脚本](app/src/main/assets/mitm-ca/inject.sh) 参考当前 FlClash 的 system/Conscrypt APEX namespace 处理，导出模块版本为 3。在各实际 namespace 内复制其原有证书集合到独立 tmpfs，补入公钥 CA、处理 hash.N 冲突并设权限/SELinux 标签，准备成功后才 bind 到目标；不先清空证书目录或写系统分区。进入 namespace 前打开并固定 namespace、解释器、脚本及公钥证书的描述符，在目标 `/dev` 临时暂存，避免目标视图隐藏模块路径后无法读取注入器和证书。挂载后核对证书，准备失败保留原库。
 
-[Android 14 的 TrustedCertificateStore](https://android.googlesource.com/platform/external/conscrypt/+/refs/tags/android-14.0.0_r1/platform/src/main/java/org/conscrypt/TrustedCertificateStore.java) 默认优先读取非空的 `/apex/com.android.conscrypt/cacerts`，模块显式处理该路径。当前两个启动脚本均只执行一次扫描，没有等待 APEX/Zygote 就绪或持续重试；`--apps` 只枚举扫描时 Zygote 的直接子进程，后续特殊命名空间及晚出现的挂载仍可能遗漏。现有仪器测试仅验证公钥、Keystore 及模块打包，不执行 Root 安装或挂载验证，不能据此宣称 Android 14+ 的模块已全面实机通过。
+post-fs-data 只做不等待的早期注入；[service.sh](app/src/main/assets/mitm-ca/service.sh) 以文件锁保证单实例，启动阶段每两秒重试，最多 60 轮快速检查，就绪后转为每 30 秒补查。每轮先注入已出现的主 Zygote，再枚举所有可访问的 `/proc/*/ns/mnt` 并按 namespace 标识去重，覆盖现有 app/WebView Zygote 后代及非直属进程。每轮重新核对进程实际视图中的证书，不跨轮仅凭 namespace inode 缓存成功，因此晚出现的 namespace、Zygote 重启及同一 namespace 内替换的 APEX 挂载会继续修复。禁用或移除标记出现后停止补查，已有挂载仍需重启移除。启动阶段语义依据 [Magisk](https://topjohnwu.github.io/Magisk/guides.html#boot-scripts) 和 [KernelSU](https://kernelsu.org/guide/module.html#boot-scripts) 文档，不能在阻塞的 post-fs-data 等待 Android 开机完成。
+
+[Android 14 的 TrustedCertificateStore](https://android.googlesource.com/platform/external/conscrypt/+/refs/tags/android-14.0.0_r1/platform/src/main/java/org/conscrypt/TrustedCertificateStore.java) 默认优先读取非空的 `/apex/com.android.conscrypt/cacerts`；API 34+ 的预期证书目录缺失或为空返回 pending，旧系统没有 APEX CA 目录时允许只处理 system。单轮退出码 0 表示已检查的预期库就绪，1 表示失败，2 表示等待就绪/重试；没有 Android 证书路径的其他视图单独计为 skipped。`mount.status` 原子保存最近一轮的启动属性、退出码及统计，`mount.log` 保留最多 64 KiB 的变化记录，不能将进程退出或 nsenter 失败算作注入成功。
+
+模块 ZIP 包含来源说明和 GPL-3.0 许可；逐文件参考见 [来源清单](flutter/flclash-manifest.json)。更新/删除模块后需重启，旧版或手工安装的其他模块由用户在原管理器中移除。轮询窗口内的首次请求仍可能早于补查，已缓存信任的应用可能需重启；Root 管理器隔离策略、不可访问的 namespace、自有证书库及 pinning 仍受各自限制。[Linux 挂载回归](tools/test_mitm_ca.py) 使用真实隔离 namespace 和临时系统目录；Android 仪器测试验证公钥、Keystore 及模块打包。两者均不代替实际 Magisk/KernelSU/APatch 安装、重启和第三方应用信任验收。
 
 Root/eBPF 采集器、目标 TLS 库发现、FD 会话和手动函数偏移已移除。[IRootService](app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl) 的事务 10 退役，不复用；原 2/3 空缺保持，普通 Root/Shizuku、VPN 授权、自动重定向和 Shell 能力保留。
 
@@ -161,6 +166,8 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ## 验证与历史记录
 
+统一工作流的 `root-ca` job 在独立 Linux PID/mount namespace 中运行 [test_mitm_ca.py](tools/test_mitm_ca.py)，使用 BusyBox 和导出的原始脚本，覆盖 APEX 延迟就绪、旧系统缺少 APEX、hash 冲突和原证书保留、已有二级后代/隐藏模块路径、同一 namespace 的重新挂载、准备失败、service 重试和禁用退出。该测试只在 Actions 运行，不对本机 Android 做 Root 挂载。`ProfileRecoveryTest.failedSelectionRestoresThePreviousSelectionAndService` 连续五轮核对选配置失败恢复、停止释放核心及重新启动，防止服务清理竞态污染后续用例。
+
 | 入口 | 配置的验证范围 |
 | --- | --- |
 | [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入、Android 入口、旧 UI/更新依赖及退役抓包实现残留的静态检查 |
@@ -212,7 +219,7 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 验证期间修正了旧镜像缺少 `getconf`、模拟器安装/宿主空间不足，以及服务取消 Cron 请求后测试服务器的 `Broken pipe`；前序失败见 [41818907770](https://github.com/giturass/B-box/actions/runs/41818907770) 和 [41820772969](https://github.com/giturass/B-box/actions/runs/41820772969)。当前最终 smoke 结果仅覆盖 API 31，不将已移除的其他镜像计为本轮通过。
 
-本机完成差异、Go 格式、Python 语法、`python3 tools/verify_newui.py`、文档链接/旧引用及 Actions 结构/表达式检查（`actionlint -shellcheck='' -pyflakes=''`），未在本机编译或运行 Go/Flutter/JVM/设备测试。截图检查范围见 [flclash.md](flclash.md#验证与升级参考版本)。本轮未触发签名 ARM64 Release/R8 构建或发布 APK，未覆盖其他 Android 版本、16 KiB 页运行、ARM64 实机性能、真实 Root CA 模块安装或第三方应用信任；Android 14+ Conscrypt APEX 的源码覆盖与一次扫描限制见 [请求抓取与 MITM](#请求抓取与-mitm)。
+本机完成差异、Go 格式、Python 语法、`python3 tools/verify_newui.py`、文档链接/旧引用及 Actions 结构/表达式检查（`actionlint -shellcheck='' -pyflakes=''`），未在本机编译或运行 Go/Flutter/JVM/设备测试。截图检查范围见 [flclash.md](flclash.md#验证与升级参考版本)。本轮未触发签名 ARM64 Release/R8 构建或发布 APK，未覆盖其他 Android 版本、16 KiB 页运行、ARM64 实机性能、真实 Root CA 模块安装或第三方应用信任；Root CA 模块当前的 namespace 覆盖和限制见 [请求抓取与 MITM](#请求抓取与-mitm)。
 
 ### 界面刷新与存储优化验证
 

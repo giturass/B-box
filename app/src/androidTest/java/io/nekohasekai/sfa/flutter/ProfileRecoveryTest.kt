@@ -630,13 +630,23 @@ class ProfileRecoveryTest {
             val content = occupiedPortConfig(occupied.localPort)
             val candidate = profiles.save(mapOf("name" to "Broken selection", "content" to content))
             try {
-                val failure = runCatching { profiles.select(candidate) { activity.serviceStatus.value } }.exceptionOrNull()
-                assertNotNull("Selecting a configuration must report its reload failure", failure)
-                assertEquals(id, Settings.selectedProfile)
-                assertEquals(previousMode, Settings.serviceMode)
-                assertEquals(content, profiles.read(candidate))
-                withTimeout(15_000) { activity.serviceStatus.first { it == Status.Started } }
-                assertEquals(0, failure!!.suppressed.size)
+                repeat(5) {
+                    val failure = runCatching { profiles.select(candidate) { activity.serviceStatus.value } }.exceptionOrNull()
+                    assertNotNull("Selecting a configuration must report its reload failure", failure)
+                    assertEquals(id, Settings.selectedProfile)
+                    assertEquals(previousMode, Settings.serviceMode)
+                    assertEquals(content, profiles.read(candidate))
+                    withTimeout(15_000) { activity.serviceStatus.first { it == Status.Started } }
+                    assertEquals(0, failure!!.suppressed.size)
+                    // The RPC error and recovery's stop request must share one
+                    // teardown. A late second teardown used to unregister the
+                    // recovered service's receiver and leak its cache-file lock.
+                    withContext(Dispatchers.Main) { activity.stopService() }
+                    withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+                    assertNull(BoxService.dashboardServer)
+                    withContext(Dispatchers.Main) { activity.applyProfile(recover = true) }
+                    assertEquals(Status.Started, activity.serviceStatus.value)
+                }
             } finally {
                 profiles.delete(candidate)
             }

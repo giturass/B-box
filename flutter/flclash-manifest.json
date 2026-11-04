@@ -403,7 +403,7 @@
           "localPaths": [
             "app/src/main/assets/mitm-ca/inject.sh"
           ],
-          "changes": "Reference for system/Conscrypt APEX and init/zygote/app mount namespaces. B-box builds a complete tmpfs copy separately in each target namespace before binding it, retains hash collisions, has no live stale-certificate removal, and logs failures."
+          "changes": "Reference for system/Conscrypt APEX and init/zygote/app mount namespaces. B-box patches Zygotes before discovering all visible mount namespaces, deduplicates each scan by namespace identity, rechecks actual stores on every pass, pins namespace/interpreter/script/public-CA descriptors before nsenter, stages complete per-store tmpfs copies in /dev, retains hash collisions, and returns pending/failure results. No live stale-certificate removal."
         },
         {
           "source": "android/app/src/main/assets/mitm_ca/post-fs-data.sh",
@@ -412,7 +412,7 @@
           "localPaths": [
             "app/src/main/assets/mitm-ca/post-fs-data.sh"
           ],
-          "changes": "Uses the B-box module-relative injector and resets this boot’s diagnostic log."
+          "changes": "Uses the B-box injector's non-waiting --early pass and resets this boot's diagnostic log; readiness retries belong to service.sh."
         },
         {
           "source": "android/app/src/main/assets/mitm_ca/service.sh",
@@ -421,7 +421,7 @@
           "localPaths": [
             "app/src/main/assets/mitm-ca/service.sh"
           ],
-          "changes": "Uses the B-box injector’s --apps option to reach existing app namespaces."
+          "changes": "Runs one flock-protected reconciliation loop, retries boot readiness every two seconds for at most 60 fast passes, then checks late/recreated namespaces and replaced stores every 30 seconds until disabled/removed. Records the latest exit status and bounded changed-result logs."
         },
         {
           "source": "android/app/src/main/kotlin/com/follow/clash/SystemCaStore.kt",

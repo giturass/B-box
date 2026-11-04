@@ -17,6 +17,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  root-ca:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Prepare isolated module regression
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes busybox-static
+          shellcheck --shell=sh app/src/main/assets/mitm-ca/*.sh
+      - name: Exercise real mount namespaces and boot retries
+        run: sudo --preserve-env=GITHUB_ACTIONS unshare --mount --pid --fork --mount-proc python3 tools/test_mitm_ca.py
   core:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
