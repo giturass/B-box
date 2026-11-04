@@ -2,15 +2,14 @@ package io.nekohasekai.sfa.flutter
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 
 /** Callback collection and fallback checks both stop in the background or with the screen off. */
@@ -27,14 +26,22 @@ internal fun CoroutineScope.refreshOnNetworkChanges(
         if (!active || !awake) 0L else if (requested) visibleIntervalMillis else hiddenIntervalMillis
     }.distinctUntilChanged().collectLatest { interval ->
         if (interval == 0L) return@collectLatest
-        val fallback = flow {
-            while (true) {
-                emit(Unit)
-                delay(interval)
+        coroutineScope {
+            val requests = Channel<Unit>(Channel.CONFLATED)
+            launch { changes.collect { requests.trySend(Unit) } }
+            launch {
+                while (true) {
+                    requests.trySend(Unit)
+                    delay(interval)
+                }
+            }
+            // A separate producer drains callbacks while a read is suspended.
+            // Keep only one pending refresh, regardless of upstream flow buffers.
+            try {
+                for (request in requests) sample()
+            } finally {
+                requests.cancel()
             }
         }
-        // Finish the current refresh, then handle the newest change. Callback bursts
-        // cannot grow a queue or repeatedly cancel a profile read already in progress.
-        merge(changes, fallback).conflate().collect { sample() }
     }
 }
