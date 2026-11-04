@@ -171,7 +171,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 | 入口 | 配置的验证范围 |
 | --- | --- |
 | [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入、Android 入口、旧 UI/更新依赖及退役抓包实现残留的静态检查 |
-| [newui.yml](.github/workflows/newui.yml) | 各分支代码 push 自动触发，也支持目标为 `dev` / `newui` 的 PR 及手动触发；仅 Markdown 的 push/PR 跳过。统一运行 Go 扩展/HTTP/MITM/重定向布局、Flutter 分析/交互/布局、JVM、`play` 编译及 API 31 smoke；同时构建验证所需的 AAR 和模拟器 APK |
+| [newui.yml](.github/workflows/newui.yml) | 各分支代码 push 自动触发，也支持目标为 `dev` / `newui` 的 PR 及手动触发；仅 Markdown 的 push/PR 跳过。统一运行 Root CA 挂载/补查、Go 扩展/HTTP/MITM/重定向布局、Flutter 分析/交互/布局、JVM、`play` 编译及 API 31 smoke；同时构建验证所需的 AAR 和模拟器 APK |
 | [build-release.yml](.github/workflows/build-release.yml) | 仅手动触发；独立并行准备核心/Flutter Release 库，构建签名 ARM64 APK、校验安装身份/产物及可选发布，不运行测试 |
 
 JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界和 QRS；[ServiceSettingsChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ServiceSettingsChangeTest.kt) 覆盖服务开关保存后的启动确认、失败/超时/取消恢复及恢复错误保留；[ProfileChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/database/ProfileChangeTest.kt) 覆盖配置持久化失败、应用超时/取消、恢复确认及恢复错误保留。[ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/手动与自动订阅/完整备份恢复失败，以及停服和未选中配置更新的服务状态。Flutter 视觉验证见 [flclash.md](flclash.md)。
@@ -203,6 +203,24 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 [ConnectionStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ConnectionStreamTest.kt) 检查增量计数、最终关闭计数、历史淘汰、DNS 过滤、快照隔离及 3000 条记录经过状态合并和恢复订阅后的消息内容。[NetworkRefreshTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/NetworkRefreshTest.kt) 用虚拟时间覆盖网络通知、十秒/六十秒补查、前后台/熄屏取消和突发通知合并。两者纳入现有 JVM 测试，不代替真实 Wi-Fi/蜂窝切换、热点及性能验收。
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
+
+### Root CA 与服务恢复修复验证
+
+2026-11-05，验证源码为 `4d7dabb9b804706d3dd019b92be85fd4f68ba89c`，包含 Root CA 模块版本 3 的启动补查、完整 namespace 枚举与重新挂载修复，以及服务错误/主动停止共用清理任务和启动代次检查。后续记录结果的 Markdown 提交不改变应用、模块或测试源码。
+
+[Unit tests and regression](https://github.com/giturass/B-box/actions/runs/41870624196) 全部成功：
+
+- Root CA 的六项 Linux 隔离挂载回归通过，包括 APEX 延迟就绪、旧系统可选 APEX、已有后代/隐藏模块路径、同一 namespace 重挂载、准备失败保留原库，以及常驻补查、单实例锁和禁用退出。Ubuntu BusyBox 未启用 `flock`，测试夹具补入真实的 util-linux 文件锁及其运行库。
+- Go 扩展、HTTP/MITM `-race`、路由及 Android 重定向布局回归通过。
+- Flutter 分析（`--no-fatal-infos`）、210 项交互/布局测试和 ARM64 Flutter AAR 构建通过；分析仍有 148 条 info 提示。
+- 50 项 JVM 测试无失败、错误或跳过，`play`/`other` 编译及模拟器应用/仪器测试 APK 构建通过。
+- API 31 UI smoke 和 20 项原生测试通过，包括连续五轮配置选择失败后的恢复、停止与重新启动。
+
+此前 [41857802322](https://github.com/giturass/B-box/actions/runs/41857802322) 的 API 31 回归出现服务恢复超时与 `initialize cache-file: timeout`。本次 `failedSelectionRestoresThePreviousSelectionAndService` 及其后的全部用例通过，未再出现该缓存锁超时。
+
+已读取 Root CA job 日志、12 份 JVM XML，以及 `android-smoke-api-31` 的 `results.json`、`native-tests.txt` 和 `mitm-origin.json`。模拟器报告为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（来源 `getconf`）；结果中的源码 SHA 与上述提交一致，HTTPS/TCP 测试服务器分别收到 `/probe?raw=1;2` 和 `/tcp-stream`。
+
+本机完成 `git diff --check`、`python3 tools/verify_newui.py`、ShellCheck、Python 语法、来源清单及文档链接静态检查，未在本机构建或运行 Go/Flutter/JVM/设备测试。本次未触发签名 Release 或发布 APK；真实 Magisk/KernelSU/APatch 安装、重启、Android 14+ 设备及第三方应用信任仍未验收，范围见 [请求抓取与 MITM](#请求抓取与-mitm)。
 
 ### MITM 连接与正文处理优化验证
 
