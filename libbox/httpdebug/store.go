@@ -96,13 +96,15 @@ type Page struct {
 // response in memory. The index lock is released during body writes, detail reads
 // and preview decoding; no lock is held across upstream network operations.
 type Store struct {
-	mu           sync.Mutex
-	directory    string
-	records      map[string]*Exchange
-	order        []string
-	totalBytes   int64
-	pendingBytes int64
-	lastError    string
+	// Protected by managerMu; independent of recording retention and Clear.
+	scriptStorage *scriptStore
+	mu            sync.Mutex
+	directory     string
+	records       map[string]*Exchange
+	order         []string
+	totalBytes    int64
+	pendingBytes  int64
+	lastError     string
 }
 
 func OpenStore(directory string) (*Store, error) {

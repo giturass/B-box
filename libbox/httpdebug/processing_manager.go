@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/x509"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"time"
 )
@@ -64,6 +65,15 @@ func PrepareProcessing(directory string, mitm *MITMConfig, rewrite *RewriteConfi
 	if err = openLocked(directory); err != nil {
 		return nil, err
 	}
+	if prepared.scripts != nil && prepared.scripts.needsStorage() {
+		if store.scriptStorage == nil {
+			store.scriptStorage, err = openScriptStore(filepath.Join(directory, "script-storage"))
+			if err != nil {
+				return nil, fmt.Errorf("script storage: %w", err)
+			}
+		}
+		prepared.scripts.storage = store.scriptStorage
+	}
 	return prepared, nil
 }
 
@@ -84,6 +94,10 @@ func ActivateProcessing(prepared *PreparedProcessing, dial RewriteDialFunc, root
 	var next *Engine
 	if prepared != nil {
 		next = newProcessingEngine(prepared)
+		next.scriptEnvironment = scriptEnvironment{dial: dial, roots: roots}
+		if prepared.scripts != nil {
+			next.scriptEnvironment.storage = prepared.scripts.storage
+		}
 	}
 	if previous := active.Swap(next); previous != nil {
 		previous.Close()

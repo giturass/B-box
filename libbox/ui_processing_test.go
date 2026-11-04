@@ -125,3 +125,33 @@ func TestUIMigratingEmptyMITMPortsPreservesHTTPPortDefaults(t *testing.T) {
 		}
 	}
 }
+
+func TestUIScriptCapabilitiesSchemaAndValidation(t *testing.T) {
+	content := `{"experimental":{"scripts":{"enabled":true,"http":[{"pattern":".","phase":"request","storage_namespace":"api-cache","http_client":{"allowed_origins":["https://api.test"],"max_requests":2},"source":"throw Error('validation must not execute scripts');"}],"cron":[{"cron":"* * * * *","storage_namespace":"api-cache","http_client":{"allowed_origins":[],"max_requests":1},"source":"setTimeout(()=>$done(),1);"}]}}}`
+	if err := CheckConfig(content); err != nil {
+		t.Fatal(err)
+	}
+	formatted, err := FormatConfig(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := GenerateConfigSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"http_client", "allowed_origins", "max_requests", "storage_namespace"} {
+		if !strings.Contains(formatted.Value, field) || !strings.Contains(schema.Value, `"`+field+`"`) {
+			t.Errorf("script capability lost by formatting or schema: %s", field)
+		}
+	}
+	for _, invalid := range []string{
+		strings.Replace(content, "https://api.test", "https://*.test", 1),
+		strings.Replace(content, `"max_requests":2`, `"max_requests":5`, 1),
+		strings.Replace(content, "api-cache", "../escape", 1),
+		strings.Replace(content, `"max_requests":2`, `"proxy":"direct"`, 1),
+	} {
+		if err := CheckConfig(invalid); err == nil {
+			t.Fatal("invalid script capability bypassed complete config validation")
+		}
+	}
+}

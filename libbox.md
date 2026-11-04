@@ -162,7 +162,7 @@ HTTP 离线 Mock 的握手方式见下文。TCP 支持限于直接建立 TLS 的
 
 `experimental.scripts` 定义于 [script_config.go](libbox/httpdebug/script_config.go)，示例见 [examples/scripts.json](examples/scripts.json)。`enabled` 默认 false；`http` 和 `cron` 共计最多 256 条，JSON 最多 2 MiB。每条规则使用 `source` 或 `resource`，二者互斥；资源保存在本扩展的 `resources` 字典中，每段源码最多 128 KiB。校验编译脚本及时间表达式，但不执行脚本、访问网络或读取本机源码文件。
 
-`ports`/`packages` 只限制 HTTP 脚本，默认端口与 HTTP 改写相同，不限制 Cron 请求。`max_body_bytes` 默认 1 MiB，范围 1～1048576，控制脚本正文及 Cron HTTP 输入/输出上限。
+`ports`/`packages` 只限制被处理的 HTTP 流，默认端口与 HTTP 改写相同，不限制脚本主动发出的 HTTP 请求。`max_body_bytes` 默认 1 MiB，范围 1～1048576，控制脚本正文及 `$httpClient` 输入/输出上限；HTTP 规则自己的较低限额同样适用于其客户端。
 
 HTTP 规则指定 `pattern`、`phase`（request/response）、可选 `name`/`disabled`，每个方向只执行第一条匹配脚本；失败不回退到下一条。HTTPS 必须另行启用 MITM 并匹配域名。接口由 [script.go](libbox/httpdebug/script.go) 提供：
 
@@ -179,9 +179,36 @@ Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`ti
 
 [script_cron.go](libbox/httpdebug/script_cron.go) 随本地服务运行，成功启动后才调度，重载/停止时取消并等待旧任务结束。抓包启停不重置调度或取消 Cron。相同任务不重叠，最多 2 个 Cron 调用；每次任务持有正文预算，预算不足则跳过并写入日志。设备休眠错过的周期不补跑，也不申请系统定时唤醒。任务必须调用 `$done()`，调用后立即停止该次执行；异常及超时写入普通日志。
 
-Cron 专用的 [HTTP 接口](libbox/httpdebug/script_http.go) 支持 `$httpClient.get/post/put/patch/delete/head/options(url或{url,headers,body}, callback)`。回调接收 error/response/data；response 有 status/headers，data 为 UTF-8 文本。回调顺序执行，每次任务最多 16 次 HTTP 请求，不自动跟随重定向；网络与正文读取均受任务截止时间限制。请求以 `b-box-scripts` 入站上下文重新匹配当前 sing-box 路由（不是新增监听器），使用该实例的证书库，不回退设备直连，也不递归触发 HTTP 处理。
+#### 脚本 HTTP 客户端
 
-未实现 HTTP 脚本主动联网、持久存储、setTimeout/setInterval、Node.js 模块、通知、jq 或完整 Surge API；不自动下载外链脚本。接口参考 2026-11-03 读取的 Surge [HTTP Processing](https://manual.nssurge.com/http/overview.html)、[MITM](https://manual.nssurge.com/http/mitm.html)、[URL Rewrite](https://manual.nssurge.com/http/url-rewrite.html)、[Header Rewrite](https://manual.nssurge.com/http/header-rewrite.html)、[Body Rewrite](https://manual.nssurge.com/http/body-rewrite.html)、[Map Local](https://manual.nssurge.com/http/map-local.html)、[请求脚本](https://manual.nssurge.com/scripting/http-request.html)、[响应脚本](https://manual.nssurge.com/scripting/http-response.html)和[Cron](https://manual.nssurge.com/scripting/cron.html)。B-box 不导入 Surge INI 或 Mihomo 覆写，也不宣称完全兼容其脚本。
+HTTP 请求/响应脚本与 Cron 共用 [HTTP 接口](libbox/httpdebug/script_http.go)：`$httpClient.get/post/put/patch/delete/head/options(url或{url,headers,body}, callback)`。回调接收 error/response/data；成功时 error 为 null，response 有 status/headers，data 为 UTF-8 文本；失败时 error 为字符串、response 为 null、data 为 undefined。body 只接受字符串，不自动转换对象或解码压缩响应，不跟随重定向。
+
+- HTTP 规则默认禁止主动联网。通过规则的 `http_client: {"allowed_origins":["https://api.example.test"],"max_requests":1}` 显式授权。允许列表最多 16 项，按 scheme、完整主机和有效端口匹配；只接受 HTTP(S) origin，可带根路径斜杠，不接受通配符、其他路径、凭据、查询或片段。域名大小写、末尾点和默认端口会规范化；不能用 Host 头切换到其他 origin。
+- HTTP 每次执行默认最多 4 次请求，`max_requests` 可降到 1～4；Cron 默认最多 16 次，可降到 1～16。失败和被拒绝的调用也计数。Cron 未配置 `http_client` 时保留原有路由联网能力；一旦配置即按允许列表限制，空列表禁止联网。
+- 网络调用与回调在 VM 的调用线程中顺序执行，前一调用返回后才执行后续脚本或定时器；所有等待、拨号、TLS 和正文读取共用本次 `timeout_ms`，不接受额外的 timeout、policy、proxy 或 insecure 选项。HTTP 脚本需要较长网络等待时可显式设置 `timeout_ms: 2000`，仍不超过其总时限。
+- 每次客户端调用额外持有 [正文工作预算](#json-配置中的-http-改写)，直到回调退出；即使脚本不读取被拦截正文也计入预算。预算不足通过回调报错，不发起请求。
+
+请求统一以 `b-box-scripts` 入站上下文重新匹配**当前 sing-box 实例的路由**，使用该实例的证书库并验证 HTTPS。该上下文不是新增监听器；不会回退设备直连，也不递归触发 HTTP 改写、脚本或记录。HTTP 规则的允许列表独立于 MITM 域名，后者只决定哪些客户端连接可解密。停服、重载、服务实例更换或原请求取消会结束在途调用。
+
+#### 脚本持久存储
+
+HTTP 与 Cron 规则可设置 `storage_namespace`，格式为 1～64 个 ASCII 字母、数字、点、下划线或连字符，首字符须为字母或数字。[存储实现](libbox/httpdebug/script_storage.go) 将这个配置值固定到本次 VM，脚本不能枚举或切换命名空间。命名空间在本机所有配置之间按完整名称共享；不同规则、HTTP/Cron 或配置只有显式使用相同名称才共享数据。修改脚本源码、规则名称或顺序不会改变指定的命名空间。
+
+- `$persistentStore.read(key)` 返回字符串，不存在时返回 null；空字符串是有效值。必须显式提供字符串 key，读取失败或未授权时抛出异常。
+- `$persistentStore.write(value, key)` 成功返回 true；value 必须为字符串，null 表示删除。配额、存储不可用、未授权或 I/O 失败返回 false，首次失败写入普通日志；非法参数类型抛出异常。
+- 每个 key 为 1～256 UTF-8 字节，单值最多 16 KiB；每个命名空间最多 128 键，序列化 JSON（含转义及结构）最多 64 KiB。所有命名空间合计最多 256 个、4 MiB，每次脚本最多 64 次读写调用。删除最后一键释放整个命名空间；移除规则不会自动删除数据。
+- 写入在共享锁中根据最新数据检查配额、同步临时文件并原子替换，成功后才更新缓存与计数。等待锁及提交前检查脚本取消；重载准备和旧脚本共用同一实例，避免旧快照覆盖新值。每次读/写独立原子化，read 后 write 不构成跨调用事务；已经成功写入的数据不因后续脚本异常或 `$done` 结果失败而回滚。
+- 存储不使用脚本 key 作为文件路径，也不提供文件系统 API。打开时校验版本、内容和限额，拒绝快照/专用目录的符号链接；中断写入的临时文件不被提升为有效数据。文件位置、备份及录制清理边界见 [应用生命周期](app.md#配置处理生命周期)。
+
+#### 脚本定时器
+
+[定时器](libbox/httpdebug/script_timers.go) 提供 `setTimeout(function, delayMs, ...args)`、`setInterval(function, delayMs, ...args)` 和可互换清理句柄的 `clearTimeout`/`clearInterval`。回调必须是函数，不执行字符串代码；delay 默认为 0，只接受 0～30000 的有限数值，实际最小间隔 1 毫秒。
+
+每次 VM 最多 32 个待执行定时器、累计注册 128 次、调用回调 128 次；顶层脚本返回后在同一线程执行到期回调，支持在回调中调用 HTTP、存储和 `$done`。例如 `setTimeout(() => $done(), 50)`。重复定时器从上次回调结束后计算下一次，不补跑阻塞或休眠期间错过的间隔。
+
+定时器不延长 HTTP/Cron 的原始超时，不跨执行或服务重启保存，不提供系统唤醒。仍须调用 `$done`；`$done`、异常、超时、原请求取消或停服会结束本次定时器。它们与 Cron 的日历调度相互独立。
+
+未实现 Node.js 模块、通知、jq、WebView WebAPI 或完整 Surge API；不自动下载外链脚本。HTTP/改写接口参考 2026-11-03 读取的 Surge [HTTP Processing](https://manual.nssurge.com/http/overview.html)、[MITM](https://manual.nssurge.com/http/mitm.html)、[URL Rewrite](https://manual.nssurge.com/http/url-rewrite.html)、[Header Rewrite](https://manual.nssurge.com/http/header-rewrite.html)、[Body Rewrite](https://manual.nssurge.com/http/body-rewrite.html)、[Map Local](https://manual.nssurge.com/http/map-local.html)、[请求脚本](https://manual.nssurge.com/scripting/http-request.html)、[响应脚本](https://manual.nssurge.com/scripting/http-response.html)和[Cron](https://manual.nssurge.com/scripting/cron.html)；客户端、持久存储和定时器对照 2026-11-04 的 [JavaScript API Reference](https://manual.nssurge.com/scripting/api.html)。B-box 的授权、命名空间、显式 key、配额与同步回调语义以上述实现为准，不导入 Surge INI 或 Mihomo 覆写，也不宣称完全兼容其脚本。
 
 核心集成固定 [Goja `a177d211bf606f6275674a35bc0d31d8ee0ee396`](https://github.com/dop251/goja/tree/a177d211bf606f6275674a35bc0d31d8ee0ee396) 和 [robfig/cron v3.0.1](https://github.com/robfig/cron/tree/v3.0.1)。setup-core 将模块最低 Go 版本设为 1.26.0，实际构建仍用 version.properties 的 go1.26.10；Goja 引入 regexp2/v2、sourcemap、pprof 及 x/text v0.43.0。正文解码复用当前核心依赖 [andybalholm/brotli v1.1.0](https://github.com/andybalholm/brotli/tree/v1.1.0) 和 [klauspost/compress v1.19.1](https://github.com/klauspost/compress/tree/v1.19.1)。相关许可证随 Flutter assets 注册；三个上游基线不变，统一测试与 Release 构建共用同一核心安装入口。
 
@@ -223,6 +250,8 @@ Cron 专用的 [HTTP 接口](libbox/httpdebug/script_http.go) 支持 `$httpClien
 [tls_selection_test.go](libbox/httpdebug/tls_selection_test.go) 在已有 48 条连接时执行真实 ClientHello 探测、TLS 握手及 HTTP Mock，检查仍接管请求，并验证探测取消、未交接关闭及正式接管后的服务回收。[recording_test.go](libbox/httpdebug/recording_test.go) 在同一 HTTP/1.1、HTTP/2 连接反复启停记录，检查处理不中断、连接 ID 不变；结合既有 SSE、WebSocket 和 TCP 测试验证停止后继续传输及记录冻结。[diagnostics_test.go](libbox/httpdebug/diagnostics_test.go) 检查无 HTTP 请求的 TLS 结束提示、错误页及迟到更新隔离。
 
 [body_processing_test.go](libbox/httpdebug/body_processing_test.go) 覆盖新编码/多层/重复头在改写、预览与 HAR 中一致，压缩膨胀、响应回放、上传截断、预算不足时零读取和正文关闭后释放；[streaming_processing_test.go](libbox/httpdebug/streaming_processing_test.go) 覆盖 HTTP/2 gRPC 在上传结束前响应、trailers、Expect: 100-continue 及慢上传取消。[script_resources_test.go](libbox/httpdebug/script_resources_test.go) 用实际等待中的 Cron HTTP 请求占满 Cron 池，验证 HTTP 脚本仍执行以及取消释放资源。这些是工作流配置的回归范围，实际通过结果以 [验证记录](app.md#验证与历史记录) 为准。
+
+[script_api_test.go](libbox/httpdebug/script_api_test.go) 覆盖两阶段 HTTP 客户端的路由注入、允许 origin/Host/次数/正文限制、重定向、TLS 信任、取消和全局预算；[script_storage_test.go](libbox/httpdebug/script_storage_test.go) 覆盖持久化、命名空间隔离及 HTTP/Cron 共享、字节/键/全局配额、并发写入、原子失败恢复、符号链接和重载/清空记录边界；[script_timers_test.go](libbox/httpdebug/script_timers_test.go) 覆盖顺序、参数、interval 清理、回调异常、上限及 HTTP/Cron 截止时间。新增用例由现有 `httpdebug -race` 入口自动纳入；它们的存在不代表当前源码已运行通过。
 
 连接关联回归还包括 [路由测试](libbox/route/httpdebug_test.go) 从真实流量跟踪器取得 UUID、穿过嗅探缓存、清空连接历史后重新打开请求存储，以及无跟踪器的 HTTP；[改写测试](libbox/httpdebug/rewrite_test.go) 检查跨目标改写仍保留原始连接 ID，[TCP 测试](libbox/httpdebug/mitm_tcp_test.go) 检查 TLS/TCP 关联，[迁移测试](libbox/httpdebug/store_migration_test.go) 检查旧记录不将 `captureId` 误认为连接 ID。
 

@@ -300,6 +300,81 @@ class ProfileRecoveryTest {
         }
     }
 
+    @Test fun httpScriptsUseRoutedClientTimersAndPersistentNamespaces() {
+        withRunningProfile { activity, profiles, id ->
+            SubscriptionServer("api-value").use { origin ->
+                val originPort = java.net.URI(origin.url).port
+                val proxyPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+                val namespace = "android-api-${UUID.randomUUID()}"
+                val script = """
+                    const cached=${'$'}persistentStore.read('value');
+                    if(cached!==null) ${'$'}done({response:{body:cached}});
+                    ${'$'}httpClient.get(${'$'}argument,function(error,response,data){
+                        if(error || response.status!==200) throw Error(error || 'status');
+                        if(!${'$'}persistentStore.write(data,'value')) throw Error('storage');
+                        setTimeout(()=>${'$'}done({response:{body:data}}),1);
+                    });
+                """.trimIndent()
+                val rule = JSONObject().put("pattern", ".").put("phase", "request").put("timeout_ms", 2000)
+                    .put("storage_namespace", namespace).put("argument", "http://api.test:$originPort/profile.json").put("source", script)
+                    .put("http_client", JSONObject().put("allowed_origins", JSONArray().put("http://api.test:$originPort")).put("max_requests", 1))
+                val config = JSONObject("""
+                    {
+                        "inbounds":[{"type":"mixed","tag":"script-in","listen":"127.0.0.1","listen_port":$proxyPort}],
+                        "outbounds":[{"type":"direct","tag":"original"},{"type":"direct","tag":"script-route"}],
+                        "route":{"rules":[
+                            {"domain":["intercepted.test"],"action":"route","outbound":"original","override_address":"127.0.0.1"},
+                            {"inbound":["b-box-scripts"],"domain":["api.test"],"action":"route","outbound":"script-route","override_address":"127.0.0.1"}
+                        ]}
+                    }
+                """).put("experimental", JSONObject().put("scripts", JSONObject().put("enabled", true)
+                    .put("ports", JSONArray().put(80).put(originPort)).put("http", JSONArray().put(rule))))
+                fun request(): String = Socket("127.0.0.1", proxyPort).use { tunnel ->
+                    tunnel.soTimeout = 10_000
+                    tunnel.getOutputStream().write("CONNECT intercepted.test:80 HTTP/1.1\r\nHost: intercepted.test:80\r\n\r\n".toByteArray())
+                    val reply = StringBuilder()
+                    while (!reply.endsWith("\r\n\r\n")) {
+                        val value = tunnel.getInputStream().read()
+                        check(value >= 0 && reply.length < 8192) { "Invalid script CONNECT response: $reply" }
+                        reply.append(value.toChar())
+                    }
+                    assertTrue(reply.toString().startsWith("HTTP/1.1 200"))
+                    tunnel.getOutputStream().write("GET /cache HTTP/1.1\r\nHost: intercepted.test:80\r\nConnection: close\r\n\r\n".toByteArray())
+                    tunnel.getInputStream().readBytes().toString(Charsets.UTF_8)
+                }
+                profiles.writeContent(id, config.toString(), BoxProfiles.revision(profiles.read(id)))
+                // The auxiliary origin also matches the script's ports/pattern.
+                // Without the service's recursion guard this request cannot finish.
+                assertTrue(request().endsWith("api-value"))
+                assertEquals(1, origin.requests.get())
+                val snapshot = File(activity.noBackupFilesDir, "http-debug/captures/script-storage/$namespace.json")
+                assertEquals("api-value", JSONObject(snapshot.readText()).getJSONObject("values").getString("value"))
+
+                // Rename/reload the rule and clear capture records; the explicit
+                // namespace must still serve the cached value without networking.
+                rule.put("name", "renamed rule")
+                profiles.writeContent(id, config.toString(), BoxProfiles.revision(profiles.read(id)))
+                Libbox.clearUICapture()
+                assertTrue(request().endsWith("api-value"))
+                assertEquals(1, origin.requests.get())
+
+                rule.put("storage_namespace", "isolated-${UUID.randomUUID()}").remove("http_client")
+                profiles.writeContent(id, config.toString(), BoxProfiles.revision(profiles.read(id)))
+                assertTrue(request().startsWith("HTTP/1.1 502"))
+                assertEquals(1, origin.requests.get())
+
+                rule.put("storage_namespace", namespace)
+                profiles.writeContent(id, config.toString(), BoxProfiles.revision(profiles.read(id)))
+                assertTrue(request().endsWith("api-value"))
+                assertEquals(1, origin.requests.get())
+                rule.put("source", "if(!${'$'}persistentStore.write(null,'value')) throw Error('delete'); ${'$'}done({response:{body:'cleared'}});")
+                profiles.writeContent(id, config.toString(), BoxProfiles.revision(profiles.read(id)))
+                assertTrue(request().endsWith("cleared"))
+                assertFalse(snapshot.exists())
+            }
+        }
+    }
+
     @Test fun captureSettingsAreLocalAndCheckRevisions() = runBlocking(Dispatchers.IO) {
         Application.application.setupLibbox()
         val context = InstrumentationRegistry.getInstrumentation().targetContext

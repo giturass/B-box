@@ -115,7 +115,8 @@ func (r *cronRunner) run(job compiledCron) error {
 		func(vm *goja.Runtime, ctx context.Context) {
 			_ = vm.Set("$cronexp", job.options.Cron)
 			_ = vm.Set("$trigger", "cron")
-			cleanup = installCronHTTP(vm, ctx, r.dial, r.roots, r.program.limit)
+			cleanup = installScriptHTTP(vm, ctx, r.dial, r.roots, r.program.limit, job.client)
+			installScriptStorage(vm, ctx, r.program.storage, job.options.StorageNamespace, job.label)
 		}, func(*goja.Runtime, goja.Value) error { return nil })
 	if err != nil {
 		writeLog("error", job.label+": cron failed: "+err.Error())

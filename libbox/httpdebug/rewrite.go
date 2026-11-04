@@ -17,7 +17,8 @@ import (
 // extension enables the other, and only MITM may admit a TLS connection.
 type httpProgram struct {
 	*RewriteProgram
-	scripts *ScriptProgram
+	scripts     *ScriptProgram
+	environment scriptEnvironment
 }
 
 func (e *Engine) httpProgram(metadata Metadata) *httpProgram {
@@ -35,7 +36,7 @@ func (e *Engine) httpProgram(metadata Metadata) *httpProgram {
 	if rewrite == nil {
 		rewrite = &RewriteProgram{limit: scripts.limit}
 	}
-	return &httpProgram{rewrite, scripts}
+	return &httpProgram{RewriteProgram: rewrite, scripts: scripts, environment: e.scriptEnvironment}
 }
 
 func (p *httpProgram) request(request *http.Request, id, address string, note func(string)) (local *http.Response, err error) {
@@ -141,7 +142,7 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 	}
 	if script != nil {
 		if lease != nil && (!script.options.RequiresBody || available) {
-			result, err := runHTTPScript(request, nil, script, id, data, note)
+			result, err := runHTTPScript(request, nil, script, id, data, p.environment, note)
 			if err != nil {
 				return nil, err
 			}
@@ -260,7 +261,7 @@ func (p *httpProgram) response(request *http.Request, response *http.Response, i
 		if script.options.RequiresBody && (!available || int64(len(data)) > script.options.MaxBodyBytes) {
 			note(script.label + ": skipped unavailable or oversized response body")
 		} else {
-			result, err := runHTTPScript(request, response, script, id, data, note)
+			result, err := runHTTPScript(request, response, script, id, data, p.environment, note)
 			if err != nil {
 				return err
 			}

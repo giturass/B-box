@@ -17,6 +17,19 @@
           "source": "const body=JSON.parse($request.body); body.debug=true; $done({body:JSON.stringify(body)});"
         },
         {
+          "name": "Cached routed API",
+          "pattern": "^https?://api\\.example\\.test/cached$",
+          "phase": "request",
+          "timeout_ms": 2000,
+          "max_body_bytes": 8192,
+          "storage_namespace": "example-api",
+          "http_client": {
+            "allowed_origins": ["https://api.example.test"],
+            "max_requests": 1
+          },
+          "source": "const cached=$persistentStore.read('latest'); if(cached!==null) $done({response:{body:cached}}); $httpClient.get('https://api.example.test/task', function(error,response,data) { if(error || response.status!==200) throw Error(error || 'HTTP status '+response.status); if(!$persistentStore.write(data,'latest')) throw Error('Storage write failed'); $done({response:{body:data}}); });"
+        },
+        {
           "name": "Response JSON",
           "pattern": "^https?://api\\.example\\.test/json$",
           "phase": "response",
@@ -32,8 +45,13 @@
           "cron": "0 2 * * *",
           "timezone": "Asia/Shanghai",
           "timeout_ms": 5000,
+          "storage_namespace": "example-api",
+          "http_client": {
+            "allowed_origins": ["https://api.example.test"],
+            "max_requests": 1
+          },
           "argument": "https://api.example.test/task",
-          "source": "$httpClient.get($argument, function(error, response, data) { if (error) throw Error(error); console.log(response.status, data); $done(); });"
+          "source": "$httpClient.get($argument, function(error, response, data) { if(error || response.status!==200) throw Error(error || 'HTTP status '+response.status); if(!$persistentStore.write(data,'latest')) throw Error('Storage write failed'); console.log(response.status); $done(); });"
         }
       ],
       "resources": {

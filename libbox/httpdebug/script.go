@@ -17,7 +17,8 @@ import (
 )
 
 // Limit concurrent interpreters across all intercepted connections. Runtimes
-// never share globals or expose host files/processes. Cron gets routed HTTP only.
+// never share globals or expose host files/processes. Host APIs are scoped to
+// each rule and to the current local service.
 var httpScriptSlots = make(chan struct{}, 4)
 var cronScriptSlots = make(chan struct{}, 2)
 var scriptFinished = errors.New("script called $done")
@@ -39,7 +40,7 @@ type scriptResult struct {
 	response          *http.Response
 }
 
-func runHTTPScript(request *http.Request, response *http.Response, script *compiledScript, id string, data []byte, note func(string)) (scriptResult, error) {
+func runHTTPScript(request *http.Request, response *http.Response, script *compiledScript, id string, data []byte, environment scriptEnvironment, note func(string)) (scriptResult, error) {
 	if script.options.RequiresBody {
 		if int64(len(data)) > script.options.MaxBodyBytes {
 			return scriptResult{}, errRewriteSize
@@ -50,9 +51,13 @@ func runHTTPScript(request *http.Request, response *http.Response, script *compi
 		}
 	}
 	var result scriptResult
+	cleanup := func() {}
+	defer func() { cleanup() }()
 	err := executeScript(request.Context(), script.program, script.label, "http-"+script.options.Phase,
 		script.options.TimeoutMS, script.options.Argument, script.options.BinaryBody,
 		func(vm *goja.Runtime, ctx context.Context) {
+			cleanup = installScriptHTTP(vm, ctx, environment.dial, environment.roots, script.options.MaxBodyBytes, script.client)
+			installScriptStorage(vm, ctx, environment.storage, script.options.StorageNamespace, script.label)
 			requestValue := map[string]any{"url": request.URL.String(), "method": request.Method,
 				"headers": scriptHeaders(vm, request.Header, request.Host, script.options.FullHeaders), "id": id}
 			if response == nil && script.options.RequiresBody {
@@ -130,6 +135,7 @@ func executeScript(parent context.Context, program *goja.Program, label, kind st
 		}
 	}
 	_ = vm.Set("console", console)
+	timers := installScriptTimers(vm, ctx)
 	setup(vm, ctx)
 	completed := false
 	_ = vm.Set("$done", func(call goja.FunctionCall) goja.Value {
@@ -137,14 +143,18 @@ func executeScript(parent context.Context, program *goja.Program, label, kind st
 			panic(vm.NewGoError(err))
 		}
 		completed = true
+		clear(timers.pending)
 		// Like Surge, $done terminates this invocation. A script cannot retain a
 		// runtime or run work after returning its result.
 		vm.Interrupt(scriptFinished)
 		return goja.Undefined()
 	})
 	_, err := vm.RunProgram(program)
+	if err == nil && !completed {
+		err = timers.run()
+	}
 	var interrupted *goja.InterruptedError
-	if completed && errors.As(err, &interrupted) && interrupted.Value() == scriptFinished {
+	if completed && (err == nil || errors.As(err, &interrupted) && interrupted.Value() == scriptFinished) {
 		if ctx.Err() != nil {
 			return fmt.Errorf("%s: %w", label, ctx.Err())
 		}

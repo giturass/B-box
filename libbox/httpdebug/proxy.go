@@ -30,6 +30,7 @@ type Engine struct {
 	rewrite              *RewriteProgram
 	mitm                 *MITMConfig
 	scripts              *ScriptProgram
+	scriptEnvironment    scriptEnvironment
 	ca                   *authority
 	store                *Store
 	ctx                  context.Context

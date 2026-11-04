@@ -284,7 +284,7 @@ func TestRewriteScriptsIsolationBinaryAndErrors(t *testing.T) {
 		program := scriptProgram(t, string(content))
 		request, _ := http.NewRequest("GET", "http://example.test/", nil)
 		start := time.Now()
-		if _, err := runHTTPScript(request, nil, &program.http[0], "test", nil, func(string) {}); err == nil {
+		if _, err := runHTTPScript(request, nil, &program.http[0], "test", nil, scriptEnvironment{}, func(string) {}); err == nil {
 			t.Errorf("script unexpectedly succeeded: %s", source)
 		}
 		if time.Since(start) > 3*time.Second {
@@ -298,7 +298,7 @@ func TestRewriteScriptsIsolationBinaryAndErrors(t *testing.T) {
 		go func() {
 			defer wait.Done()
 			request, _ := http.NewRequest("POST", "http://example.test/", nil)
-			result, err := runHTTPScript(request, nil, &program.http[0], "test", []byte{0, 1, 2}, func(string) {})
+			result, err := runHTTPScript(request, nil, &program.http[0], "test", []byte{0, 1, 2}, scriptEnvironment{}, func(string) {})
 			if err != nil || !bytes.Equal(result.body, []byte{255, 1, 2}) {
 				t.Errorf("isolated binary script: %v %v", result.body, err)
 			}
