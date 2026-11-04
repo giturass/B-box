@@ -99,7 +99,7 @@ MITM 配置、证书设置及 HTTP 脚本/Cron 的入口见 [高级配置](flcla
 
 CA 导出仅包含公钥 CRT。Android 7–10 使用 KeyChain 安装入口，Android 11 及以后打开安全设置，由用户先导出、再在设置中选择 CA 文件；返回值仅表示设置已打开，不能作为安装成功证明。[MitmCertificateModule.kt](app/src/main/java/io/nekohasekai/sfa/flutter/MitmCertificateModule.kt) 可导出 `bbox_mitm_ca` ZIP，交给 Magisk、KernelSU 或 APatch 管理器安装并重启，应用不执行自动 Root 注入。
 
-[模块脚本](app/src/main/assets/mitm-ca/inject.sh) 参考当前 FlClash 的 system/Conscrypt APEX namespace 处理，导出模块版本为 3。在各实际 namespace 内复制其原有证书集合到独立 tmpfs，补入公钥 CA、处理 hash.N 冲突并设权限/SELinux 标签，准备成功后才 bind 到目标；不先清空证书目录或写系统分区。进入 namespace 前打开并固定 namespace、解释器、脚本及公钥证书的描述符，在目标 `/dev` 临时暂存，避免目标视图隐藏模块路径后无法读取注入器和证书。挂载后核对证书，准备失败保留原库。
+[模块脚本](app/src/main/assets/mitm-ca/inject.sh) 参考当前 FlClash 的 system/Conscrypt APEX namespace 处理，导出模块版本为 3。在各实际 namespace 内复制其原有证书集合到独立 tmpfs，补入公钥 CA、处理 hash.N 冲突并设权限/SELinux 标签，准备成功后才 bind 到目标；不先清空证书目录或写系统分区。进入 namespace 前打开并固定 namespace、进程根目录、解释器、脚本及公钥证书的描述符，在目标 `/dev` 临时暂存，避免目标视图隐藏模块路径后无法读取注入器和证书；切换后沿用目标进程的根目录。挂载后核对证书，准备失败保留原库。
 
 post-fs-data 只做不等待的早期注入；[service.sh](app/src/main/assets/mitm-ca/service.sh) 以文件锁保证单实例，启动阶段每两秒重试，最多 60 轮快速检查，就绪后转为每 30 秒补查。每轮先注入已出现的主 Zygote，再枚举所有可访问的 `/proc/*/ns/mnt` 并按 namespace 标识去重，覆盖现有 app/WebView Zygote 后代及非直属进程。每轮重新核对进程实际视图中的证书，不跨轮仅凭 namespace inode 缓存成功，因此晚出现的 namespace、Zygote 重启及同一 namespace 内替换的 APEX 挂载会继续修复。禁用或移除标记出现后停止补查，已有挂载仍需重启移除。启动阶段语义依据 [Magisk](https://topjohnwu.github.io/Magisk/guides.html#boot-scripts) 和 [KernelSU](https://kernelsu.org/guide/module.html#boot-scripts) 文档，不能在阻塞的 post-fs-data 等待 Android 开机完成。
 

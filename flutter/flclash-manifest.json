@@ -403,7 +403,7 @@
           "localPaths": [
             "app/src/main/assets/mitm-ca/inject.sh"
           ],
-          "changes": "Reference for system/Conscrypt APEX and init/zygote/app mount namespaces. B-box patches Zygotes before discovering all visible mount namespaces, deduplicates each scan by namespace identity, rechecks actual stores on every pass, pins namespace/interpreter/script/public-CA descriptors before nsenter, stages complete per-store tmpfs copies in /dev, retains hash collisions, and returns pending/failure results. No live stale-certificate removal."
+          "changes": "Reference for system/Conscrypt APEX and init/zygote/app mount namespaces. B-box patches Zygotes before discovering all visible mount namespaces, deduplicates each scan by namespace identity, rechecks actual stores on every pass, pins namespace/root/interpreter/script/public-CA descriptors before nsenter, stages complete per-store tmpfs copies in /dev, retains hash collisions, and returns pending/failure results. No live stale-certificate removal."
         },
         {
           "source": "android/app/src/main/assets/mitm_ca/post-fs-data.sh",

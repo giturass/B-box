@@ -10,7 +10,7 @@ root manager; per-namespace staging before bind mounts; preserve each target's
 CA set; no app-driven su/install/uninstall; only a public certificate included.
 B-box changes (2026-11-05): inject Zygotes before enumerating all visible mount
 namespaces; bounded fast boot retries followed by periodic reconciliation;
-namespace/interpreter/script/certificate descriptors opened before nsenter;
+namespace/root/interpreter/script/certificate descriptors opened before nsenter;
 namespace-local /dev staging; explicit pending/failure status and bounded logs.
 
 Install this ZIP with Magisk, KernelSU or APatch, then reboot. Refresh the

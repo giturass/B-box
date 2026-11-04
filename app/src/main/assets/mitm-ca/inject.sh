@@ -107,12 +107,15 @@ enter_namespace() (
   # Open the interpreter, script and public certificate BEFORE switching mounts.
   # A vanished/reused PID must not silently target a different namespace.
   exec 7<"/proc/$1/ns/mnt" || exit 13
+  exec 4<"/proc/$1/root" || exit 13
   [ "$(stat -L -c %i /proc/self/fd/7)" = "$2" ] || exit 13
   exec 6<"/proc/$$/exe" 8<"$MODDIR/inject.sh" 9<"$cert" || exit 1
   # BusyBox dispatches by argv[0], so executing a descriptor named "6" directly
   # would select a nonexistent applet. Android's mksh bootstraps the pinned
   # interpreter with argv[0]=sh; BusyBox ash and mksh both support exec -a.
-  nsenter --mount=/proc/self/fd/7 -- /system/bin/sh -c \
+  # setns also resets root/cwd to the namespace root. Preserve the process's
+  # actual filesystem root, including chroot-based Android/container views.
+  nsenter --mount=/proc/self/fd/7 --root=/proc/self/fd/4 --wd=/proc/self/fd/4 -- /system/bin/sh -c \
     'exec -a sh /proc/self/fd/6 /proc/self/fd/8 --local "$@"' sh "$hash" "$sdk" "$3"
 )
 
@@ -129,9 +132,19 @@ visit_namespace() {
   # Inspect the actual process view on EVERY pass. An inode-only success cache
   # would miss APEX remounts or a CA mount removed in an existing namespace.
   root=/proc/$pid/root
+  if [ "$required" = 0 ] && [ -d "$root" ] &&
+    [ ! -d "$root/system/etc/security/cacerts" ] && [ ! -d "$root/apex/com.android.conscrypt/cacerts" ]; then
+    skipped=$((skipped + 1))
+    seen="$seen$namespace "
+    return
+  fi
   if has_certificate "$root/system/etc/security/cacerts" "$cert" "$hash" &&
     { has_certificate "$root/apex/com.android.conscrypt/cacerts" "$cert" "$hash" ||
       { [ "$sdk" -lt 34 ] && [ ! -d "$root/apex/com.android.conscrypt/cacerts" ]; }; }; then
+    if [ "$(stat -L -c %i "/proc/$pid/ns/mnt" 2>/dev/null)" != "$namespace" ]; then
+      pending=$((pending + 1))
+      return
+    fi
     ready=$((ready + 1))
     seen="$seen$namespace "
     return
