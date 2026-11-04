@@ -28,7 +28,7 @@ class ConnectionList {
         final cached = _search[id];
         final unchanged = cached != null && _fields.every((field) =>
           const DeepCollectionEquality().equals(cached.$1[field], connection[field]));
-        final text = unchanged ? cached!.$2 : _fields.map((field) => connection[field]).join(' ').toLowerCase();
+        final text = unchanged ? cached.$2 : _fields.map((field) => connection[field]).join(' ').toLowerCase();
         _search[id] = (connection, text);
         if (!words.every(text.contains)) continue;
       }
