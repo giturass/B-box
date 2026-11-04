@@ -5,6 +5,7 @@ import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Build
 import androidx.lifecycle.lifecycleScope
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.CommandServer
@@ -101,7 +102,17 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
         try {
             // Observe all transports, including VPN changes used to exclude tunnel
             // addresses. The fallback still enumerates hotspot-only interfaces.
-            manager.registerNetworkCallback(NetworkRequest.Builder().clearCapabilities().build(), callback)
+            val request = NetworkRequest.Builder().apply {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    clearCapabilities()
+                } else {
+                    // Before API 30, clear the three default capabilities explicitly.
+                    removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+                    removeCapability(NetworkCapabilities.NET_CAPABILITY_TRUSTED)
+                    removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                }
+            }.build()
+            manager.registerNetworkCallback(request, callback)
         } catch (_: RuntimeException) {
             close() // Registration can fail on vendor builds; retain the fallback.
             return@callbackFlow
