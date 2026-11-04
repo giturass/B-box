@@ -25,7 +25,7 @@ install_store() (
   stage=$(mktemp -d /dev/.bbox-ca.XXXXXX) || exit 1
   mounted=0
   # Invoked by the EXIT trap, including failed preparation and signals.
-  # shellcheck disable=SC2329
+  # shellcheck disable=SC2317,SC2329
   cleanup() {
     if [ "$mounted" = 1 ]; then umount "$stage" || return; fi
     rmdir "$stage"
@@ -93,7 +93,10 @@ MODDIR=${0%/*}
 mode=$1
 case $mode in --early|--apps) ;; *) printf 'Usage: inject.sh --early|--apps\n' >&2; exit 1 ;; esac
 set -- "$MODDIR"/cacert/*.0
-[ "$#" -eq 1 ] && [ -f "$1" ] || { printf 'failed: expected one public CA\n'; exit 1; }
+if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+  printf 'failed: expected one public CA\n'
+  exit 1
+fi
 cert=$1
 hash=${cert##*/}
 hash=${hash%.0}
