@@ -1,4 +1,5 @@
 import '../widgets.dart';
+import '../components/data_subscription.dart';
 import 'endpoints.dart';
 
 class InboxPage extends StatefulWidget {
@@ -16,7 +17,8 @@ class _InboxPageState extends State<InboxPage> {
   }
   @override void dispose() { _box?.act('taildrop.unsubscribe'); super.dispose(); }
   @override Widget build(BuildContext context) {
-    final box = context.box, state = context.box.inbox;
+    final box = context.watchBox(BoxAspect.transfers);
+    final state = box.inbox;
     return BoxPage(title: 'Received files', children: [
       if (rows(state['files']).isEmpty && rows(state['receiving']).isEmpty) const EmptyState('No received files'),
       for (final file in rows(state['receiving'])) ListItem(title: Text(file['name'].toString()),
@@ -35,9 +37,11 @@ class _InboxPageState extends State<InboxPage> {
 
 class TransfersPage extends StatelessWidget {
   const TransfersPage({super.key});
-  @override Widget build(BuildContext context) => BoxPage(title: 'Transfers', children: [
-    if (context.box.transfers.isEmpty) const EmptyState('No transfers'),
-    for (final transfer in context.box.transfers) generateSection(title: transfer['peerName'].toString(), items: [
+  @override Widget build(BuildContext context) {
+    final box = context.watchBox(BoxAspect.transfers);
+    return BoxPage(title: 'Transfers', children: [
+    if (box.transfers.isEmpty) const EmptyState('No transfers'),
+    for (final transfer in box.transfers) generateSection(title: transfer['peerName'].toString(), items: [
       for (final file in rows(transfer['files'])) ListItem(title: Text(file['name'].toString()), subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('${bytes(file['sentBytes'] as num? ?? 0)} / ${bytes(file['size'] as num? ?? 0)}'),
@@ -49,6 +53,7 @@ class TransfersPage extends StatelessWidget {
         onTap: () => context.box.act(transfer['finished'] == true ? 'taildrop.dismissSend' : 'taildrop.cancelSend', {'id': transfer['id']})),
     ]),
   ]);
+  }
 }
 
 /// Android ACTION_SEND content stays owned by the native host until sent or discarded.
@@ -63,9 +68,9 @@ class _SharePageState extends State<SharePage> {
   @override void didChangeDependencies() { super.didChangeDependencies(); _box ??= context.box; }
   @override void dispose() { if (!_sent) _box?.act('share.discard', {'token': widget.token}); super.dispose(); }
   @override Widget build(BuildContext context) {
-    final box = context.box;
+    final box = context.watchBox(BoxAspect.tools);
     final endpoints = rows(box.toolState['tailscale']).where((e) => e['canShareFiles'] == true).toList();
-    return BoxPage(title: 'Send with Taildrop', loading: _sending, children: [
+    return BoxDataSubscription(data: BoxData.tools, child: BoxPage(title: 'Send with Taildrop', loading: _sending, children: [
       if (!box.running) EmptyState('Service not started', action: FilledButton(
         onPressed: () => box.act('service.start'), child: Text(context.tr('Start')))),
       if (box.running && endpoints.isEmpty) const EmptyState('No recipients'),
@@ -80,6 +85,6 @@ class _SharePageState extends State<SharePage> {
               if (ok) { Navigator.pop(context); await openPage(context, const TransfersPage()); }
             }),
       ]),
-    ]);
+    ]));
   }
 }

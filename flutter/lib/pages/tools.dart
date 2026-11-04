@@ -1,4 +1,5 @@
 import '../widgets.dart';
+import '../components/data_subscription.dart';
 import 'connections.dart';
 import 'requests.dart';
 import 'logs.dart';
@@ -11,8 +12,8 @@ import 'terminal.dart';
 class ToolsPage extends StatelessWidget {
   const ToolsPage({super.key});
   @override Widget build(BuildContext context) {
-    final box = context.box;
-    return BoxPage(title: 'Tools', children: [
+    final box = context.watchBox(BoxAspect.tools);
+    return BoxDataSubscription(data: BoxData.tools, child: BoxPage(title: 'Tools', children: [
       generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.filter), title: Text(context.tr('Requests')), widget: const RequestsPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.connections), title: Text(context.tr('Connections')), widget: const ConnectionsPage()),
@@ -42,6 +43,6 @@ class ToolsPage extends StatelessWidget {
       generateSection(title: context.tr('Other'), items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.info), title: Text(context.tr('About')), widget: const AboutPage()),
       ]),
-    ]);
+    ]));
   }
 }

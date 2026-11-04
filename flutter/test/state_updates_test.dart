@@ -42,6 +42,15 @@ void main() {
       ('memory', {'total': 100}, BoxAspect.memory),
       ('logs', {'entries': [], 'defaultLogLevel': 'Warn'}, BoxAspect.logs),
       ('connections', [], BoxAspect.connections),
+      ('tools', {'tailscale': []}, BoxAspect.tools),
+      ('outbounds', [], BoxAspect.diagnostics),
+      ('quality', {'phase': 1}, BoxAspect.diagnostics),
+      ('stun', {'phase': 1}, BoxAspect.diagnostics),
+      ('ping', {'latencyMs': 10}, BoxAspect.diagnostics),
+      ('transfers', [{'id': 1, 'finished': false}], BoxAspect.transfers),
+      ('inbox', {'receiving': []}, BoxAspect.transfers),
+      ('usbDevices', [], BoxAspect.tools),
+      ('terminal', {'sessions': []}, BoxAspect.terminal),
     ]) {
       final before = Map.of(builds);
       events.add({'type': type, 'value': value});
@@ -73,6 +82,10 @@ void main() {
       ('memory', {'total': 100}),
       ('logs', {'entries': [], 'defaultLogLevel': 'Info'}),
       ('connections', []),
+      ('tools', {'tailscale': []}),
+      ('transfers', [{'id': 1, 'finished': false}]),
+      ('quality', {'phase': 1}),
+      ('terminal', {'sessions': []}),
       ('dashboard', {...box.dashboard, 'uploadTotal': '2 MB', 'memory': '20 MB'}),
       ('settings', {'allowBypass': true}),
     ]) {
@@ -85,6 +98,45 @@ void main() {
     expect(tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode, ThemeMode.dark);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
+  });
+
+  test('connection deltas retain unchanged objects and reset between subscriptions', () async {
+    await box.initialize();
+    Future<void> emit(Json value) async {
+      events.add({'type': 'connections', 'value': value});
+      await Future<void>.delayed(Duration.zero);
+    }
+    await emit({'reset': true, 'entries': [{'id': 'a', 'upload': 1}, {'id': 'b', 'upload': 2}]});
+    final old = box.connections;
+    await emit({'reset': false, 'entries': [{'id': 'a', 'upload': 5}, {'id': 'c', 'upload': 3}], 'removed': []});
+    expect(box.connections.map((entry) => entry['id']), ['a', 'b', 'c']);
+    expect(identical(old[1], box.connections[1]), isTrue);
+    expect(old[0]['upload'], 1);
+    await emit({'reset': false, 'entries': [], 'removed': ['a']});
+    expect(box.connections.map((entry) => entry['id']), ['b', 'c']);
+    await emit({'reset': true, 'entries': [{'id': 'remote', 'upload': 10}]});
+    expect(box.connections.single['id'], 'remote');
+    box.dispose();
+  });
+
+  test('startup preserves tool and network events delivered before the minimal ready response', () async {
+    final ready = Completer<Json>();
+    messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready' ? ready.future : null);
+    final initialized = box.initialize();
+    await Future<void>.delayed(Duration.zero);
+    events.add({'type': 'tools', 'value': {'tailscale': [{'endpointTag': 'tail', 'authURL': 'https://login.test'}]}});
+    events.add({'type': 'quality', 'value': {'phase': 3}});
+    events.add({'type': 'dashboard', 'value': {'status': 'Started'}});
+    events.add({'type': 'lan', 'value': {'addresses': ['192.168.1.10']}});
+    await Future<void>.delayed(Duration.zero);
+    ready.complete({'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'}});
+    await initialized;
+    expect(box.ready, isTrue);
+    expect(box.running, isTrue);
+    expect(rows(box.toolState['tailscale']).single['authURL'], 'https://login.test');
+    expect(box.quality['phase'], 3);
+    expect(box.lanAddresses, ['192.168.1.10']);
+    box.dispose();
   });
 
   test('log deltas retain existing records, evict old entries and keep pause snapshots intact', () async {

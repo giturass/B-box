@@ -1,7 +1,10 @@
 package io.nekohasekai.sfa.flutter
 
 import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import androidx.lifecycle.lifecycleScope
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.CommandServer
@@ -13,12 +16,16 @@ import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.AppLifecycleObserver
 import io.nekohasekai.sfa.utils.CommandTarget
+import io.nekohasekai.sfa.utils.RemoteControlManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -59,23 +66,48 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
     }
     private val qualityCache = activity.getSharedPreferences("dashboard_ip_quality", 0)
     private val memoryVisible = MutableStateFlow(false)
+    private val lanVisible = MutableStateFlow(false)
+    private val networkInvalidations = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private val memoryPolling = activity.lifecycleScope.pollWhileVisible(
         memoryVisible, AppLifecycleObserver.isForeground, AppLifecycleObserver.isScreenOn,
     ) {
         val snapshot = withContext(Dispatchers.IO) { memory() }
         emit("memory", snapshot)
     }
-    private val polling = activity.lifecycleScope.launch {
-        AppLifecycleObserver.isForeground.collectLatest { foreground ->
-            if (!foreground) return@collectLatest
-            while (isActive) {
-                refreshNetwork()
-                delay(2000)
-            }
-        }
+    private val polling = activity.lifecycleScope.refreshOnNetworkChanges(
+        AppLifecycleObserver.isForeground, AppLifecycleObserver.isScreenOn, lanVisible,
+        merge(networkChanges(), networkInvalidations, activity.serviceStatus.map { Unit },
+            BoxService.dashboardConfig.map { Unit }, RemoteControlManager.remoteServer.map { Unit }),
+    ) {
+        refreshNetwork()
     }
 
     fun setMemoryVisible(visible: Boolean) { memoryVisible.value = visible }
+    fun setLanVisible(visible: Boolean) { lanVisible.value = visible }
+    fun invalidateNetwork() { networkInvalidations.tryEmit(Unit) }
+
+    suspend fun synchronizeNetwork() = networkMutex.withLock {
+        networkSnapshot?.let { emit("lan", it) }
+    }
+
+    private fun networkChanges() = callbackFlow<Unit> {
+        val manager = activity.getSystemService(ConnectivityManager::class.java)
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) { trySend(Unit) }
+            override fun onLost(network: Network) { trySend(Unit) }
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) { trySend(Unit) }
+            override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) { trySend(Unit) }
+        }
+        try {
+            // Observe all transports, including VPN changes used to exclude tunnel
+            // addresses. The fallback still enumerates hotspot-only interfaces.
+            manager.registerNetworkCallback(NetworkRequest.Builder().clearCapabilities().build(), callback)
+        } catch (_: RuntimeException) {
+            close() // Registration can fail on vendor builds; retain the fallback.
+            return@callbackFlow
+        }
+        awaitClose { runCatching { manager.unregisterNetworkCallback(callback) } }
+    }
 
     private fun memory(): Map<String, Any?> {
         if (CommandTarget.isRemote) return mapOf("remote" to true, "total" to remoteMemory, "core" to remoteMemory)
@@ -185,9 +217,15 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
     }
 
     suspend fun refreshNetwork(force: Boolean = false): Map<String, Any?> = networkMutex.withLock {
-        val value = withContext(Dispatchers.IO) {
-            if (force) configCache.refresh()
-            network()
+        val value = try {
+            withContext(Dispatchers.IO) {
+                if (force) configCache.refresh()
+                network()
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            mapOf("error" to (error.message ?: error.toString()), "canToggle" to false)
         }
         if (value != networkSnapshot) {
             networkSnapshot = value

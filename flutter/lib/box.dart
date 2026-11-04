@@ -12,8 +12,8 @@ Json json(Object? value) => value is Map
     : <String, dynamic>{};
 List<Json> rows(Object? value) => value is List ? value.map(json).toList() : [];
 
-enum BoxAspect { state, appearance, traffic, memory, connections, logs }
-enum BoxData { memory, logs }
+enum BoxAspect { state, appearance, traffic, memory, connections, logs, tools, diagnostics, transfers, terminal }
+enum BoxData { memory, logs, connections, tools, outbounds, lan }
 
 class BoxController extends ChangeNotifier {
   BoxController({MethodChannel? channel, Stream<dynamic>? events})
@@ -27,6 +27,7 @@ class BoxController extends ChangeNotifier {
   final browserEvents = StreamController<Json>.broadcast();
   StreamSubscription<dynamic>? _subscription;
   final _revisions = List<int>.filled(BoxAspect.values.length, 0);
+  final _eventRevisions = <String, int>{};
   final _stateChanges = ChangeNotifier();
   final _dataOwners = <BoxData, Set<Object>>{};
   Listenable get stateChanges => _stateChanges;
@@ -37,6 +38,7 @@ class BoxController extends ChangeNotifier {
   List<Json> transfers = [], usbDevices = [];
   List<Json> outbounds = [];
   List<Json> profiles = [], groups = [], connections = [], logs = [];
+  final _connectionsById = <String, Json>{};
   String? defaultLogLevel;
   final uploadHistory = <double>[];
   final downloadHistory = <double>[];
@@ -78,7 +80,12 @@ class BoxController extends ChangeNotifier {
   }
 
   void _syncData(BoxData data) {
-    unawaited(act(data == BoxData.memory ? 'dashboard.memory.visible' : 'logs.visible',
+    final method = switch (data) {
+      BoxData.memory => 'dashboard.memory.visible',
+      BoxData.lan => 'dashboard.lan.visible',
+      _ => '${data.name}.visible',
+    };
+    unawaited(act(method,
       {'visible': _dataOwners[data]?.isNotEmpty == true}));
   }
 
@@ -158,19 +165,21 @@ class BoxController extends ChangeNotifier {
     await _subscription?.cancel();
     _subscription = _events.listen(_onEvent, onError: report);
     try {
+      final before = Map<String, int>.of(_eventRevisions);
       final result = json(await call('ready'));
+      bool unchanged(String type) => _eventRevisions[type] == before[type];
       version = result['version'] as String;
       coreVersion = result['coreVersion'] as String;
       systemAccentColor = (result['systemAccentColor'] as num?)?.toInt() ?? 0xff007aff;
-      dashboard = json(result['dashboard']);
-      profiles = rows(result['profiles']);
-      settings = json(result['settings']);
-      preferences = json(result['preferences']);
-      if (result['lan'] is Map) lan = json(result['lan']);
-      toolState = json(result['tools']);
+      if (unchanged('dashboard')) dashboard = json(result['dashboard']);
+      if (unchanged('profiles')) profiles = rows(result['profiles']);
+      if (unchanged('settings')) settings = json(result['settings']);
+      if (unchanged('preferences')) preferences = json(result['preferences']);
+      if (unchanged('lan') && result['lan'] is Map) lan = json(result['lan']);
+      if (unchanged('tools') && result['tools'] is Map) toolState = json(result['tools']);
       final diagnostics = json(result['diagnostics']);
-      stun = json(diagnostics['stun']);
-      quality = json(diagnostics['quality']);
+      if (unchanged('stun') && diagnostics['stun'] is Map) stun = json(diagnostics['stun']);
+      if (unchanged('quality') && diagnostics['quality'] is Map) quality = json(diagnostics['quality']);
       final intent = result['intent'] as String?;
       if (intent != null) pendingIntents.add(intent);
       ready = true;
@@ -250,18 +259,20 @@ class BoxController extends ChangeNotifier {
   void _onEvent(dynamic event) {
     if (_disposed) return;
     final item = json(event);
+    final type = item['type'] as String?;
+    if (type != null) _eventRevisions[type] = (_eventRevisions[type] ?? 0) + 1;
     final value = item['value'];
     var aspects = const [BoxAspect.state];
     switch (item['type']) {
-      case 'tools': toolState = json(value);
-      case 'outbounds': outbounds = rows(value);
-      case 'stun': stun = json(value);
-      case 'quality': quality = json(value);
-      case 'inbox': inbox = json(value);
-      case 'ping': ping = json(value);
-      case 'transfers': transfers = rows(value);
-      case 'usbDevices': usbDevices = rows(value);
-      case 'terminal': terminal = json(value);
+      case 'tools': toolState = json(value); aspects = const [BoxAspect.tools];
+      case 'outbounds': outbounds = rows(value); aspects = const [BoxAspect.diagnostics];
+      case 'stun': stun = json(value); aspects = const [BoxAspect.diagnostics];
+      case 'quality': quality = json(value); aspects = const [BoxAspect.diagnostics];
+      case 'inbox': inbox = json(value); aspects = const [BoxAspect.transfers];
+      case 'ping': ping = json(value); aspects = const [BoxAspect.diagnostics];
+      case 'transfers': transfers = rows(value); aspects = const [BoxAspect.transfers];
+      case 'usbDevices': usbDevices = rows(value); aspects = const [BoxAspect.tools];
+      case 'terminal': terminal = json(value); aspects = const [BoxAspect.terminal];
       case 'memory':
         final nextMemory = json(value);
         if (const DeepCollectionEquality().equals(memory, nextMemory)) return;
@@ -280,7 +291,13 @@ class BoxController extends ChangeNotifier {
       case 'profiles': profilesRevision++; _profileStats.clear(); profiles = rows(value);
       case 'groups': groups = rows(value);
       case 'connections':
-        connections = rows(value);
+        final update = json(value);
+        if (value is List || update['reset'] != false) _connectionsById.clear();
+        for (final id in update['removed'] as List? ?? const []) { _connectionsById.remove(id); }
+        for (final entry in rows(value is List ? value : update['entries'])) {
+          _connectionsById[entry['id'] as String] = entry;
+        }
+        connections = _connectionsById.values.toList();
         aspects = const [BoxAspect.connections];
       case 'logs':
         final logState = json(value);

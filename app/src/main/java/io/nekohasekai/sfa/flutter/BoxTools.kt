@@ -23,6 +23,7 @@ import io.nekohasekai.sfa.utils.CommandClient
 import io.nekohasekai.sfa.utils.RemoteControlManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -46,6 +47,9 @@ internal class BoxTools(private val activity: BoxActivity, private val emit: (St
     private val terminalSettings = BoxTerminalSettings(activity)
     private var inboxTag: String? = null
     private var sessionKey: Long? = null
+    private val detailsVisible = MutableStateFlow(false)
+    private val outboundsVisible = MutableStateFlow(false)
+    private val availability = MutableStateFlow(false to 0L)
     private val outbounds = CommandClient(scope, CommandClient.ConnectionType.Outbounds, object : CommandClient.Handler {
         override fun updateOutbounds(outbounds: List<io.nekohasekai.libbox.OutboundGroupItem>) {
             emit("outbounds", outbounds.map { mapOf("tag" to it.tag, "type" to it.type) })
@@ -67,8 +71,6 @@ internal class BoxTools(private val activity: BoxActivity, private val emit: (St
                 tailscale.cancel()
                 openConnect.cancel()
                 openVPN.cancel()
-                usb.cancel()
-                outbounds.disconnect()
                 if (sessionKey != target || !available) {
                     stun.onVpnDisconnected()
                     quality.onVpnDisconnected()
@@ -77,48 +79,88 @@ internal class BoxTools(private val activity: BoxActivity, private val emit: (St
                     inboxTag = null
                 }
                 sessionKey = target
+                availability.value = connected to target
                 if (connected) {
-                    outbounds.connect()
+                    // Authentication and incoming Taildrop notices remain subscribed
+                    // even when no tool detail page is visible.
                     tailscale.subscribe()
                     openConnect.subscribe()
                     openVPN.subscribe()
-                    usb.subscribe()
                     inboxTag?.let { inbox.subscribe(it) }
                 } else {
                     inbox.cancel()
                 }
             }
         }
-        jobs += scope.launch { tailscale.uiState.collect { emit("tools", snapshot()) } }
-        jobs += scope.launch { openConnect.uiState.collect { emit("tools", snapshot()) } }
-        jobs += scope.launch { openVPN.uiState.collect { emit("tools", snapshot()) } }
-        jobs += scope.launch { usb.uiState.collect { emit("tools", snapshot()) } }
-        jobs += scope.launch { stun.uiState.collect { emit("stun", it.toWire() + mapOf("mapping" to Libbox.formatNATMapping(it.natMapping), "filtering" to Libbox.formatNATFiltering(it.natFiltering))) } }
+        jobs += scope.launch {
+            combine(availability, detailsVisible) { (connected, target), visible -> (connected && visible) to target }
+                .distinctUntilChanged().collect { (connected, _) ->
+                    usb.cancel()
+                    if (connected) usb.subscribe()
+                }
+        }
+        jobs += scope.launch {
+            combine(availability, outboundsVisible) { (connected, target), visible -> (connected && visible) to target }
+                .distinctUntilChanged().collect { (connected, _) ->
+                    outbounds.disconnect()
+                    emit("outbounds", emptyList<Any>())
+                    if (connected) outbounds.connect()
+                }
+        }
+        jobs += scope.launch {
+            combine(tailscale.uiState, openConnect.uiState, openVPN.uiState, usb.uiState, detailsVisible) { _, _, _, _, detailed ->
+                snapshot(detailed)
+            }.distinctUntilChanged().collect { emit("tools", it) }
+        }
+        jobs += scope.launch { stun.uiState.collect { emit("stun", stunSnapshot()) } }
         jobs += scope.launch { quality.uiState.collect { emit("quality", it.toWire()) } }
         jobs += scope.launch { ping.uiState.collect { emit("ping", it.toWire()) } }
         jobs += scope.launch { inbox.uiState.collect { emit("inbox", it.toWire()) } }
-        jobs += scope.launch { TaildropSendManager.sessions.collect { sessions ->
-            emit("transfers", sessions.map { session ->
-                mapOf("id" to session.id, "endpointTag" to session.endpointTag, "peerName" to session.peerName,
-                    "finished" to session.finished, "error" to session.errorMessage,
-                    "files" to session.files.map { mapOf("name" to it.name, "size" to it.size, "sentBytes" to it.sentBytes, "completed" to it.completed) })
-            })
-        } }
-        jobs += scope.launch { USBIPManager.state.collect { state ->
-            emit("usbDevices", state.devices.map {
-                mapOf("id" to it.deviceId, "server" to it.serverTag, "label" to it.label, "state" to it.state.name, "error" to it.error)
-            })
-        } }
+        jobs += scope.launch { TaildropSendManager.sessions.collect { emit("transfers", transferSnapshot()) } }
+        jobs += scope.launch { USBIPManager.state.collect { emit("usbDevices", usbSnapshot()) } }
     }
 
-    fun snapshot(): Map<String, Any?> = mapOf(
-        "tailscale" to tailscale.uiState.value.endpoints.map { it.toWire() },
+    fun setVisible(visible: Boolean) { detailsVisible.value = visible }
+    fun setOutboundsVisible(visible: Boolean) { outboundsVisible.value = visible }
+
+    fun snapshot(detailed: Boolean = true): Map<String, Any?> = mapOf(
+        "tailscale" to tailscale.uiState.value.endpoints.map {
+            if (detailed) it.toWire() else mapOf(
+                "endpointTag" to it.endpointTag, "stateText" to it.stateText,
+                "authURL" to it.authURL, "canShareFiles" to it.canShareFiles,
+                "waitingFileCount" to it.waitingFileCount, "receivingFileCount" to it.receivingFileCount,
+                "unreadFileCount" to it.unreadFileCount,
+            )
+        },
         "openconnect" to openConnect.uiState.value.endpoints.map { it.toWire() },
         "openvpn" to openVPN.uiState.value.endpoints.map { it.toWire() },
         "usbip" to usb.uiState.value.servers.map { it.toWire() },
     )
 
-    fun diagnostics(): Map<String, Any?> = mapOf("quality" to quality.uiState.value.toWire(), "stun" to stun.uiState.value.toWire())
+    private fun stunSnapshot() = stun.uiState.value.let {
+        it.toWire() + mapOf("mapping" to Libbox.formatNATMapping(it.natMapping), "filtering" to Libbox.formatNATFiltering(it.natFiltering))
+    }
+
+    private fun transferSnapshot() = TaildropSendManager.sessions.value.map { session ->
+        mapOf("id" to session.id, "endpointTag" to session.endpointTag, "peerName" to session.peerName,
+            "finished" to session.finished, "error" to session.errorMessage,
+            "files" to session.files.map { mapOf("name" to it.name, "size" to it.size, "sentBytes" to it.sentBytes, "completed" to it.completed) })
+    }
+
+    private fun usbSnapshot() = USBIPManager.state.value.devices.map {
+        mapOf("id" to it.deviceId, "server" to it.serverTag, "label" to it.label, "state" to it.state.name, "error" to it.error)
+    }
+
+    fun synchronizeEvents() {
+        emit("tools", snapshot(detailsVisible.value))
+        emit("stun", stunSnapshot())
+        emit("quality", quality.uiState.value.toWire())
+        emit("ping", ping.uiState.value.toWire())
+        emit("inbox", inbox.uiState.value.toWire())
+        emit("transfers", transferSnapshot())
+        emit("usbDevices", usbSnapshot())
+        emit("terminal", ssh.snapshot())
+    }
 
     suspend fun invoke(method: String, args: Map<String, Any?>): Any? {
         if (method.startsWith("terminal.")) return terminalSettings.invoke(method, args)
@@ -126,6 +168,8 @@ internal class BoxTools(private val activity: BoxActivity, private val emit: (St
         fun string(key: String): String = args[key] as? String ?: error("Missing argument: " + key)
         when (method) {
             "tools.snapshot" -> return snapshot()
+            "tools.visible" -> setVisible(args["visible"] == true)
+            "outbounds.visible" -> setOutboundsVisible(args["visible"] == true)
             "stun.start" -> {
                 require(!stun.uiState.value.isRunning) { "A STUN test is already running" }
                 stun.updateServer(string("server"))

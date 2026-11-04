@@ -198,7 +198,7 @@
           "sourceSHA256": "7e1a759eae758576c4005fe250c7441bb606b4256a09e327f502e30d0851c8ab"
         }
       ],
-      "changes": "Mobile LAN IP, sharing switch, cookie/circle Wi-Fi badge, adaptive row and compact switch track from intranet_ip.dart/card.dart. Copy retains DashboardIconButton's fixed 32px square, 18px glyph, zero padding, surface-variant foreground and 8px right translation. Sharing changes native sing-box proxy inbound listen fields with independent ports and existing authentication/TLS. Copy expands actual running binds to device endpoints; stopped and remote sessions retain device IP copying."
+      "changes": "Mobile LAN IP, sharing switch, cookie/circle Wi-Fi badge, adaptive row and compact switch track from intranet_ip.dart/card.dart. Copy retains DashboardIconButton's fixed 32px square, 18px glyph, zero padding, surface-variant foreground and 8px right translation. Sharing changes native sing-box proxy inbound listen fields with independent ports and existing authentication/TLS. Copy expands actual running binds to device endpoints; stopped and remote sessions retain device IP copying. Card and details share visibility ownership for native callback-driven refresh and hotspot fallback checks."
     },
     "lib/components/system_proxy_panel.dart": {
       "source": "lib/views/dashboard/widgets/network_takeover.dart",
@@ -229,7 +229,7 @@
     "lib/pages/tools.dart": {
       "source": "lib/views/tools.dart",
       "sourceSHA256": "d493b7cfa19c3eb9d69e5c753603a26eb6b37cbca832a2021376765bcb6d0a9e",
-      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools."
+      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools. Uses tool-specific state notifications and shares a visibility-controlled native detail subscription with endpoint pages."
     },
     "lib/pages/about.dart": {
       "source": "lib/views/about.dart",

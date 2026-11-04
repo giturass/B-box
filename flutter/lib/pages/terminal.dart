@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import '../widgets.dart';
+import '../components/data_subscription.dart';
 import 'terminal_settings.dart';
 
 class TerminalPage extends StatefulWidget {
@@ -72,7 +73,8 @@ class _TerminalPageState extends State<TerminalPage> {
   }
   @override void dispose() { _username.dispose(); _terminalType.dispose(); super.dispose(); }
   @override Widget build(BuildContext context) {
-    final box = context.box, snapshot = context.box.terminal;
+    final box = context.watchBox(BoxAspect.terminal);
+    final snapshot = box.terminal;
     final sessions = rows(snapshot['sessions']);
     Json? active;
     for (final session in sessions) { if (session['id'] == snapshot['activeId']) active = session; }
@@ -176,7 +178,8 @@ class _GhosttySurfaceState extends State<GhosttySurface> {
 class TerminalSessionsPage extends StatelessWidget {
   const TerminalSessionsPage({super.key});
   @override Widget build(BuildContext context) {
-    final box = context.box, sessions = rows(context.box.terminal['sessions']);
+    final box = context.watchBox(BoxAspect.terminal);
+    final sessions = rows(box.terminal['sessions']);
     return BoxPage(title: 'Sessions', actions: [
       if (sessions.isNotEmpty) IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr('Duplicate session'), onPressed: () async {
         if (await box.act('ssh.duplicate') && context.mounted) context.safeNestedPop();
@@ -198,17 +201,18 @@ class TerminalSessionsPage extends StatelessWidget {
 class TerminalPeerPicker extends StatelessWidget {
   const TerminalPeerPicker({super.key});
   @override Widget build(BuildContext context) {
+    final box = context.watchBox(BoxAspect.tools);
     final peers = <Json>[
-      for (final endpoint in rows(context.box.toolState['tailscale']))
+      for (final endpoint in rows(box.toolState['tailscale']))
         for (final group in rows(endpoint['userGroups']))
           for (final peer in rows(group['peers']))
             if ((peer['sshHostKeys'] as List? ?? []).isNotEmpty) {...peer, 'endpoint': endpoint['endpointTag']},
     ];
-    return BoxPage(title: 'New session', children: [
+    return BoxDataSubscription(data: BoxData.tools, child: BoxPage(title: 'New session', children: [
       if (peers.isEmpty) const EmptyState('No SSH peers', message: 'Start a Tailscale endpoint with SSH-enabled peers.'),
       generateGroup([for (final peer in peers) ListItem(title: Text(peer['hostName'].toString()),
         subtitle: Text((peer['tailscaleIPs'] as List? ?? []).join(' · ')),
         onTap: () => context.safeNestedPop({'id': peer['id'], 'endpoint': peer['endpoint'], 'name': peer['hostName']}))]),
-    ]);
+    ]));
   }
 }

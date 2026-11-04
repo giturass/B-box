@@ -12,7 +12,11 @@ void main() {
       final events = StreamController<dynamic>.broadcast();
       final box = BoxController(channel: channel, events: events.stream);
       final changes = <bool>[];
-      final method = data == BoxData.memory ? 'dashboard.memory.visible' : 'logs.visible';
+      final method = switch (data) {
+        BoxData.memory => 'dashboard.memory.visible',
+        BoxData.lan => 'dashboard.lan.visible',
+        _ => '${data.name}.visible',
+      };
       messenger.setMockMethodCallHandler(channel, (call) async {
         if (call.method == 'ready') return {'version': 'test', 'coreVersion': 'test'};
         expect(call.method, method);

@@ -1,44 +1,24 @@
 import 'package:flutter/services.dart';
 import '../widgets.dart';
 import '../components/record.dart';
+import '../components/data_subscription.dart';
+import '../common/connection_list.dart';
 
 class ConnectionsPage extends StatefulWidget {
   const ConnectionsPage({super.key});
   @override State<ConnectionsPage> createState() => _ConnectionsPageState();
 }
 class _ConnectionsPageState extends State<ConnectionsPage> {
-  BoxController? _box;
+  final _list = ConnectionList();
   String _query = '', _filter = 'Active', _sort = 'Speed';
-  @override void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_box == null) {
-      _box = context.box;
-      _box!.act('connections.visible', {'visible': true});
-    }
-  }
-  @override void dispose() {
-    _box?.act('connections.visible', {'visible': false});
-    super.dispose();
-  }
   Future<void> _closeAll() async {
     final box = context.box;
     if (await confirm(context, 'Close all active connections?', action: 'Close')) await box.act('connections.closeAll');
   }
   @override Widget build(BuildContext context) {
     final box = context.watchBox(BoxAspect.connections);
-    final list = box.connections.where((connection) {
-      final closed = (connection['closedAt'] as num? ?? 0) > 0;
-      if (_filter == 'Active' && closed || _filter == 'Closed' && !closed) return false;
-      final search = [
-        connection['destination'], connection['domain'], connection['outbound'],
-        connection['network'], connection['rule'], connection['source'], connection['process'],
-      ].join(' ').toLowerCase();
-      return _query.toLowerCase().split(' ').every(search.contains);
-    }).toList();
-    final key = {'Created': 'createdAt', 'Upload': 'uploadTotal', 'Download': 'downloadTotal'}[_sort];
-    num rank(Json c) => key == null ? (c['upload'] as num? ?? 0) + (c['download'] as num? ?? 0) : c[key] as num? ?? 0;
-    list.sort((a, b) => rank(b).compareTo(rank(a)));
-    return CommonScaffold(
+    final list = _list.select(box.connections, query: _query, filter: _filter, sort: _sort);
+    return BoxDataSubscription(data: BoxData.connections, child: CommonScaffold(
       title: context.tr('Connections'),
       onKeywordsUpdate: (words) => setState(() => _query = words.join(' ')),
       searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
@@ -60,11 +40,11 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
             separatorBuilder: (_, _) => const SizedBox(height: recordListGap),
             itemBuilder: (context, index) {
               final connection = list[index];
-              return ConnectionRecord(connection: connection);
+              return ConnectionRecord(key: ValueKey(connection['id']), connection: connection);
             },
           ),
       ),
-    );
+    ));
   }
 }
 
@@ -130,7 +110,7 @@ class _ConnectionDetailState extends State<ConnectionDetail> {
       'Upload': bytes(c['uploadTotal'] as num? ?? 0), 'Download': bytes(c['downloadTotal'] as num? ?? 0),
       if (c['process'] != null) 'Process': json(c['process']).entries.map((e) => e.key + ': ' + e.value.toString()).join('\n'),
     };
-    return BoxPage(
+    return BoxDataSubscription(data: BoxData.connections, child: BoxPage(
       title: 'Details',
       actions: [
         IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr('Copy'), onPressed: () async {
@@ -141,6 +121,6 @@ class _ConnectionDetailState extends State<ConnectionDetail> {
           onPressed: box.running && present && (c['closedAt'] as num? ?? 0) == 0 ? () => box.act('connections.close', {'id': c['id']}) : null),
       ],
       children: [generateGroup([for (final value in values.entries) DetailRow.text(title: context.tr(value.key), value: value.value?.toString() ?? '—')])],
-    );
+    ));
   }
 }

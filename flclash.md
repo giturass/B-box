@@ -61,11 +61,13 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 - 首页编辑保留卡片的全局 key，防止重复出口请求及丢失状态。改动立即保存；保存失败保留草稿，点击完成再次尝试。
 - sing-box 专属 Tailscale、Taildrop、终端、认证、USB/IP、诊断和报告使用统一 Flutter 页面，复用原生后端；能力边界见 [app.md](app.md)。
 
-[box.dart](flutter/lib/box.dart) 按应用状态、启动/外观、流量、内存、连接和日志分开通知；流量采样与仪表盘累计值只更新相关组件，日志和连接变化不触发应用根部、代理或配置列表重建。出口查询监听应用状态变化，不因流量或内存采样重新计算路由标识。显式批量通知仍刷新全部依赖。
+[box.dart](flutter/lib/box.dart) 按应用状态、启动/外观、流量、内存、连接、日志、工具、诊断、传输和终端分开通知；高频数据只更新对应消费者，不触发应用根部、代理或配置列表重建。出口查询监听应用状态变化，不因遥测或工具进度重新计算路由标识。显式批量通知仍刷新全部依赖。
 
-[data_subscription.dart](flutter/lib/components/data_subscription.dart) 按页面活动状态、TickerMode 和应用生命周期合并内存/日志订阅；卡片与详情页共享一个原生采样请求，最后一个可见消费者退出时停止。日志增量保留既有记录对象，暂停快照独立于后续追加和淘汰，恢复可见时重新同步原生缓冲。原生采样与消息边界见 [app.md](app.md#配置服务应用与备份)。
+[data_subscription.dart](flutter/lib/components/data_subscription.dart) 按页面活动状态、TickerMode 和应用生命周期合并内存、日志、连接、工具详情、诊断出站及内网 IP 可见性请求；页面与详情共享一个原生请求，最后一个可见消费者退出时释放。内网 IP 请求决定热点补查频率，认证及来件通知保留独立订阅，具体边界见 [Android 桥接](app.md#界面替换与-android-桥接)和[采样规则](app.md#配置服务应用与备份)。日志增量保留既有记录对象，暂停快照独立于后续追加和淘汰，恢复可见时重新同步原生缓冲。
 
-[capture_poll.dart](flutter/lib/components/capture_poll.dart) 仅在本地请求列表/详情活动、TickerMode 开启且应用前台时每两秒查询；调用不重叠，筛选变化合并刷新，忽略旧筛选或会话的迟到结果。隐藏页面停止轮询，后台录制继续随服务运行。请求列表在共享页面内部读取上下间距，末尾“显示更多”按钮可滚动到固定搜索栏上方。页面为 B-box 业务代码，没有修改 FlClash 直接导入文件。
+连接增量按 ID 合并，未变化的行保留原对象；[connection_list.dart](flutter/lib/common/connection_list.dart) 缓存搜索元数据和筛选结果，集合及排序值未变化时复用顺序，计数变化仍更新行内容。列表与详情共用可见性订阅，恢复时接收完整快照；相同排序值按 ID 保持稳定顺序。
+
+[capture_poll.dart](flutter/lib/components/capture_poll.dart) 仅在本地请求列表/未完成详情活动、TickerMode 开启且应用前台时每两秒查询；调用不重叠，筛选变化合并刷新，忽略旧筛选或会话的迟到结果。已完成详情保留当前页面快照并停止定时查询，手动刷新或重新可见/返回前台时重新读取一次。隐藏页面停止轮询，后台录制继续随服务运行。请求列表在共享页面内部读取上下间距，末尾“显示更多”按钮可滚动到固定搜索栏上方。页面为 B-box 业务代码，没有修改 FlClash 直接导入文件。
 
 请求详情在记录带有原始连接 ID 时显示可复制的“连接 ID”，缺省时不显示该行；详情及导出继续使用请求自身 ID。两个 ID 的来源、关联及保留规则见 [核心请求调试](libbox.md#httphttps-请求调试)。
 
@@ -134,7 +136,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [logs_test.dart](flutter/test/logs_test.dart) 覆盖本地/远程日志状态的默认阈值、保留更严重的记录、手动筛选及恢复跟随配置，并检查暂停、搜索、导出和清空；实际内核级别与配置重载由 Android 仪器测试覆盖。
 
-[state_updates_test.dart](flutter/test/state_updates_test.dart) 检查高频数据只重建对应订阅者、服务状态仍通知、应用根部不随遥测变化重建且外观设置继续生效，并覆盖日志增量淘汰、暂停快照与重置。[data_subscription_test.dart](flutter/test/data_subscription_test.dart) 检查卡片/详情共享订阅、隐藏页面、TickerMode、前后台和销毁时的订阅切换。测试验证通知和调用行为，实际 PSS/RSS、CPU 和帧耗时仍需在同设备、同配置下测量。
+[state_updates_test.dart](flutter/test/state_updates_test.dart) 检查高频数据只重建对应订阅者、服务状态仍通知、应用根部不随遥测/工具进度变化重建且外观设置继续生效，并覆盖日志增量淘汰、暂停快照、连接增量对象复用/重置及启动响应不覆盖早到事件。[data_subscription_test.dart](flutter/test/data_subscription_test.dart) 对各类数据检查卡片/详情共享订阅、隐藏页面、TickerMode、前后台和销毁时的订阅切换。[connection_list_test.dart](flutter/test/connection_list_test.dart) 覆盖搜索、过滤、各类排序和增量更新；[capture_poll_test.dart](flutter/test/capture_poll_test.dart) 检查完成详情停轮询、手动刷新和前台恢复。测试验证通知和调用行为，实际 PSS/RSS、CPU 和帧耗时仍需在同设备、同配置下测量。
 
 [access_test.dart](flutter/test/access_test.dart) 覆盖进入托管页面不扫描、加载期间接收最新托管选择、显示范围与隐藏选择保留、保存失败后重试、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。它验证交互和调用行为，不代替实机加载耗时或视觉验收。
 

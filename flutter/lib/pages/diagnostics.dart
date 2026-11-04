@@ -1,4 +1,5 @@
 import '../widgets.dart';
+import '../components/data_subscription.dart';
 
 class DiagnosticsPage extends StatefulWidget {
   const DiagnosticsPage({super.key, required this.quality});
@@ -38,7 +39,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     _asking = false;
   }
   @override Widget build(BuildContext context) {
-    final box = context.box;
+    final box = context.watchBox(BoxAspect.diagnostics);
     final state = widget.quality ? box.quality : box.stun;
     final running = state['isRunning'] == true;
     if (widget.quality && state['showMeteredWarning'] == true && !_asking) {
@@ -46,7 +47,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     }
     final outbounds = <String>{'', ...box.outbounds.map((o) => o['tag'].toString())}.toList();
     final phase = state['phase'] as num? ?? -1;
-    return BoxPage(
+    return BoxDataSubscription(data: BoxData.outbounds, child: BoxPage(
       title: widget.quality ? 'Network quality' : 'STUN test',
       children: [
         generateSection(items: [
@@ -83,6 +84,6 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
           },
         })),
       ],
-    );
+    ));
   }
 }

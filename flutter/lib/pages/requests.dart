@@ -141,7 +141,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
 
   @override Widget build(BuildContext context) {
     if (context.box.remote) return const BoxPage(title: 'Requests', children: [EmptyState('HTTP debugging is only available for the local service')]);
-    return CapturePoll(method: 'capture.detail', arguments: {'id': widget.id}, builder: (context, detail, error, refresh) {
+    return CapturePoll(method: 'capture.detail', arguments: {'id': widget.id}, untilComplete: true, builder: (context, detail, error, refresh) {
       final metadata = json(detail?['metadata']), request = json(detail?['request']);
       final socket = json(metadata['socket']);
       final tls = json(metadata['tls']);

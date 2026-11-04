@@ -1,4 +1,5 @@
 import '../widgets.dart';
+import '../components/data_subscription.dart';
 import 'authentication.dart';
 import 'taildrop.dart';
 import 'terminal.dart';
@@ -19,8 +20,8 @@ class EndpointsPage extends StatelessWidget {
   const EndpointsPage({super.key, required this.kind});
   final String kind;
   @override Widget build(BuildContext context) {
-    final endpoints = rows(context.box.toolState[kind]);
-    return BoxPage(title: endpointName(kind), children: [
+    final endpoints = rows(context.watchBox(BoxAspect.tools).toolState[kind]);
+    return BoxDataSubscription(data: BoxData.tools, child: BoxPage(title: endpointName(kind), children: [
       if (endpoints.isEmpty) const EmptyState('No endpoints'),
       generateGroup([for (final endpoint in endpoints) ListItem.open(
         leading: const GlyphIcon(AppGlyphs.devices),
@@ -28,7 +29,7 @@ class EndpointsPage extends StatelessWidget {
         subtitle: Text((endpoint['stateText'] ?? '').toString()),
         widget: EndpointPage(kind: kind, tag: (endpoint['endpointTag'] ?? endpoint['serverTag']).toString()),
       )]),
-    ]);
+    ]));
   }
 }
 
@@ -36,11 +37,12 @@ class EndpointPage extends StatelessWidget {
   const EndpointPage({super.key, required this.kind, required this.tag});
   final String kind, tag;
   @override Widget build(BuildContext context) {
-    final box = context.box;
+    final box = context.watchBox(BoxAspect.tools);
     final endpoint = rows(box.toolState[kind]).where((item) => (item['endpointTag'] ?? item['serverTag']) == tag).firstOrNull;
-    if (endpoint == null) return BoxPage(title: tag, children: const [EmptyState('Endpoint disconnected')]);
+    if (endpoint == null) return BoxDataSubscription(data: BoxData.tools,
+      child: BoxPage(title: tag, children: const [EmptyState('Endpoint disconnected')]));
     final challenge = json(endpoint[kind == 'openvpn' ? 'challenge' : 'authChallenge']);
-    return BoxPage(title: tag, children: [
+    return BoxDataSubscription(data: BoxData.tools, child: BoxPage(title: tag, children: [
       if (kind == 'tailscale') ...[
         DetailRows({'Status': endpoint['stateText'], 'Network': endpoint['networkName'],
           'Address': (json(endpoint['selfPeer'])['tailscaleIPs'] as List? ?? []).join('\n')}),
@@ -90,7 +92,7 @@ class EndpointPage extends StatelessWidget {
             onTap: () => openPage(context, AuthenticationPage(kind: kind, endpoint: tag, challenge: challenge))),
         ]),
       ],
-    ]);
+    ]));
   }
 }
 
@@ -105,12 +107,14 @@ class _PeerPageState extends State<PeerPage> {
   @override void didChangeDependencies() { super.didChangeDependencies(); _box ??= context.box; }
   @override void dispose() { if (_ping) _box?.act('tailscale.stopPing'); super.dispose(); }
   @override Widget build(BuildContext context) {
-    final box = context.box;
+    final box = context.watchBox(BoxAspect.tools);
+    context.watchBox(BoxAspect.diagnostics);
     final endpoint = rows(box.toolState['tailscale']).where((e) => e['endpointTag'] == widget.endpoint).firstOrNull;
     final peer = endpoint == null ? null : endpointPeers(endpoint).where((p) => p['id'] == widget.id).firstOrNull;
-    if (peer == null) return const BoxPage(title: 'Tailscale', children: [EmptyState('Peer disconnected')]);
+    if (peer == null) return const BoxDataSubscription(data: BoxData.tools,
+      child: BoxPage(title: 'Tailscale', children: [EmptyState('Peer disconnected')]));
     final args = {'endpoint': widget.endpoint, 'peer': widget.id};
-    return BoxPage(title: peerName(peer), children: [
+    return BoxDataSubscription(data: BoxData.tools, child: BoxPage(title: peerName(peer), children: [
       DetailRows({'Address': (peer['tailscaleIPs'] as List? ?? []).join('\n'), 'OS': peer['os'],
         'Status': context.tr(peer['online'] == true ? 'Online' : 'Offline'),
         'Download': bytes(peer['rxBytes'] as num? ?? 0), 'Upload': bytes(peer['txBytes'] as num? ?? 0)}),
@@ -131,7 +135,7 @@ class _PeerPageState extends State<PeerPage> {
           'Path': box.ping['isDirect'] == true ? context.tr('Direct') : box.ping['derpRegionCode'],
           if ((box.ping['error'] ?? '') != '') 'Error': box.ping['error']}),
       ],
-    ]);
+    ]));
   }
 }
 

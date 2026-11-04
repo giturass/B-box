@@ -34,20 +34,32 @@ type Message struct {
 }
 
 type Exchange struct {
-	ID          string   `json:"id"`
-	StartedAt   int64    `json:"startedAt"`
-	DurationMS  int64    `json:"durationMs"`
-	Complete    bool     `json:"complete"`
-	Error       string   `json:"error,omitempty"`
-	Note        string   `json:"note,omitempty"`
-	OriginalURL string   `json:"originalUrl,omitempty"`
-	DomainOnly  bool     `json:"domainOnly,omitempty"`
-	Metadata    Metadata `json:"metadata"`
-	Request     Message  `json:"request"`
-	Response    Message  `json:"response"`
-	BodyLimit   int64    `json:"bodyLimit"`
-	storedBytes int64
-	jsonBytes   int64
+	ID           string   `json:"id"`
+	StartedAt    int64    `json:"startedAt"`
+	DurationMS   int64    `json:"durationMs"`
+	Complete     bool     `json:"complete"`
+	Error        string   `json:"error,omitempty"`
+	Note         string   `json:"note,omitempty"`
+	OriginalURL  string   `json:"originalUrl,omitempty"`
+	DomainOnly   bool     `json:"domainOnly,omitempty"`
+	Metadata     Metadata `json:"metadata"`
+	Request      Message  `json:"request"`
+	Response     Message  `json:"response"`
+	BodyLimit    int64    `json:"bodyLimit"`
+	storedBytes  int64
+	jsonBytes    int64
+	pendingBytes int64
+	finishing    bool
+	bodies       *[2]bodyFile
+}
+
+// mu serializes writes in one direction. The descriptor and lifecycle flags are
+// protected by Store.mu; a busy descriptor is closed by its writer after unlink.
+type bodyFile struct {
+	mu      sync.Mutex
+	file    *os.File
+	writing bool
+	done    bool
 }
 
 type Detail struct {
@@ -81,15 +93,16 @@ type Page struct {
 }
 
 // Store retains a bounded prefix of each body on disk, never a full streaming
-// response in memory. All operations share one lock; no lock is held across
-// upstream network operations or the complete duration of an HTTP transaction.
+// response in memory. The index lock is released during body writes, detail reads
+// and preview decoding; no lock is held across upstream network operations.
 type Store struct {
-	mu         sync.Mutex
-	directory  string
-	records    map[string]*Exchange
-	order      []string
-	totalBytes int64
-	lastError  string
+	mu           sync.Mutex
+	directory    string
+	records      map[string]*Exchange
+	order        []string
+	totalBytes   int64
+	pendingBytes int64
+	lastError    string
 }
 
 func OpenStore(directory string) (*Store, error) {
@@ -302,37 +315,110 @@ func (s *Store) Domains(query string) []string {
 }
 
 func (s *Store) appendBody(id string, response bool, p []byte) {
+	index, suffix := 0, ".request"
+	if response {
+		index, suffix = 1, ".response"
+	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	record := s.records[id]
-	if record == nil {
+	if record == nil || record.Complete || record.finishing {
+		s.mu.Unlock()
 		return
 	}
-	message, suffix := &record.Request, ".request"
+	if record.bodies == nil {
+		record.bodies = new([2]bodyFile)
+	}
+	body := &record.bodies[index]
+	s.mu.Unlock()
+
+	body.mu.Lock()
+	defer body.mu.Unlock()
+	s.mu.Lock()
+	if s.records[id] != record || record.Complete || record.finishing {
+		s.mu.Unlock()
+		return
+	}
+	message := &record.Request
 	if response {
-		message, suffix = &record.Response, ".response"
+		message = &record.Response
 	}
 	message.BodyBytes += int64(len(p))
+	message.BodyTruncated = message.BodyBytes > message.CapturedBytes
 	remaining := record.BodyLimit - message.CapturedBytes
-	if remaining > 0 && len(p) > 0 {
-		if int64(len(p)) > remaining {
-			p = p[:remaining]
+	// Reaching the saved prefix limit must not stop counting forwarded bytes.
+	if remaining <= 0 || len(p) == 0 || body.done {
+		s.mu.Unlock()
+		return
+	}
+	p = p[:min(int64(len(p)), remaining)]
+	if body.file == nil {
+		var err error
+		body.file, err = os.OpenFile(filepath.Join(s.directory, id+suffix), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			s.lastError = "Cannot save capture body: " + err.Error()
+			s.mu.Unlock()
+			return
 		}
-		file, err := os.OpenFile(filepath.Join(s.directory, id+suffix), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-		if err == nil {
-			var n int
-			n, err = file.Write(p)
-			file.Close()
-			message.CapturedBytes += int64(n)
-			record.storedBytes += int64(n)
-			s.totalBytes += int64(n)
-		}
+	}
+	file := body.file
+	reserved := int64(len(p))
+	record.pendingBytes += reserved
+	s.pendingBytes += reserved
+	// Reserve the prefix before releasing the index lock, so concurrent writes
+	// cannot all claim the same remaining space in the retained storage budget.
+	s.trimLocked()
+	if s.records[id] != record {
+		s.mu.Unlock()
+		return
+	}
+	body.writing = true
+	s.mu.Unlock()
+
+	n, err := file.Write(p)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	body.writing = false
+	if s.records[id] == record {
+		record.pendingBytes -= reserved
+		s.pendingBytes -= reserved
+		message.CapturedBytes += int64(n)
+		record.storedBytes += int64(n)
+		s.totalBytes += int64(n)
+		message.BodyTruncated = message.BodyBytes > message.CapturedBytes
 		if err != nil {
 			s.lastError = "Cannot save capture body: " + err.Error()
 		}
+		if message.CapturedBytes >= record.BodyLimit {
+			body.done = true
+		}
+		if record.finishing {
+			record.Complete = record.pendingBytes == 0
+			s.persistLocked(record)
+		}
+		s.trimLocked()
 	}
-	message.BodyTruncated = message.BodyBytes > message.CapturedBytes
-	s.trimLocked()
+	if err != nil || body.done || record.Complete || s.records[id] != record {
+		s.closeBodyLocked(body)
+	}
+}
+
+func (s *Store) closeBodyLocked(body *bodyFile) {
+	if body.file != nil && !body.writing {
+		if err := body.file.Close(); err != nil {
+			s.lastError = "Cannot close capture body: " + err.Error()
+		}
+		body.file = nil
+	}
+}
+
+func (s *Store) closeBodiesLocked(record *Exchange) {
+	if record.bodies != nil {
+		for index := range record.bodies {
+			body := &record.bodies[index]
+			body.done = true
+			s.closeBodyLocked(body)
+		}
+	}
 }
 
 func (s *Store) bodyComplete(id string, response bool) {
@@ -343,6 +429,15 @@ func (s *Store) bodyComplete(id string, response bool) {
 			record.Response.BodyComplete = true
 		} else {
 			record.Request.BodyComplete = true
+		}
+		if record.bodies != nil {
+			index := 0
+			if response {
+				index = 1
+			}
+			body := &record.bodies[index]
+			body.done = true
+			s.closeBodyLocked(body)
 		}
 	}
 }
@@ -374,8 +469,12 @@ func (s *Store) finish(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if record := s.records[id]; record != nil {
-		record.Complete = true
+		record.finishing = true
+		// Readers may stop polling a completed record. Publish completion only
+		// after every in-flight body write has committed its final byte counts.
+		record.Complete = record.pendingBytes == 0
 		record.DurationMS = max(0, time.Now().UnixMilli()-record.StartedAt)
+		s.closeBodiesLocked(record)
 		s.persistLocked(record)
 		s.trimLocked()
 	}
@@ -405,18 +504,20 @@ func (s *Store) persistLocked(record *Exchange) {
 
 func (s *Store) removeLocked(id string) {
 	if record := s.records[id]; record != nil {
+		s.closeBodiesLocked(record)
 		for _, suffix := range []string{".json", ".request", ".response", ".json.tmp"} {
 			if err := os.Remove(filepath.Join(s.directory, id+suffix)); err != nil && !errors.Is(err, os.ErrNotExist) {
 				s.lastError = "Cannot remove capture: " + err.Error()
 			}
 		}
 		s.totalBytes -= record.storedBytes
+		s.pendingBytes -= record.pendingBytes
 		delete(s.records, id)
 	}
 }
 
 func (s *Store) trimLocked() {
-	for len(s.order) > 0 && (len(s.order) > MaxEntries || s.totalBytes > MaxStorageBytes) {
+	for len(s.order) > 0 && (len(s.order) > MaxEntries || s.totalBytes+s.pendingBytes > MaxStorageBytes) {
 		s.removeLocked(s.order[0])
 		s.order = s.order[1:]
 	}
@@ -460,13 +561,22 @@ func (s *Store) Page(limit int, query string) Page {
 }
 
 func (s *Store) Detail(id string) (*Detail, error) {
+	var files [2]*os.File
+	defer func() {
+		for _, file := range files {
+			if file != nil {
+				file.Close()
+			}
+		}
+	}()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	record := s.records[id]
 	if record == nil {
+		s.mu.Unlock()
 		return nil, os.ErrNotExist
 	}
 	detail := &Detail{Exchange: *record}
+	detail.bodies = nil
 	if !detail.Complete {
 		detail.DurationMS = max(0, time.Now().UnixMilli()-detail.StartedAt)
 	}
@@ -482,10 +592,23 @@ func (s *Store) Detail(id string) (*Detail, error) {
 			continue
 		}
 		if err != nil {
+			s.mu.Unlock()
 			return nil, err
 		}
-		data, err := io.ReadAll(io.LimitReader(file, record.BodyLimit))
-		file.Close()
+		files[i] = file
+	}
+	// Opening under the index lock pins the files across eviction/Clear. Read only
+	// the captured prefix in this snapshot, even if a writer appends concurrently.
+	s.mu.Unlock()
+	for i, file := range files {
+		if file == nil {
+			continue
+		}
+		message := &detail.Request
+		if i == 1 {
+			message = &detail.Response
+		}
+		data, err := io.ReadAll(io.LimitReader(file, message.CapturedBytes))
 		if err != nil {
 			return nil, err
 		}

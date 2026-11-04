@@ -2,14 +2,15 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../widgets.dart';
 
-/// Capture lists/details/logs poll only while their page is visible in the foreground.
+/// Capture lists/details poll only while their page is visible in the foreground.
 /// Request generations keep a slow reply from replacing a newer filter or session.
 class CapturePoll extends StatefulWidget {
   const CapturePoll({super.key, required this.method, required this.arguments,
-    required this.builder, this.revision = 0});
+    required this.builder, this.revision = 0, this.untilComplete = false});
   final String method;
   final Json arguments;
   final int revision;
+  final bool untilComplete;
   final Widget Function(BuildContext, Json?, Object?, VoidCallback) builder;
   @override State<CapturePoll> createState() => _CapturePollState();
 }
@@ -65,7 +66,9 @@ class _CapturePollState extends State<CapturePoll> with WidgetsBindingObserver {
       _loading = false;
       if (mounted && _visible) {
         if (_queued) { _queued = false; unawaited(_load()); }
-        else { _timer = Timer(const Duration(seconds: 2), _load); }
+        else if (!widget.untilComplete || _value?['complete'] != true || _error != null) {
+          _timer = Timer(const Duration(seconds: 2), _load);
+        }
       }
     }
   }

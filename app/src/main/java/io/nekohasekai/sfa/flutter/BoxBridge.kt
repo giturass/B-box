@@ -58,7 +58,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private lateinit var logs: LogViewModel
     internal lateinit var toolBridge: BoxTools
     private lateinit var dashboardDetails: BoxDashboard
-    private var connectionsVisible = false
+    private val connectionsVisible = MutableStateFlow(false)
     private val logsVisible = MutableStateFlow(false)
     private val operations = Mutex()
     private val apps = AppListCache {
@@ -144,13 +144,24 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 streamJob = scope.launch {
                     try {
                         initialize.await()
+                        toolBridge.synchronizeEvents()
                         while (queuedErrors.isNotEmpty()) emit("error", queuedErrors.removeFirst())
                         coroutineScope {
+                            launch { dashboardDetails.synchronizeNetwork() }
                             launch { dashboard.uiState.collect { emit("dashboard", it.toWire()) } }
                             launch { groups.uiState.collect { emit("groups", it.groups.map { group -> group.toWire() }) } }
-                            launch { connections.uiState.collect { state ->
-                                if (connectionsVisible) emit("connections", withContext(Dispatchers.Default) { state.allConnections.map { it.toWire() } })
-                            } }
+                            launch {
+                                val stream = ConnectionStream()
+                                combine(connections.uiState, connectionsVisible, AppLifecycleObserver.isForeground) { state, visible, foreground ->
+                                    state.takeIf { visible && foreground }
+                                }.collect { state ->
+                                    if (state == null) stream.reset()
+                                    else {
+                                        val update = withContext(Dispatchers.Default) { stream.update(state.allConnections) }
+                                        if (update != null) emit("connections", update)
+                                    }
+                                }
+                            }
                             launch {
                                 val stream = LogStream()
                                 combine(logs.uiState, logsVisible, AppLifecycleObserver.isForeground) { state, visible, foreground ->
@@ -178,9 +189,16 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 sink = null
                 streamJob?.cancel()
                 logsVisible.value = false
-                if (::dashboardDetails.isInitialized) dashboardDetails.setMemoryVisible(false)
-                if (::connections.isInitialized && connectionsVisible) {
-                    connectionsVisible = false
+                if (::toolBridge.isInitialized) {
+                    toolBridge.setVisible(false)
+                    toolBridge.setOutboundsVisible(false)
+                }
+                if (::dashboardDetails.isInitialized) {
+                    dashboardDetails.setMemoryVisible(false)
+                    dashboardDetails.setLanVisible(false)
+                }
+                if (::connections.isInitialized && connectionsVisible.value) {
+                    connectionsVisible.value = false
                     connections.setVisible(false)
                 }
             }
@@ -207,6 +225,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             }
             "dashboard.releaseMemory" -> dashboardDetails.releaseMemory()
             "dashboard.memory.visible" -> { dashboardDetails.setMemoryVisible(args["visible"] == true); null }
+            "dashboard.lan.visible" -> { dashboardDetails.setLanVisible(args["visible"] == true); null }
             "dashboard.lan.refresh" -> dashboardDetails.refreshNetwork(force = true)
             "dashboard.lan.set" -> localProfiles {
                 val enabled = args["enabled"] as? Boolean ?: error("Missing LAN proxy state")
@@ -219,16 +238,21 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 publishProfiles()
                 dashboardDetails.refreshNetwork()
             }
-            "ready" -> mapOf(
-                "version" to BuildConfig.VERSION_NAME, "coreVersion" to Libbox.version(),
-                "systemAccentColor" to systemAccentColor(),
-                "dashboard" to dashboard.uiState.value.toWire(),
-                "profiles" to withContext(Dispatchers.IO) { profiles.list() },
-                "settings" to settings(), "preferences" to readPreferences(),
-                "lan" to dashboardDetails.refreshNetwork(),
-                "tools" to toolBridge.snapshot(), "diagnostics" to toolBridge.diagnostics(),
-                "intent" to activity.takeIntent(),
-            )
+            "ready" -> coroutineScope {
+                val initialProfiles = async(Dispatchers.IO) { profiles.list() }
+                val initialSettings = async(Dispatchers.IO) { settings() }
+                val initialPreferences = async(Dispatchers.IO) { readPreferences() }
+                val profileList = initialProfiles.await()
+                val settingValues = initialSettings.await()
+                val preferenceValues = initialPreferences.await()
+                mapOf(
+                    "version" to BuildConfig.VERSION_NAME, "coreVersion" to Libbox.version(),
+                    "systemAccentColor" to systemAccentColor(),
+                    "dashboard" to dashboard.uiState.value.toWire(),
+                    "profiles" to profileList, "settings" to settingValues, "preferences" to preferenceValues,
+                    "intent" to activity.takeIntent(),
+                )
+            }
             "service.start" -> {
                 require(!CommandTarget.isRemote) { "Exit remote control before starting the local service" }
                 activity.startService()
@@ -353,11 +377,10 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             }
             "connections.visible" -> {
                 val visible = args["visible"] == true
-                if (visible != connectionsVisible) {
-                    connectionsVisible = visible
+                if (visible != connectionsVisible.value) {
+                    connectionsVisible.value = visible
                     connections.setVisible(visible)
                 }
-                if (visible) emit("connections", connections.uiState.value.allConnections.map { it.toWire() })
                 null
             }
             "connections.close" -> withContext(Dispatchers.IO) {
@@ -493,6 +516,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         val value = withContext(Dispatchers.IO) { profiles.list() }
         emit("profiles", value)
         if (::dashboard.isInitialized) emit("dashboard", dashboard.uiState.value.toWire())
+        if (::dashboardDetails.isInitialized) dashboardDetails.invalidateNetwork()
     }
 
     private fun readPreferences(): Map<String, Any?> = runCatching {
@@ -633,7 +657,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             dashboard.commandClient.removeHandler(rates)
             ProfileManager.unregisterCallback(profileCallback)
             PackageQueryManager.unregisterListeners()
-            if (connectionsVisible) connections.setVisible(false)
+            if (connectionsVisible.value) connections.setVisible(false)
             toolBridge.close()
             dashboardDetails.close()
         }

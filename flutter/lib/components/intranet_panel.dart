@@ -5,6 +5,7 @@ import 'package:material_new_shapes/material_new_shapes.dart';
 import '../widgets.dart';
 import '../pages/configuration.dart';
 import 'shape_badge.dart';
+import 'data_subscription.dart';
 
 Future<void> _copy(BuildContext context, String text) async {
   await Clipboard.setData(ClipboardData(text: text));
@@ -46,7 +47,7 @@ class IntranetPanel extends StatelessWidget {
     final box = context.box, addresses = context.box.lanAddresses;
     final copy = box.lanCopyText;
     final figure = AppTextStyle.title1.of(context, emphasized: true).toTabular.copyWith(letterSpacing: 0);
-    return BoxPanel(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    return BoxDataSubscription(data: BoxData.lan, child: BoxPanel(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       PanelTitle('Intranet IP', AppGlyphs.devices, trailing: Transform.translate(
         offset: const Offset(8, 0), child: SizedBox(width: 32, child: OverflowBox(
         fit: OverflowBoxFit.deferToChild, minHeight: 32, maxHeight: 32,
@@ -72,7 +73,7 @@ class IntranetPanel extends StatelessWidget {
           title: Text(context.tr('This device')), subtitle: Text(context.tr('Device network addresses'))))
       else LANProxyRow(value: box.lan['enabled'] == true, subtitle: _subtitle(context),
         onChanged: box.canSetLanProxy ? (value) => _change(context, value) : null),
-    ]));
+    ])));
   }
 }
 
@@ -121,7 +122,7 @@ class IntranetDetails extends StatelessWidget {
   @override Widget build(BuildContext context) {
     final box = context.box, active = !context.box.remote && context.box.running && context.box.lan['running'] == true;
     final bindings = rows(box.lan[active ? 'activeBindings' : 'bindings']);
-    return BoxPage(title: 'Intranet IP', actions: [
+    return BoxDataSubscription(data: BoxData.lan, child: BoxPage(title: 'Intranet IP', actions: [
       IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Reload'), onPressed: box.lanChanging ? null : box.refreshLan),
     ], children: [
       generateSection(title: context.tr('This device'), items: [
@@ -150,7 +151,7 @@ class IntranetDetails extends StatelessWidget {
             widget: ProfileConfigurationPage(profile: box.selectedProfile)),
         ]),
       ],
-    ]);
+    ]));
   }
 }
 

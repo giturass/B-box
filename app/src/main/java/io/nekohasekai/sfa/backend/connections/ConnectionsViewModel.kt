@@ -2,27 +2,21 @@ package io.nekohasekai.sfa.backend.connections
 
 import androidx.lifecycle.viewModelScope
 import io.nekohasekai.libbox.ConnectionEvents
-import io.nekohasekai.libbox.Connections
+import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.backend.base.BaseViewModel
 import io.nekohasekai.sfa.backend.model.Connection
 import io.nekohasekai.sfa.constant.Status
-import io.nekohasekai.sfa.ktx.toList
 import io.nekohasekai.sfa.utils.AppLifecycleObserver
 import io.nekohasekai.sfa.utils.CommandClient
 import io.nekohasekai.sfa.utils.RemoteControlManager
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import java.util.concurrent.atomic.AtomicLong
 
 data class ConnectionsUiState(
-    val allConnections: List<Connection> = emptyList(),
+    val allConnections: Map<String, Connection> = emptyMap(),
     val isLoading: Boolean = false,
 )
 
@@ -41,9 +35,8 @@ class ConnectionsViewModel :
 
     private val _visibleCount = MutableStateFlow(0)
 
-    private var connectionsStore: Connections? = null
-    private val connectionsMutex = Mutex()
-    private val connectionsGeneration = AtomicLong(0)
+    private val connectionsStore = ConnectionStore()
+    private val connectionsLock = Any()
 
     override fun createInitialState() = ConnectionsUiState()
 
@@ -82,20 +75,12 @@ class ConnectionsViewModel :
         commandClient.disconnect()
     }
 
-    private suspend fun handleServiceStatusChange(status: Status) {
+    private fun handleServiceStatusChange(status: Status) {
         if (RemoteControlManager.remoteServer.value != null) {
             return
         }
         if (status != Status.Started) {
-            withContext(Dispatchers.Default) {
-                connectionsMutex.withLock {
-                    connectionsStore = null
-                }
-                connectionsGeneration.incrementAndGet()
-            }
-            updateState {
-                copy(allConnections = emptyList(), isLoading = false)
-            }
+            clearConnections()
         }
     }
 
@@ -109,47 +94,33 @@ class ConnectionsViewModel :
     }
 
     override fun onDisconnected() {
-        viewModelScope.launch(Dispatchers.Default) {
-            connectionsMutex.withLock {
-                connectionsStore = null
-            }
-            connectionsGeneration.incrementAndGet()
-            withContext(Dispatchers.Main) {
-                updateState {
-                    copy(allConnections = emptyList(), isLoading = false)
-                }
-            }
-        }
+        clearConnections()
     }
 
-    override fun writeConnectionEvents(events: ConnectionEvents) {
-        viewModelScope.launch(Dispatchers.Default) {
-            val generation = connectionsGeneration.get()
-            val snapshot = connectionsMutex.withLock {
-                if (connectionsStore == null) {
-                    connectionsStore = Connections()
-                }
-                val store = connectionsStore ?: return@withLock null
-                store.applyEvents(events)
-                buildConnectionLists(store)
-            } ?: return@launch
-            if (connectionsGeneration.get() != generation) {
-                return@launch
-            }
-            withContext(Dispatchers.Main) {
-                if (connectionsGeneration.get() != generation) {
-                    return@withContext
-                }
-                updateState {
-                    copy(
-                        allConnections = snapshot,
-                        isLoading = false,
-                    )
-                }
-            }
-        }
+    private fun clearConnections() = synchronized(connectionsLock) {
+        val snapshot = connectionsStore.clear()
+        updateState { copy(allConnections = snapshot, isLoading = false) }
     }
 
-    private fun buildConnectionLists(connections: Connections): List<Connection> =
-        connections.iterator().toList().filter { it.outboundType != "dns" }.map { Connection.from(it) }
+    // CommandClient invokes this on the native stream thread. Apply before returning
+    // so batches and disconnects cannot overtake queued conversion jobs.
+    override fun writeConnectionEvents(events: ConnectionEvents) = synchronized(connectionsLock) {
+        val iterator = events.iterator()
+        val updates = sequence {
+            while (iterator.hasNext()) {
+                val event = iterator.next()
+                val type = when (event.type) {
+                    Libbox.ConnectionEventNew -> ConnectionStore.Type.NEW
+                    Libbox.ConnectionEventUpdate -> ConnectionStore.Type.UPDATE
+                    Libbox.ConnectionEventClosed -> ConnectionStore.Type.CLOSED
+                    else -> continue
+                }
+                yield(ConnectionStore.Event(type, event.id,
+                    if (type == ConnectionStore.Type.UPDATE) null else event.connection?.let(Connection::from),
+                    event.uplinkDelta, event.downlinkDelta, event.closedAt))
+            }
+        }
+        val snapshot = connectionsStore.apply(events.reset, updates, System.currentTimeMillis())
+        updateState { copy(allConnections = snapshot, isLoading = false) }
+    }
 }

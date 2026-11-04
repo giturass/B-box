@@ -8,6 +8,7 @@ import io.nekohasekai.libbox.USBIPServerStatusUpdate
 import io.nekohasekai.libbox.USBSharedDevice
 import io.nekohasekai.sfa.backend.base.BaseViewModel
 import io.nekohasekai.sfa.utils.CommandTarget
+import io.nekohasekai.sfa.utils.StreamSubscription
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -56,12 +57,13 @@ class USBIPStatusViewModel : BaseViewModel<USBIPStatusState>() {
         private const val MIN_API_VERSION_USBIP = 2
     }
 
-    private var subscription: USBIPServerStatusSubscription? = null
+    private val subscription = StreamSubscription<USBIPServerStatusSubscription> { it.close() }
 
     override fun createInitialState() = USBIPStatusState()
 
     fun subscribe() {
         if (currentState.isSubscribed) return
+        val token = subscription.open()
         updateState { copy(isSubscribed = true) }
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -69,47 +71,46 @@ class USBIPStatusViewModel : BaseViewModel<USBIPStatusState>() {
                 val client = CommandTarget.standaloneClient()
                 if (client.getAPIVersion() < MIN_API_VERSION_USBIP) {
                     viewModelScope.launch {
+                        if (!subscription.isCurrent(token)) return@launch
+                        subscription.discard(token)
                         updateState { copy(servers = emptyList(), isSubscribed = false) }
-                        subscription = null
                     }
                     return@launch
                 }
-                subscription =
+                val session =
                     client.subscribeUSBIPServerStatus(
                         object : USBIPServerStatusHandler {
                             override fun onStatusUpdate(status: USBIPServerStatusUpdate) {
                                 val servers = convertUpdate(status)
                                 viewModelScope.launch {
-                                    if (!currentState.isSubscribed) return@launch
+                                    if (!subscription.isCurrent(token)) return@launch
                                     updateState { copy(servers = servers) }
                                 }
                             }
 
                             override fun onError(message: String) {
                                 viewModelScope.launch {
-                                    if (!currentState.isSubscribed) return@launch
+                                    if (!subscription.isCurrent(token)) return@launch
+                                    subscription.discard(token)
                                     updateState { copy(servers = emptyList(), isSubscribed = false) }
-                                    subscription = null
                                     sendErrorMessage(message)
                                 }
                             }
                         },
                     )
+                subscription.store(token, session)
             } catch (_: Exception) {
                 viewModelScope.launch {
+                    if (!subscription.isCurrent(token)) return@launch
+                    subscription.discard(token)
                     updateState { copy(servers = emptyList(), isSubscribed = false) }
-                    subscription = null
                 }
             }
         }
     }
 
     fun cancel() {
-        try {
-            subscription?.close()
-        } catch (_: Exception) {
-        }
-        subscription = null
+        subscription.close()
         updateState { copy(servers = emptyList(), isSubscribed = false) }
     }
 

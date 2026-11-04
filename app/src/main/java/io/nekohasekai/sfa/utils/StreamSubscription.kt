@@ -16,6 +16,8 @@ class StreamSubscription<T : Any>(private val closeSession: (T) -> Unit) {
         ++generation
     }
 
+    fun isCurrent(token: Long): Boolean = synchronized(access) { generation == token }
+
     fun store(token: Long, newSession: T) {
         synchronized(access) {
             if (generation == token) {
