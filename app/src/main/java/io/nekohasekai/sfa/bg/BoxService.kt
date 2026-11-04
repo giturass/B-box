@@ -131,24 +131,25 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private var lastProfileName = ""
     private var startupJob: Job? = null
     @Volatile private var stopRequested = false
+    @Volatile private var serviceGeneration = 0L
 
-    private suspend fun startService() {
+    private suspend fun startService(generation: Long) {
         try {
             val selectedProfileId = Settings.selectedProfile
             if (selectedProfileId == -1L) {
-                stopAndAlert(Alert.EmptyConfiguration)
+                stopAndAlert(generation, Alert.EmptyConfiguration)
                 return
             }
 
             val profile = ProfileManager.get(selectedProfileId)
             if (profile == null) {
-                stopAndAlert(Alert.EmptyConfiguration)
+                stopAndAlert(generation, Alert.EmptyConfiguration)
                 return
             }
 
             val content = File(profile.typed.path).readText()
             if (content.isBlank()) {
-                stopAndAlert(Alert.EmptyConfiguration)
+                stopAndAlert(generation, Alert.EmptyConfiguration)
                 return
             }
 
@@ -160,14 +161,13 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             DefaultNetworkMonitor.start()
 
             try {
-                startOrReloadCore(content)
+                startOrReloadCore(content, generation)
             } catch (e: Exception) {
-                stopAndAlert(Alert.CreateService, e.message)
+                stopAndAlert(generation, Alert.CreateService, e.message)
                 return
             }
 
-            dashboardServer = commandServer
-            _dashboardConfig.value = DashboardConfig(commandServer, selectedProfileId, content)
+            publishDashboardConfig(generation, selectedProfileId, content)
             if (commandServer.needWIFIState()) {
                 val wifiPermission =
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -176,19 +176,19 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                         android.Manifest.permission.ACCESS_BACKGROUND_LOCATION
                     }
                 if (!service.hasPermission(wifiPermission)) {
-                    stopAndAlert(Alert.RequestLocationPermission)
+                    stopAndAlert(generation, Alert.RequestLocationPermission)
                     return
                 }
             }
 
             withContext(Dispatchers.Main) {
-                if (stopRequested) return@withContext
+                if (stopRequested || generation != serviceGeneration) return@withContext
                 notification.show(lastProfileName, R.string.status_started)
                 notification.start()
                 if (!stopRequested) status.value = Status.Started
             }
         } catch (e: Exception) {
-            stopAndAlert(Alert.StartService, e.message)
+            stopAndAlert(generation, Alert.StartService, e.message)
             return
         }
     }
@@ -211,35 +211,35 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     suspend fun serviceReload0() {
+        val generation = serviceGeneration
         val selectedProfileId = Settings.selectedProfile
         if (selectedProfileId == -1L) {
-            stopAndAlert(Alert.EmptyConfiguration)
+            stopAndAlert(generation, Alert.EmptyConfiguration)
             return
         }
 
         val profile = ProfileManager.get(selectedProfileId)
         if (profile == null) {
-            stopAndAlert(Alert.EmptyConfiguration)
+            stopAndAlert(generation, Alert.EmptyConfiguration)
             return
         }
 
         val content = File(profile.typed.path).readText()
         if (content.isBlank()) {
-            stopAndAlert(Alert.EmptyConfiguration)
+            stopAndAlert(generation, Alert.EmptyConfiguration)
             return
         }
         lastProfileName = profile.name
         try {
-            startOrReloadCore(content)
+            startOrReloadCore(content, generation)
         } catch (e: Exception) {
-            stopAndAlert(Alert.CreateService, e.message)
+            stopAndAlert(generation, Alert.CreateService, e.message)
             // Return reload failures to the command client so configuration
             // editors can restore their previous content instead of reporting success.
             throw e
         }
 
-        dashboardServer = commandServer
-        _dashboardConfig.value = DashboardConfig(commandServer, selectedProfileId, content)
+        publishDashboardConfig(generation, selectedProfileId, content)
         if (commandServer.needWIFIState()) {
             val wifiPermission =
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -248,13 +248,21 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     android.Manifest.permission.ACCESS_BACKGROUND_LOCATION
                 }
             if (!service.hasPermission(wifiPermission)) {
-                stopAndAlert(Alert.RequestLocationPermission)
+                stopAndAlert(generation, Alert.RequestLocationPermission)
                 return
             }
         }
     }
 
-    private fun startOrReloadCore(content: String) = synchronized(MitmCertificate.accessLock) {
+    private suspend fun publishDashboardConfig(generation: Long, profileId: Long, content: String) = withContext(Dispatchers.Main) {
+        check(!stopRequested && generation == serviceGeneration) { "Service stopped while applying configuration" }
+        dashboardServer = commandServer
+        _dashboardConfig.value = DashboardConfig(commandServer, profileId, content)
+    }
+
+    private fun startOrReloadCore(content: String, generation: Long) = synchronized(MitmCertificate.accessLock) {
+        check(!stopRequested && generation == serviceGeneration) { "Service start cancelled" }
+        val server = commandServer
         val overrides = OverrideOptions().apply {
             autoRedirect = Settings.autoRedirect
             if (Settings.perAppProxyEnabled) {
@@ -275,7 +283,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
         // The libbox lifecycle prepares the rules/CA, starts the core, then
         // activates profile processing before reporting startup success.
-        commandServer.startOrReloadService(content, overrides)
+        server.startOrReloadService(content, overrides)
     }
 
     override fun getSystemProxyStatus(): SystemProxyStatus? {
@@ -348,11 +356,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
     }
 
-    private suspend fun stopAndAlert(type: Alert, message: String? = null) {
+    private suspend fun stopAndAlert(generation: Long, type: Alert, message: String? = null) {
         withContext(Dispatchers.Main) {
             // Do not join teardown here: this can be the startup job that the
             // stop job must join. Recovery waits for its final Stopped callback.
-            stopService(type to message)
+            if (generation == serviceGeneration) stopService(type to message)
         }
     }
 
@@ -360,6 +368,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     @Suppress("SameReturnValue")
     internal fun onStartCommand(): Int {
         if (status.value != Status.Stopped) return Service.START_NOT_STICKY
+        val generation = ++serviceGeneration
         stopRequested = false
         status.value = Status.Starting
         notification.show(lastProfileName, R.string.status_starting)
@@ -385,10 +394,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 Application.application.setupLibbox()
                 startCommandServer()
             } catch (e: Exception) {
-                stopAndAlert(Alert.StartCommandServer, e.message)
+                stopAndAlert(generation, Alert.StartCommandServer, e.message)
                 return@launch
             }
-            startService()
+            startService(generation)
         }
         return Service.START_NOT_STICKY
     }
