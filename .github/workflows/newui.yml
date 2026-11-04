@@ -130,6 +130,12 @@ jobs:
             target: google_apis_ps16k
     steps:
       - uses: actions/checkout@v5
+      - name: Make room for emulator data
+        run: |
+          # This job consumes APKs and does not compile native libraries.
+          # The 16 KiB system image plus userdata exceed some runners' free disk.
+          sudo rm -rf -- "${ANDROID_HOME:?}/ndk"
+          df -h "$ANDROID_HOME"
       - uses: actions/download-artifact@v5
         with:
           name: emulator-apk

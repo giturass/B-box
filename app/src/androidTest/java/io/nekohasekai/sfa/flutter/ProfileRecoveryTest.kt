@@ -38,6 +38,7 @@ import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketException
 import java.security.KeyStore
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
@@ -705,14 +706,20 @@ class ProfileRecoveryTest {
                 try {
                     server.accept().use { socket ->
                         socket.soTimeout = 15_000
-                        val reader = socket.getInputStream().bufferedReader()
-                        while (!reader.readLine().isNullOrEmpty()) { }
-                        val bytes = content.toByteArray(Charsets.UTF_8)
-                        requests.incrementAndGet()
-                        val output = socket.getOutputStream()
-                        output.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray())
-                        output.write(bytes)
-                        output.flush()
+                        try {
+                            val reader = socket.getInputStream().bufferedReader()
+                            while (!reader.readLine().isNullOrEmpty()) { }
+                            val bytes = content.toByteArray(Charsets.UTF_8)
+                            requests.incrementAndGet()
+                            val output = socket.getOutputStream()
+                            output.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                            output.write(bytes)
+                            output.flush()
+                        } catch (_: SocketException) {
+                            // Reloading/stopping the service cancels in-flight
+                            // cron requests. The fixture must survive that peer
+                            // disconnect and continue accepting later requests.
+                        }
                     }
                 } catch (failure: Exception) {
                     if (!server.isClosed) throw failure
