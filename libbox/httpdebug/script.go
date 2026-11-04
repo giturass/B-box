@@ -18,7 +18,8 @@ import (
 
 // Limit concurrent interpreters across all intercepted connections. Runtimes
 // never share globals or expose host files/processes. Cron gets routed HTTP only.
-var scriptSlots = make(chan struct{}, 4)
+var httpScriptSlots = make(chan struct{}, 4)
+var cronScriptSlots = make(chan struct{}, 2)
 var scriptFinished = errors.New("script called $done")
 
 func init() {
@@ -82,11 +83,15 @@ func executeScript(parent context.Context, program *goja.Program, label, kind st
 	setup func(*goja.Runtime, context.Context), done func(*goja.Runtime, goja.Value) error) error {
 	ctx, cancel := context.WithTimeout(parent, time.Duration(timeout)*time.Millisecond)
 	defer cancel()
+	slots := httpScriptSlots
+	if kind == "cron" {
+		slots = cronScriptSlots
+	}
 	select {
-	case scriptSlots <- struct{}{}:
-		defer func() { <-scriptSlots }()
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
 	case <-ctx.Done():
-		return fmt.Errorf("%s: %w", label, ctx.Err())
+		return fmt.Errorf("%s: waiting for %s interpreter capacity: %w", label, kind, ctx.Err())
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("%s: %w", label, err)

@@ -3,6 +3,7 @@ package httpdebug
 import (
 	"context"
 	"crypto/x509"
+	"errors"
 	"sync"
 	"time"
 
@@ -28,7 +29,7 @@ type cronRunner struct {
 func startCron(program *ScriptProgram, dial RewriteDialFunc, roots *x509.CertPool) *cronRunner {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &cronRunner{ctx: ctx, cancel: cancel, program: program, dial: dial, roots: roots,
-		next: make([]time.Time, len(program.cron)), running: make([]bool, len(program.cron)), slots: make(chan struct{}, 4)}
+		next: make([]time.Time, len(program.cron)), running: make([]bool, len(program.cron)), slots: make(chan struct{}, cap(cronScriptSlots))}
 	now := time.Now()
 	for i, job := range program.cron {
 		r.next[i] = job.schedule.Next(now)
@@ -100,6 +101,13 @@ func (r *cronRunner) runDue(now time.Time) {
 }
 
 func (r *cronRunner) run(job compiledCron) error {
+	lease := reserveBodyWork(r.program.limit)
+	if lease == nil {
+		err := errors.New("global body budget exhausted")
+		writeLog("warn", job.label+": cron skipped: "+err.Error())
+		return err
+	}
+	defer lease.release()
 	writeLog("info", job.label+": cron started")
 	var cleanup = func() {}
 	defer func() { cleanup() }()

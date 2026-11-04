@@ -392,6 +392,13 @@ func TestWebSocketUpgradeForwardsFramesAndStops(t *testing.T) {
 	if _, err := io.ReadFull(reader, echo); err != nil || !bytes.Equal(echo, frame) {
 		t.Fatal("upgraded stream changed the frame", err)
 	}
+	e.stopRecording()
+	if _, err := client.Write(frame); err != nil {
+		t.Fatal("stopping recording closed WebSocket:", err)
+	}
+	if _, err := io.ReadFull(reader, echo); err != nil || !bytes.Equal(echo, frame) {
+		t.Fatal("WebSocket did not continue after recording stopped", err)
+	}
 	e.Close()
 	item := waitComplete(t, store, 1)[0]
 	detail, err := store.Detail(item.ID)

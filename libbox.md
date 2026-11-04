@@ -69,16 +69,19 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 
 资源与完整性边界：
 
-- 最多接管 32 条连接（含正在检查 ClientHello 的连接），每条 HTTP/2 最多 16 个并发流。ClientHello 检查最多 64 KiB/5 秒；拨号和握手受超时及会话取消约束。服务停止、重载或启停抓包会关闭旧拦截连接，目标应用需要重新连接，抓包不会自动恢复。
+- 不设固定的接管连接总数上限；每条 HTTP/2 仍最多 16 个并发流。ClientHello 检查最多 64 KiB/5 秒，[tls_selection.go](libbox/httpdebug/tls_selection.go) 跟踪探测、待交接与正式处理的生命周期，调用取消及服务停止会回收尚未交接的连接。拨号和握手仍受超时及会话取消约束。
+- [recording.go](libbox/httpdebug/recording.go) 将记录策略与服务处理引擎分开。启停记录不替换引擎或关闭已有 HTTP、SSE、WebSocket、TLS/TCP 连接；停止时封存已有前缀和当时的完整性状态，迟到正文、响应及 EOF 不再更新该记录。重新开启从已有拦截连接的新 HTTP 请求或新 TCP 流开始记录，不能补录正在传输的旧流；尚未被接管的连接需由应用重新建立。服务停止/重载才关闭旧处理连接，记录不会自动恢复。
 - 抓包端口默认 80、443、8080、8443，最多 32 个；按原始目标端口筛选。应用列表为空表示不限；未知归属不能匹配指定应用，共享 UID 使用同一归属结果。这些设置只限制记录，不改变配置中的解密或处理范围。
 - 最多保存 300 条、磁盘 32 MiB；每方向正文默认保留 64 KiB，最高 1 MiB；头部和 trailers 分别最多 64 KiB。存储失败、截断、未完成和流错误分别保留。
-- 预览/HAR 的 gzip/deflate 解码最多 64 KiB；不支持的编码或二进制使用 Base64，HAR 另保留原始前缀与完整性标志。HAR 用 `_trailers` 保存尾部字段，耗时仅为总时长。cURL 仅允许完整、未截断且无 trailers 的 HTTP 请求；TLS/TCP 流和仅域名记录不进入 HAR，也不能导出 cURL。
+- 正文处理、预览和 HAR 共用 [content_encoding.go](libbox/httpdebug/content_encoding.go)，支持 identity、gzip/x-gzip、deflate（zlib/raw）、br 和 zstd，最多三层 Content-Encoding，合并重复头后逆序解码，每层输出均检查限额。预览/HAR 解码最多 64 KiB；不支持的编码或二进制使用 Base64，HAR 请求/响应均保留原始前缀与完整性标志。HAR 用 `_trailers` 保存尾部字段，耗时仅为总时长。cURL 仅允许完整、未截断且无 trailers 的 HTTP 请求；TLS/TCP 流和仅域名记录不进入 HAR，也不能导出 cURL。
 
 [store.go](libbox/httpdebug/store.go) 为每条记录的两个方向按需保留正文文件句柄，方向内串行写入，EOF、前缀限额、完成、淘汰和清空均释放句柄；达到前缀上限后继续累计实际转发字节。正文写入前在索引锁内预留存储字节，再释放索引锁执行写入，避免并发写入重复占用剩余额度；迟到写入不能重建已清理记录。完成标志等待在途写入提交计数，元数据沿用原子替换。详情在锁内复制元数据并打开文件，随后在锁外只读取该快照已保存的字节数并解码，保留并发追加及淘汰期间的快照一致性。
 
 `extractHosts` 额外保存可见 TLS/QUIC 名称，标为“仅域名”；它不启用解密、阻断 QUIC 或恢复 ECH 隐藏的名称。域名导出对当前搜索条件下的保留记录去重。保存记录在停服后仍可读取。
 
-没有独立抓包日志页面、缓冲或读写绑定。[logging.go](libbox/httpdebug/logging.go) 将运行错误与脚本 console 输出送到当前核心的普通日志，遵守配置日志等级；停止服务后释放日志回调。`ReadUICaptureStatus` 保留抓包状态、计数和最近错误供平台确认结果，不由请求页展示配置已生效横幅。
+没有独立抓包日志页面、缓冲或读写绑定。[logging.go](libbox/httpdebug/logging.go) 将运行错误与脚本 console 输出送到当前核心的普通日志，遵守配置日志等级；停止服务后释放日志回调。正文预算不足、编码/流式跳过、ClientHello 无法解析和 MITM 范围未命中保留具体原因；请求处理日志带连接/请求 ID，错误页指向请求详情及现有服务日志。TLS 客户端/上游握手错误区分阶段；握手完成但未收到 HTTP 请求就结束另记 `tlsNoRequest`，只提示可能的 pinning 或客户端取消，不认定已证实的证书固定校验失败。正常服务取消不产生该提示。
+
+`ReadUICaptureStatus` 保留抓包状态、计数和最近错误，并报告 `bodyBudgetReserved`/`bodyBudgetLimit`、`httpScriptsRunning`/`cronScriptsRunning`，供平台确认状态；请求页不展示配置已生效横幅。
 
 `CommandServer.StartUICapture(directory, config, certificate, signer)` 与核心重载/关闭串行；后两个参数保留生成调用兼容，解密策略及 CA 只取已启动配置的 MITM。`GenerateUICaptureCA(publicKeyDER, UICaptureSigner)` 只接收平台公钥和签名回调，不接收或导出根私钥。其他 `Open/Validate/Stop/Read/List/Clear/ExportUICapture*`、`ExtractUICaptureHosts` 提供本地访问，轮询只传有界预览。
 
@@ -147,7 +150,9 @@ HTTP 离线 Mock 的握手方式见下文。TCP 支持限于直接建立 TLS 的
 
 合并处理顺序：请求 Header → URL → Map Remote → Body → 独立请求脚本 → Map Local → 上游 → 响应 Header → Body → 独立响应脚本；各扩展只在自己的范围与启用状态下参与。重定向、拒绝或脚本 Mock 提前结束请求路径，响应仍经过响应阶段。异常、超时、非法脚本结果或上游失败返回 502，超限请求正文返回 413。
 
-只缓冲命中的报文，identity/gzip/deflate 的压缩前后均检查限额。不支持的编码和非 UTF-8 文本保留原文；响应超限回放已读前缀并继续转发。SSE、WebSocket 升级、HEAD 和 206 响应跳过正文处理。改写后移除旧压缩、摘要、ETag、范围和 trailer 信息，重新计算 Content-Length；禁止手动改变分帧、升级头或 101 状态。HEAD/204/205/304 不发送不允许的正文。
+只缓冲命中的报文，先按原始头检查编码及流式类型，再读取正文；支持的编码与分层限制见 [资源与完整性边界](#httphttps-请求调试)。压缩前后均检查限额；不支持/无效编码和非 UTF-8 文本保留原文。响应超限回放已读前缀并继续转发，请求正文超过配置限额仍返回 413。SSE、gRPC/grpc-web、NDJSON、JSON sequence、multipart/x-mixed-replace、协议升级、HEAD 和 206 响应跳过正文处理；无需正文的规则仍可执行。改写后移除旧压缩、摘要、ETag、范围和 trailer 信息，重新计算 Content-Length；禁止手动改变分帧、升级头或 101 状态。HEAD/204/205/304 不发送不允许的正文。
+
+[body_budget.go](libbox/httpdebug/body_budget.go) 为所有连接的正文处理、预览/HAR 解码及 Cron 共用 64 MiB 工作预留预算。读取前按 `8 × max(4096, max_body_bytes + 1)` 预留 wire、分层解码、改写及脚本副本的余量；处理后的正文和超限响应回放持有预留，直至消费者关闭正文。预算不足时不读取原正文，跳过正文改写及相应脚本并透传原流，记录跳过原因；请求脚本即使不读取正文也可能生成 Mock，仍须预留。该预算限制准入的正文工作，不是 Goja 任意分配或进程 RSS 的硬隔离，也不是设备压测得出的容量上限。zstd 另设 8 MiB 解码窗口/内存参数及单解码器并发。
 
 未改变 origin 的请求沿用原出站、解析结果和网络选项；跨 origin 目标重新进入同一核心，保留入站、来源和应用归属，清除旧目的地/规则缓存并阻止递归处理，无直连回退。记录保留原 URL 与命中说明，路由字段表示原连接。
 
@@ -168,17 +173,17 @@ HTTP 规则指定 `pattern`、`phase`（request/response）、可选 `name`/`dis
 - `full_headers: true` 以 `{field,value}` 数组保留重复头；返回值接受数组或对象，普通输入对象每字段只取首值。
 - `argument` 通过 `$argument` 提供；`$script` 包含 name/type/binaryBodyMode。console.log/info/warn/error/debug 进入普通服务日志，每次最多 10 条、正文最多 2 KiB。
 
-HTTP `timeout_ms` 默认 200，范围 1～2000；规则可降低自己的 max_body_bytes。每次独立 Goja VM，HTTP 与 Cron 合计最多 4 个解释器、调用栈最多 256 层，原生 JS 正则另设 200 毫秒截止时间。执行超时不等于进程级硬内存隔离。
+HTTP `timeout_ms` 默认 200，范围 1～2000；规则可降低自己的 max_body_bytes。每次独立 Goja VM，HTTP 最多 4 个解释器，Cron 使用独立的 2 个解释器，避免慢定时 HTTP 请求占用交互请求的执行名额；等待名额也计入该次超时并报告具体等待原因。调用栈最多 256 层，原生 JS 正则另设 200 毫秒截止时间。执行超时不等于进程级硬内存隔离。
 
 Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`timeout_ms`（默认 5000，范围 1～30000）及 source/resource。支持五段“分 时 日 月 周”或六段“秒 分 时 日 月 周”，支持范围、列表、步长及月份/星期名称；时区使用 IANA 名称，未指定时采用服务启动时的 Android 设备时区。运行环境包含 tzdata。`$cronexp` 提供原表达式，`$trigger` 和 `$script.type` 为 cron，没有 `$request`/`$response`。
 
-[script_cron.go](libbox/httpdebug/script_cron.go) 随本地服务运行，成功启动后才调度，重载/停止时取消并等待旧任务结束。抓包启停不重置调度或取消 Cron。相同任务不重叠，最多 4 个 Cron 调用；设备休眠错过的周期不补跑，也不申请系统定时唤醒。任务必须调用 `$done()`，调用后立即停止该次执行；异常及超时写入普通日志。
+[script_cron.go](libbox/httpdebug/script_cron.go) 随本地服务运行，成功启动后才调度，重载/停止时取消并等待旧任务结束。抓包启停不重置调度或取消 Cron。相同任务不重叠，最多 2 个 Cron 调用；每次任务持有正文预算，预算不足则跳过并写入日志。设备休眠错过的周期不补跑，也不申请系统定时唤醒。任务必须调用 `$done()`，调用后立即停止该次执行；异常及超时写入普通日志。
 
 Cron 专用的 [HTTP 接口](libbox/httpdebug/script_http.go) 支持 `$httpClient.get/post/put/patch/delete/head/options(url或{url,headers,body}, callback)`。回调接收 error/response/data；response 有 status/headers，data 为 UTF-8 文本。回调顺序执行，每次任务最多 16 次 HTTP 请求，不自动跟随重定向；网络与正文读取均受任务截止时间限制。请求以 `b-box-scripts` 入站上下文重新匹配当前 sing-box 路由（不是新增监听器），使用该实例的证书库，不回退设备直连，也不递归触发 HTTP 处理。
 
 未实现 HTTP 脚本主动联网、持久存储、setTimeout/setInterval、Node.js 模块、通知、jq 或完整 Surge API；不自动下载外链脚本。接口参考 2026-11-03 读取的 Surge [HTTP Processing](https://manual.nssurge.com/http/overview.html)、[MITM](https://manual.nssurge.com/http/mitm.html)、[URL Rewrite](https://manual.nssurge.com/http/url-rewrite.html)、[Header Rewrite](https://manual.nssurge.com/http/header-rewrite.html)、[Body Rewrite](https://manual.nssurge.com/http/body-rewrite.html)、[Map Local](https://manual.nssurge.com/http/map-local.html)、[请求脚本](https://manual.nssurge.com/scripting/http-request.html)、[响应脚本](https://manual.nssurge.com/scripting/http-response.html)和[Cron](https://manual.nssurge.com/scripting/cron.html)。B-box 不导入 Surge INI 或 Mihomo 覆写，也不宣称完全兼容其脚本。
 
-核心集成固定 [Goja `a177d211bf606f6275674a35bc0d31d8ee0ee396`](https://github.com/dop251/goja/tree/a177d211bf606f6275674a35bc0d31d8ee0ee396) 和 [robfig/cron v3.0.1](https://github.com/robfig/cron/tree/v3.0.1)。setup-core 将模块最低 Go 版本设为 1.26.0，实际构建仍用 version.properties 的 go1.26.10；Goja 引入 regexp2/v2、sourcemap、pprof 及 x/text v0.43.0。相关许可证随 Flutter assets 注册；三个上游基线不变，统一测试与 Release 构建共用同一核心安装入口。
+核心集成固定 [Goja `a177d211bf606f6275674a35bc0d31d8ee0ee396`](https://github.com/dop251/goja/tree/a177d211bf606f6275674a35bc0d31d8ee0ee396) 和 [robfig/cron v3.0.1](https://github.com/robfig/cron/tree/v3.0.1)。setup-core 将模块最低 Go 版本设为 1.26.0，实际构建仍用 version.properties 的 go1.26.10；Goja 引入 regexp2/v2、sourcemap、pprof 及 x/text v0.43.0。正文解码复用当前核心依赖 [andybalholm/brotli v1.1.0](https://github.com/andybalholm/brotli/tree/v1.1.0) 和 [klauspost/compress v1.19.1](https://github.com/klauspost/compress/tree/v1.19.1)。相关许可证随 Flutter assets 注册；三个上游基线不变，统一测试与 Release 构建共用同一核心安装入口。
 
 ### 旧抓包配置清理
 
@@ -207,13 +212,17 @@ Cron 专用的 [HTTP 接口](libbox/httpdebug/script_http.go) 支持 `$httpClien
 ## 构建、同步和验证
 
 - [Release 工作流](.github/workflows/build-release.yml) 仅手动构建、不运行测试；通过共享构建 Action 使用 JDK 17、版本文件指定的 Go 和 NDK 28.0.13004108，执行上游 `make lib_install` 与 `build_libbox -target android -platform android/arm64`，与 Flutter Release AAR 并行准备。
-- [统一测试工作流](.github/workflows/newui.yml) 的 Android job 使用同一构建 Action，核心目标为 `android/amd64`，用于 JVM 及 API 24/31/35 模拟器回归。两种架构的构建均要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
+- [统一测试工作流](.github/workflows/newui.yml) 的 Android job 使用同一构建 Action，核心目标为 `android/amd64`，用于 JVM 及 [Android 模拟器矩阵](app.md#验证与历史记录) 的回归。两种架构的构建均要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
 - 同一工作流的 core job 使用共享准备 Action，运行 `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1` 及 `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`。所有生产扩展均参与编译，所有 `TestUI` 测试自动纳入，不再维护具体扩展名的筛选清单；该 job 不构建核心 AAR。另执行 `go test -race ./experimental/httpdebug -count=1` 和 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1`，覆盖 HTTP/MITM 抓取引擎、数据竞争及原出站和嗅探字节保留。
 - 对应回归文件为 [ui_http_test.go](libbox/ui_http_test.go)、[ui_egress_test.go](libbox/ui_egress_test.go)、[ui_lan_test.go](libbox/ui_lan_test.go)，覆盖请求限制/重定向、源回退/公网 IP 校验/解析失败后继续竞速/取消/服务替换、监听转换和端点生成。
 
 [httpdebug_test.go](libbox/httpdebug/httpdebug_test.go) 覆盖 HTTP、SSE/WebSocket、存储和导出；[mitm_test.go](libbox/httpdebug/mitm_test.go) 覆盖 TLS 1.2/1.3、HTTP/1.1/2、同连接请求的独立 ID 与连接关联、上游连接复用、独立信任链、过期/错误名称/不受信任上游、客户端 pinning、未匹配域名和非 HTTP hello 回放、重复 Cookie、请求/响应 trailers、大正文、并发流、SSE 取消、跨 authority 拒绝、QUIC 筛选及停止/拨号超时。[authority_test.go](libbox/httpdebug/authority_test.go) 覆盖独立根身份、SAN/IP、叶证书缓存和密钥错配；[ui_capture_signer_test.go](libbox/ui_capture_signer_test.go) 验证平台签名接口的摘要、算法及返回签名校验。
 
 [store_concurrency_test.go](libbox/httpdebug/store_concurrency_test.go) 覆盖正文句柄复用和关闭边界、前缀/转发总量、并发双向写入与详情快照，以及模拟慢写时其他记录和清空继续工作、完成状态等待计数提交。由现有 HTTP 调试 `-race` 测试入口运行。
+
+[tls_selection_test.go](libbox/httpdebug/tls_selection_test.go) 在已有 48 条连接时执行真实 ClientHello 探测、TLS 握手及 HTTP Mock，检查仍接管请求，并验证探测取消、未交接关闭及正式接管后的服务回收。[recording_test.go](libbox/httpdebug/recording_test.go) 在同一 HTTP/1.1、HTTP/2 连接反复启停记录，检查处理不中断、连接 ID 不变；结合既有 SSE、WebSocket 和 TCP 测试验证停止后继续传输及记录冻结。[diagnostics_test.go](libbox/httpdebug/diagnostics_test.go) 检查无 HTTP 请求的 TLS 结束提示、错误页及迟到更新隔离。
+
+[body_processing_test.go](libbox/httpdebug/body_processing_test.go) 覆盖新编码/多层/重复头在改写、预览与 HAR 中一致，压缩膨胀、响应回放、上传截断、预算不足时零读取和正文关闭后释放；[streaming_processing_test.go](libbox/httpdebug/streaming_processing_test.go) 覆盖 HTTP/2 gRPC 在上传结束前响应、trailers、Expect: 100-continue 及慢上传取消。[script_resources_test.go](libbox/httpdebug/script_resources_test.go) 用实际等待中的 Cron HTTP 请求占满 Cron 池，验证 HTTP 脚本仍执行以及取消释放资源。这些是工作流配置的回归范围，实际通过结果以 [验证记录](app.md#验证与历史记录) 为准。
 
 连接关联回归还包括 [路由测试](libbox/route/httpdebug_test.go) 从真实流量跟踪器取得 UUID、穿过嗅探缓存、清空连接历史后重新打开请求存储，以及无跟踪器的 HTTP；[改写测试](libbox/httpdebug/rewrite_test.go) 检查跨目标改写仍保留原始连接 ID，[TCP 测试](libbox/httpdebug/mitm_tcp_test.go) 检查 TLS/TCP 关联，[迁移测试](libbox/httpdebug/store_migration_test.go) 检查旧记录不将 `captureId` 误认为连接 ID。
 

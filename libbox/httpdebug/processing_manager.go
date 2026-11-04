@@ -69,7 +69,7 @@ func PrepareProcessing(directory string, mitm *MITMConfig, rewrite *RewriteConfi
 
 func newProcessingEngine(prepared *PreparedProcessing) *Engine {
 	engine := newEngine(Config{}, store)
-	engine.captureEnabled = false
+	engine.recording.Store(nil)
 	engine.rewrite, engine.mitm, engine.scripts, engine.ca = prepared.rewrite, prepared.mitm, prepared.scripts, prepared.ca
 	return engine
 }

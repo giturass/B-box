@@ -50,7 +50,7 @@ func TestScriptsValidateIndependentlyAndCronSchedule(t *testing.T) {
 		}
 	}
 	e, _ := testEngine(t, Config{})
-	e.captureEnabled = false
+	e.recording.Store(nil)
 	e.scripts = scriptProgram(t, `{"enabled":true,"http":[{"pattern":"/mock$","phase":"request","source":"$done({response:{body:'script-only'}});"}]}`)
 	client := debugClient(t, e, "127.0.0.1:1")
 	response, err := client.Get("http://example.test/mock")

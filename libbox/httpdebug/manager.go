@@ -44,21 +44,27 @@ func Start(directory, configJSON, certificate string, signer crypto.Signer) erro
 	}
 	managerMu.Lock()
 	defer managerMu.Unlock()
-	if current := active.Load(); current != nil && current.captureEnabled {
+	if current := active.Load(); current != nil && current.recording.Load() != nil {
 		return errors.New("stop capture before changing its settings")
 	}
 	if err := openLocked(directory); err != nil {
 		return err
 	}
-	engine := newEngine(config, store)
-	if profileProcessing != nil {
-		engine.rewrite, engine.mitm, engine.scripts, engine.ca = profileProcessing.rewrite, profileProcessing.mitm, profileProcessing.scripts, profileProcessing.ca
+	engine := active.Load()
+	if engine == nil {
+		engine = newEngine(config, store)
+		active.Store(engine)
+	} else {
+		engine.mu.Lock()
+		if engine.closed {
+			engine.mu.Unlock()
+			return errors.New("local service processing has stopped")
+		}
+		engine.recording.Store(&config)
+		engine.mu.Unlock()
 	}
 	lastCaptureState = State{}
-	if previous := active.Swap(engine); previous != nil {
-		previous.Close()
-	}
-	writeLog("info", fmt.Sprintf("%s capture started; ports=%v; body limit=%d bytes; reconnect target applications", engine.backend(), config.Ports, config.BodyLimit))
+	writeLog("info", fmt.Sprintf("%s recording started at new request/stream boundaries; ports=%v; body limit=%d bytes; reconnect flows that were not already intercepted", engine.backend(), config.Ports, config.BodyLimit))
 	return nil
 }
 
@@ -76,18 +82,12 @@ func Stop() {
 	managerMu.Lock()
 	defer managerMu.Unlock()
 	current := active.Load()
-	if current == nil || !current.captureEnabled {
+	if current == nil || current.recording.Load() == nil {
 		return
 	}
-	var replacement *Engine
-	if profileProcessing != nil {
-		replacement = newProcessingEngine(profileProcessing)
-	}
-	if engine := active.Swap(replacement); engine != nil {
-		engine.Close()
-		lastCaptureState = engine.captureState()
-		writeLog("info", "Capture recording stopped; profile MITM, rewrites and scripts remain active; reconnect intercepted connections")
-	}
+	current.stopRecording()
+	lastCaptureState = current.captureState()
+	writeLog("info", "Recording stopped; existing connections, profile MITM, rewrites, scripts and cron continue")
 }
 
 func Current() *Engine { return active.Load() }
@@ -115,12 +115,17 @@ type State struct {
 	Skipped              int64  `json:"skipped"`
 	TLSOpened            int64  `json:"tlsOpened"`
 	TLSFailed            int64  `json:"tlsFailed"`
+	TLSNoRequest         int64  `json:"tlsNoRequest"`
 	BlockedQUIC          int64  `json:"blockedQUIC"`
 	PlaintextConnections int64  `json:"plaintextConnections"`
 	PlaintextBytes       int64  `json:"plaintextBytes"`
 	ParsedRequests       int64  `json:"parsedRequests"`
 	FilteredRequests     int64  `json:"filteredRequests"`
 	RecordedRequests     int64  `json:"recordedRequests"`
+	BodyBudgetReserved   int64  `json:"bodyBudgetReserved"`
+	BodyBudgetLimit      int64  `json:"bodyBudgetLimit"`
+	HTTPScriptsRunning   int    `json:"httpScriptsRunning"`
+	CronScriptsRunning   int    `json:"cronScriptsRunning"`
 }
 
 func Status() State {
@@ -149,12 +154,15 @@ func (engine *Engine) captureState() State {
 		scriptRules, cronJobs = len(engine.scripts.http), len(engine.scripts.cron)
 	}
 	return State{MITMActive: !engine.closed && engine.mitm.active(), ScriptsActive: !engine.closed && engine.scripts != nil,
-		ScriptRules: scriptRules, CronJobs: cronJobs, Active: !engine.closed && engine.captureEnabled, RewriteActive: !engine.closed && engine.rewrite != nil, RewriteRules: rules, Backend: engine.backend(), Error: warning,
-		Connections: len(engine.connections) + engine.preparing,
+		ScriptRules: scriptRules, CronJobs: cronJobs, Active: !engine.closed && engine.recording.Load() != nil, RewriteActive: !engine.closed && engine.rewrite != nil, RewriteRules: rules, Backend: engine.backend(), Error: warning,
+		Connections: len(engine.connections) + len(engine.preparing),
 		Skipped:     engine.skipped.Load(), TLSFailed: engine.tlsFailed.Load(), BlockedQUIC: engine.blockedQUIC.Load(),
 		TLSOpened:            engine.tlsOpened.Load(),
+		TLSNoRequest:         engine.tlsNoRequest.Load(),
 		PlaintextConnections: engine.plaintextConnections.Load(), PlaintextBytes: engine.plaintextBytes.Load(),
-		ParsedRequests: engine.parsedRequests.Load(), FilteredRequests: engine.filteredRequests.Load(), RecordedRequests: engine.recordedRequests.Load()}
+		ParsedRequests: engine.parsedRequests.Load(), FilteredRequests: engine.filteredRequests.Load(), RecordedRequests: engine.recordedRequests.Load(),
+		BodyBudgetReserved: processingBodies.used.Load(), BodyBudgetLimit: processingBodies.limit,
+		HTTPScriptsRunning: len(httpScriptSlots), CronScriptsRunning: len(cronScriptSlots)}
 }
 
 func (engine *Engine) backend() string {

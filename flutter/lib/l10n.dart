@@ -20,7 +20,7 @@ const _zh = <String, String>{
   "HTTP scripts and cron tasks run independently of HTTP rewriting. HTTPS scripts use the MITM domain settings.": "HTTP 脚本和 cron 任务独立于 HTTP 改写运行。HTTPS 脚本使用 MITM 配置的解密域名。",
   "Cron accepts five fields, or six with seconds first. The default timezone follows the device when the service starts.": "Cron 支持五段表达式，或以秒开头的六段表达式。未指定时区时，使用服务启动时的设备时区。",
   "Cron runs while the local service is running. Missed intervals are not replayed.": "Cron 随本地服务运行；错过的周期不会补跑。",
-  "Capture follows the local service. Configure MITM domains and trust the CA to record HTTPS or TLS/TCP. Start capture, then reconnect the target app.": "抓包跟随本地服务。录制 HTTPS 或 TLS/TCP 前，请配置 MITM 域名并信任 CA；开启抓包后让目标应用重新连接。",
+  "Configure MITM domains and trust the CA to record HTTPS or TLS/TCP. Recording starts with new requests or streams. Reconnect the target app if its connection was not already intercepted. Stopping recording keeps existing connections running.": "录制 HTTPS 或 TLS/TCP 前，请配置 MITM 域名并信任 CA。开启后从新的请求或流开始记录；原先未接管的连接需要让目标应用重新连接。停止录制会保持已有连接。",
   "HTTPS decryption requires the target app to trust this CA. Apps with certificate pinning or their own trust store may reject it; remove those domains from the MITM domain list.": "HTTPS 解密需要目标应用信任此 CA。采用证书固定校验或独立信任库的应用可能拒绝连接，可从 MITM 域名列表中移除相关域名。",
   "Complete": "已完成",
   "Trailers": "尾部字段",

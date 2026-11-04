@@ -2,9 +2,6 @@ package httpdebug
 
 import (
 	"bytes"
-	"compress/flate"
-	"compress/gzip"
-	"compress/zlib"
 	"context"
 	"errors"
 	"io"
@@ -27,6 +24,11 @@ type replayBody struct {
 // or unsupported encoding, replay every consumed byte and keep streaming.
 // The wire and decoded sizes are independently bounded (including gzip bombs).
 func readRewriteBody(ctx context.Context, body *io.ReadCloser, encoding string, limit int64, response bool, note func(string)) ([]byte, bool, error) {
+	encodings, err := contentEncodings(encoding)
+	if err != nil {
+		note("Body processing skipped: " + err.Error() + "; original stream preserved")
+		return nil, false, nil
+	}
 	if *body == nil || *body == http.NoBody {
 		return []byte{}, true, nil
 	}
@@ -35,7 +37,7 @@ func readRewriteBody(ctx context.Context, body *io.ReadCloser, encoding string, 
 	defer cancel()
 	stop := context.AfterFunc(readCtx, func() { original.Close() })
 	defer stop()
-	wire, err := io.ReadAll(io.LimitReader(original, limit+1))
+	wire, err := readBodyPrefix(original, limit)
 	*body = &replayBody{io.MultiReader(bytes.NewReader(wire), original), original}
 	if err != nil {
 		return nil, false, err
@@ -50,35 +52,17 @@ func readRewriteBody(ctx context.Context, body *io.ReadCloser, encoding string, 
 		}
 		return nil, false, errRewriteSize
 	}
-	var decoder io.ReadCloser
-	switch strings.ToLower(strings.TrimSpace(encoding)) {
-	case "", "identity":
-		return wire, true, nil
-	case "gzip":
-		decoder, err = gzip.NewReader(bytes.NewReader(wire))
-	case "deflate":
-		decoder, err = zlib.NewReader(bytes.NewReader(wire))
-		if err != nil {
-			decoder, err = flate.NewReader(bytes.NewReader(wire)), nil
-		}
-	default:
-		note("Body processing skipped: unsupported Content-Encoding " + encoding)
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	defer decoder.Close()
-	decoded, err := io.ReadAll(io.LimitReader(decoder, limit+1))
-	if err != nil {
-		return nil, false, err
-	}
-	if int64(len(decoded)) > limit {
+	decoded, err := decodeContent(wire, encodings, limit)
+	if errors.Is(err, errRewriteSize) {
 		if response {
 			note("Body processing skipped: decoded response exceeds max_body_bytes; original stream preserved")
 			return nil, false, nil
 		}
 		return nil, false, errRewriteSize
+	}
+	if err != nil {
+		note("Body processing skipped: invalid or unsupported compressed body: " + err.Error() + "; original stream preserved")
+		return nil, false, nil
 	}
 	return decoded, true, nil
 }

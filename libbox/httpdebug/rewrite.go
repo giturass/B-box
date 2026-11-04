@@ -38,7 +38,27 @@ func (e *Engine) httpProgram(metadata Metadata) *httpProgram {
 	return &httpProgram{rewrite, scripts}
 }
 
-func (p *httpProgram) request(request *http.Request, id, address string, note func(string)) (*http.Response, error) {
+func (p *httpProgram) request(request *http.Request, id, address string, note func(string)) (local *http.Response, err error) {
+	var lease *bodyLease
+	bufferedRequest, scriptedResponse := false, false
+	defer func() {
+		if lease != nil {
+			if err == nil {
+				if bufferedRequest {
+					request.Body = lease.wrap(request.Body)
+				}
+				if scriptedResponse {
+					local.Body = lease.wrap(local.Body)
+				}
+			}
+			lease.release()
+		}
+	}()
+	script := p.script("request", address)
+	bodyRules := p.hasBodyRules("request", address)
+	needsBody := bodyRules || script != nil && script.options.RequiresBody
+	eligible := !needsBody || bodyEligible(request.Header, note)
+	encoding := contentEncoding(request.Header)
 	if err := p.rewriteHeader("request", address, request.Header, &request.Host, note); err != nil {
 		return nil, err
 	}
@@ -84,17 +104,27 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 		note(rule.label)
 		break
 	}
-	script := p.script("request", address)
-	needsBody := p.hasBodyRules("request", address) || script != nil && script.options.RequiresBody
 	var data []byte
 	available := false
-	if needsBody {
+	// Even a header-only request script may generate a bounded mock body.
+	if needsBody && eligible || script != nil && !script.options.RequiresBody {
 		limit := p.limit
-		if !p.hasBodyRules("request", address) && script != nil {
+		if script != nil {
+			limit = max(limit, script.options.MaxBodyBytes)
+		}
+		lease = reserveBodyWork(limit)
+		if lease == nil {
+			note("Body processing skipped: global body budget exhausted; original stream preserved")
+		}
+	}
+	if needsBody && eligible && lease != nil {
+		bufferedRequest = true
+		limit := p.limit
+		if !bodyRules && script != nil {
 			limit = script.options.MaxBodyBytes
 		}
 		var err error
-		data, available, err = readRewriteBody(request.Context(), &request.Body, request.Header.Get("Content-Encoding"), limit, false, note)
+		data, available, err = readRewriteBody(request.Context(), &request.Body, encoding, limit, false, note)
 		if err != nil {
 			return nil, err
 		}
@@ -110,7 +140,7 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 		}
 	}
 	if script != nil {
-		if !script.options.RequiresBody || available {
+		if lease != nil && (!script.options.RequiresBody || available) {
 			result, err := runHTTPScript(request, nil, script, id, data, note)
 			if err != nil {
 				return nil, err
@@ -137,10 +167,11 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 				replaceRequestBody(request, result.body)
 			}
 			if result.response != nil {
+				scriptedResponse = true
 				return result.response, nil
 			}
 		} else {
-			note(script.label + ": skipped unavailable body")
+			note(script.label + ": skipped unavailable body or exhausted body budget")
 		}
 	}
 	for i, rule := range p.local {
@@ -167,24 +198,49 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 	return nil, nil
 }
 
-func (p *httpProgram) response(request *http.Request, response *http.Response, id, address string, note func(string)) error {
+func (p *httpProgram) response(request *http.Request, response *http.Response, id, address string, note func(string)) (err error) {
+	var lease *bodyLease
+	defer func() {
+		if lease != nil {
+			if err == nil {
+				response.Body = lease.wrap(response.Body)
+			}
+			lease.release()
+		}
+	}()
+	script := p.script("response", address)
+	bodyRules := p.hasBodyRules("response", address)
+	needsBody := bodyRules || script != nil && script.options.RequiresBody
+	eligible := true
+	if needsBody {
+		if response.StatusCode == http.StatusSwitchingProtocols || request.Method == http.MethodHead || response.StatusCode == http.StatusPartialContent {
+			note("Body processing skipped for HEAD, partial content or protocol upgrade")
+			eligible = false
+		} else {
+			eligible = bodyEligible(response.Header, note)
+		}
+	}
+	encoding := contentEncoding(response.Header)
 	if err := p.rewriteHeader("response", address, response.Header, nil, note); err != nil {
 		return err
 	}
-	script := p.script("response", address)
-	needsBody := p.hasBodyRules("response", address) || script != nil && script.options.RequiresBody
 	var data []byte
 	available := false
-	if needsBody {
-		if response.StatusCode == http.StatusSwitchingProtocols || request.Method == http.MethodHead || response.StatusCode == http.StatusPartialContent || strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
-			note("Body processing skipped for HEAD, partial content, event stream or protocol upgrade")
+	if needsBody && eligible {
+		budgetLimit := p.limit
+		if script != nil {
+			budgetLimit = max(budgetLimit, script.options.MaxBodyBytes)
+		}
+		lease = reserveBodyWork(budgetLimit)
+		if lease == nil {
+			note("Body processing skipped: global body budget exhausted; original stream preserved")
 		} else {
 			limit := p.limit
-			if !p.hasBodyRules("response", address) && script != nil {
+			if !bodyRules && script != nil {
 				limit = script.options.MaxBodyBytes
 			}
 			var err error
-			data, available, err = readRewriteBody(request.Context(), &response.Body, response.Header.Get("Content-Encoding"), limit, true, note)
+			data, available, err = readRewriteBody(request.Context(), &response.Body, encoding, limit, true, note)
 			if err != nil {
 				return err
 			}

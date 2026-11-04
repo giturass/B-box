@@ -14,18 +14,15 @@ import (
 // A decrypted TCP stream has no HTTP framing. Preserve both byte streams and
 // half-closes, including server-first protocols and payloads containing zeros.
 func (e *Engine) serveTCP(ctx context.Context, client, upstream net.Conn, metadata Metadata) error {
-	id := ""
-	if e.captureEnabled && e.config.matches(metadata) {
-		request := &http.Request{Method: "TCP", Proto: "TLS/TCP", Header: make(http.Header),
-			URL:  &url.URL{Scheme: "tls", Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))},
-			Body: io.NopCloser(strings.NewReader(""))}
-		id = e.store.begin(metadata, request, e.config.BodyLimit)
+	request := &http.Request{Method: "TCP", Proto: "TLS/TCP", Header: make(http.Header),
+		URL:  &url.URL{Scheme: "tls", Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))},
+		Body: io.NopCloser(strings.NewReader(""))}
+	id := e.beginRecording(metadata, request)
+	if id != "" {
 		e.store.response(id, &http.Response{Proto: "TLS/TCP", Header: make(http.Header), ContentLength: -1,
 			Body: io.NopCloser(strings.NewReader(""))})
 		e.store.addNote(id, "Decrypted TLS/TCP stream; each direction is a byte stream, not an HTTP message")
-		if id != "" {
-			e.recordedRequests.Add(1)
-		}
+		e.recordedRequests.Add(1)
 	}
 	defer e.store.finish(id)
 	stop := context.AfterFunc(ctx, func() { client.Close(); upstream.Close() })

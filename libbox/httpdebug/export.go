@@ -2,9 +2,6 @@ package httpdebug
 
 import (
 	"bytes"
-	"compress/flate"
-	"compress/gzip"
-	"compress/zlib"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -37,36 +34,34 @@ func headerValue(m Message, name string) string {
 // Decode only a bounded prefix. A compressed response cannot allocate an
 // unbounded expansion, and unsupported/binary data remains available as base64.
 func decodeBody(m Message, body []byte, limit int) (data []byte, decoded, truncated bool) {
-	data = body
-	var reader io.ReadCloser
-	var err error
-	switch strings.ToLower(strings.TrimSpace(headerValue(m, "Content-Encoding"))) {
-	case "", "identity":
-	case "gzip":
-		reader, err = gzip.NewReader(bytes.NewReader(body))
-	case "deflate":
-		reader, err = zlib.NewReader(bytes.NewReader(body))
-		if err != nil {
-			reader, err = flate.NewReader(bytes.NewReader(body)), nil
-		}
-	default:
-		return body, false, m.BodyTruncated
-	}
+	encodings, err := contentEncodings(messageContentEncoding(m))
 	if err != nil {
 		return body, false, m.BodyTruncated
 	}
-	if reader != nil {
-		data, err = io.ReadAll(io.LimitReader(reader, int64(limit)+1))
-		reader.Close()
-		if len(data) == 0 && err != nil {
-			return body, false, true
-		}
+	lease := reserveBodyWork(int64(limit))
+	if lease == nil {
+		return body, false, m.BodyTruncated
+	}
+	defer lease.release()
+	data, err = decodeContent(body, encodings, int64(limit))
+	if len(data) == 0 && err != nil {
+		return body, false, true
 	}
 	truncated = len(data) > limit || m.BodyTruncated || err != nil
 	if len(data) > limit {
 		data = data[:limit]
 	}
 	return data, true, truncated
+}
+
+func messageContentEncoding(m Message) string {
+	var values []string
+	for _, header := range m.Headers {
+		if strings.EqualFold(header.Name, "Content-Encoding") {
+			values = append(values, header.Value)
+		}
+	}
+	return strings.Join(values, ",")
 }
 
 func preview(m Message, body []byte) Preview {
@@ -132,11 +127,15 @@ func harEntry(d *Detail) map[string]any {
 	request := map[string]any{"method": d.Request.Method, "url": d.Request.URL, "httpVersion": d.Request.Protocol,
 		"headers": d.Request.Headers, "_trailers": d.Request.Trailers, "queryString": query, "cookies": []any{}, "headersSize": -1, "bodySize": d.Request.BodyBytes}
 	if len(d.RequestBody) > 0 {
-		text, encoding := string(d.RequestBody), ""
-		if !utf8.Valid(d.RequestBody) {
-			text, encoding = base64.StdEncoding.EncodeToString(d.RequestBody), "base64"
+		content := harContent(d.Request, d.RequestBody)
+		content["_encoding"] = content["encoding"]
+		if text, ok := content["text"].(string); ok {
+			if data, err := base64.StdEncoding.DecodeString(text); err == nil && utf8.Valid(data) && bytes.IndexByte(data, 0) < 0 {
+				content["text"], content["_encoding"] = string(data), ""
+			}
 		}
-		request["postData"] = map[string]any{"mimeType": headerValue(d.Request, "Content-Type"), "text": text, "_encoding": encoding}
+		delete(content, "encoding")
+		request["postData"] = content
 	}
 	content := harContent(d.Response, d.ResponseBody)
 	response := map[string]any{"status": d.Response.Status, "statusText": http.StatusText(d.Response.Status), "httpVersion": d.Response.Protocol,
@@ -153,7 +152,7 @@ func harEntry(d *Detail) map[string]any {
 }
 
 func harContent(message Message, body []byte) map[string]any {
-	encoding := strings.ToLower(strings.TrimSpace(headerValue(message, "Content-Encoding")))
+	encoding := strings.ToLower(strings.TrimSpace(messageContentEncoding(message)))
 	content := map[string]any{"size": message.BodyBytes, "mimeType": headerValue(message, "Content-Type"),
 		"_capturedBytes": len(body), "_truncated": message.BodyTruncated, "_complete": message.BodyComplete}
 	data, decoded, truncated := body, true, message.BodyTruncated

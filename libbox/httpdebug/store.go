@@ -219,7 +219,7 @@ func (s *Store) begin(metadata Metadata, request *http.Request, bodyLimit int64)
 func (s *Store) response(id string, response *http.Response) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if record := s.records[id]; record != nil {
+	if record := s.records[id]; record != nil && !record.finishing && !record.Complete {
 		if response.TLS != nil && record.Metadata.TLS != nil {
 			metadata := *record.Metadata.TLS
 			metadata.UpstreamVersion = tlsVersion(response.TLS.Version)
@@ -247,7 +247,7 @@ func (s *Store) response(id string, response *http.Response) {
 func (s *Store) rewrittenRequest(id string, request *http.Request, originalURL string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if record := s.records[id]; record != nil {
+	if record := s.records[id]; record != nil && !record.finishing && !record.Complete {
 		if originalURL != request.URL.String() {
 			record.OriginalURL = originalURL
 		}
@@ -261,21 +261,23 @@ func (s *Store) rewrittenRequest(id string, request *http.Request, originalURL s
 func (s *Store) addNote(id, note string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if record := s.records[id]; record != nil && len(record.Note) < 4096 {
-		if len(note) > 4096-len(record.Note) {
-			note = note[:4096-len(record.Note)]
-		}
-		if record.Note != "" {
-			record.Note += "\n"
-		}
-		record.Note += note
+	if record := s.records[id]; record != nil && !record.finishing && !record.Complete {
+		appendRecordNote(record, note)
 	}
+}
+
+func appendRecordNote(record *Exchange, note string) {
+	if record.Note != "" {
+		note = "\n" + note
+	}
+	remaining := max(0, 4096-len(record.Note))
+	record.Note += strings.ToValidUTF8(note[:min(len(note), remaining)], "")
 }
 
 func (s *Store) domainOnly(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if record := s.records[id]; record != nil {
+	if record := s.records[id]; record != nil && !record.finishing && !record.Complete {
 		record.DomainOnly = true
 		record.Note = "Domain only: observed TLS/QUIC hostname; HTTPS plaintext was not observed"
 	}
@@ -424,7 +426,7 @@ func (s *Store) closeBodiesLocked(record *Exchange) {
 func (s *Store) bodyComplete(id string, response bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if record := s.records[id]; record != nil {
+	if record := s.records[id]; record != nil && !record.finishing && !record.Complete {
 		if response {
 			record.Response.BodyComplete = true
 		} else {
@@ -445,7 +447,7 @@ func (s *Store) bodyComplete(id string, response bool) {
 func (s *Store) trailers(id string, response bool, trailers http.Header) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if record := s.records[id]; record != nil {
+	if record := s.records[id]; record != nil && !record.finishing && !record.Complete {
 		message := &record.Request
 		if response {
 			message = &record.Response
@@ -460,7 +462,7 @@ func (s *Store) setError(id string, err error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if record := s.records[id]; record != nil && record.Error == "" {
+	if record := s.records[id]; record != nil && !record.finishing && !record.Complete && record.Error == "" {
 		record.Error = err.Error()
 	}
 }
@@ -468,16 +470,20 @@ func (s *Store) setError(id string, err error) {
 func (s *Store) finish(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if record := s.records[id]; record != nil {
-		record.finishing = true
-		// Readers may stop polling a completed record. Publish completion only
-		// after every in-flight body write has committed its final byte counts.
-		record.Complete = record.pendingBytes == 0
-		record.DurationMS = max(0, time.Now().UnixMilli()-record.StartedAt)
-		s.closeBodiesLocked(record)
-		s.persistLocked(record)
+	if record := s.records[id]; record != nil && !record.finishing && !record.Complete {
+		s.finishLocked(record)
 		s.trimLocked()
 	}
+}
+
+func (s *Store) finishLocked(record *Exchange) {
+	record.finishing = true
+	// Readers may stop polling a completed record. Publish completion only
+	// after every in-flight body write has committed its final byte counts.
+	record.Complete = record.pendingBytes == 0
+	record.DurationMS = max(0, time.Now().UnixMilli()-record.StartedAt)
+	s.closeBodiesLocked(record)
+	s.persistLocked(record)
 }
 
 func (s *Store) persistLocked(record *Exchange) {

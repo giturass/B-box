@@ -21,6 +21,8 @@
 
 共享组件位于 [flutter/lib/ui](flutter/lib/ui)。原始许可保留在 [flutter/assets/licenses/LICENSE](flutter/assets/licenses/LICENSE)，字体归属见 [JetBrainsMono-OFL.txt](flutter/assets/licenses/JetBrainsMono-OFL.txt) 和 [Twemoji-LICENSE.md](flutter/assets/licenses/Twemoji-LICENSE.md)。Twemoji 原始图形来自 Twitter，字体转换由 Mozilla 提供，图形未修改。这些文件同时用于应用内许可证页，不再单独保存重复副本。
 
+核心正文解码新增使用的许可通过 [main.dart](flutter/lib/main.dart) 注册至应用内许可证页：[brotli-LICENSE](flutter/assets/licenses/brotli-LICENSE) 与 [klauspost-compress-LICENSE](flutter/assets/licenses/klauspost-compress-LICENSE)。依赖版本及执行范围见 [libbox.md](libbox.md#独立脚本与-cron)，不改变 FlClash 参考基线或直接导入文件。
+
 应用打包的字体均有实际用途：[JetBrainsMono-Regular.ttf](flutter/assets/fonts/JetBrainsMono-Regular.ttf) 用于代码编辑、请求报文、记录详情及终端预览，[Twemoji.Mozilla.ttf](flutter/assets/fonts/Twemoji.Mozilla.ttf) 用于代理名称等 Emoji 文本。[NotoSansSC-status.ttf](flutter/test/support/fonts/NotoSansSC-status.ttf) 仅供状态卡像素比较测试使用，不进入应用资源。
 
 ## 界面复用与业务适配
@@ -49,6 +51,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 - 服务按钮的暂停图形表示停止服务，不新增暂停核心能力。远程会话、启停过渡和不可用操作必须反映真实状态。
 - 工具页远程控制紧跟终端；终端设置在终端内，仪表盘编辑在首页工具栏。设置依次为外观、常规、访问控制、备份与恢复；高级配置从配置的“编辑”页进入，不保留重复资源入口。
 - 工具页依次提供独立的“请求”和“连接”入口。连接页默认显示活动连接，可切换已关闭/全部，并按速度、创建时间及上下行总量排序；连接订阅不查询请求记录。请求列表沿用连接页的卡片、左右边距、行间距和字形，支持搜索，每批加载 50 条，最多显示内核保留的 300 条。抓取开关等待原生确认，停止抓取或停服后保留请求历史；远程会话的请求页显示不可用，连接页继续展示远端连接。
+- 请求页空态说明从新 HTTP 请求/TCP 流开始记录，启停不关闭已有连接；需要重新连接的范围及停止时的记录冻结语义由 [核心录制生命周期](libbox.md#httphttps-请求调试) 维护，中英文文案同步。
 - 请求详情使用同一点击复制行及反馈，长 URL、头部与 Cookie 分行显示；右上角菜单切换请求、响应和 Cookies，请求与响应 Cookie 分组展示，保留重复 `Set-Cookie`、空值、值中的等号及属性，点击 Cookie 复制该条原文。
 - 抓包设置只提供记录应用、原始目标端口、正文限额和可见域名提取，保存检查本机修订，失败保留草稿。MITM 独立提供配置及证书设置，默认关闭，只解密配置的域名；空列表不解密，无排除列表，可开启 TCP 解密及 QUIC 回退。证书页显示有效期、公钥 SHA-256、用户/系统信任和私钥可用性，提供 CRT/系统模块导出与 Android 设置入口；打开页面不生成证书，生成是明确操作，重新生成需确认，返回前台可刷新信任。远程会话隔离与平台边界见 [app.md](app.md#请求抓取与-mitm)。
 - 请求菜单提供抓包设置、当前搜索的 HAR 导出和清空请求；只显示请求录制状态，移除“配置中的 HTTP 改写已生效”提示及抓包日志功能。运行错误和脚本 console 输出进入应用现有日志，见 [libbox.md](libbox.md#httphttps-请求调试)。

@@ -51,7 +51,7 @@ func TestBboxHTTPDebugKeepsSelectedRouteAndReplaysUnmatchedBytes(t *testing.T) {
 	if err := httpdebug.Start(directory, `{}`, "", nil); err != nil {
 		t.Fatal(err)
 	}
-	defer httpdebug.Stop()
+	defer httpdebug.StopService()
 	router := &Router{ctx: context.Background()}
 	metadata := adapter.InboundContext{Network: "tcp", Inbound: "tun", Domain: "dns-mapping.example",
 		Source: M.ParseSocksaddr("127.0.0.1:4321"), Destination: M.ParseSocksaddr("198.51.100.9:80"),
@@ -180,7 +180,7 @@ func testBboxHTTPDebugConnectionID(t *testing.T, directory string) {
 		t.Fatal("tracked connection was not captured")
 	}
 	manager.CloseAllConnections()
-	httpdebug.Stop()
+	httpdebug.StopService()
 	manager.Clear()
 	if manager.Connection(connectionID) != nil || len(manager.ClosedConnections()) != 0 {
 		t.Fatal("original connection was not removed from tracking")

@@ -48,9 +48,10 @@ func (e *Engine) openRewriteMITM(ctx context.Context, raw net.Conn, metadata Met
 	defer cancel()
 	if err := client.HandshakeContext(handshake); err != nil {
 		e.tlsFailed.Add(1)
-		e.reportError("Rewrite client TLS for " + metadata.Host + ": " + err.Error())
-		e.recordTLSFailure(metadata, err)
-		return nil, nil, metadata, nil, err
+		failure := fmt.Errorf("Client TLS for %s: %w", metadata.Host, err)
+		e.reportError(failure.Error())
+		e.recordTLSFailure(metadata, failure)
+		return nil, nil, metadata, nil, failure
 	}
 	state := client.ConnectionState()
 	metadata.TLS = &TLSMetadata{ServerName: metadata.Host, ClientVersion: tlsVersion(state.Version), ALPN: state.NegotiatedProtocol}

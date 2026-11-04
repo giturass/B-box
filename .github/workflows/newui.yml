@@ -117,7 +117,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [24, 31, 35]
+        include:
+          - api: '24'
+            target: google_apis
+          - api: '31'
+            target: google_apis
+          - api: '35'
+            target: google_apis
+          - api: '36'
+            target: google_apis
+          - api: '37.1'
+            target: google_apis_ps16k
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v5
@@ -130,9 +140,12 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - uses: reactivecircus/android-emulator-runner@v2
+        env:
+          BBOX_SMOKE_SYSTEM_IMAGE: system-images;android-${{ matrix.api }};${{ matrix.target }};x86_64
+          BBOX_SMOKE_EXPECT_16K: ${{ matrix.target == 'google_apis_ps16k' }}
         with:
           api-level: ${{ matrix.api }}
-          target: google_apis
+          target: ${{ matrix.target }}
           arch: x86_64
           profile: pixel_2
           disable-animations: true

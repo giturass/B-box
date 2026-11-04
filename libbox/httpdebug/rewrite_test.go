@@ -127,7 +127,7 @@ func TestRewriteHTTPSOfflineMockAndRecordingOff(t *testing.T) {
 	for _, h2 := range []bool{false, true} {
 		t.Run(map[bool]string{false: "http1", true: "http2"}[h2], func(t *testing.T) {
 			e, store, ca := mitmEngine(t, Config{})
-			e.captureEnabled = false
+			e.recording.Store(nil)
 			e.rewrite = rewriteProgram(t, `{"enabled":true,"map_local":[{"pattern":"/static$","status":201,"data":"local","headers":[{"name":"Set-Cookie","value":"a=1"},{"name":"Set-Cookie","value":"b=2"}]}]}`).RewriteProgram
 			e.scripts = scriptProgram(t, `{"enabled":true,"http":[{"pattern":"/dynamic$","phase":"request","source":"$done({response:{status:202,headers:{'Content-Type':'application/json'},body:JSON.stringify({method:$request.method})}});"}]}`)
 			e.mitm = mitmConfig(t, `{"enabled":true,"hosts":["origin.test"]}`)

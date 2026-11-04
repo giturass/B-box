@@ -26,22 +26,22 @@ var errHelloInspected = errors.New("ClientHello inspected without a TLS response
 // The probe cannot write an alert or a ServerHello to the real client.
 func (e *Engine) SelectTLS(ctx context.Context, conn net.Conn, metadata Metadata) (net.Conn, Metadata, bool) {
 	if e.ca == nil || !e.mitm.candidate(metadata) {
+		metadata.ProcessingReason = "TLS passed through: MITM disabled or outside configured port/application scope"
 		return conn, metadata, false
 	}
-	e.mu.Lock()
-	if e.closed || len(e.connections)+e.preparing >= MaxConnections {
-		e.skipped.Add(1)
-		e.mu.Unlock()
+	selection := e.trackTLS(ctx, conn)
+	if selection == nil {
+		metadata.ProcessingReason = "TLS processing skipped: service stopped"
+		e.connectionSkipped(metadata, metadata.ProcessingReason)
 		return conn, metadata, false
 	}
-	e.preparing++
-	e.wg.Add(1)
-	e.mu.Unlock()
-	defer func() { e.mu.Lock(); e.preparing--; e.mu.Unlock(); e.wg.Done() }()
-	stopEngine := context.AfterFunc(e.ctx, func() { conn.Close() })
-	stopCaller := context.AfterFunc(ctx, func() { conn.Close() })
-	defer stopEngine()
-	defer stopCaller()
+	defer e.wg.Done()
+	selected := false
+	defer func() {
+		if !selected {
+			selection.release(false)
+		}
+	}()
 	probe := &helloProbe{Conn: conn}
 	var name string
 	var protos []string
@@ -56,13 +56,15 @@ func (e *Engine) SelectTLS(ctx context.Context, conn net.Conn, metadata Metadata
 	replay := &replayConn{Conn: conn, reader: io.MultiReader(bytes.NewReader(probe.data), conn)}
 	if !inspected {
 		e.skipped.Add(1)
-		writeLog("warn", "TLS passed through: ClientHello could not be inspected for "+metadata.Host)
+		metadata.ProcessingReason = "TLS passed through: ClientHello could not be inspected"
+		writeLog("warn", metadata.ProcessingReason+"; connection="+metadata.ConnectionID+" host="+metadata.Host)
 		return replay, metadata, false
 	}
 	if name != "" {
 		metadata.Host = normalizeHost(name)
 	} else if net.ParseIP(metadata.Host) == nil {
 		// Do not turn a DNS mapping or an outbound override into a claimed SNI.
+		metadata.ProcessingReason = "TLS passed through: no SNI or known IP target"
 		return replay, metadata, false
 	}
 	// Any non-HTTP offer requires upstream-first negotiation, even when HTTP
@@ -71,10 +73,16 @@ func (e *Engine) SelectTLS(ctx context.Context, conn net.Conn, metadata Metadata
 		return proto != "h2" && proto != "http/1.1"
 	}))
 	if len(protos) > 0 && !metadata.RawTCP && !slices.Contains(protos, "h2") && !slices.Contains(protos, "http/1.1") {
-		writeLog("debug", "TLS passed through: non-HTTP ALPN for "+metadata.Host)
+		metadata.ProcessingReason = "TLS passed through: non-HTTP ALPN and TCP decryption disabled"
+		writeLog("debug", metadata.ProcessingReason+"; connection="+metadata.ConnectionID+" host="+metadata.Host)
 		return replay, metadata, false
 	}
-	return replay, metadata, e.mitm.matches(metadata)
+	selected = e.mitm.matches(metadata)
+	if !selected {
+		metadata.ProcessingReason = "TLS passed through: SNI is outside the configured MITM scope"
+		return replay, metadata, false
+	}
+	return &selectedTLSConn{Conn: replay, selection: selection}, metadata, true
 }
 
 type helloProbe struct {
@@ -239,14 +247,15 @@ type cancelConn struct {
 func (c *cancelConn) Close() error { c.cancel(); return c.Conn.Close() }
 
 func (e *Engine) recordTLSFailure(metadata Metadata, err error) {
-	if !e.captureEnabled || !e.config.matches(metadata) {
-		return
-	}
+	e.recordTLSDiagnostic(metadata, "TLS handshake failed before any HTTP request was received", err)
+}
+
+func (e *Engine) recordTLSDiagnostic(metadata Metadata, reason string, err error) {
 	request := &http.Request{Method: "TLS", Proto: "TLS", Header: make(http.Header),
 		URL: &url.URL{Scheme: "https", Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))}}
-	id := e.store.begin(metadata, request, e.config.BodyLimit)
+	id := e.beginRecording(metadata, request)
 	e.store.domainOnly(id)
-	e.store.addNote(id, "TLS handshake failed before any HTTP request was received")
+	e.store.addNote(id, reason)
 	e.store.setError(id, err)
 	e.store.finish(id)
 }

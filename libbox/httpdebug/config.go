@@ -19,7 +19,6 @@ const (
 	MaxEntries       = 300
 	MaxStorageBytes  = 32 * 1024 * 1024
 	MaxHeaderBytes   = 64 * 1024
-	MaxConnections   = 32
 	MaxConfigBytes   = 64 * 1024
 )
 
@@ -100,6 +99,7 @@ type Metadata struct {
 	// ConnectionID identifies the original routed client connection, when tracked.
 	// Each exchange still has its own ID, including multiplexed HTTP/2 requests.
 	ConnectionID        string          `json:"connectionId,omitempty"`
+	ProcessingReason    string          `json:"processingReason,omitempty"`
 	Host                string          `json:"host"`
 	Port                uint16          `json:"port"`
 	Protocol            string          `json:"protocol"`

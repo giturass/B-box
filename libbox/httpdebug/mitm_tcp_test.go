@@ -16,10 +16,12 @@ func TestMITMTCPPreservesBinaryStreamsServerFirstAndHalfClose(t *testing.T) {
 		name       string
 		offered    []string
 		negotiated string
+		stopRecord bool
 	}{
-		{"mqtt", []string{"mqtt"}, "mqtt"},
-		{"mixed", []string{"h2", "mqtt", "http/1.1"}, "mqtt"},
-		{"none", nil, ""},
+		{"mqtt", []string{"mqtt"}, "mqtt", false},
+		{"mixed", []string{"h2", "mqtt", "http/1.1"}, "mqtt", false},
+		{"none", nil, "", false},
+		{"stop-recording", []string{"mqtt"}, "mqtt", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cert, roots := originCertificate(t, "origin.test", false)
@@ -94,6 +96,9 @@ func TestMITMTCPPreservesBinaryStreamsServerFirstAndHalfClose(t *testing.T) {
 			if _, err = io.ReadFull(client, got); err != nil || !bytes.Equal(got, greeting) {
 				t.Fatalf("server-first bytes: %v %v", got, err)
 			}
+			if test.stopRecord {
+				e.stopRecording()
+			}
 			if _, err = client.Write(payload); err != nil {
 				t.Fatal(err)
 			}
@@ -115,9 +120,17 @@ func TestMITMTCPPreservesBinaryStreamsServerFirstAndHalfClose(t *testing.T) {
 				t.Fatal(err)
 			}
 			if detail.Metadata.ConnectionID != "tcp-client" || !detail.Metadata.RawTCP || detail.Request.Protocol != "TLS/TCP" || detail.Metadata.TLS.ALPN != test.negotiated ||
-				detail.Metadata.TLS.UpstreamCertificate == "" || detail.Request.BodyBytes != int64(len(payload)) ||
-				!detail.Request.BodyComplete || !detail.Response.BodyComplete || !detail.Request.BodyTruncated || len(detail.RequestBody) != 64 {
+				detail.Metadata.TLS.UpstreamCertificate == "" {
 				t.Fatalf("incorrect TCP record: %+v", detail)
+			}
+			if test.stopRecord {
+				if detail.Request.BodyBytes != 0 || detail.Response.BodyBytes != int64(len(greeting)) ||
+					detail.Request.BodyComplete || detail.Response.BodyComplete || !strings.Contains(detail.Note, "Recording stopped") {
+					t.Fatalf("stopped TCP record was modified: %+v", detail)
+				}
+			} else if detail.Request.BodyBytes != int64(len(payload)) || !detail.Request.BodyComplete ||
+				!detail.Response.BodyComplete || !detail.Request.BodyTruncated || len(detail.RequestBody) != 64 {
+				t.Fatalf("incorrect TCP body record: %+v", detail)
 			}
 			if e.parsedRequests.Load() != 0 {
 				t.Fatal("TCP stream entered HTTP parser")

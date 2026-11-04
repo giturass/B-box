@@ -253,7 +253,19 @@ def diagnostics(name):
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     results = {}
+    device = {}
     try:
+        for name, prop in {
+            "sdk": "ro.build.version.sdk",
+            "release": "ro.build.version.release",
+            "codename": "ro.build.version.codename",
+            "fingerprint": "ro.build.fingerprint",
+        }.items():
+            device[name] = adb("shell", "getprop", prop).strip()
+        device["page_size"] = int(adb("shell", "getconf", "PAGE_SIZE").strip())
+        device["system_image"] = os.environ.get("BBOX_SMOKE_SYSTEM_IMAGE")
+        if os.environ.get("BBOX_SMOKE_EXPECT_16K") == "true":
+            assert device["page_size"] == 16384, device
         apks = list(Path("build/apk").rglob("*.apk"))
         application, = [apk for apk in apks if not apk.name.endswith("-androidTest.apk")]
         instrumentation, = [apk for apk in apks if apk.name.endswith("-androidTest.apk")]
@@ -279,7 +291,7 @@ def main():
         traceback.print_exc()
     finally:
         (OUT / "results.json").write_text(json.dumps({
-            "sha": os.environ.get("GITHUB_SHA"), "checks": results,
+            "sha": os.environ.get("GITHUB_SHA"), "device": device, "checks": results,
         }, indent=2) + "\n")
         try:
             adb("shell", "am", "force-stop", PACKAGE)

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -25,8 +26,7 @@ import (
 type DialFunc func(context.Context) (net.Conn, error)
 
 type Engine struct {
-	config               Config
-	captureEnabled       bool
+	recording            atomic.Pointer[Config]
 	rewrite              *RewriteProgram
 	mitm                 *MITMConfig
 	scripts              *ScriptProgram
@@ -38,11 +38,12 @@ type Engine struct {
 	wg                   sync.WaitGroup
 	closed               bool
 	connections          map[net.Conn]context.CancelFunc
-	preparing            int
+	preparing            map[*tlsSelection]struct{}
 	skipped              atomic.Int64
 	warning              atomic.Pointer[string]
 	tlsOpened            atomic.Int64
 	tlsFailed            atomic.Int64
+	tlsNoRequest         atomic.Int64
 	blockedQUIC          atomic.Int64
 	plaintextConnections atomic.Int64
 	plaintextBytes       atomic.Int64
@@ -52,31 +53,35 @@ type Engine struct {
 }
 
 func newEngine(config Config, store *Store) *Engine {
-	e := &Engine{config: config, captureEnabled: true, store: store, connections: make(map[net.Conn]context.CancelFunc)}
+	e := &Engine{store: store, connections: make(map[net.Conn]context.CancelFunc), preparing: make(map[*tlsSelection]struct{})}
+	e.recording.Store(&config)
 	e.ctx, e.cancel = context.WithCancel(context.Background())
 	return e
 }
 
 func (e *Engine) Candidate(metadata Metadata) bool {
+	config := e.recording.Load()
 	if e.mitm.candidate(metadata) {
 		return true
 	}
 	if metadata.Protocol == "tls" {
-		return e.captureEnabled && e.config.ExtractHosts && e.config.candidate(metadata)
+		return config != nil && config.ExtractHosts && config.candidate(metadata)
 	}
-	return e.captureEnabled && e.config.candidate(metadata) || e.httpProgram(metadata) != nil
+	return config != nil && config.candidate(metadata) || e.httpProgram(metadata) != nil
 }
 
 func (e *Engine) Matches(metadata Metadata) bool {
 	if metadata.Protocol == "tls" {
 		return e.mitm.matches(metadata)
 	}
-	return e.captureEnabled && e.config.matches(metadata) || e.httpProgram(metadata) != nil
+	config := e.recording.Load()
+	return config != nil && config.matches(metadata) || e.httpProgram(metadata) != nil
 }
 
 func (e *Engine) WantsQUIC(metadata Metadata) bool {
 	metadata.Protocol = "tls"
-	return e.captureEnabled && e.config.ExtractHosts && e.config.candidate(metadata) ||
+	config := e.recording.Load()
+	return config != nil && config.ExtractHosts && config.candidate(metadata) ||
 		e.mitm.candidate(metadata) && e.mitm.BlockQUIC
 }
 
@@ -101,25 +106,29 @@ func (e *Engine) Handle(ctx context.Context, conn net.Conn, metadata Metadata, d
 }
 
 func (e *Engine) HandleRouted(ctx context.Context, conn net.Conn, metadata Metadata, dial DialFunc, mapped RewriteDialFunc, roots *x509.CertPool, onClose func(error)) bool {
+	selected, hasSelection := conn.(*selectedTLSConn)
+	if hasSelection {
+		defer selected.selection.release(false)
+		if selected.selection.engine != e {
+			return false
+		}
+	}
 	if !e.Matches(metadata) || metadata.Protocol == "tls" && e.ca == nil {
 		return false
 	}
 	e.mu.Lock()
-	if e.closed || len(e.connections)+e.preparing >= MaxConnections {
-		e.skipped.Add(1)
+	if e.closed || hasSelection && !selected.selection.held {
 		e.mu.Unlock()
-		if e.mitm.matches(metadata) || e.httpProgram(metadata) != nil {
-			conn.Close()
-			if onClose != nil {
-				onClose(errors.New("Profile processing connection capacity exceeded or service stopped"))
-			}
-			return true
-		}
+		e.connectionSkipped(metadata, "HTTP processing unavailable: service stopped or selection cancelled")
 		return false
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	e.connections[conn] = cancel
-	e.wg.Add(1)
+	if hasSelection {
+		selected.selection.detachLocked()
+	} else {
+		e.wg.Add(1)
+	}
 	e.mu.Unlock()
 	go func() {
 		defer e.wg.Done()
@@ -145,12 +154,15 @@ func (e *Engine) Close() {
 		return
 	}
 	e.closed = true
+	connections := maps.Clone(e.connections)
+	e.mu.Unlock()
 	e.cancel()
-	for conn, cancel := range e.connections {
+	// Selected TLS wrappers release lifecycle tracking in Close, which takes
+	// e.mu too. Close transports after releasing the engine lock.
+	for conn, cancel := range connections {
 		cancel()
 		conn.Close()
 	}
-	e.mu.Unlock()
 	e.wg.Wait()
 }
 
@@ -187,7 +199,20 @@ func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, di
 		defer mappedTransport.CloseIdleConnections()
 	}
 	target := &url.URL{Scheme: scheme, Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))}
-	handler := e.handler(metadata, target, transport, mappedTransport)
+	process := e.handler(metadata, target, transport, mappedTransport)
+	var received atomic.Bool
+	handler := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		received.Store(true)
+		process.ServeHTTP(w, request)
+	})
+	defer func() {
+		if metadata.Protocol == "tls" && !received.Load() && ctx.Err() == nil && e.ctx.Err() == nil {
+			e.tlsNoRequest.Add(1)
+			reason := "TLS handshake completed but no HTTP request was received; possible certificate pinning or client cancellation"
+			writeLog("warn", reason+"; connection="+metadata.ConnectionID+" host="+metadata.Host)
+			e.recordTLSDiagnostic(metadata, reason, nil)
+		}
+	}()
 	base := &http.Server{
 		Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
 		MaxHeaderBytes: MaxHeaderBytes, ErrorLog: log.New(io.Discard, "", 0),
@@ -263,7 +288,7 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 		e.mu.Lock()
 		if e.closed {
 			e.mu.Unlock()
-			http.Error(w, "Capture stopped; reconnect", http.StatusServiceUnavailable)
+			http.Error(w, "Local service stopped; reconnect", http.StatusServiceUnavailable)
 			return
 		}
 		e.wg.Add(1)
@@ -296,13 +321,10 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 		requestMetadata := metadata
 		requestMetadata.Host = requestHost
 		id := ""
-		selected := e.captureEnabled && e.config.matches(requestMetadata)
 		e.parsedRequests.Add(1)
-		if selected {
-			id = e.store.begin(requestMetadata, display, e.config.BodyLimit)
-			if id != "" {
-				e.recordedRequests.Add(1)
-			}
+		id = e.beginRecording(requestMetadata, display)
+		if id != "" {
+			e.recordedRequests.Add(1)
 		} else {
 			e.filteredRequests.Add(1)
 		}
@@ -320,13 +342,21 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 			return
 		}
 		request.URL = display.URL
+		defer func() {
+			if request.Body != nil {
+				request.Body.Close()
+			}
+		}()
 		originalURL := *request.URL
 		program := e.httpProgram(requestMetadata)
 		scriptID := id
 		if scriptID == "" {
 			scriptID = rand.Text()
 		}
-		note := func(message string) { e.store.addNote(id, message) }
+		note := func(message string) {
+			e.store.addNote(id, message)
+			writeLog("debug", "HTTP processing; connection="+metadata.ConnectionID+" request="+scriptID+": "+message)
+		}
 		var local *http.Response
 		if program != nil {
 			// Limit reads of a selected request body, including slow/chunked uploads.
@@ -341,7 +371,7 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 				if errors.Is(err, errRewriteSize) {
 					status = http.StatusRequestEntityTooLarge
 				}
-				http.Error(w, "B-box: request rewrite failed; see capture logs", status)
+				http.Error(w, "B-box: request processing failed; see request details or service logs", status)
 				return
 			}
 			e.store.rewrittenRequest(id, request, originalURL.String())
@@ -351,7 +381,6 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 		}
 		if request.Body != nil && request.Body != http.NoBody {
 			request.Body = &tapBody{ReadCloser: request.Body, store: e.store, id: id, expected: request.ContentLength, trailers: request.Trailer, engine: e}
-			defer request.Body.Close()
 		}
 		proxy := &httputil.ReverseProxy{
 			Rewrite: func(r *httputil.ProxyRequest) {
@@ -417,7 +446,7 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 // Domain observations do not imply that TLS plaintext was captured.
 func (e *Engine) Observe(metadata Metadata, protocol string) {
 	metadata.Protocol = "tls"
-	if !e.captureEnabled || !e.config.ExtractHosts || !e.config.candidate(metadata) || !validHost(normalizeHost(metadata.Host)) {
+	if !validHost(normalizeHost(metadata.Host)) {
 		return
 	}
 	e.mu.Lock()
@@ -425,10 +454,17 @@ func (e *Engine) Observe(metadata Metadata, protocol string) {
 	if e.closed {
 		return
 	}
+	config := e.recording.Load()
+	if config == nil || !config.ExtractHosts || !config.candidate(metadata) {
+		return
+	}
 	request := &http.Request{Method: "TLS", Proto: protocol, Header: make(http.Header),
 		URL: &url.URL{Scheme: "https", Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))}}
-	id := e.store.begin(metadata, request, e.config.BodyLimit)
+	id := e.store.begin(metadata, request, config.BodyLimit)
 	e.store.domainOnly(id)
+	if metadata.ProcessingReason != "" {
+		e.store.addNote(id, metadata.ProcessingReason)
+	}
 	e.store.finish(id)
 }
 
