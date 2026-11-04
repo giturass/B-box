@@ -193,6 +193,23 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### MITM 连接与正文处理优化验证
+
+2026-11-04，验证源码为 `aa734faab8ae5edf76dba56b88aa5e8986fa47dc`，包含取消固定连接总数上限、记录启停保留连接、正文处理预算/编码/流式转发及 HTTP/Cron 脚本资源隔离，具体行为见 [核心请求调试](libbox.md#httphttps-请求调试)。自动 Android smoke 按当前范围仅保留 API 31；后续记录结果的 Markdown 提交不改变应用源码。
+
+[Unit tests and regression](https://github.com/giturass/B-box/actions/runs/41833768526) 由代码 push 自动触发，全部成功：
+
+- Go 扩展、HTTP/MITM `-race`、原路由及 Android 重定向布局回归通过，包含超过 32 条连接仍接管、停止录制后继续传输、预算不足时正文零读取、编码/回放完整性、脚本池隔离及错误页文案检查。
+- Flutter 分析（`--no-fatal-infos`）、210 项交互/布局测试和 ARM64 Flutter AAR 构建通过。分析输出 148 条 info 提示，不记为零提示。
+- 50 项 JVM 测试无失败、错误或跳过，`play`/`other` 编译和模拟器应用/仪器测试 APK 构建通过。
+- API 31 的 UI smoke 和 19 项原生测试通过，包含真实 Keystore、原路由 HTTPS/TCP、配置处理恢复和 Cron 服务生命周期回归。
+
+已读取本次 `native-unit-tests` 的 12 份 JVM XML，以及 `android-smoke-api-31` 的 `results.json`、`native-tests.txt` 和 `mitm-origin.json`。设备报告为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（来源 `getconf`），结果中的源码 SHA 与上述提交一致；HTTPS/TCP 测试服务器分别收到 `/probe?raw=1;2` 和 `/tcp-stream`，Host 保留原始测试目标。
+
+验证期间修正了旧镜像缺少 `getconf`、模拟器安装/宿主空间不足，以及服务取消 Cron 请求后测试服务器的 `Broken pipe`；前序失败见 [41818907770](https://github.com/giturass/B-box/actions/runs/41818907770) 和 [41820772969](https://github.com/giturass/B-box/actions/runs/41820772969)。当前最终 smoke 结果仅覆盖 API 31，不将已移除的其他镜像计为本轮通过。
+
+本机完成差异、Go 格式、Python 语法、`python3 tools/verify_newui.py`、文档链接/旧引用及 Actions 结构/表达式检查（`actionlint -shellcheck='' -pyflakes=''`），未在本机编译或运行 Go/Flutter/JVM/设备测试。截图检查范围见 [flclash.md](flclash.md#验证与升级参考版本)。本轮未触发签名 ARM64 Release/R8 构建或发布 APK，未覆盖其他 Android 版本、16 KiB 页运行、ARM64 实机性能、真实 Root CA 模块安装或第三方应用信任；Android 14+ Conscrypt APEX 的源码覆盖与一次扫描限制见 [请求抓取与 MITM](#请求抓取与-mitm)。
+
 ### 界面刷新与存储优化验证
 
 2026-11-04，验证源码为 `ef219625437f64eb7c6fc349d4617617bbea8dc8`，包含连接增量、启动数据拆分、工具订阅、请求存储/详情轮询及界面网络刷新优化，以及统一测试和独立手动 Release 工作流。后续记录结果的 Markdown 提交不改变应用源码。
