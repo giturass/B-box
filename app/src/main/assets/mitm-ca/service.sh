@@ -2,6 +2,10 @@
 MODDIR=${0%/*}
 # KernelSU/APatch and Magisk run this stage asynchronously. Do not wait for
 # sys.boot_completed before the first pass: early Zygote children need the CA.
+if ! command -v flock >/dev/null 2>&1; then
+  printf 'failed: root manager BusyBox does not provide flock\n' >> "$MODDIR/mount.log"
+  exit 1
+fi
 exec 5>"$MODDIR/.service.lock"
 flock -n 5 || exit 0
 previous=

@@ -95,6 +95,9 @@ class MountTests(unittest.TestCase):
 
     def script(self, name, body):
         path = self.root / "bin" / name
+        # BusyBox may have installed an absolute applet symlink. Replace it in
+        # the fixture instead of following it from the controller's root.
+        path.unlink(missing_ok=True)
         path.write_text(f"#!/system/bin/sh\n{body}\n")
         path.chmod(0o755)
 
