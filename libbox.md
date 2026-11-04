@@ -150,6 +150,8 @@ HTTP 离线 Mock 的握手方式见下文。TCP 支持限于直接建立 TLS 的
 
 合并处理顺序：请求 Header → URL → Map Remote → Body → 独立请求脚本 → Map Local → 上游 → 响应 Header → Body → 独立响应脚本；各扩展只在自己的范围与启用状态下参与。重定向、拒绝或脚本 Mock 提前结束请求路径，响应仍经过响应阶段。异常、超时、非法脚本结果或上游失败返回 502，超限请求正文返回 413。
 
+请求处理出错时，HTTP/1 立即终止后续正文读取，并随错误响应关闭连接，避免正文清理等待暂停的上传而阻塞 413/502。HTTP/2 只关闭本次请求正文，保留同一连接处理其他请求；成功的请求处理恢复正常读取截止时间。
+
 只缓冲命中的报文，先按原始头检查编码及流式类型，再读取正文；支持的编码与分层限制见 [资源与完整性边界](#httphttps-请求调试)。压缩前后均检查限额；不支持/无效编码和非 UTF-8 文本保留原文。响应超限回放已读前缀并继续转发，请求正文超过配置限额仍返回 413。SSE、gRPC/grpc-web、NDJSON、JSON sequence、multipart/x-mixed-replace、协议升级、HEAD 和 206 响应跳过正文处理；无需正文的规则仍可执行。改写后移除旧压缩、摘要、ETag、范围和 trailer 信息，重新计算 Content-Length；禁止手动改变分帧、升级头或 101 状态。HEAD/204/205/304 不发送不允许的正文。
 
 [body_budget.go](libbox/httpdebug/body_budget.go) 为所有连接的正文处理、预览/HAR 解码及 Cron 共用 64 MiB 工作预留预算。读取前按 `8 × max(4096, max_body_bytes + 1)` 预留 wire、分层解码、改写及脚本副本的余量；处理后的正文和超限响应回放持有预留，直至消费者关闭正文。预算不足时不读取原正文，跳过正文改写及相应脚本并透传原流，记录跳过原因；请求脚本即使不读取正文也可能生成 Mock，仍须预留。该预算限制准入的正文工作，不是 Goja 任意分配或进程 RSS 的硬隔离，也不是设备压测得出的容量上限。zstd 另设 8 MiB 解码窗口/内存参数及单解码器并发。
@@ -250,6 +252,8 @@ HTTP 与 Cron 规则可设置 `storage_namespace`，格式为 1～64 个 ASCII �
 [tls_selection_test.go](libbox/httpdebug/tls_selection_test.go) 在已有 48 条连接时执行真实 ClientHello 探测、TLS 握手及 HTTP Mock，检查仍接管请求，并验证探测取消、未交接关闭及正式接管后的服务回收。[recording_test.go](libbox/httpdebug/recording_test.go) 在同一 HTTP/1.1、HTTP/2 连接反复启停记录，检查处理不中断、连接 ID 不变；结合既有 SSE、WebSocket 和 TCP 测试验证停止后继续传输及记录冻结。[diagnostics_test.go](libbox/httpdebug/diagnostics_test.go) 检查无 HTTP 请求的 TLS 结束提示、错误页及迟到更新隔离。
 
 [body_processing_test.go](libbox/httpdebug/body_processing_test.go) 覆盖新编码/多层/重复头在改写、预览与 HAR 中一致，压缩膨胀、响应回放、上传截断、预算不足时零读取和正文关闭后释放；[streaming_processing_test.go](libbox/httpdebug/streaming_processing_test.go) 覆盖 HTTP/2 gRPC 在上传结束前响应、trailers、Expect: 100-continue 及慢上传取消。[script_resources_test.go](libbox/httpdebug/script_resources_test.go) 用实际等待中的 Cron HTTP 请求占满 Cron 池，验证 HTTP 脚本仍执行以及取消释放资源。这些是工作流配置的回归范围，实际通过结果以 [验证记录](app.md#验证与历史记录) 为准。
+
+[upload_rejection_test.go](libbox/httpdebug/upload_rejection_test.go) 使用真实 TCP 连接，覆盖固定长度/chunked 上传超限后保持连接且停止发送时，HTTP/1 及时返回完整 413、关闭连接并完成记录及预算释放；还覆盖未读取正文就发生的脚本错误返回 502，以及 HTTP/2 超限返回 413 后同一连接仍可处理新请求。由现有 HTTP 调试 `-race` 测试入口运行。
 
 [script_api_test.go](libbox/httpdebug/script_api_test.go) 覆盖两阶段 HTTP 客户端的路由注入、允许 origin/Host/次数/正文限制、重定向、TLS 信任、取消和全局预算；[script_storage_test.go](libbox/httpdebug/script_storage_test.go) 覆盖持久化、命名空间隔离及 HTTP/Cron 共享、字节/键/全局配额、并发写入、原子失败恢复、符号链接和重载/清空记录边界；[script_timers_test.go](libbox/httpdebug/script_timers_test.go) 覆盖顺序、参数、interval 清理、回调异常、上限及 HTTP/Cron 截止时间。新增用例由现有 `httpdebug -race` 入口自动纳入；它们的存在不代表当前源码已运行通过。
 

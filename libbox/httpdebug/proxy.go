@@ -364,7 +364,15 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 			controller := http.NewResponseController(w)
 			_ = controller.SetReadDeadline(time.Now().Add(15 * time.Second))
 			local, err = program.request(request, scriptID, originalURL.String(), note)
-			_ = controller.SetReadDeadline(time.Time{})
+			if err != nil && request.ProtoMajor == 1 {
+				// HTTP/1 Body.Close may drain unread data before the response is
+				// flushed. Stop those reads and never reuse a rejected upload's
+				// connection, even when the client leaves its body unfinished.
+				_ = controller.SetReadDeadline(time.Now())
+				w.Header().Set("Connection", "close")
+			} else {
+				_ = controller.SetReadDeadline(time.Time{})
+			}
 			if err != nil {
 				e.store.setError(id, err)
 				e.reportError("HTTP request rewrite: " + err.Error())
