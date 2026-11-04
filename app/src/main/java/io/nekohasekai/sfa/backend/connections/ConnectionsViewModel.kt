@@ -109,7 +109,7 @@ class ConnectionsViewModel :
         val updates = sequence {
             while (iterator.hasNext()) {
                 val event = iterator.next()
-                val type = when (event.type) {
+                val type = when (event.type.toLong()) {
                     Libbox.ConnectionEventNew -> ConnectionStore.Type.NEW
                     Libbox.ConnectionEventUpdate -> ConnectionStore.Type.UPDATE
                     Libbox.ConnectionEventClosed -> ConnectionStore.Type.CLOSED
