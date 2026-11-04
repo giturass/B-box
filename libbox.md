@@ -179,7 +179,9 @@ HTTP `timeout_ms` 默认 200，范围 1～2000；规则可降低自己的 max_bo
 
 Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`timeout_ms`（默认 5000，范围 1～30000）及 source/resource。支持五段“分 时 日 月 周”或六段“秒 分 时 日 月 周”，支持范围、列表、步长及月份/星期名称；时区使用 IANA 名称，未指定时采用服务启动时的 Android 设备时区。运行环境包含 tzdata。`$cronexp` 提供原表达式，`$trigger` 和 `$script.type` 为 cron，没有 `$request`/`$response`。
 
-[script_cron.go](libbox/httpdebug/script_cron.go) 随本地服务运行，成功启动后才调度，重载/停止时取消并等待旧任务结束。抓包启停不重置调度或取消 Cron。相同任务不重叠，最多 2 个 Cron 调用；每次任务持有正文预算，预算不足则跳过并写入日志。设备休眠错过的周期不补跑，也不申请系统定时唤醒。任务必须调用 `$done()`，调用后立即停止该次执行；异常及超时写入普通日志。
+[script_cron.go](libbox/httpdebug/script_cron.go) 随本地服务运行，成功启动后才调度，重载/停止时取消正在执行的任务、丢弃等待队列，并等待调度器及 worker 退出。抓包启停不重置调度或取消 Cron。到期任务进入有界 FIFO 队列，由 2 个 worker 持续取出执行；同一批到期任务按配置顺序入队，后续触发不能越过已排队的任务。同一任务在排队或运行时再次到期，跳过该次触发并写入日志，不积累重复调用；排队与运行的调用总数不超过已启用的 Cron 数量，最多 256 个。
+
+排队期间只保留任务索引，不创建 VM、不预留正文预算，也不消耗 `timeout_ms`；出队执行时才开始原有的解释器等待与执行超时。每次执行持有正文预算，预算不足则跳过并写入日志，worker 继续处理后续任务。设备休眠错过的周期不补跑，也不申请系统定时唤醒。任务必须调用 `$done()`，调用后立即停止该次执行；异常及超时写入普通日志。
 
 #### 脚本 HTTP 客户端
 
@@ -256,6 +258,8 @@ HTTP 与 Cron 规则可设置 `storage_namespace`，格式为 1～64 个 ASCII �
 [upload_rejection_test.go](libbox/httpdebug/upload_rejection_test.go) 使用真实 TCP 连接，覆盖固定长度/chunked 上传超限后保持连接且停止发送时，HTTP/1 及时返回完整 413、关闭连接并完成记录及预算释放；还覆盖未读取正文就发生的脚本错误返回 502，以及 HTTP/2 超限返回 413 后同一连接仍可处理新请求。由现有 HTTP 调试 `-race` 测试入口运行。
 
 [script_api_test.go](libbox/httpdebug/script_api_test.go) 覆盖两阶段 HTTP 客户端的路由注入、允许 origin/Host/次数/正文限制、重定向、TLS 信任、取消和全局预算；[script_storage_test.go](libbox/httpdebug/script_storage_test.go) 覆盖持久化、命名空间隔离及 HTTP/Cron 共享、字节/键/全局配额、并发写入、原子失败恢复、符号链接和重载/清空记录边界；[script_timers_test.go](libbox/httpdebug/script_timers_test.go) 覆盖顺序、参数、interval 清理、回调异常、上限及 HTTP/Cron 截止时间。新增用例由现有 `httpdebug -race` 入口自动纳入；它们的存在不代表当前源码已运行通过。
+
+[script_cron_queue_test.go](libbox/httpdebug/script_cron_queue_test.go) 通过阻塞路由拨号控制真实脚本的完成顺序，覆盖同批任务的 FIFO 执行、新触发不能越过旧等待任务、排队/运行时重复触发不扩大队列、等待不消耗执行超时、单次超时后继续执行、256 条配置上限及停服时取消/丢弃队列和资源释放。由同一 `httpdebug -race` 入口运行。
 
 连接关联回归还包括 [路由测试](libbox/route/httpdebug_test.go) 从真实流量跟踪器取得 UUID、穿过嗅探缓存、清空连接历史后重新打开请求存储，以及无跟踪器的 HTTP；[改写测试](libbox/httpdebug/rewrite_test.go) 检查跨目标改写仍保留原始连接 ID，[TCP 测试](libbox/httpdebug/mitm_tcp_test.go) 检查 TLS/TCP 关联，[迁移测试](libbox/httpdebug/store_migration_test.go) 检查旧记录不将 `captureId` 误认为连接 ID。
 

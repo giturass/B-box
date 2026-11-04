@@ -21,20 +21,23 @@ type cronRunner struct {
 	mu      sync.Mutex
 	closed  bool
 	next    []time.Time
-	running []bool
-	slots   chan struct{}
+	pending []bool // One invocation per job, whether queued or running.
+	queue   chan int
 	wg      sync.WaitGroup
 }
 
 func startCron(program *ScriptProgram, dial RewriteDialFunc, roots *x509.CertPool) *cronRunner {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &cronRunner{ctx: ctx, cancel: cancel, program: program, dial: dial, roots: roots,
-		next: make([]time.Time, len(program.cron)), running: make([]bool, len(program.cron)), slots: make(chan struct{}, cap(cronScriptSlots))}
+		next: make([]time.Time, len(program.cron)), pending: make([]bool, len(program.cron)), queue: make(chan int, len(program.cron))}
 	now := time.Now()
 	for i, job := range program.cron {
 		r.next[i] = job.schedule.Next(now)
 	}
-	r.wg.Add(1)
+	r.wg.Add(1 + cap(cronScriptSlots))
+	for range cap(cronScriptSlots) {
+		go r.worker()
+	}
 	go r.loop()
 	return r
 }
@@ -73,30 +76,38 @@ func (r *cronRunner) runDue(now time.Time) {
 		if r.next[i].IsZero() || now.Before(r.next[i]) {
 			continue
 		}
-		// Skip missed intervals after suspend and never overlap the same job.
+		// Skip missed intervals after suspend. A queued or running invocation
+		// absorbs further triggers so the backlog never exceeds the job count.
 		r.next[i] = job.schedule.Next(now)
-		if r.running[i] {
-			writeLog("warn", job.label+": previous cron invocation is still running; skipped")
+		if r.pending[i] {
+			writeLog("warn", job.label+": previous cron invocation is queued or still running; skipped")
 			continue
 		}
 		select {
-		case r.slots <- struct{}{}:
+		case r.queue <- i:
+			r.pending[i] = true
 		default:
-			writeLog("warn", job.label+": cron concurrency limit reached; skipped")
-			continue
+			writeLog("warn", job.label+": cron queue limit reached; skipped")
 		}
-		r.running[i] = true
-		r.wg.Add(1)
-		go func(index int, job compiledCron) {
-			defer r.wg.Done()
-			defer func() {
-				r.mu.Lock()
-				r.running[index] = false
-				r.mu.Unlock()
-				<-r.slots
-			}()
-			r.run(job)
-		}(i, job)
+	}
+}
+
+func (r *cronRunner) worker() {
+	defer r.wg.Done()
+	for {
+		select {
+		case <-r.ctx.Done():
+			return
+		case index := <-r.queue:
+			// Cancellation wins even when both select cases are ready. Queue
+			// waiting holds no interpreter/body budget and does not use timeout_ms.
+			if r.ctx.Err() == nil {
+				r.run(r.program.cron[index])
+			}
+			r.mu.Lock()
+			r.pending[index] = false
+			r.mu.Unlock()
+		}
 	}
 }
 
@@ -132,4 +143,12 @@ func (r *cronRunner) Close() {
 	r.cancel()
 	r.mu.Unlock()
 	r.wg.Wait()
+	// Producers and workers have stopped; queued triggers do not survive a
+	// service stop or reload.
+	r.mu.Lock()
+	for len(r.queue) > 0 {
+		<-r.queue
+	}
+	clear(r.pending)
+	r.mu.Unlock()
 }
