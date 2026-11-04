@@ -185,7 +185,9 @@ Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`ti
 
 #### 脚本 HTTP 客户端
 
-HTTP 请求/响应脚本与 Cron 共用 [HTTP 接口](libbox/httpdebug/script_http.go)：`$httpClient.get/post/put/patch/delete/head/options(url或{url,headers,body}, callback)`。回调接收 error/response/data；成功时 error 为 null，response 有 status/headers，data 为 UTF-8 文本；失败时 error 为字符串、response 为 null、data 为 undefined。body 只接受字符串，不自动转换对象或解码压缩响应，不跟随重定向。
+HTTP 请求/响应脚本与 Cron 共用 [HTTP 接口](libbox/httpdebug/script_http.go)：`$httpClient.get/post/put/patch/delete/head/options(url或{url,headers,body}, callback)`。回调接收 error/response/data；成功时 error 为 null，response 有 status/headers，data 为 UTF-8 文本；失败时 error 为字符串、response 为 null、data 为 undefined。body 只接受字符串，不自动转换对象，不跟随重定向。
+
+响应在 UTF-8 校验前按 `Content-Encoding` 解码，编码种类、重复头及最多三层的逆序处理复用 [共用解码器](#httphttps-请求调试)。传输字节和每层解码结果分别受 `max_body_bytes` 限制；未知编码、损坏或截断的压缩数据、解压超限和非 UTF-8 结果均通过回调报错，不返回部分正文。客户端不自动添加 `Accept-Encoding`，保留脚本显式提供的值；两种请求的响应都按实际编码解压。成功解压后，回调头部移除 `Content-Encoding` 和压缩数据的 `Content-Length`，保留其他响应头；HEAD、204、304 返回空文本并保留服务器的表示元数据，不对不存在的正文解压。
 
 - HTTP 规则默认禁止主动联网。通过规则的 `http_client: {"allowed_origins":["https://api.example.test"],"max_requests":1}` 显式授权。允许列表最多 16 项，按 scheme、完整主机和有效端口匹配；只接受 HTTP(S) origin，可带根路径斜杠，不接受通配符、其他路径、凭据、查询或片段。域名大小写、末尾点和默认端口会规范化；不能用 Host 头切换到其他 origin。
 - HTTP 每次执行默认最多 4 次请求，`max_requests` 可降到 1～4；Cron 默认最多 16 次，可降到 1～16。失败和被拒绝的调用也计数。Cron 未配置 `http_client` 时保留原有路由联网能力；一旦配置即按允许列表限制，空列表禁止联网。
@@ -258,6 +260,8 @@ HTTP 与 Cron 规则可设置 `storage_namespace`，格式为 1～64 个 ASCII �
 [upload_rejection_test.go](libbox/httpdebug/upload_rejection_test.go) 使用真实 TCP 连接，覆盖固定长度/chunked 上传超限后保持连接且停止发送时，HTTP/1 及时返回完整 413、关闭连接并完成记录及预算释放；还覆盖未读取正文就发生的脚本错误返回 502，以及 HTTP/2 超限返回 413 后同一连接仍可处理新请求。由现有 HTTP 调试 `-race` 测试入口运行。
 
 [script_api_test.go](libbox/httpdebug/script_api_test.go) 覆盖两阶段 HTTP 客户端的路由注入、允许 origin/Host/次数/正文限制、重定向、TLS 信任、取消和全局预算；[script_storage_test.go](libbox/httpdebug/script_storage_test.go) 覆盖持久化、命名空间隔离及 HTTP/Cron 共享、字节/键/全局配额、并发写入、原子失败恢复、符号链接和重载/清空记录边界；[script_timers_test.go](libbox/httpdebug/script_timers_test.go) 覆盖顺序、参数、interval 清理、回调异常、上限及 HTTP/Cron 截止时间。新增用例由现有 `httpdebug -race` 入口自动纳入；它们的存在不代表当前源码已运行通过。
+
+[script_http_encoding_test.go](libbox/httpdebug/script_http_encoding_test.go) 通过真实 HTTP 服务器及 Cron 路由客户端，覆盖显式/未提供 `Accept-Encoding` 时的所有支持编码、重复/多层编码、空压缩正文、压缩前后及中间层限额、损坏/截断/未知编码、UTF-8 校验、解压后的响应头、HEAD/204/304 元数据和预算释放；两阶段 HTTP 脚本也使用 gzip 响应验证共用客户端。由同一 `httpdebug -race` 入口运行。
 
 [script_cron_queue_test.go](libbox/httpdebug/script_cron_queue_test.go) 通过阻塞路由拨号控制真实脚本的完成顺序，覆盖同批任务的 FIFO 执行、新触发不能越过旧等待任务、排队/运行时重复触发不扩大队列、等待不消耗执行超时、单次超时后继续执行、256 条配置上限及停服时取消/丢弃队列和资源释放。由同一 `httpdebug -race` 入口运行。
 

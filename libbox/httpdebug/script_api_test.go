@@ -87,13 +87,15 @@ func TestScriptCapabilitiesValidateWithoutExecuting(t *testing.T) {
 }
 
 func TestHTTPProcessingScriptsUseRoutedClientInBothPhases(t *testing.T) {
+	wire := encodedBody(t, []byte("reply"), "gzip")
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		if err != nil || r.Method != "POST" || string(body) != "sent" || r.Header.Get("X-Input") != "GET" || r.Host != "aux.test:8080" {
+		if err != nil || r.Method != "POST" || string(body) != "sent" || r.Header.Get("X-Input") != "GET" || r.Header.Get("Accept-Encoding") != "gzip" || r.Host != "aux.test:8080" {
 			t.Errorf("unexpected script request: %s %s %q %v", r.Method, r.Host, body, err)
 		}
 		w.Header().Set("X-Reply", "routed")
-		io.WriteString(w, "reply")
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Write(wire)
 	}))
 	defer origin.Close()
 	for _, phase := range []string{"request", "response"} {
@@ -104,7 +106,7 @@ func TestHTTPProcessingScriptsUseRoutedClientInBothPhases(t *testing.T) {
 			}
 			rule := httpAPIScript(t, HTTPScript{Phase: phase, RequiresBody: phase == "response", MaxBodyBytes: 256,
 				HTTPClient: &ScriptHTTPOptions{AllowedOrigins: []string{"http://aux.test:8080"}},
-				Source: `$httpClient.post({url:'http://aux.test:8080/data',headers:{'X-Input':$request.method},body:'sent'},
+				Source: `$httpClient.post({url:'http://aux.test:8080/data',headers:{'X-Input':$request.method,'Accept-Encoding':'gzip'},body:'sent'},
 					function(error,response,data) {
 						if(error || response.status!==200 || response.headers['X-Reply']!=='routed') throw Error(error || 'response');
 						` + done + `; throw Error('after done');

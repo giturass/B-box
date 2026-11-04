@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -205,14 +204,46 @@ func scriptHTTPRequest(vm *goja.Runtime, ctx context.Context, client *http.Clien
 		return nil, nil, err
 	}
 	defer response.Body.Close()
-	body, err = io.ReadAll(io.LimitReader(response.Body, limit+1))
-	if err == nil && int64(len(body)) > limit {
-		err = errors.New("script HTTP response exceeds max_body_bytes")
+	// These responses can describe an encoded representation without carrying
+	// its body. In particular, an empty HEAD response is not a truncated gzip.
+	if request.Method == http.MethodHead || response.StatusCode == http.StatusNoContent || response.StatusCode == http.StatusNotModified {
+		return response, []byte{}, nil
 	}
-	if err == nil && !utf8.Valid(body) {
-		err = errors.New("script HTTP response must be UTF-8 text")
+	// Keep transport decompression disabled so the wire size is bounded too,
+	// including when the script explicitly supplies Accept-Encoding.
+	body, err = readBodyPrefix(response.Body, limit)
+	if err != nil {
+		return response, nil, err
 	}
-	return response, body, err
+	if int64(len(body)) > limit {
+		return response, nil, errors.New("script HTTP response exceeds max_body_bytes")
+	}
+	encodings, err := contentEncodings(contentEncoding(response.Header))
+	if err != nil {
+		return response, nil, fmt.Errorf("script HTTP response: %w", err)
+	}
+	body, err = decodeContent(body, encodings, limit)
+	if errors.Is(err, errRewriteSize) {
+		return response, nil, errors.New("script HTTP decoded response exceeds max_body_bytes")
+	}
+	if err != nil {
+		return response, nil, fmt.Errorf("script HTTP response decompression failed: %w", err)
+	}
+	if !utf8.Valid(body) {
+		return response, nil, errors.New("script HTTP response must be UTF-8 text")
+	}
+	for _, encoding := range encodings {
+		if encoding != "identity" {
+			// Match net/http's decoded-response metadata: the encoded length and
+			// Content-Encoding no longer describe the text given to the callback.
+			response.Header.Del("Content-Encoding")
+			response.Header.Del("Content-Length")
+			response.ContentLength = -1
+			response.Uncompressed = true
+			break
+		}
+	}
+	return response, body, nil
 }
 
 func httpMethod(method string) string {
