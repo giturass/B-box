@@ -158,11 +158,11 @@ class HttpRewriteConfigPage extends StatelessWidget {
     final revision = store.revision;
     const pattern = r'^https?://example\.com/(.*)';
     final sections = <(String, String, Json)>[
-      ('Header Rewrite', 'header_rewrite', {'phase': 'request', 'operation': 'add', 'header': 'X-B-box', 'value': '1'}),
       ('URL Rewrite', 'url_rewrite', {'action': 'header', 'replacement': r'https://example.com/$1'}),
-      ('Map Remote', 'map_remote', {'replacement': r'https://example.net/$1'}),
+      ('Header Rewrite', 'header_rewrite', {'phase': 'request', 'operation': 'add', 'header': 'X-B-box', 'value': '1'}),
       ('Body Rewrite', 'body_rewrite', {'phase': 'response', 'regex': 'old', 'replacement': 'new'}),
       ('Map Local / API Mock', 'map_local', {'status': 200, 'data_type': 'text', 'data': '{}', 'headers': [{'name': 'Content-Type', 'value': 'application/json'}]}),
+      ('Map Remote', 'map_remote', {'replacement': r'https://example.net/$1'}),
     ];
     // Keep scrolling rule names below the shared floating title.
     final inset = context.appBarInset;

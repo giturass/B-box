@@ -104,7 +104,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 高级配置的 JSON 表单使用固定 16 dp 圆角、正文顶部对齐的多行编辑框。[BoxField](flutter/lib/widgets.dart) 将圆角传给 Prism 的填充输入主题，使背景及聚焦边框使用同一轮廓，避免多行编辑区域随高度变成胶囊形。
 
-配置“编辑”页的高级配置依次提供“MITM”、“HTTP 改写”和“脚本”，由 [configuration.dart](flutter/lib/pages/configuration.dart) 复用共享分组、规则列表、排序及 JSON 表单。MITM 一级页直接编辑 HTTPS、域名及排除项、HTTP/2、服务器证书校验、TCP 和 QUIC 回退，并提供单一证书入口；证书入口独立于配置加载。域名编辑器保留输入顺序及通配符、端口后缀，新增抓取域名追加在列表末尾。端口、应用等额外筛选通过同页 JSON 编辑入口修改，见 [MITM 配置](libbox.md#独立-mitm-配置)。HTTP 改写编辑 Header/URL/Body Rewrite（含 jq）、Map Remote、Map Local 与资源；脚本独立编辑启用状态、HTTP、Cron 和资源。前后查找/反向引用、文件/URL 资源及独立正文限额通过完整 JSON 表单配置，字段及运行行为见 [libbox.md](libbox.md#json-配置中的-http-改写)。新建规则/任务示例仍默认禁用；本次核心对齐没有引入新的页面或视觉验收结论。
+配置“编辑”页的高级配置依次提供“MITM”、“HTTP 改写”和“脚本”，由 [configuration.dart](flutter/lib/pages/configuration.dart) 复用共享分组、规则列表、排序及 JSON 表单。MITM 一级页直接编辑 HTTPS、域名及排除项、HTTP/2、服务器证书校验、TCP 和 QUIC 回退，并提供单一证书入口；证书入口独立于配置加载。域名编辑器保留输入顺序及通配符、端口后缀，新增抓取域名追加在列表末尾。端口、应用等额外筛选通过同页 JSON 编辑入口修改，见 [MITM 配置](libbox.md#独立-mitm-配置)。HTTP 改写页面依次显示 URL Rewrite、Header Rewrite、Body Rewrite（含 jq）、Map Local / API Mock、Map Remote，下方提供资源及完整 JSON 编辑入口；脚本独立编辑启用状态、HTTP、Cron 和资源。前后查找/反向引用、文件/URL 资源及独立正文限额通过完整 JSON 表单配置，字段及运行行为见 [libbox.md](libbox.md#json-配置中的-http-改写)。新建规则/任务示例仍默认禁用；本次核心对齐没有引入新的页面或视觉验收结论。
 
 所有修改通过 ProfileConfigStore.set 保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
 
