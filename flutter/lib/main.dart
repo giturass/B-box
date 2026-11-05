@@ -80,6 +80,7 @@ class _BoxAppState extends State<BoxApp> with WidgetsBindingObserver {
           ],
           minTextScale: .8,
           maxTextScale: 1.4,
+          bannerTopInset: bannerBarClearance,
           liquidGlass: switch (prefs['liquidGlass']) {
             'ultra' => LiquidGlassQuality.ultra,
             'standard' => LiquidGlassQuality.standard,
@@ -167,9 +168,9 @@ class _HomePageState extends State<HomePage> {
     final content = PageSwitcher(
       index: _index,
       animation: tabAnimationOf(context.box.preferences),
-      onSelected: (index) => setState(() => _index = index),
       children: [for (var i = 0; i < _pages.length; i++)
-        TickerMode(enabled: i == _index, child: PageActivityScope(isActive: i == _index, child: _pages[i])),
+        PageActivityScope(isActive: i == _index, child: TickerMode(enabled: i == _index,
+          child: ExcludeFocus(excluding: i != _index, child: _pages[i]))),
       ],
     );
     return Surface(

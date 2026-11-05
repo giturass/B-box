@@ -152,6 +152,8 @@ void main() {
           expect(preferences['hiddenCards'], isNot(contains(addCard)));
         }
       }
+      expect(find.byTooltip('Done').hitTestable(), findsOneWidget,
+        reason: 'Save failure feedback must leave the toolbar available for retry.');
       await tester.tap(find.byTooltip('Done'));
       await tester.pumpAndSettle();
       expect(find.byType(DashboardEditor), findsNothing);

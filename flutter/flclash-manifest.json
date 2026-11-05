@@ -263,7 +263,12 @@
     "lib/main.dart": {
       "source": "lib/application.dart",
       "sourceSHA256": "5b89684b6596e0d3529b2ef05c6a499441188b1691c916f500858c3ec9110d2c",
-      "changes": "PrismApp, Prism themes, built-in glass/emoji/text scaling, banner messages and navigation adapted to the existing B-box controller. System language and 0.8–1.4 scaling remain; no Flutter or Android identity change."
+      "changes": "PrismApp, Prism themes, built-in glass/emoji/text scaling, banner messages and navigation adapted to the existing B-box controller. Banners reserve Prism's toolbar clearance so copy and failure feedback leave toolbar actions accessible. System language and 0.8–1.4 scaling remain; no Flutter or Android identity change."
+    },
+    "lib/components/page_switcher.dart": {
+      "source": "lib/pages/home.dart",
+      "sourceSHA256": "decd86a4f8dad8372773700672cfc71af33b9f335cf0fd447658f76d120ea268",
+      "changes": "PageView, keep-alive storage, adjacent-page transitions and fade snapshots adapted to B-box's four controller-backed home pages. Hidden pages have no viewport transform for Prism toolbar lifting; active-page semantics, focus, pointer and data-subscription isolation remain. Retains B-box preferences and reduced-motion timing; wide navigation changes pages immediately."
     },
     "lib/widgets.dart": {
       "source": "lib/views/dashboard/widgets/card.dart",

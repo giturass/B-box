@@ -17,6 +17,7 @@ import 'package:b_box_ui/components/navigation_bar.dart';
 import 'package:b_box_ui/components/page_switcher.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/toolbar_paint.dart';
 
 void main() {
   setUpAll(() async {
@@ -110,11 +111,20 @@ void main() {
           bitmap.dispose();
         });
       }
+      Future<void> selectTab(String label) async {
+        final sidebar = find.byType(NavigationSidebar);
+        final target = sidebar.evaluate().isEmpty ? find.text(label).last
+            : find.descendant(of: sidebar, matching: find.byTooltip(label));
+        expect(target.hitTestable(), findsOneWidget);
+        await tester.tap(target);
+        await tester.pumpAndSettle();
+        expect(tester.widget<PageSwitcher>(find.byType(PageSwitcher)).index,
+          ['Dashboard', 'Proxies', 'Profiles', 'Tools'].indexOf(label));
+        expect(tester.takeException(), isNull, reason: label);
+      }
       await capture('Dashboard');
       for (final label in ['Proxies', 'Profiles', 'Tools', 'Dashboard']) {
-        await tester.tap(find.text(label).last);
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull, reason: label);
+        await selectTab(label);
         await capture(label);
       }
       events.add({'type': 'profiles', 'value': [
@@ -133,13 +143,10 @@ void main() {
       events.add({'type': 'rates', 'value': {'upload': 1024, 'download': 8192}});
       await tester.pumpAndSettle();
       for (final label in ['Dashboard', 'Profiles', 'Proxies']) {
-        await tester.tap(find.text(label).last);
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull, reason: '$label with live data');
+        await selectTab(label);
         await capture('$label-populated');
       }
-      await tester.tap(find.text('Dashboard').last);
-      await tester.pumpAndSettle();
+      await selectTab('Dashboard');
       final rootContext = tester.element(find.byType(HomePage));
       events.add({'type': 'connections', 'value': [
         {'id': 'live-1', 'displayDestination': 'example.org:443', 'network': 'tcp', 'source': '192.0.2.1:51234',
@@ -163,6 +170,9 @@ void main() {
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull, reason: label);
         await capture(label);
+        if (label == 'Appearance' && size.width < 600) {
+          await expectClearTrailingToolbar(tester, boundaryKey, find.byWidget(page));
+        }
         tester.element(find.byWidget(page)).safeNestedPop();
         await tester.pumpAndSettle();
         await closed;

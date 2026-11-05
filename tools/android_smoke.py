@@ -62,13 +62,19 @@ def matching(label, items):
     ).splitlines()]
 
 
-def wait_for(label, timeout=90, dismiss_launcher_anr=False, whole_window=False):
+def wait_for(label, timeout=90, dismiss_launcher_anr=False, whole_window=False, stable=False):
     deadline = time.monotonic() + timeout
+    previous_bounds = None
     while time.monotonic() < deadline:
         current = nodes()
         found = matching(label, current)
         if found:
-            return current if whole_window else found
+            bounds = tuple(node.get("bounds") for node in found)
+            if not stable or bounds == previous_bounds:
+                return current if whole_window else found
+            previous_bounds = bounds
+        else:
+            previous_bounds = None
         # Google APIs images can start with a Pixel Launcher ANR over our app.
         # Dismiss only that known emulator failure, once; B-box ANRs still fail.
         if dismiss_launcher_anr and matching("Pixel Launcher isn't responding", current):
@@ -88,13 +94,15 @@ def tap_node(item):
     time.sleep(0.6)
 
 
-def click(label, window=None):
-    found = wait_for(label) if window is None else matching(label, window)
+def click(label, window=None, stable=False):
+    found = wait_for(label, stable=stable) if window is None else matching(label, window)
     assert found, f"No {label!r} action in the observed window"
     exact = [node for node in found if node.get("text") == label or node.get("content-desc") == label]
     if label in ("Start", "Stop"):
         assert exact, "The VPN button must have its own accessible tap target"
-    tap_node((exact or found)[-1])
+    target = (exact or found)[-1]
+    print(f"Tap {label!r} at {target.get('bounds')}", flush=True)
+    tap_node(target)
 
 
 def capture(name):
@@ -128,10 +136,14 @@ def ui_smoke():
             # ADB's shell parses the encoded URI a second time.
             adb("shell", "am", "start", "-W", "-n", COMPONENT,
                 "-a", "android.intent.action.VIEW", "-d", "'" + uri + "'")
-            click("Save")
-            wait_for("Smoke profile")
+            # Prism's form sheet can expose semantics before it stops moving.
+            # Confirm the button's position, then require the form to close;
+            # its prefilled name alone does not establish a successful import.
+            click("Save", stable=True)
+            current = wait_for("Start", whole_window=True)
+            assert matching("Smoke profile", current), "Imported profile is missing from the dashboard"
             capture("02-imported")
-            click("Start")
+            click("Start", current)
             for _ in range(12):
                 current = nodes()
                 if matching("Running", current):

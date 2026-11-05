@@ -32,7 +32,7 @@ FlClash 应用层组件位于 [flutter/lib/ui](flutter/lib/ui)，共享控件以
 
 Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。复用 FlClash 的控件、字形、形状、排版、字体、动效、弹层及导航；页面状态和操作经 Android 桥接接入 B-box 的 Room 与 libbox。没有引入 FlClash/Mihomo 原生库、Clash 配置模型、Mihomo 配置覆写脚本、订阅转换器或 Clash 专用服务。B-box 请求/响应脚本与定时任务的范围见 [独立脚本与 Cron](libbox.md#独立脚本与-cron)。
 
-v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹窗和返回保护；原生操作消息交给 `BannerHost`。B-box 表单在输入框上方保留字段标签，脏草稿确认及保存期间禁止退出继续由 `BoxEditGuard` 处理。搜索使用新版回调，连接/日志的可删除关键词由页面维护，并与输入文字共同过滤；排序列表使用 Prism 的最终索引回调，代理标签页显式管理控制器并按组名保留选择。网络速度卡片跟进新版 1.45 最小比例、数值下方的背景曲线及独立重绘区域；外观预览改用逐形状模糊，调色和分组标签按新版测量接口适配。状态参考渲染器同步到 v0.9.3，采用上游普通状态，不引入其 Root 服务边框含义。
+v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹窗和返回保护；原生操作消息交给 `BannerHost`，采用 Prism 的工具栏避让间距，复制和保存失败反馈期间仍可使用顶部按钮。B-box 表单在输入框上方保留字段标签，脏草稿确认及保存期间禁止退出继续由 `BoxEditGuard` 处理。搜索使用新版回调，连接/日志的可删除关键词由页面维护，并与输入文字共同过滤；排序列表使用 Prism 的最终索引回调，代理标签页显式管理控制器并按组名保留选择。网络速度卡片跟进新版 1.45 最小比例、数值下方的背景曲线及独立重绘区域；外观预览改用逐形状模糊，调色和分组标签按新版测量接口适配。状态参考渲染器同步到 v0.9.3，采用上游普通状态，不引入其 Root 服务边框含义。
 
 | 区域 | 主要实现 | 当前适配 |
 | --- | --- | --- |
@@ -51,6 +51,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 - 首次启动直接进入仪表盘，没有免责声明接受门槛。Android 默认显示状态、网络速度、出站模式、配置和代理组五张卡；内存与内网 IP 可选。连接从工具页进入，不提供首页连接卡，旧布局/备份忽略该卡，下一次布局保存清理其键。
 - 手机可选固定或悬浮导航栏。固定样式由 [main.dart](flutter/lib/main.dart) 在页面下方承载 [BoxNavigationBar](flutter/lib/components/navigation_bar.dart)，保留 Prism 的目的地、选中指示和按压反馈；栏体高度为 64 dp，仅追加系统底部安全区。栏体及底部安全区使用主界面背景色，无阴影和表面叠色，随浅色、深色及纯黑主题同步。悬浮样式使用 `NavigationDock`，宽屏使用 `NavigationSidebar`；外观页预览使用相同底色和紧凑比例。
+- [PageSwitcher](flutter/lib/components/page_switcher.dart) 按参考版使用 `PageView` 和保活缓存，滑动或淡入时使用页面快照，跨页切换不会绘制中间页。隐藏页不参与工具栏浮层定位，焦点、语义和原生订阅仍按活动页隔离；宽屏立即切页。
 - 外观页提供主题、纯黑模式、主题色、导航栏样式、标签页动画及液态玻璃，不提供字体选择或自定义字体缩放。应用正文使用默认字体，字号随系统变化并沿用 0.8～1.4 倍的缩放范围；旧偏好的兼容处理见 [app.md](app.md#配置服务应用与备份)。
 - 出站模式只显示内核提供的值。规则、全局、直连使用参考版字形，名称和选中态忽略大小写，排列和切换参数保留内核原值。系统 HTTP 代理卡片按内核能力显示，支持首页编辑中的排序、移除和重新添加；能力暂不可用时保留顺序和隐藏偏好。卡片沿用参考版 VPN 卡片的 48 像素徽章、加粗标题、启用/禁用副标题及紧凑开关；启用时徽章为主题色六瓣形，禁用时为低强调圆形。卡片和首页编辑列表共用 [system_proxy_glyph.dart](flutter/lib/components/system_proxy_glyph.dart) 中的大陆轮廓地球字形，使用共享 Glyph 的线宽与圆角；全局出站模式保留参考版经纬线球体字形。
 - 服务按钮的暂停图形表示停止服务，不新增暂停核心能力。远程会话、启停过渡和不可用操作必须反映真实状态。
@@ -134,7 +135,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 [newui.yml](.github/workflows/newui.yml) 在各分支代码推送时自动运行，统一包含核心、Flutter、JVM 和 Android smoke；[setup-flutter](.github/actions/setup-flutter/action.yml) 固定 SDK 和依赖锁文件。Flutter 测试按功能组织，覆盖导航、配置编辑、首页编辑、代理列表、备份、外观、关于、终端设置、模式、内网 IP 和 IP 查询/缓存；[verify_newui.py](tools/verify_newui.py) 核验 FlClash/prism_ui 文件哈希、许可、适配目标和退役依赖等源码约束。截图/像素比较仍由同一测试入口运行，截图与验证 AAR 分别上传到 `newui-validation` 和 `flutter-aar-arm64`。手动 Release 构建独立准备所需的 Flutter Release AAR，不依赖测试运行，见 [构建与发布](app.md#构建与发布)。
 
-[navigation_test.dart](flutter/test/navigation_test.dart) 另检查固定导航在 320 宽、底部安全区、浅色/深色/纯黑及大字号下的高度、底色、页面边界、标签切换和选中语义，并输出固定栏截图。[licenses_test.dart](flutter/test/licenses_test.dart) 检查异步加载、共享许可按包分组、搜索及完整可选中正文。
+[navigation_test.dart](flutter/test/navigation_test.dart) 另检查固定导航在 320 宽、底部安全区、浅色/深色/纯黑及大字号下的高度、底色、页面边界、标签切换和选中语义，并输出固定栏截图。宽屏通过侧栏实际按钮切页，并在截图前核对当前页；外观与 MITM 页直接检查工具栏操作区域像素，防止隐藏首页的按钮残留。复制反馈和保存失败回归另检查顶部按钮仍可点击。[licenses_test.dart](flutter/test/licenses_test.dart) 检查异步加载、共享许可按包分组、搜索及完整可选中正文。
 
 [appearance_test.dart](flutter/test/appearance_test.dart) 检查主题选择与重开页面后的偏好，以及旧字体偏好不覆盖默认字体、系统字号运行时变化和既有缩放上下限。导航、状态、内网 IP、出站模式及请求页面的字号场景通过系统缩放模拟，不依赖已退役的应用偏好。
 

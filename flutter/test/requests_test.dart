@@ -14,6 +14,7 @@ import 'package:b_box_ui/components/captured_body.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/toolbar_paint.dart';
 
 void main() {
   late BoxController box;
@@ -119,6 +120,13 @@ void main() {
   }
 
   Future<void> chooseMessage(WidgetTester tester, String part) async {
+    // Clear transient feedback with the banner's user gesture before opening
+    // a menu over the same area; toolbar actions remain available throughout.
+    if (find.text('Copied').evaluate().isNotEmpty) {
+      await tester.fling(find.text('Copied'), const Offset(0, -120), 1000);
+      await tester.pumpAndSettle();
+      expect(find.text('Copied'), findsNothing);
+    }
     await tester.tap(find.byTooltip('More').last);
     await tester.pumpAndSettle();
     expect(find.text('Message type'), findsOneWidget);
@@ -190,6 +198,7 @@ void main() {
     expect(find.text('No domains selected'), findsOneWidget);
     expect(find.text('HTTPS excluded domains'), findsNothing);
     await capture(tester, 'independent-mitm-config');
+    await expectClearTrailingToolbar(tester, boundaryKey, find.byType(MitmPage));
     final mitmScrollable = find.descendant(of: find.byType(MitmConfigPage), matching: find.byType(Scrollable)).first;
     await tester.scrollUntilVisible(find.byKey(const ValueKey('mitm-block-quic')), 220, scrollable: mitmScrollable);
     await tester.pumpAndSettle();
@@ -448,6 +457,8 @@ void main() {
     await tester.tap(find.text(connectionId));
     await tester.pumpAndSettle();
     expect(copied.last, connectionId);
+    expect(find.byTooltip('Export cURL').hitTestable(), findsOneWidget,
+      reason: 'Copy feedback must not obscure toolbar actions.');
     await tester.tap(find.byTooltip('Export cURL'));
     await tester.pumpAndSettle();
     expect(json(calls.lastWhere((call) => call.method == 'capture.export').arguments), {'format': 'curl', 'id': 'copy'});

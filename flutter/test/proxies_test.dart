@@ -84,8 +84,9 @@ void main() {
       {'tag': 'Node A', 'type': 'Shadowsocks', 'delay': 10}, {'tag': 'Node B', 'type': 'Shadowsocks', 'delay': 20},
     ]}]});
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Proxies').last);
+    await tester.tap(find.byTooltip('Proxies'));
     await tester.pumpAndSettle();
+    expect(find.byType(ProxiesPage), findsOneWidget);
     await tester.tap(find.text('Node B'));
     await tester.pumpAndSettle();
     expect(calls.where((call) => call.method == 'groups.select'), isEmpty);
