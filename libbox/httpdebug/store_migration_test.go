@@ -1,6 +1,7 @@
 package httpdebug
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -8,6 +9,41 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestStoredTLSMetadataKeepsUnknownUpstreamALPNDistinct(t *testing.T) {
+	for _, field := range []string{"", `,"upstreamALPN":""`, `,"upstreamALPN":"h2"`} {
+		t.Run(field, func(t *testing.T) {
+			directory := t.TempDir()
+			store, err := OpenStore(directory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var metadata Metadata
+			if err = json.Unmarshal([]byte(`{"tls":{"clientVersion":"TLS 1.3","upstreamVersion":"TLS 1.3","alpn":"h2"`+field+`}}`), &metadata); err != nil {
+				t.Fatal(err)
+			}
+			request, err := http.NewRequest("GET", "https://api.test/kept", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := store.begin(metadata, request, 64)
+			store.finish(id)
+			reopened, err := OpenStore(directory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			detail, err := reopened.Detail(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wire, err := json.Marshal(detail.Metadata.TLS)
+			if err != nil || strings.Contains(string(wire), `"upstreamALPN"`) != (field != "") ||
+				field != "" && !strings.Contains(string(wire), field[1:]) {
+				t.Fatalf("stored TLS metadata changed unknown/empty ALPN: %s %v", wire, err)
+			}
+		})
+	}
+}
 
 func TestOpenStoreRemovesRetiredJournalsAndKeepsRequests(t *testing.T) {
 	for _, name := range []string{"only retired files", "unrelated files"} {

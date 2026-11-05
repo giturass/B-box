@@ -196,7 +196,7 @@ func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, 
 	clientState := client.ConnectionState()
 	metadata.RawTCP = e.mitm != nil && e.mitm.TCP && clientState.NegotiatedProtocol != "h2" && clientState.NegotiatedProtocol != "http/1.1"
 	metadata.TLS = &TLSMetadata{ServerName: metadata.Host, ClientVersion: tlsVersion(clientState.Version),
-		UpstreamVersion: tlsVersion(upstreamState.Version), ALPN: clientState.NegotiatedProtocol, UpstreamALPN: upstreamState.NegotiatedProtocol}
+		UpstreamVersion: tlsVersion(upstreamState.Version), ALPN: clientState.NegotiatedProtocol, UpstreamALPN: &upstreamState.NegotiatedProtocol}
 	if len(upstreamState.PeerCertificates) > 0 {
 		fingerprint := sha256.Sum256(upstreamState.PeerCertificates[0].Raw)
 		metadata.TLS.UpstreamCertificate = hex.EncodeToString(fingerprint[:])

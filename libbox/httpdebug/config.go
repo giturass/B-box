@@ -123,13 +123,13 @@ type Metadata struct {
 
 // Versions and ALPN are the negotiated values on each side, not estimates.
 type TLSMetadata struct {
-	ServerName          string `json:"serverName"`
-	ClientVersion       string `json:"clientVersion"`
-	UpstreamVersion     string `json:"upstreamVersion"`
-	ALPN                string `json:"alpn"`
-	UpstreamALPN        string `json:"upstreamALPN"`
-	UpstreamCertificate string `json:"upstreamCertificate"`
-	UpstreamServerName  string `json:"upstreamServerName,omitempty"`
+	ServerName          string  `json:"serverName"`
+	ClientVersion       string  `json:"clientVersion"`
+	UpstreamVersion     string  `json:"upstreamVersion"`
+	ALPN                string  `json:"alpn"`
+	UpstreamALPN        *string `json:"upstreamALPN,omitempty"`
+	UpstreamCertificate string  `json:"upstreamCertificate"`
+	UpstreamServerName  string  `json:"upstreamServerName,omitempty"`
 }
 
 type SocketMetadata struct {

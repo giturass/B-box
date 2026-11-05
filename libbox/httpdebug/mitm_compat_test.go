@@ -98,7 +98,8 @@ func TestMITMNoALPNHTTPUsesRewritesScriptsAndHTTPExports(t *testing.T) {
 			for _, item := range waitComplete(t, store, 2) {
 				detail, err := store.Detail(item.ID)
 				if err != nil || detail.Metadata.RawTCP || detail.Metadata.ConnectionID != "selected-client" ||
-					detail.Metadata.Outbound != "original-route" || detail.Metadata.TLS.ALPN != "" || detail.Metadata.TLS.UpstreamALPN != "" {
+					detail.Metadata.Outbound != "original-route" || detail.Metadata.TLS.ALPN != "" ||
+					detail.Metadata.TLS.UpstreamALPN == nil || *detail.Metadata.TLS.UpstreamALPN != "" {
 					t.Fatalf("incorrect HTTP classification or TLS metadata: %+v %v", detail, err)
 				}
 				if _, err := store.Curl(item.ID); err != nil {
@@ -223,7 +224,7 @@ func TestMITMHTTP2OptionSeparatesClientAndOriginVersions(t *testing.T) {
 					if enabled && originH2 {
 						wantUpstream = "h2"
 					}
-					if detail.Metadata.TLS.ALPN != wantClient || detail.Metadata.TLS.UpstreamALPN != wantUpstream {
+					if detail.Metadata.TLS.ALPN != wantClient || detail.Metadata.TLS.UpstreamALPN == nil || *detail.Metadata.TLS.UpstreamALPN != wantUpstream {
 						t.Fatalf("the two ALPN values were conflated: %+v", detail.Metadata.TLS)
 					}
 				})
