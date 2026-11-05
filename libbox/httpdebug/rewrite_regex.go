@@ -19,8 +19,9 @@ const (
 var regexSlots = make(chan struct{}, 4)
 var errRegexBudget = errors.New("HTTP regular expression processing budget exhausted")
 
-// The budget counts matching, replacement and capacity waits, across both
-// phases. Uploads, scripts and upstream latency do not consume regex time.
+// The budget counts backtracking and its capacity waits across both phases.
+// RE2 is linear and separately bounded by body size and replacement count;
+// charging its scans to this deadline would reject valid large bodies.
 type regexBudget struct {
 	ctx       context.Context
 	remaining time.Duration
@@ -79,6 +80,12 @@ func (r *rewriteRegexp) run(b *regexBudget, action func(time.Time) error) (err e
 	}
 	if err = b.ctx.Err(); err != nil {
 		return err
+	}
+	if r.backtracking == nil {
+		if err = action(time.Time{}); err != nil {
+			return fmt.Errorf("regular expression processing: %w", err)
+		}
+		return b.ctx.Err()
 	}
 	if b.remaining <= 0 {
 		return errRegexBudget
@@ -145,7 +152,7 @@ func (r *rewriteRegexp) eachMatch(value string, b *regexBudget, visit func([]int
 				return errors.New("rewrite exceeds 8192 replacements in one message")
 			}
 			for _, match := range matches {
-				if time.Now().After(deadline) {
+				if !deadline.IsZero() && time.Now().After(deadline) {
 					return errRegexBudget
 				}
 				if err := visit(match); err != nil {

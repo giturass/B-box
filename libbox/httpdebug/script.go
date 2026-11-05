@@ -169,6 +169,7 @@ func executeScript(parent context.Context, program *goja.Program, label, kind st
 			panic(vm.NewGoError(err))
 		}
 		completed = true
+		timers.finished = true
 		clear(timers.pending)
 		// Like Surge, $done terminates this invocation. A script cannot retain a
 		// runtime or run work after returning its result.

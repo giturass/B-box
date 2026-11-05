@@ -44,7 +44,7 @@ func TestTLSCloseWithoutHTTPRequestRecordsTentativeDiagnostic(t *testing.T) {
 
 func TestProcessingFailurePointsToExistingServiceLogs(t *testing.T) {
 	e, saved := testEngine(t, Config{})
-	e.scripts = scriptProgram(t, `{"http":[{"pattern":".","phase":"request","source":"throw Error('intentional failure');"}]}`)
+	e.scripts = scriptProgram(t, `{"http":[{"pattern":".","phase":"request","source":"$done({intentionalFailure:true});"}]}`)
 	client := debugClient(t, e, "127.0.0.1:1")
 	response, err := client.Get("http://example.test/failure")
 	if err != nil {
@@ -56,7 +56,7 @@ func TestProcessingFailurePointsToExistingServiceLogs(t *testing.T) {
 		t.Fatal("error page points to a removed feature")
 	}
 	detail, err := saved.Detail(waitComplete(t, saved, 1)[0].ID)
-	if err != nil || !strings.Contains(detail.Error, "intentional failure") {
+	if err != nil || !strings.Contains(detail.Error, `unsupported $done field "intentionalFailure"`) {
 		t.Fatal("request lost its concrete script error")
 	}
 }

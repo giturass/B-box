@@ -33,6 +33,7 @@ type scriptTimers struct {
 	pending    map[int64]*scriptTimer
 	registered int64
 	events     chan scriptHTTPEvent
+	finished   bool
 }
 
 type scriptLoopKey struct{}
@@ -92,6 +93,9 @@ func installScriptTimers(vm *goja.Runtime, ctx context.Context) *scriptTimers {
 
 func (t *scriptTimers) run() error {
 	for {
+		if t.finished {
+			return nil
+		}
 		if err := t.ctx.Err(); err != nil {
 			return err
 		}

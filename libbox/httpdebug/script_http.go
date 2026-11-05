@@ -366,6 +366,14 @@ func scriptHTTPBody(vm *goja.Runtime, stringify goja.Callable, value goja.Value,
 }
 
 func validateScriptHTTPDestination(request *http.Request, policy scriptHTTPPolicy) error {
+	// net/http leaves Host empty on generated redirects to mean URL.Host.
+	// Validate the effective authority without making it a custom Host that
+	// later redirects might inherit.
+	if request.Host == "" {
+		effective := *request
+		effective.Host = request.URL.Host
+		request = &effective
+	}
 	if err := validRewriteRequest(request); err != nil {
 		return err
 	}
