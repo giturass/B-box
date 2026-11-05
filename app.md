@@ -206,6 +206,20 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### Surge HTTP 处理对齐验证
+
+2026-11-05，验证源码为 `75897bd75b15ead454e3fcfeac383f303de15108`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42000793483)，所有 job 通过；后续验证记录的 Markdown 提交不改变应用及测试源码。功能语义、资源加载及保留差异见 [核心说明](libbox.md#json-配置中的-http-改写)。
+
+- Go 配置/绑定、HTTP/MITM `-race`、原路由及 Android 重定向布局回归通过，包含前后查找/内部反向引用、jq、资源缓存/更新、异步 HTTP 和定时器完成语义。
+- Flutter 分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；Android x86_64 核心 AAR、Flutter debug 库、`play` 编译和模拟器应用/仪器测试 APK 构建通过。
+- 读取 `native-unit-tests` 的 12 份 XML，50 项 JVM 测试全部通过，无失败、错误或跳过。
+- Root CA 隔离挂载及启动补查回归通过。
+- API 31 UI smoke 和全部 20 项原生测试通过，包含文件 Mock/jq/外部脚本、默认联网与空允许列表、持久存储、Cron 及服务失败恢复。
+
+已读取 `android-smoke-api-31` 的 `results.json` 和 `native-tests.txt`，报告 SHA 与上述源码一致，UI/native 均成功；逐项核对 `profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery`、`httpScriptsUseRoutedClientTimersAndPersistentNamespaces`、`independentCronUsesRoutingAndStopsWithTheService` 的仪器测试状态为成功。设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（`getconf`）。本次未改动页面布局，不新增视觉验收声明。
+
+本机只运行 Go 格式、差异/源码约束、Python 语法、示例 JSON、文档链接及旧引用静态检查，并在内存中核对两个 HTTP 补丁按顺序匹配固定上游 SHA；未在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未触发签名 ARM64 Release/R8 APK 工作流或发布 APK，不覆盖其他 Android 版本、ARM64 实机性能、16 KiB 页运行、完整 Surge/WebView API 或第三方应用证书信任。
+
 ### Prism UI 升级验证
 
 2026-11-05，验证源码为 `d9254711ccf34cda547d2f2287b0e0a508e861a6`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/41982716632)，所有 job 通过。FlClash v0.9.3、Prism UI 固定提交和适配范围见 [界面来源](flclash.md#参考版本与来源清单)，不改变 Android 上游或核心比较基线；后续记录结果的 Markdown 提交不改变应用或测试源码。
