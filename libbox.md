@@ -103,7 +103,7 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 
 [MITM 处理器](libbox/httpdebug/mitm.go) 用只读 TLS 探测器读取实际 ClientHello，探测阶段不写 ServerHello 或 alert。域名以实际 SNI 为准；没有 SNI 时仅接受已知 IP 目标，不以 DNS 映射冒充 SNI。无法解析的 hello、未命中域名及关闭 TCP 解密时的非 HTTP ALPN 流原样回放。route 的端口覆写不改变原始筛选端口和抓取 authority。
 
-普通 MITM 先通过原路由完成上游握手，默认使用 `adapter.RootPoolFromContext` 的当前证书库验证服务器链、有效期和名称，再签发客户端证书；原连接直接复用，后续连接沿用本配置的校验选项。支持 TLS 1.2/1.3。HTTP/1.1、HTTP/2 进入 HTTP 引擎；开启 `h2` 后允许客户端 HTTP/2 与上游 HTTP/1.1 互通，分别记录客户端 `alpn` 和 `upstreamALPN`。HTTP 协商方式对照 Surge [HTTP 协议版本说明](https://kb.nssurge.com/surge-knowledge-base/zh/technotes/http-protocol-version)。同时提供 HTTP 和其他 ALPN 的客户端先协商上游，已协商的非 HTTP 协议继续按原始流处理。
+普通 MITM 先通过原路由完成上游握手，默认使用 `adapter.RootPoolFromContext` 的当前证书库验证服务器链、有效期和名称，再签发客户端证书；原连接直接复用，后续连接沿用本配置的校验选项。支持 TLS 1.2/1.3。HTTP/1.1、HTTP/2 进入 HTTP 引擎；开启 `h2` 后客户端与上游分别协商，可在两个 HTTP 版本间转换，分别记录客户端 `alpn` 和 `upstreamALPN`。旧记录缺少上游 ALPN 时保留未知，不补写协商结果。HTTP 协商方式对照 Surge [HTTP 协议版本说明](https://kb.nssurge.com/surge-knowledge-base/zh/technotes/http-protocol-version)。同时提供 HTTP 和其他 ALPN 的客户端先协商上游，已协商的非 HTTP 协议继续按原始流处理。
 
 `tcp=false` 时没有 ALPN 的连接按 HTTP/1.1 处理。`tcp=true` 时，[mitm_detect.go](libbox/httpdebug/mitm_detect.go) 在已建立的 TLS 连接上识别完整 HTTP/1.x 请求行；识别成功后，HTTP 改写、脚本及 HAR/cURL 导出照常工作。探测同时观察上游首字节，服务器先发数据时直接选择原始流；客户端探测最多 64 KiB 请求行、10 秒，二进制或不符合 HTTP 的内容提前结束探测。探测结束先回收两个读取任务，再完整回放双方已读字节，保留半关闭；停止服务取消探测并关闭双方连接。探测限额仅决定处理方式，不截断转发内容。
 
@@ -114,6 +114,8 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 HTTP 离线 Mock 的握手方式见下文。TCP 支持限于直接建立 TLS 的连接，不解密任意私有加密协议、STARTTLS 升级、HTTP/3、真实 ECH 或客户端证书认证；嵌套 CONNECT 不支持。证书固定校验或独立信任库可拒绝连接，可移除该域名或由目标客户端调整信任。QUIC 回退只处理已恢复名称的匹配流，其他 UDP、未知名称和未命中的数据报保留；不保证应用会回退。证书安装及平台限制见 [app.md](app.md#请求抓取与-mitm)。
 
 握手设计参考 mitmproxy [`b08148b35d7679bc9be8d4a3d85b32bcea5ce250`](https://github.com/mitmproxy/mitmproxy/tree/b08148b35d7679bc9be8d4a3d85b32bcea5ce250) 的 `addons/tlsconfig.py`、`proxy/layers/tls.py` 和 `certs.py`；生产实现使用 Go `crypto/tls`。FlClash 补充参考见 [界面来源](flclash.md#参考版本与来源清单)。
+
+本轮协议、配置及 Android 路由回归的实际结果见 [MITM 与 Surge 对齐验证](app.md#mitm-与-surge-对齐验证)。
 
 ### JSON 配置中的 HTTP 改写
 

@@ -204,6 +204,20 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### MITM 与 Surge 对齐验证
+
+2026-11-05，验证源码为 `5e40bd30a3695cb2e7ed84716955fc64e4a08495`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/41964904848)，全部通过。对齐范围及默认值见 [核心 MITM 配置](libbox.md#独立-mitm-配置)；后续记录结果的 Markdown 提交不改变应用或测试源码。
+
+- Go 扩展、HTTP/MITM `-race`、原路由及 Android 重定向布局回归通过。覆盖无 ALPN 的 HTTP 改写/脚本/导出、二进制字节回放与半关闭、HTTP/2 两端独立协商、证书校验选项、Host List/QUIC 默认值及旧记录的未知 ALPN 保留。
+- Flutter 分析（`--no-fatal-infos`）、210 项交互/布局测试及 ARM64 Flutter AAR 构建通过；分析仍有 148 条 info 提示。实际查看的 MITM 窄屏截图见 [视觉验证](flclash.md#验证与升级参考版本)。
+- 50 项 JVM 测试无失败、错误或跳过，`play`/`other` 编译及模拟器应用/仪器测试 APK 构建通过。
+- API 31 UI smoke 和全部 20 项原生测试通过，包含真实 Keystore、原 selector 出站、两种 HTTP 模式及服务器先发数据的二进制 TLS 流；测试同时检查相同配置保留录制、配置重载停止录制。
+- Root CA 隔离挂载及启动补查回归通过。
+
+已读取 12 份 JVM XML，以及 `android-smoke-api-31` 的 `results.json`、`native-tests.txt` 和 `mitm-origin.json`。结果中的源码 SHA 与上述提交一致；设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（来源 `getconf`）。独立服务器分别收到 `/probe?raw=1;2`、`/http-no-alpn`，以及精确的二进制请求 `\x00client\xff`；HTTP Host 保留原始测试目标。
+
+本机完成 `git diff --check`、`python3 tools/verify_newui.py`、Go 格式、Python 语法、JSON 及文档链接/旧引用静态检查，未在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未触发签名 ARM64 Release/R8 或发布 APK；未覆盖其他 Android 版本、ARM64 实机及第三方应用信任，平台边界见 [请求抓取与 MITM](#请求抓取与-mitm)。
+
 ### Root CA 与服务恢复修复验证
 
 2026-11-05，验证源码为 `4d7dabb9b804706d3dd019b92be85fd4f68ba89c`，包含 Root CA 模块版本 3 的启动补查、完整 namespace 枚举与重新挂载修复，以及服务错误/主动停止共用清理任务和启动代次检查。后续记录结果的 Markdown 提交不改变应用、模块或测试源码。

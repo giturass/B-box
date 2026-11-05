@@ -149,7 +149,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 [requests_test.dart](flutter/test/requests_test.dart) 覆盖独立工具入口、远程隔离、本机设置修订、MITM 域名选择、端口、启动确认及后台轮询/迟到结果；证书测试检查无配置时从抓包设置经 MITM 页进入证书、明确生成、取消导出、活跃 MITM 禁止重生成、远程切换和信任刷新。其他回归包括 HAR 搜索、停止抓取时的历史分页与搜索重置、TCP 流完成/导出限制、既有 socket 元数据、报文菜单、字段/Cookie 复制及正文格式/Unicode 展开；分页检查“显示更多”可实际点击并加载下一批，请求页不订阅连接。窄屏、大字号深色及宽屏测试运行后将截图写入 build/screenshots/requests/，包含独立配置、请求设置、证书、请求列表、分页按钮及报文详情；桥接替身不能代替实际 TLS 或系统安装验收。
 
-配置页面将滚动视口放在共享标题下方，避免文字穿过标题；测试核对几何位置与 320 宽、1.3 倍字号深色主题。当前独立 MITM/TCP/Cron 的实际验证见 [app.md](app.md#独立-mitmtcpcron-验证)，截图检查范围记录在本节末尾。
+配置页面将滚动视口放在共享标题下方，避免文字穿过标题；测试核对几何位置与 320 宽、1.3 倍字号深色主题。源码验证见 [MITM 与 Surge 对齐验证](app.md#mitm-与-surge-对齐验证)，当前 MITM 截图检查范围记录在本节末尾。
 
 [http_message_test.dart](flutter/test/http_message_test.dart) 检查 JSON 数值/重复键/转义保真、无效或过大内容回退，以及重复 Cookie、空值、等号和 Expires 逗号。请求正文不完整或截断时不提供 cURL 导出。
 
@@ -159,6 +159,6 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 这些测试只覆盖声明的页面和情景，不等于全应用逐像素一致或已经完成实机验收。升级参考版本时同步审查来源清单、适配文件、许可和独立参考渲染器，按实际 Actions 运行记录结果；Android 验证入口见 [app.md](app.md)。
 
-2026-11-03 的独立 MITM/TCP/Cron 视觉检查读取 [Actions 41637368901](https://github.com/giturass/B-box/actions/runs/41637368901) 在 `339ecfc8bf42c4a07d800a6b8024d2e02a466ae9` 生成的 `newui-validation` 产物，实际查看 requests 截图目录中的 `independent-mitm-config.png`、`independent-scripts-cron.png`、`profile-rewriting-config.png` 和 `requests-recording-off.png`。前三张为 320 宽、1.3 倍字号深色主题：独立 MITM 的解密域名与 TCP 开关、脚本的 HTTP/Cron 入口、改写规则名称和数量均可读，标题与滚动内容分离。MITM 下方设置继续通过滚动访问，首屏截图不覆盖全部内容。请求页为浅色停止录制状态，只显示请求记录状态，已移除配置改写生效横幅。
+2026-11-05 的 MITM 对齐视觉检查读取 [Actions 41964904848](https://github.com/giturass/B-box/actions/runs/41964904848) 在 `5e40bd30a3695cb2e7ed84716955fc64e4a08495` 生成的 `newui-validation` 产物，实际查看 requests 目录中的 `independent-mitm-config.png` 和 `independent-mitm-tcp-quic.png`。两张为 320 宽、1.3 倍字号深色主题，分别覆盖首屏及滚动后的 TCP/QUIC 区域：HTTP/2、服务器证书校验、TCP 和 QUIC 控件可读，默认开关状态与配置一致，证书及 JSON 编辑入口可见，标题与滚动内容分离。同次 Flutter job 的分析、210 项交互/布局测试和 ARM64 AAR 构建通过。
 
-这些为英文 Flutter fixture 截图，未覆盖中文实机、系统证书设置或 Root 管理器；完整结果及未覆盖范围见 [独立 MITM/TCP/Cron 验证](app.md#独立-mitmtcpcron-验证)。此前配置改写和请求录制/CA 的截图记录可通过本文 Git 历史查询，对应运行分别见 [JSON 配置改写验证](app.md#json-配置改写验证) 与 [MITM 分支验证](app.md#mitm-分支验证)。
+这些为英文 Flutter fixture 截图，未覆盖中文实机、系统证书设置或 Root 管理器；应用验证范围见 [MITM 与 Surge 对齐验证](app.md#mitm-与-surge-对齐验证)。此前独立配置、请求录制及 CA 的截图记录可通过本文 Git 历史查询。
