@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 import '../widgets.dart';
 
-// Grouped form rows adapted from FlClash v0.9.2 features/form.
+// Grouped form rows adapted from FlClash v0.9.3 features/form.
 
 class FormPage extends StatelessWidget {
   const FormPage({super.key, required this.title, required this.onSave, required this.children,
@@ -14,7 +14,7 @@ class FormPage extends StatelessWidget {
   final List<IconButtonData> actions;
   final ScrollController? controller;
 
-  @override Widget build(BuildContext context) => CommonScaffold(
+  @override Widget build(BuildContext context) => Scaffold(
     title: context.tr(title), iconActions: actions,
     confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'),
       isLoading: saving, onPressed: saving ? null : onSave),
@@ -155,14 +155,9 @@ class FormRowTextField extends StatelessWidget {
       TextDirection.ltr => 1.0,
       TextDirection.rtl => -1.0,
     };
-    return InputDecorationTheme(
-      data: InputDecorationTheme.of(
-        context,
-      ).copyWith(floatingLabelBehavior: FloatingLabelBehavior.never),
-      child: Transform.translate(
-        offset: Offset(_caretMargin * towardEnd, 0),
-        child: _buildField(context),
-      ),
+    return Transform.translate(
+      offset: Offset(_caretMargin * towardEnd, 0),
+      child: _buildField(context),
     );
   }
 
@@ -253,7 +248,7 @@ class _FormRowSecretTextFieldState extends State<FormRowSecretTextField> {
             onFieldSubmitted: widget.onFieldSubmitted,
           ),
         ),
-        CommonMinIconButtonTheme(
+        MinIconButtonTheme(
           child: IconButton(
             tooltip: _obscure
                 ? appLocalizations.showPassword

@@ -6,7 +6,7 @@ import 'package:flutter/rendering.dart';
 import '../widgets.dart';
 import 'system_proxy_glyph.dart';
 
-// In-place editor and motion adapted from FlClash v0.9.2 dashboard/edit.dart.
+// In-place editor and motion adapted from FlClash v0.9.3 dashboard/edit.dart.
 const _rowHeight = 64.0;
 const _rowGap = 8.0;
 const _addableTop = 14.0;
@@ -404,7 +404,8 @@ class _LiftedCard extends StatelessWidget {
           ),
         );
       },
-      child: Material(type: MaterialType.transparency, child: child),
+      child: Surface(
+child: child),
     );
   }
 }
@@ -523,12 +524,12 @@ class _RoundButton extends StatelessWidget {
       child: IconButton(
         tooltip: tooltip,
         padding: EdgeInsets.zero,
-        style: IconButton.styleFrom(
+        style: ButtonStyle.from(
           backgroundColor: background,
           foregroundColor: foreground,
           minimumSize: const Size.square(28),
           fixedSize: const Size.square(28),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          tapTargetSize: TapTargetSize.shrinkWrap,
         ),
         onPressed: onPressed,
         icon: GlyphIcon(glyph, size: 16, color: foreground),

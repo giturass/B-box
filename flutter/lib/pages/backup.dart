@@ -6,7 +6,7 @@ import '../components/form.dart';
 
 const defaultBackupFileName = 'B-box-backup.json';
 
-// Layout and dialogs adapted from FlClash v0.9.2 backup_and_restore.dart.
+// Layout and dialogs adapted from FlClash v0.9.3 backup_and_restore.dart.
 class BackupPage extends StatefulWidget {
   const BackupPage({super.key});
   @override State<BackupPage> createState() => _BackupPageState();
@@ -76,7 +76,7 @@ class _BackupPageState extends State<BackupPage> {
 
   void _showLoading(bool value) { if (mounted) setState(() => _loading = value); }
   Future<void> _success(String title, String message) => showFloatingDialog<void>(context: context,
-    child: CommonDialog(title: context.tr(title), child: Text(context.tr(message)), actions: [
+    child: AlertDialog(title: context.tr(title), child: Text(context.tr(message)), actions: [
       TextButton(onPressed: () => Navigator.pop(context), child: Text(context.tr('Close'))),
     ]));
 
@@ -111,7 +111,7 @@ class _BackupPageState extends State<BackupPage> {
       _showLoading(false);
       if (data == null || !mounted) return;
       final count = rows(json(data)['profiles']).length;
-      final approved = await showFloatingDialog<bool>(context: context, child: CommonDialog(
+      final approved = await showFloatingDialog<bool>(context: context, child: AlertDialog(
         title: context.tr('Restore backup'), destructive: strategy == 'Override',
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, spacing: 12, children: [
           Text(context.tr('Restore {count} profiles?').replaceAll('{count}', '$count')),
@@ -139,14 +139,14 @@ class _BackupPageState extends State<BackupPage> {
   Widget _indicator() {
     final label = _checking ? 'Checking connection' : _connected == true ? 'Connected' : 'Connection failed';
     return Semantics(label: context.tr(label), child: Tooltip(message: _connectionError ?? context.tr(label),
-      child: FadeThroughBox(child: _checking ? const CommonCircleLoading(size: 12)
+      child: FadeThroughBox(child: _checking ? const ActivityIndicator(size: 12)
         : SizedBox.square(dimension: 12, child: DecoratedBox(decoration: BoxDecoration(shape: BoxShape.circle,
           color: _connected == true ? context.colorScheme.success : context.colorScheme.error))))));
   }
 
   @override Widget build(BuildContext context) {
     final account = _account;
-    return BoxEditGuard(dirty: false, busy: _locked, child: CommonScaffold(title: context.tr('Backup and restore'), isLoading: _loading,
+    return BoxEditGuard(dirty: false, busy: _locked, child: Scaffold(title: context.tr('Backup and restore'), isLoading: _loading,
       body: AbsorbPointer(absorbing: _locked, child: ListView(
         padding: EdgeInsets.fromLTRB(16, context.sectionsTopPadding, 16, 16 + context.bottomInset), children: [
           generateSection(title: context.tr('Remote'), items: [
@@ -188,7 +188,7 @@ String? backupFileIssue(String? value) => value == null || value.isEmpty || valu
 
 class RestoreScopeDialog extends StatelessWidget {
   const RestoreScopeDialog({super.key});
-  @override Widget build(BuildContext context) => CommonDialog(title: context.tr('Restore'),
+  @override Widget build(BuildContext context) => AlertDialog(title: context.tr('Restore'),
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16), child: Wrap(children: [
       ListItem(title: Text(context.tr('Restore profiles only')), onTap: () => Navigator.pop(context, 'profiles')),
       ListItem(title: Text(context.tr('Restore all data')), onTap: () => Navigator.pop(context, 'all')),

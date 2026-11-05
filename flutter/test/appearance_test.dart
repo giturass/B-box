@@ -33,7 +33,7 @@ void main() {
     await tester.tap(find.text('Pure black'));
     await tester.pumpAndSettle();
     expect(stored['pureBlack'], true);
-    expect(tester.widget<MaterialApp>(find.byType(MaterialApp)).darkTheme!.colorScheme.surface, Colors.black);
+    expect(tester.widget<PrismApp>(find.byType(PrismApp)).darkTheme!.colorScheme.surface, Colors.black);
     await tester.scrollUntilVisible(find.text('Fade'), 200, scrollable: find.descendant(
       of: find.byType(AppearancePage), matching: find.byType(Scrollable)).first);
     await tester.pumpAndSettle();
@@ -69,7 +69,7 @@ void main() {
     await tester.pumpWidget(BoxApp(controller: BoxController(channel: channel, events: events.stream)));
     await tester.pumpAndSettle();
     final context = tester.element(find.byType(HomePage));
-    expect(Theme.of(context).textTheme.bodyMedium!.fontFamily, ThemeData().textTheme.bodyMedium!.fontFamily);
+    expect(Theme.of(context).bodyTextStyle.fontFamily, ThemeData().bodyTextStyle.fontFamily);
     expect(MediaQuery.textScalerOf(context).scale(10), closeTo(12, 1e-9));
     for (final (system, expected) in [(1.3, 13.0), (2.0, 14.0), (.5, 8.0)]) {
       tester.platformDispatcher.textScaleFactorTestValue = system;

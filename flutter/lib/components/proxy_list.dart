@@ -4,7 +4,7 @@ import '../widgets.dart';
 import 'group_monogram.dart';
 import 'proxy_card.dart';
 
-// Slivers, pinned headers and folding motion adapted from FlClash v0.9.2
+// Slivers, pinned headers and folding motion adapted from FlClash v0.9.3
 // views/proxies/list.dart. Nodes and actions come from the sing-box session.
 const _headerInset = 10.0;
 const _headerButtonInset = 4.0;
@@ -112,7 +112,7 @@ class _ProxyListViewState extends State<ProxyListView> {
       expanded: _unfolded!.contains(group.name), testing: widget.testing,
       cardBuilder: widget.cardBuilder, onToggle: _toggle, onLocate: _locate, onTest: widget.onTest,
     );
-    return CommonScrollBar(controller: _controller, thumbVisibility: true, child: CustomScrollView(
+    return Scrollbar(controller: _controller, thumbVisibility: true, child: CustomScrollView(
       key: PageStorageKey('proxy-list:${widget.profileKey}'), controller: _controller,
       slivers: [
         PinnedHeaderSliver(child: SizedBox(height: context.contentTopPadding)),
@@ -265,7 +265,7 @@ class ProxyGroupHeader extends StatelessWidget {
         BoxShadow(color: colors.shadow.withValues(alpha: .04 * strength * lift), blurRadius: 3, offset: const Offset(0, 1)),
       ]),
       child: Padding(padding: const EdgeInsets.all(_headerButtonInset), child: SurfaceScope(
-        level: SurfaceLevel.values[level.index - 1], child: CommonCard(enterActionsOnRight: true, enterAnimated: false,
+        level: SurfaceLevel.values[level.index - 1], child: Card(enterActionsOnRight: true, enterAnimated: false,
           radius: radius - _headerButtonInset, onPressed: onToggle,
           child: Padding(padding: const EdgeInsets.all(_headerInset - _headerButtonInset), child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -282,12 +282,12 @@ class ProxyGroupHeader extends StatelessWidget {
                 if (expanded) TonalButtonGroup(size: TonalButtonSize.compact, children: [
                   IconButton(tooltip: context.tr('Scroll to selected'), onPressed: onLocate, iconSize: 19, icon: const GlyphIcon(AppGlyphs.locate)),
                   IconButton(tooltip: context.tr('Test latency'), onPressed: testing || !context.box.running ? null : onTest,
-                    icon: testing ? CommonCircleLoading(size: TonalButtonSize.compact.icon) : const GlyphIcon(AppGlyphs.bolt)),
+                    icon: testing ? ActivityIndicator(size: TonalButtonSize.compact.icon) : const GlyphIcon(AppGlyphs.bolt)),
                 ]) else Text(group['type'] as String? ?? (group['selectable'] == true ? 'Selector' : 'URLTest'),
                   maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyle.caption1.of(context, emphasized: true).toLight),
                 const SizedBox(width: 6),
                 ElasticPress(child: IconButton(tooltip: context.tr(expanded ? 'Show less' : 'Show more'),
-                  onPressed: onToggle, icon: CommonExpandIcon(expand: expanded))),
+                  onPressed: onToggle, icon: ExpandIcon(expand: expanded))),
               ])),
             ],
           )),

@@ -1,0 +1,7 @@
+prism_ui contains code adapted from these projects, each under its own license as stated in the file headers:
+
+- lib/hct/: material_color_utilities, Copyright 2021 Google LLC, Apache License 2.0
+- lib/shapes/: material_new_shapes, Copyright (c) 2025 Agbama Gifted, MIT License
+- lib/sliver_list/: super_sliver_list, Copyright (c) 2024 Matej Knopp, Superlist and the contributors, MIT License
+- lib/navigator_resizable.dart: navigator_resizable, Copyright (c) 2024 Daichi Fujita, MIT License
+- shaders/ink_sparkle.frag: Flutter, Copyright 2013 The Flutter Authors, BSD 3-Clause License

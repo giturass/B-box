@@ -1,4 +1,4 @@
-import '../ui/icons/glyph.dart';
+import 'package:prism_ui/icons/glyph.dart';
 
 // B-box's continent globe, drawn on the shared 24px glyph grid.
 const systemProxyGlyph = Glyph([

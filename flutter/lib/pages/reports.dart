@@ -12,7 +12,7 @@ class _ReportsPageState extends State<ReportsPage> {
   Future<List<Json>> _load() async => rows(await context.box.call('reports.list', {'kind': widget.kind}));
   @override void didChangeDependencies() { super.didChangeDependencies(); _reports ??= _load(); }
   void _refresh() => setState(() => _reports = _load());
-  @override Widget build(BuildContext context) => CommonScaffold(title: context.tr(reportTitle(widget.kind)), iconActions: [
+  @override Widget build(BuildContext context) => Scaffold(title: context.tr(reportTitle(widget.kind)), iconActions: [
     IconButtonData(glyph: AppGlyphs.refresh, onPressed: _refresh, tooltip: context.tr('Refresh')),
     IconButtonData(glyph: AppGlyphs.delete, tooltip: context.tr('Clear'), onPressed: () async {
       final box = context.box;
@@ -25,7 +25,7 @@ class _ReportsPageState extends State<ReportsPage> {
     padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 24 + context.bottomInset),
     children: [
       if (snapshot.hasError) ErrorState(snapshot.error!, retry: _refresh),
-      if (!snapshot.hasData && !snapshot.hasError) const Center(child: CircularProgressIndicator()),
+      if (!snapshot.hasData && !snapshot.hasError) const Center(child: ActivityIndicator()),
       if (snapshot.data?.isEmpty == true) const EmptyState('No reports'),
       for (final report in snapshot.data ?? <Json>[]) ListItem(
         title: Text(localDate(report['date'])), subtitle: Text(report['id'].toString()),
@@ -88,6 +88,6 @@ class _ReportTextState extends State<ReportText> {
   @override Widget build(BuildContext context) => BoxPage(title: widget.title, children: [
     FutureBuilder<dynamic>(future: _content, builder: (context, snapshot) => snapshot.hasError ? ErrorState(snapshot.error!)
       : snapshot.hasData ? SelectableText(snapshot.data.toString(), style: const TextStyle(fontFamily: 'JetBrainsMono', fontSize: 12))
-      : const Center(child: CircularProgressIndicator())),
+      : const Center(child: ActivityIndicator())),
   ]);
 }

@@ -1,12 +1,12 @@
-// Frozen FlClash v0.9.2 presentation oracle (GPL-3.0).
-// Source revision: 7fd417fb9a9a277c6a9339a8ac87f907df7c25f7.
+// Frozen FlClash v0.9.3 presentation oracle (GPL-3.0).
+// Source revision: be84736605527034689c95bf27828ff27d912c5e.
 // Extracted from current_outbound.dart, card.dart, style.dart and layout.dart.
 // Provider reads and actions are replaced by fixtures; rendering is retained.
 // Keep independent of B-box's adapted dashboard components.
 
 import 'dart:math' as math;
 import 'package:b_box_ui/widgets.dart';
-import 'package:material_new_shapes/material_new_shapes.dart';
+import 'package:prism_ui/shapes/shapes.dart';
 
 const _ipMask = '*****';
 const _decorationGrowth = 0.12;
@@ -269,13 +269,12 @@ class _ExitRow extends StatelessWidget {
             child: FocusRing(
               shape: AppShape.xs,
               standsOff: true,
-              child: InkWell(
+              child: PressRegion(
                 onTap: () => showIpQualitySheet(context, ip: info.ip),
-                customBorder: AppShape.xs,
-                hoverColor: Colors.transparent,
-                splashColor: Colors.transparent,
-                highlightColor: Colors.transparent,
-                child: _IpText(ip: info.ip, style: style),
+                shape: AppShape.xs,
+                overlay: PressRegion.focusOverlay,
+
+child: _IpText(ip: info.ip, style: style),
               ),
             ),
           )
@@ -488,13 +487,12 @@ class _CountryBadgeState extends State<_CountryBadge>
         button: true,
         enabled: enabled,
         label: tooltip,
-        child: InkResponse(
+        child: PressRegion(
           onTap: enabled ? widget.onRefresh : null,
           onHover: (value) => setState(() => _hovered = value),
           onFocusChange: (value) => setState(() => _focused = value),
-          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-          splashFactory: NoSplash.splashFactory,
-          child: ElasticPress(
+
+child: ElasticPress(
             enabled: enabled,
             child: AnimatedBuilder(
               animation: _turns,
@@ -642,8 +640,6 @@ final _startMorph = Morph(MaterialShapes.circle, MaterialShapes.cookie9Sided);
 
 Path _morphPath(double progress) => _startMorph.toPath(
   progress: progress,
-  rotationPivotX: 0.5,
-  rotationPivotY: 0.5,
 );
 
 double _morphTurn(double progress) => progress * 2 * math.pi / 9;
@@ -685,7 +681,7 @@ class FlClashStartToggleState extends State<FlClashStartToggle>
   var _focused = false;
 
   /// The M3 state layer, painted inside the shape: the card's decoration
-  /// covers the button, so ink on the card's Material would never show.
+  /// covers the button, so ink on the card would never show.
   double get _overlay => !widget.enabled
       ? 0
       : _focused
@@ -736,14 +732,13 @@ class FlClashStartToggleState extends State<FlClashStartToggle>
         button: true,
         enabled: enabled,
         label: tooltip,
-        child: InkResponse(
+        child: PressRegion(
           onTap: enabled ? _toggle : null,
           onHover: (value) => setState(() => _hovered = value),
-          onHighlightChanged: (value) => setState(() => _pressed = value),
+          onPressedChanged: (value) => setState(() => _pressed = value),
           onFocusChange: (value) => setState(() => _focused = value),
-          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-          splashFactory: NoSplash.splashFactory,
-          child: ElasticPress(
+
+child: ElasticPress(
             enabled: enabled,
             child: TweenAnimationBuilder<double>(
               tween: Tween(end: _overlay),
@@ -927,12 +922,16 @@ class DashboardCard extends StatelessWidget {
     this.onTap,
     this.semanticLabel,
     this.clipBehavior = Clip.none,
+    this.side = BorderSide.none,
     required this.child,
   });
 
   final EdgeInsetsGeometry? padding;
   final VoidCallback? onTap;
   final String? semanticLabel;
+
+  /// Drawn over the content, which may bleed to the card's edge.
+  final BorderSide side;
 
   /// Off by default so a control swelling under an [ElasticPress] can paint
   /// past the card's edge; only a card whose own content bleeds clips.
@@ -947,31 +946,31 @@ class DashboardCard extends StatelessWidget {
       padding: padding ?? dashboardCardPadding(density),
       child: child,
     );
-    return Semantics(
-      container: true,
-      label: semanticLabel,
-      child: Container(
-        clipBehavior: clipBehavior,
-        decoration: ShapeDecoration(
-          color: DashboardColors.of(context).card,
-          shape: shape,
-          shadows: DashboardShadows.e1(context),
-        ),
-        child: Material(
-          type: MaterialType.transparency,
-          child: onTap == null
-              ? content
-              : FocusRing(
-                  shape: shape,
-                  child: InkWell(
-                    customBorder: shape,
-                    onTap: onTap,
-                    child: content,
-                  ),
-                ),
-        ),
+    final onTap = this.onTap;
+    final card = Container(
+      clipBehavior: clipBehavior,
+      decoration: ShapeDecoration(
+        color: DashboardColors.of(context).card,
+        shape: shape,
+        shadows: DashboardShadows.e1(context),
       ),
+      foregroundDecoration: side == BorderSide.none
+          ? null
+          : ShapeDecoration(shape: shape.copyWith(side: side)),
+      child: onTap == null
+          ? content
+          : PressSurface(
+              fill: Colors.transparent,
+              shape: shape,
+              onPressed: onTap,
+              childFills: true,
+              child: Semantics(label: semanticLabel, child: content),
+            ),
     );
+    if (onTap != null) {
+      return card;
+    }
+    return Semantics(container: true, label: semanticLabel, child: card);
   }
 }
 

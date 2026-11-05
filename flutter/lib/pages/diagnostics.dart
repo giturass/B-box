@@ -51,9 +51,9 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
       title: widget.quality ? 'Network quality' : 'STUN test',
       children: [
         generateSection(items: [
-          Padding(padding: const EdgeInsets.all(16), child: TextField(
-            controller: _address, readOnly: running,
-            decoration: InputDecoration(labelText: context.tr(widget.quality ? 'URL' : 'Address')),
+          Padding(padding: const EdgeInsets.all(16), child: BoxField(
+            label: context.tr(widget.quality ? 'URL' : 'Address'),
+            child: TextField(controller: _address, readOnly: running),
           )),
           if (box.running) ListItem.options(title: Text(context.tr('Outbound')), options: outbounds,
             value: outbounds.contains(_outbound) ? _outbound : '',

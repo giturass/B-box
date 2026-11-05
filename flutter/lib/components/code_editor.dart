@@ -1,5 +1,6 @@
 import 'dart:math' as math;
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
+import 'package:prism_ui/prism_ui.dart';
 
 /// A JSON text field with a gutter for logical lines, including wrapped lines.
 class CodeEditor extends StatefulWidget {
@@ -112,7 +113,7 @@ class _CodeEditorState extends State<CodeEditor> {
           smartDashesType: SmartDashesType.disabled, smartQuotesType: SmartQuotesType.disabled,
           keyboardType: TextInputType.multiline, textDirection: TextDirection.ltr,
           textAlignVertical: TextAlignVertical.top, style: style, strutStyle: strut, cursorWidth: 2,
-          decoration: const InputDecoration(border: InputBorder.none, isDense: true,
+          decoration: const InputDecoration(border: const NoInputBorder(), isDense: true,
             contentPadding: EdgeInsets.fromLTRB(12, 16, 16, 16)),
         ))),
       ]);

@@ -86,7 +86,7 @@ class _TerminalThemePageState extends State<TerminalThemePage> {
   }
   @override Widget build(BuildContext context) {
     final themes = (_themes ?? []).where((theme) => theme['name'].toString().toLowerCase().contains(_query.toLowerCase())).toList();
-    return CommonScaffold(title: context.tr(widget.dark ? 'Dark theme' : 'Light theme'), isLoading: _themes == null && _error == null,
+    return Scaffold(title: context.tr(widget.dark ? 'Dark theme' : 'Light theme'), isLoading: _themes == null && _error == null,
       searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
       body: _error != null ? ErrorState(_error!, retry: _load) : ListView.builder(
         padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 24 + context.bottomInset), itemCount: themes.length,
@@ -183,14 +183,14 @@ class _TerminalConfigEditorState extends State<TerminalConfigEditor> {
     setState(() => _saving = true);
     if (await context.box.act('terminal.set', {'key': widget.dark ? 'darkConfig' : 'lightConfig', 'value': _text.text}) && mounted) {
       setState(() => _saved = _text.text);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(context.tr('Done'))));
+      BannerHost.maybeOf(context)?.show(context.tr('Done'));
     }
     if (mounted) setState(() => _saving = false);
   }
   @override void dispose() { _text.dispose(); _undo.dispose(); super.dispose(); }
   @override Widget build(BuildContext context) => PopScope(canPop: _allowPop || !_dirty,
     onPopInvokedWithResult: (didPop, _) { if (!didPop) _back(); },
-    child: CommonScaffold(title: context.tr(widget.dark ? 'Dark configuration' : 'Light configuration'), backAction: _back, isLoading: _saving,
+    child: Scaffold(title: context.tr(widget.dark ? 'Dark configuration' : 'Light configuration'), backAction: _back, isLoading: _saving,
       confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'), onPressed: _saving ? null : _save),
       iconActions: [IconButtonData(glyph: AppGlyphs.undo, tooltip: context.tr('Undo'), onPressed: _undo.undo),
         IconButtonData(glyph: AppGlyphs.redo, tooltip: context.tr('Redo'), onPressed: _undo.redo)],
@@ -200,14 +200,14 @@ class _TerminalConfigEditorState extends State<TerminalConfigEditor> {
           autocorrect: false, enableSuggestions: false, smartDashesType: SmartDashesType.disabled, smartQuotesType: SmartQuotesType.disabled,
           textAlignVertical: TextAlignVertical.top, keyboardType: TextInputType.multiline,
           style: const TextStyle(fontFamily: 'JetBrainsMono', fontSize: 13, height: 1.6),
-          decoration: const InputDecoration(border: InputBorder.none, contentPadding: EdgeInsets.all(16)))),
+          decoration: const InputDecoration(border: const NoInputBorder(), contentPadding: EdgeInsets.all(16)))),
       ])),
     ));
 }
 
 class TerminalPreviewPage extends StatelessWidget {
   const TerminalPreviewPage({super.key});
-  @override Widget build(BuildContext context) => CommonScaffold(title: context.tr('Terminal preview'),
+  @override Widget build(BuildContext context) => Scaffold(title: context.tr('Terminal preview'),
     body: Padding(padding: EdgeInsets.only(top: context.appBarInset, bottom: MediaQuery.paddingOf(context).bottom),
       child: const GhosttySurface(sessionId: '', settingsRevision: 0, preview: true)));
 }

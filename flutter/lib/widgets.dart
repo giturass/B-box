@@ -1,10 +1,11 @@
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 import 'box.dart';
 import 'l10n.dart';
 import 'ui/ui.dart';
 import 'ui/icons/icons.dart';
 
-export 'package:material_ui/material_ui.dart';
+export 'package:flutter/widgets.dart';
+export 'package:flutter_localizations/flutter_localizations.dart' show GlobalWidgetsLocalizations;
 export 'box.dart';
 export 'l10n.dart';
 export 'ui/ui.dart';
@@ -12,10 +13,10 @@ export 'ui/icons/icons.dart';
 
 class BoxMenu extends StatelessWidget {
   const BoxMenu({super.key, required this.items});
-  final List<CommonPopupMenuItem> items;
-  @override Widget build(BuildContext context) => CommonPopupBox(
+  final List<PopupMenuItem> items;
+  @override Widget build(BuildContext context) => PopupAnchor(
     targetBuilder: (open) => IconButton(tooltip: context.tr('More'), onPressed: open, icon: const GlyphIcon(AppGlyphs.more)),
-    popupBuilder: (_) => CommonPopupMenu(items: items),
+    popupBuilder: (_) => PopupMenu(items: items),
   );
 }
 
@@ -24,11 +25,11 @@ class BoxPage extends StatelessWidget {
   final String title;
   final List<Widget> children;
   final List<IconButtonData> actions;
-  final List<CommonPopupMenuItem> menuItems;
+  final List<PopupMenuItem> menuItems;
   final IconButtonData? primaryAction, confirmationAction;
   final bool loading;
   @override
-  Widget build(BuildContext context) => CommonScaffold(
+  Widget build(BuildContext context) => Scaffold(
     title: context.tr(title),
     iconActions: actions,
     menuItems: menuItems,
@@ -44,6 +45,22 @@ class BoxPage extends StatelessWidget {
 
 Future<T?> openPage<T>(BuildContext context, Widget page) => showExtend<T>(context, builder: (_) => page);
 Future<T?> openForm<T>(BuildContext context, Widget page) => showFormSheet<T>(context: context, builder: (_) => page);
+
+Future<T?> showBoxDialog<T>({required BuildContext context, required WidgetBuilder builder}) =>
+    showFloatingDialog<T>(context: context, child: Builder(builder: builder));
+
+class BoxField extends StatelessWidget {
+  const BoxField({super.key, required this.label, required this.child});
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    spacing: 6,
+    children: [Text(label, style: context.listSubtitleStyle), FilledInputTheme(child: child)],
+  );
+}
 
 /// Applies the same edit guard to system back, sheet close and sheet dismissal.
 class BoxEditGuard extends StatefulWidget {
@@ -90,7 +107,7 @@ class _BoxEditGuardState extends State<BoxEditGuard> {
   }
 
   @override Widget build(BuildContext context) {
-    final guarded = CommonPopScope(onPop: widget.dirty || widget.busy ? _canLeave : null, child: widget.child);
+    final guarded = PopGuard(onPop: widget.dirty || widget.busy ? _canLeave : null, child: widget.child);
     return SheetProvider.of(context)?.copyWith(onClose: _dismiss, child: guarded) ?? guarded;
   }
 }
@@ -130,11 +147,12 @@ class ErrorState extends StatelessWidget {
 }
 
 Future<bool> confirm(BuildContext context, String title, {String? message, String action = 'Delete'}) async =>
-    await showDialog<bool>(
+    await showBoxDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(context.tr(title)),
-        content: message == null ? null : Text(context.tr(message)),
+        title: context.tr(title),
+        child: message == null ? null : Text(context.tr(message)),
+        destructive: action == 'Delete' || action == 'Discard',
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: Text(context.tr('Cancel'))),
           TextButton(onPressed: () => Navigator.pop(context, true), child: Text(context.tr(action))),
@@ -172,12 +190,12 @@ class BoxPanel extends StatelessWidget {
         shadows: dark ? [shadow(0x80, 1, 2), shadow(0x8c, 10, 28, -6)]
             : [shadow(0x0d, .5, 1), shadow(0x0a, 2, 6), shadow(0x17, 12, 32, -6)],
       ),
-      child: Material(
-        type: MaterialType.transparency,
+      child: Surface(
         shape: AppShape.all(34),
         clipBehavior: clipBehavior,
-        child: onTap == null ? Padding(padding: padding, child: child) : InkWell(
-          customBorder: AppShape.all(34), onTap: onTap, child: Padding(padding: padding, child: child),
+        child: onTap == null ? Padding(padding: padding, child: child) : PressSurface(
+          fill: Colors.transparent, shape: AppShape.all(34), onPressed: onTap,
+          childFills: true, child: Padding(padding: padding, child: child),
         ),
       ),
     );

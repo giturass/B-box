@@ -55,22 +55,22 @@ class _ProfilesPageState extends State<ProfilesPage> {
       await box.call('share.text', {'content': content});
     } catch (error) { box.report(error); }
   }
-  List<CommonPopupMenuItem> _menu(Json profile) => [
-    CommonPopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => openForm(context, ProfileDetailsPage(profile: profile))),
+  List<PopupMenuItem> _menu(Json profile) => [
+    PopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => openForm(context, ProfileDetailsPage(profile: profile))),
     if (profile['remote'] == true)
-      CommonPopupMenuItem(glyph: AppGlyphs.sync, label: context.tr('Update'), onPressed: () => _update(profile)),
+      PopupMenuItem(glyph: AppGlyphs.sync, label: context.tr('Update'), onPressed: () => _update(profile)),
     if (profile['remote'] == true) ...[
-      CommonPopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Copy link'), onPressed: () async {
+      PopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Copy link'), onPressed: () async {
         await Clipboard.setData(ClipboardData(text: profile['url'].toString()));
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(context.tr('Copied'))));
+        if (mounted) BannerHost.maybeOf(context)?.show(context.tr('Copied'));
       }),
-      CommonPopupMenuItem(glyph: AppGlyphs.qrCode, label: context.tr('QR code'), onPressed: () => openForm(context, BoxPage(title: 'QR code', children: [
+      PopupMenuItem(glyph: AppGlyphs.qrCode, label: context.tr('QR code'), onPressed: () => openForm(context, BoxPage(title: 'QR code', children: [
         Center(child: QrCodeView(data: remoteProfileLink(profile))),
       ]))),
     ],
-    CommonPopupMenuItem(glyph: AppGlyphs.upload, label: context.tr('Share'), onPressed: () => _share(profile)),
-    CommonPopupMenuItem(glyph: AppGlyphs.export, label: context.tr('Export'), onPressed: () => _export(profile)),
-    CommonPopupMenuItem(danger: true, glyph: AppGlyphs.delete, label: context.tr('Delete'), onPressed: () async {
+    PopupMenuItem(glyph: AppGlyphs.upload, label: context.tr('Share'), onPressed: () => _share(profile)),
+    PopupMenuItem(glyph: AppGlyphs.export, label: context.tr('Export'), onPressed: () => _export(profile)),
+    PopupMenuItem(danger: true, glyph: AppGlyphs.delete, label: context.tr('Delete'), onPressed: () async {
       final box = context.box;
       if (await confirm(context, 'Delete this profile?', message: 'This cannot be undone.')) await box.act('profiles.delete', {'id': profile['id']});
     }),
@@ -79,7 +79,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
   @override Widget build(BuildContext context) {
     final box = context.box;
     final profiles = box.profiles;
-    return CommonScaffold(
+    return Scaffold(
       title: context.tr('Profiles'),
       actions: box.remote || profiles.isEmpty || widget.picker ? null : [AddProfileMenu(builder: (open) => IconButton(
         tooltip: context.tr('Add profile'), icon: const GlyphIcon(AppGlyphs.addCircle),
@@ -196,15 +196,15 @@ class _AddProfileMenuState extends State<AddProfileMenu> {
     try { await _importProfile(context, source); }
     finally { if (mounted) setState(() => _busy = false); }
   }
-  @override Widget build(BuildContext context) => AbsorbPointer(absorbing: _busy, child: CommonPopupBox(
+  @override Widget build(BuildContext context) => AbsorbPointer(absorbing: _busy, child: PopupAnchor(
     targetBuilder: widget.builder,
-    popupBuilder: (_) => CommonPopupMenu(items: [
-      CommonPopupMenuItem(glyph: AppGlyphs.qrCode, label: context.tr('Scan QR code'), onPressed: () => _import('Scan QR code')),
-      CommonPopupMenuItem(glyph: AppGlyphs.importFile, label: context.tr('File'), onPressed: () => _import('File')),
-      CommonPopupMenuItem(glyph: AppGlyphs.cloudDownload, label: context.tr('Import from URL'),
+    popupBuilder: (_) => PopupMenu(items: [
+      PopupMenuItem(glyph: AppGlyphs.qrCode, label: context.tr('Scan QR code'), onPressed: () => _import('Scan QR code')),
+      PopupMenuItem(glyph: AppGlyphs.importFile, label: context.tr('File'), onPressed: () => _import('File')),
+      PopupMenuItem(glyph: AppGlyphs.cloudDownload, label: context.tr('Import from URL'),
         onPressed: () => openForm(context, const ProfileForm(initial: {'url': '', 'remote': true}))),
-      CommonPopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Clipboard'), onPressed: () => _import('Clipboard')),
-      CommonPopupMenuItem(section: const CommonPopupMenuSection(), glyph: AppGlyphs.customize,
+      PopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Clipboard'), onPressed: () => _import('Clipboard')),
+      PopupMenuItem(section: const PopupMenuSection(), glyph: AppGlyphs.customize,
         label: context.tr('New profile'), onPressed: () => openForm(context, const ProfileForm(initial: {'content': '{}'}))),
     ]),
   ));
@@ -301,7 +301,7 @@ class _ProfileFormState extends State<ProfileForm> {
             trailing: FormRowTextField(controller: _name, hintText: context.tr('Required'),
               textInputAction: TextInputAction.next, onChanged: _changed)),
           FormRow(title: context.tr('Remote'), onPressed: () => setState(() => _remote = !_remote),
-            trailing: CommonSwitch(value: _remote, onChanged: (value) => setState(() => _remote = value))),
+            trailing: Switch(value: _remote, onChanged: (value) => setState(() => _remote = value))),
           if (_remote) FormRow(title: context.tr('URL'), invalid: issue?.field == 'url',
             trailing: FormRowTextField(controller: _url, hintText: context.tr('Required'),
               keyboardType: TextInputType.url, textInputAction: TextInputAction.next,
@@ -309,7 +309,7 @@ class _ProfileFormState extends State<ProfileForm> {
         ], footer: _remote ? context.tr('This URL must serve a sing-box JSON configuration.') : null),
         if (_remote) generateSection(items: [
           FormRow(title: context.tr('Auto update'), onPressed: () => setState(() => _auto = !_auto),
-            trailing: CommonSwitch(value: _auto, onChanged: (value) => setState(() => _auto = value))),
+            trailing: Switch(value: _auto, onChanged: (value) => setState(() => _auto = value))),
           if (_auto) FormRow(title: context.tr('Update interval'), invalid: issue?.field == 'interval',
             trailing: Row(mainAxisSize: MainAxisSize.min, spacing: 4, children: [
               Flexible(child: FormRowTextField(controller: _interval, hintText: context.tr('Required'),
@@ -344,7 +344,7 @@ class _ProfileOrderPageState extends State<ProfileOrderPage> {
   );
   @override Widget build(BuildContext context) {
     _profiles ??= List.of(context.box.profiles);
-    return CommonScaffold(title: context.tr('Reorder'),
+    return Scaffold(title: context.tr('Reorder'),
       confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'), isLoading: _saving, onPressed: _saving ? null : () async {
         setState(() => _saving = true);
         final saved = await context.box.act('profiles.reorder', {'ids': _profiles!.map((p) => p['id']).toList()});
@@ -396,7 +396,7 @@ class _ScanPageState extends State<ScanPage> {
     } catch (error) { if (mounted) setState(() => _error = BoxController.describe(error)); }
     finally { _busy = false; }
   }
-  @override Widget build(BuildContext context) => CommonScaffold(
+  @override Widget build(BuildContext context) => Scaffold(
     title: context.tr('Scan QR code'),
     iconActions: [IconButtonData(glyph: AppGlyphs.torch, tooltip: 'Flash', onPressed: _camera.toggleTorch)],
     body: Padding(padding: EdgeInsets.only(top: context.appBarInset), child: Column(children: [Expanded(child: MobileScanner(

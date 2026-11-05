@@ -18,18 +18,18 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
   @override Widget build(BuildContext context) {
     final box = context.watchBox(BoxAspect.connections);
     final list = _list.select(box.connections, query: _query, filter: _filter, sort: _sort);
-    return BoxDataSubscription(data: BoxData.connections, child: CommonScaffold(
+    return BoxDataSubscription(data: BoxData.connections, child: Scaffold(
       title: context.tr('Connections'),
       onKeywordsUpdate: (words) => setState(() => _query = words.join(' ')),
       searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
       iconActions: [IconButtonData(glyph: AppGlyphs.clearAll, tooltip: context.tr('Close all connections'), onPressed: box.running ? _closeAll : null)],
       menuItems: [
         for (final filter in ['Active', 'Closed', 'All'])
-          CommonPopupMenuItem(label: context.tr(filter), checked: filter == _filter,
-            section: filter == 'Active' ? CommonPopupMenuSection(title: context.tr('Connections')) : null,
+          PopupMenuItem(label: context.tr(filter), checked: filter == _filter,
+            section: filter == 'Active' ? PopupMenuSection(title: context.tr('Connections')) : null,
             onPressed: () => setState(() => _filter = filter)),
         for (final sort in ['Speed', 'Created', 'Upload', 'Download'])
-          CommonPopupMenuItem(glyph: AppGlyphs.sort, label: context.tr(sort), checked: sort == _sort, onPressed: () => setState(() => _sort = sort)),
+          PopupMenuItem(glyph: AppGlyphs.sort, label: context.tr(sort), checked: sort == _sort, onPressed: () => setState(() => _sort = sort)),
       ],
       body: NullStatusSwitcher(
         isEmpty: list.isEmpty, isSearching: _query.trim().isNotEmpty,
@@ -65,8 +65,8 @@ class ConnectionRecord extends StatelessWidget {
           if (closed) RecordLabel(label: context.tr('Closed')),
         ],
         trailing: !closed && box.running ? Tooltip(
-          message: context.tr('Close this connection'), child: Semantics(button: true, child: InkWell(
-            customBorder: AppShape.circle, onTap: () => box.act('connections.close', {'id': c['id']}),
+          message: context.tr('Close this connection'), child: Semantics(button: true, child: PressRegion(
+            shape: AppShape.circle, onTap: () => box.act('connections.close', {'id': c['id']}),
             child: SizedBox.square(dimension: 28, child: Center(child: GlyphIcon(AppGlyphs.block, size: 16, color: context.colorScheme.onSurfaceVariant))),
           )),
         ) : null,

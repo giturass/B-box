@@ -1,7 +1,7 @@
-// Adapted from FlClash v0.9.2 intranet_ip.dart and card.dart (GPL-3.0).
+// Adapted from FlClash v0.9.3 intranet_ip.dart and card.dart (GPL-3.0).
 import 'package:flutter/rendering.dart' show OverflowBoxFit;
 import 'package:flutter/services.dart';
-import 'package:material_new_shapes/material_new_shapes.dart';
+import 'package:prism_ui/shapes/shapes.dart';
 import '../widgets.dart';
 import '../pages/configuration.dart';
 import 'shape_badge.dart';
@@ -9,7 +9,7 @@ import 'data_subscription.dart';
 
 Future<void> _copy(BuildContext context, String text) async {
   await Clipboard.setData(ClipboardData(text: text));
-  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(context.tr('Copied'))));
+  if (context.mounted) BannerHost.maybeOf(context)?.show(context.tr('Copied'));
 }
 
 Future<void> _change(BuildContext context, bool enabled) async {
@@ -52,14 +52,14 @@ class IntranetPanel extends StatelessWidget {
         offset: const Offset(8, 0), child: SizedBox(width: 32, child: OverflowBox(
         fit: OverflowBoxFit.deferToChild, minHeight: 32, maxHeight: 32,
         child: IconButton(tooltip: context.tr('Copy'), padding: EdgeInsets.zero, iconSize: 18,
-        style: IconButton.styleFrom(minimumSize: const Size.square(32), fixedSize: const Size.square(32),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap, foregroundColor: context.colorScheme.onSurfaceVariant),
+        style: ButtonStyle.from(minimumSize: const Size.square(32), fixedSize: const Size.square(32),
+          tapTargetSize: TapTargetSize.shrinkWrap, foregroundColor: context.colorScheme.onSurfaceVariant),
         icon: const GlyphIcon(AppGlyphs.copy, size: 18), onPressed: copy == null ? null : () {
           final text = box.lanCopyText;
           if (text != null) _copy(context, text);
         }))))),
       const SizedBox(height: 12),
-      InkWell(onTap: () => openForm(context, const IntranetDetails()), child: SizedBox(
+      PressRegion(onTap: () => openForm(context, const IntranetDetails()), child: SizedBox(
         height: AppTextStyle.title1.leading * MediaQuery.textScalerOf(context).scale(1),
         child: Align(alignment: AlignmentDirectional.centerStart, child: box.lan['addresses'] is! List
           ? SkeletonText(width: 120, style: figure)
@@ -68,7 +68,7 @@ class IntranetPanel extends StatelessWidget {
           : FittedBox(fit: BoxFit.scaleDown, alignment: AlignmentDirectional.centerStart,
               child: Text(addresses.first, maxLines: 1, style: figure))))),
       const SizedBox(height: 14),
-      if (box.remote) Material(color: SurfaceLevel.block.colorOf(context.colorScheme), shape: AppShape.all(20),
+      if (box.remote) Surface(color: SurfaceLevel.block.colorOf(context.colorScheme), shape: AppShape.all(20),
         child: ListItem(leading: const GlyphIcon(AppGlyphs.wifi, size: 32),
           title: Text(context.tr('This device')), subtitle: Text(context.tr('Device network addresses'))))
       else LANProxyRow(value: box.lan['enabled'] == true, subtitle: _subtitle(context),
@@ -90,10 +90,10 @@ class LANProxyRow extends StatelessWidget {
     return LayoutBuilder(builder: (context, constraints) {
       final measurement = TextPainter(text: TextSpan(text: title, style: style),
         textDirection: Directionality.of(context), textScaler: MediaQuery.textScalerOf(context))..layout();
-      final showIcon = measurement.width <= constraints.maxWidth - 22 - 38 - 24 - CommonSwitch.trackWidth;
+      final showIcon = measurement.width <= constraints.maxWidth - 22 - 38 - 24 - Switch.trackWidth;
       measurement.dispose();
-      return Material(color: SurfaceLevel.block.colorOf(scheme), shape: AppShape.all(20), clipBehavior: Clip.antiAlias,
-        child: InkWell(onTap: onChanged == null ? null : () => onChanged!(!value), child: Padding(
+      return Surface(color: SurfaceLevel.block.colorOf(scheme), shape: AppShape.all(20), clipBehavior: Clip.antiAlias,
+        child: PressRegion(onTap: onChanged == null ? null : () => onChanged!(!value), child: Padding(
           padding: EdgeInsets.fromLTRB(showIcon ? 10 : 14, 10, 12, 10), child: Row(spacing: 12, children: [
             if (showIcon) AnimatedSwitcher(duration: context.motionDuration(commonDuration), child: ShapeBadge(
               key: ValueKey(value), shape: value ? MaterialShapes.cookie6Sided : MaterialShapes.circle,
@@ -103,8 +103,8 @@ class LANProxyRow extends StatelessWidget {
               Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: style),
               Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.listCaptionStyle),
             ])),
-            SizedBox(width: CommonSwitch.trackWidth, height: CommonSwitch.trackHeight, child: OverflowBox(
-              maxWidth: double.infinity, maxHeight: double.infinity, child: CommonSwitch(
+            SizedBox(width: Switch.trackWidth, height: Switch.trackHeight, child: OverflowBox(
+              maxWidth: double.infinity, maxHeight: double.infinity, child: Switch(
                 value: value, onChanged: onChanged, semanticLabel: title))),
           ]))));
     });
@@ -176,11 +176,11 @@ class _NewLANProxyState extends State<NewLANProxy> {
     confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'),
       onPressed: context.box.canSetLanProxy ? _save : null),
     children: [
-      Form(key: _form, child: TextFormField(controller: _port, keyboardType: TextInputType.number,
-        decoration: InputDecoration(labelText: context.tr('Port')), validator: (value) {
+      Form(key: _form, child: BoxField(label: context.tr('Port'), child: TextFormField(
+        controller: _port, keyboardType: TextInputType.number, validator: (value) {
           final port = int.tryParse(value ?? '');
           return port != null && port >= 1 && port <= 65535 ? null : context.tr('Invalid proxy port');
-        })),
+        }))),
       const SizedBox(height: 16),
       Text(context.tr('Adds an HTTP and SOCKS proxy to the selected profile.'), style: context.listCaptionStyle),
     ]);

@@ -1,6 +1,6 @@
 import '../widgets.dart';
 
-// Metrics and card presentation from FlClash v0.9.2 proxies/common.dart and card.dart.
+// Metrics and card presentation from FlClash v0.9.3 proxies/common.dart and card.dart.
 class ProxyCardMetrics {
   ProxyCardMetrics.of(BuildContext context, Json preferences)
       : compact = preferences['proxyCardSize'] == 'Compact' ||
@@ -42,15 +42,15 @@ class ProxyNodeCard extends StatelessWidget {
       key: ValueKey((group['tag'], node['tag'])),
       menuItems: [
         if (group['selectable'] == true)
-          CommonPopupMenuItem(glyph: AppGlyphs.checkCircle, label: context.tr('Select'), checked: selected,
+          PopupMenuItem(glyph: AppGlyphs.checkCircle, label: context.tr('Select'), checked: selected,
             onPressed: context.box.running ? onSelect : null),
-        CommonPopupMenuItem(glyph: AppGlyphs.bolt, label: context.tr('Test latency'),
+        PopupMenuItem(glyph: AppGlyphs.bolt, label: context.tr('Test latency'),
           onPressed: context.box.running && !testing ? onTest : null),
-        CommonPopupMenuItem(glyph: AppGlyphs.info, label: context.tr('Details'), onPressed: () => openForm(context, BoxPage(title: 'Details', children: [
+        PopupMenuItem(glyph: AppGlyphs.info, label: context.tr('Details'), onPressed: () => openForm(context, BoxPage(title: 'Details', children: [
           DetailRows({'Name': node['tag'], 'Protocol': node['type'], 'Latency': delayText, 'Proxy groups': group['tag']}),
         ]))),
       ],
-      child: CommonCard(
+      child: Card(
         radius: AppCorner.lg, enterActionsOnRight: true, isSelected: selected,
         onPressed: group['selectable'] == true && context.box.running ? onSelect : null,
         child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Column(
@@ -71,7 +71,7 @@ class ProxyNodeCard extends StatelessWidget {
               Flexible(child: Semantics(button: true, label: context.tr('Test latency'), child: GestureDetector(
                 behavior: HitTestBehavior.opaque, onTap: context.box.running && !testing ? onTest : null,
                 child: FadeBox(alignment: metrics.loose ? Alignment.centerLeft : Alignment.centerRight, child: testing
-                  ? CommonCircleLoading(size: metrics.delayHeight)
+                  ? ActivityIndicator(size: metrics.delayHeight)
                   : !tested ? GlyphIcon(AppGlyphs.bolt, size: metrics.delayHeight)
                   : Text(delayText, maxLines: 1, overflow: TextOverflow.ellipsis,
                     style: AppTextStyle.caption2.of(context, emphasized: true).copyWith(color: delayColor))),

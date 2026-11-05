@@ -51,8 +51,8 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  CommonScaffold scaffold(WidgetTester tester) => tester.widget<CommonScaffold>(
-    find.descendant(of: find.byType(LogsPage), matching: find.byType(CommonScaffold)).first,
+  Scaffold scaffold(WidgetTester tester) => tester.widget<Scaffold>(
+    find.descendant(of: find.byType(LogsPage), matching: find.byType(Scaffold)).first,
   );
 
   Future<void> emit(WidgetTester tester, String? level, [List<Json>? records]) async {

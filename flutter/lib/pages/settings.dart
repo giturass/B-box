@@ -75,7 +75,7 @@ class _RemotePageState extends State<RemotePage> {
     await openForm(context, RemoteForm(initial: server ?? {}));
     if (mounted) setState(() => _servers = _load());
   }
-  @override Widget build(BuildContext context) => CommonScaffold(
+  @override Widget build(BuildContext context) => Scaffold(
     title: context.tr('Remote control'),
     primaryAction: IconButtonData(glyph: AppGlyphs.add, tooltip: context.tr('Add server'), onPressed: _edit),
     body: FutureBuilder<List<Json>>(future: _servers, builder: (context, snapshot) => ListView(
@@ -85,11 +85,11 @@ class _RemotePageState extends State<RemotePage> {
           onPressed: () => context.box.act('remote.disconnect'), child: Text(context.tr('Disconnect')))),
         if (snapshot.hasError) ErrorState(snapshot.error!),
         if (snapshot.hasData && snapshot.data!.isEmpty) const EmptyState('No remote servers'),
-        for (final server in snapshot.data ?? <Json>[]) Padding(padding: const EdgeInsets.only(bottom: 12), child: CommonCard(
+        for (final server in snapshot.data ?? <Json>[]) Padding(padding: const EdgeInsets.only(bottom: 12), child: Card(
           onPressed: () => context.box.act('remote.connect', {'id': server['id']}),
           child: ListItem(title: Text(server['name'].toString()), subtitle: Text(server['url'].toString()), trailing: BoxMenu(items: [
-            CommonPopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => _edit(server)),
-            CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Delete'), danger: true, onPressed: () async {
+            PopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => _edit(server)),
+            PopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Delete'), danger: true, onPressed: () async {
               if (await confirm(context, 'Delete', message: server['name'].toString()) && context.mounted) {
                 await context.box.act('remote.delete', {'id': server['id']});
                 if (mounted) setState(() => _servers = _load());
@@ -123,11 +123,11 @@ class _RemoteFormState extends State<RemoteForm> {
       }
     }),
     children: [
-      TextField(controller: _name, decoration: InputDecoration(labelText: context.tr('Name'))),
+      BoxField(label: context.tr('Name'), child: TextField(controller: _name)),
       const SizedBox(height: 16),
-      TextField(controller: _url, keyboardType: TextInputType.url, decoration: InputDecoration(labelText: context.tr('Address'))),
+      BoxField(label: context.tr('Address'), child: TextField(controller: _url, keyboardType: TextInputType.url)),
       const SizedBox(height: 16),
-      TextField(controller: _secret, obscureText: true, decoration: InputDecoration(labelText: context.tr('Secret'))),
+      BoxField(label: context.tr('Secret'), child: TextField(controller: _secret, obscureText: true)),
     ],
   );
 }

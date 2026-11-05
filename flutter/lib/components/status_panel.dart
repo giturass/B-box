@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 import 'package:flutter/services.dart';
-import 'package:material_new_shapes/material_new_shapes.dart';
+import 'package:prism_ui/shapes/shapes.dart';
 import '../widgets.dart';
 import '../pages/profiles.dart';
 import 'start_toggle.dart';
@@ -213,8 +213,8 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               SizedBox(height: AppTextStyle.title2.leading * scale, child: Align(alignment: AlignmentDirectional.centerStart,
                 child: ip != null ? Tooltip(message: context.tr('Outbound IP details'), child: FocusRing(shape: AppShape.xs, standsOff: true,
-                  child: InkWell(onTap: () => openForm(context, EgressDetails(info: info!, updates: _detailsRevision)),
-                    customBorder: AppShape.xs, hoverColor: Colors.transparent, splashColor: Colors.transparent, highlightColor: Colors.transparent,
+                  child: PressRegion(onTap: () => openForm(context, EgressDetails(info: info!, updates: _detailsRevision)),
+                    shape: AppShape.xs, overlay: PressRegion.focusOverlay,
                     child: _IpText(ip: ip, style: ipStyle))))
                   : ipLoading ? SkeletonText(width: 140, style: ipStyle)
                   : Text(_error == null ? '—' : context.tr('Check failed'), maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -294,9 +294,9 @@ class _CountryBadgeState extends State<_CountryBadge> with SingleTickerProviderS
     final enabled = widget.onRefresh != null;
     final background = Color.alphaBlend(color.withValues(alpha: enabled && _hovered ? .08 : 0), SurfaceLevel.inset.colorOf(context.colorScheme));
     return Tooltip(message: context.tr('Retry'), child: Semantics(button: true, label: context.tr('Retry'), enabled: enabled,
-      child: InkResponse(onTap: widget.onRefresh, onHover: (value) => setState(() => _hovered = value), onFocusChange: (value) => setState(() => _focused = value),
-        overlayColor: const WidgetStatePropertyAll(Colors.transparent), splashFactory: NoSplash.splashFactory,
-        child: ElasticPress(enabled: enabled, child: AnimatedBuilder(animation: _turn, builder: (_, child) => ShapeBadge(
+      child: PressRegion(onTap: widget.onRefresh, onHover: (value) => setState(() => _hovered = value), onFocusChange: (value) => setState(() => _focused = value),
+
+child: ElasticPress(enabled: enabled, child: AnimatedBuilder(animation: _turn, builder: (_, child) => ShapeBadge(
           shape: MaterialShapes.clover4Leaf, color: background, size: 48,
           rotation: _turn.value * 2 * math.pi, ring: _focused ? focusRingSide(context.colorScheme) : null, child: child), child: widget.country?.isNotEmpty == true
           ? Text(widget.country!.toUpperCase(), maxLines: 1, style: AppTextStyle.footnote.of(context, emphasized: true).copyWith(color: color, letterSpacing: .04 * AppTextStyle.footnote.size))

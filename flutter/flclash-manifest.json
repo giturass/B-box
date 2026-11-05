@@ -1,162 +1,80 @@
 {
   "repository": "https://github.com/chen08209/FlClash",
-  "version": "v0.9.2",
-  "commit": "7fd417fb9a9a277c6a9339a8ac87f907df7c25f7",
-  "changes": "Dart package imports renamed from fl_clash to b_box_ui. No Clash core included.",
+  "version": "v0.9.3",
+  "commit": "be84736605527034689c95bf27828ff27d912c5e",
+  "changes": "FlClash application UI imports are mechanically renamed from fl_clash to b_box_ui. Shared controls use the unmodified prism_ui submodule revision pinned by v0.9.3. B-box page adaptations retain Room and sing-box state and actions.",
   "files": {
-    "shaders/liquid_glass.frag": "b6aabbfbc332491cabff85ab1ae7437995d11e13c8adf9b321d0c11115f237ae",
     "assets/fonts/JetBrainsMono-Regular.ttf": "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f",
     "assets/fonts/Twemoji.Mozilla.ttf": "61db6397b8b32b72c585d538ef698a84cf78cf2558a14046b3fa0ec4cc362540",
-    "lib/ui/activate_box.dart": "13225d7bf66095baa1c15f555da0cf8de88557eb64d7b86e7e1fdd3f20d95a76",
-    "lib/ui/animated_entries.dart": "afef15574118c2f8800575fa5dd55a60e8565322b618171643cbc83ef5e13636",
-    "lib/ui/animated_visibility.dart": "db4157a3a8ae8ab62edc9c1fc34cd4271581986ad2a1a0b153eb54c8b9c8e090",
-    "lib/ui/builder.dart": "ca1e7355301f6d8a577ac8d33213acc754470531789e0b8280e0b6f62bad85b2",
-    "lib/ui/button.dart": "9b444f420a38fbb09da06584a8c1628323ffc75c27e9ccf7bc006f0a9f8dafae",
-    "lib/ui/card.dart": "4612007675ac3c07af83b495de38e727fd3216262803ab83a93088a6308d0020",
-    "lib/ui/caret_popup.dart": "4d50c912fbaf56e38ec3d6ac84c15b68d29666aca716feffece19e96c28c1bf5",
-    "lib/ui/chip.dart": "10b76659426d5617bdeb4b512b36eee3dc3fb1561eb64a511d131646a7d50226",
-    "lib/ui/collapsible_section.dart": "f85b86e014af25122e868c2e19728d9073da4f895c9f231224708b7219bc42e3",
-    "lib/ui/color.dart": "64d5db51a88f9eb691c60c70b2bde352c75f8d322c35167201456dba479abf32",
-    "lib/ui/context.dart": "b7016db538a6b4d20fc0fa9da2d240941f4741b4c9bb6262dd63223c1222beea",
-    "lib/ui/context_menu.dart": "6bf16a326781d7b581f83332561a5ab038d1997cb002be971c2f9330edb154c7",
-    "lib/ui/deferred_push.dart": "430665689b3c61e696eb9e74afdec79016d634a84239e51cb73d1867e010ee94",
-    "lib/ui/dialog.dart": "5efe0d5af721d90cea295c3f0aa1ef0126e782e6d629c16df058c22fb0766270",
-    "lib/ui/disabled_mask.dart": "79b459acaff10914932e0a22f4e47466cd109160cd7e909dd1097bce57529585",
-    "lib/ui/drag_back.dart": "08e8ffa5ac179c7b20f149c3a6076ea30b562b00750719c387f25db30ebc6279",
-    "lib/ui/effect.dart": "98cf87d7d9a4c3a45ece9faea5a23945bbdc8ba9310fe2e816f441b4ed589f1d",
-    "lib/ui/fade_box.dart": "7154e0597815064dc7b3ae9669fee7e2fec6c1b6cb6da09f24b674cf80250c6d",
-    "lib/ui/focus.dart": "de66f52fc1456ea7572f0e1d144ab2143cedaf74fbc1f62b24b7be6b0056b8ea",
-    "lib/ui/focus_arrow_keys.dart": "0a0fd2e580a6529543c73f6641c47a32bee9ab8f4635517677f169521bab63c4",
-    "lib/ui/focus_keyboard.dart": "09e12cb92e48f1858ea0fdbd9f7accfc7dec9720389d8b659d63190476b647aa",
-    "lib/ui/focus_landing.dart": "2b13c7bf90968cd4d23da1d84eea6b01fe471fc38ba598e68fc44ad786191d89",
-    "lib/ui/focus_moved_by_key.dart": "86fb813db5e5370aa78d8bec6e25bd1c02786768cecb76b4677b12694d7570cf",
-    "lib/ui/focus_traversal.dart": "3cc12a910fbeb5c681e595c0b7a85bc45a8bf82cad1e8afe7b0a23585a2a0a87",
-    "lib/ui/font.dart": "18e0713d231d85a890b5f13306dd584a5d060a4fcaaa17cbe10241e51d970f62",
-    "lib/ui/foot_bar.dart": "3de6c2675f9828e25087bd0b067be014b674d74b153bb17ae4b2f056a0aa5a17",
-    "lib/ui/form_sheet.dart": "488458192e3b4536beca1c98e5e471013127fb1e42311803f5f5468ea233980c",
-    "lib/ui/goo.dart": "ffd3755f959c7b5f66b63c0be9391098fd624b7e071bd3af38516787a24e88c6",
-    "lib/ui/inherited.dart": "fbc7747430c9ec22ffc12b4affa1ab2f47d9b9cdbe9130651065a8cf26ff71c6",
-    "lib/ui/input.dart": "7012bde1ac7001fb289601a9e7f49cadd4cb400c16e1440f9f9b48fe3a46bd72",
-    "lib/ui/item_position.dart": "d3fa6264e5c5002d89c81d131b97ca82e4c34fd483cbaeec0fb1239b1b88f038",
-    "lib/ui/keep_scope.dart": "129f62d408df1b34cb54dc58a16866501e527e4288be0eca0a4641e891eab0a3",
-    "lib/ui/keyboard.dart": "b97b9a7b6bfff544b7f537b339dd3dda713058fedc6cc72412167f578ec28cc4",
-    "lib/ui/keyboard_inset_hold.dart": "49ff46a2a7c9ce6ca80a9b14307b68e39c995d8d3370a417eea62d1f346ea5a4",
-    "lib/ui/keyed_animated_list.dart": "e895f293bb8e2b421fb3e98df040b1c7050448f095cd6dd7f180eb16b7f89b0a",
-    "lib/ui/l10n.dart": "c42440536511321c49f80671c918b26ec9dd17311113d0a8a08ec9c1ccfaec29",
-    "lib/ui/line_chart.dart": "b6fed110d176b559b2de52145ddf689f871f2fcb0da1197c863750ea857c3865",
-    "lib/ui/liquid_glass.dart": "57d4ae8f155f06642498c6b34764a6b3a37caa700dedd1bb1fa1d0ea08793694",
-    "lib/ui/liquid_glass_capture.dart": "d70f72bc26155aaaeaef03afec9375dab6c04e8232c30dea826fa9781d8ffdc1",
-    "lib/ui/list.dart": "0656a5ad7ffd8753ff9f886a813f2f7eb4e0614ce2a4b19ba8c41720ef139620",
-    "lib/ui/list_row_separator.dart": "7d51eea952b4eab3b68ab6488c724300a8d033daddebc609dd912a18a7e6d62f",
-    "lib/ui/list_selected.dart": "0ed99f1a02b967bfa1d0606fd8ac3fdcc844b8cb5a406a7ff4699abb4d92c55a",
-    "lib/ui/loading.dart": "9c1ac27e6a957a985342b1533bd1b47d1cb39d8ea79411c3ddb43848c9f01fda",
-    "lib/ui/measure.dart": "b98c14893cca6ffbac1ac44f7bbb9b63b4480164ae9cb4c444338f0b2d5f42b1",
-    "lib/ui/metrics.dart": "82b3293f0054ce1f1bf56f75e0b9d85f507227cb24d40e7279e6cdfb4c71e5dd",
-    "lib/ui/models.dart": "f6e6c4c12d73b09e6dccb59e10a993ae6e4c467a0b6d65e01f6c71848432119c",
-    "lib/ui/motion.dart": "7b180a58ccf3637c71e80deae736d2e961f00b3bc3be2c8b497872a4bf9e57f5",
-    "lib/ui/navigation_dock.dart": "241a8b054efbce6776f3e6a47c9991f88a863f0363854be1ba54585d796631fa",
-    "lib/ui/navigator.dart": "a1547b27454e0842394084ee1f5b185d638d71102fc58aa58aa5d969e275480d",
-    "lib/ui/navigator_resizable.dart": "2660de892b46d1cd2d0353fb1ca70f32096ccb0bfcd405da50b36f4954355733",
-    "lib/ui/null_status.dart": "54f05fc9c32c54eff7a7a43c46001cd840ce9a559bbee4dcf7e2329309b7df4b",
-    "lib/ui/open_container.dart": "d8cfdd421a9491274e7229c51d7d67e96dc9e032127739d545b53fae26f0c9e0",
-    "lib/ui/page_transition.dart": "76063c698ecee5db232ad77dc5b066cc686cb6d66f37da275d3db54159275732",
-    "lib/ui/paged_sheet.dart": "a874b334ce7c001e323f7c4d0157691720c0747687f6688b12165dfcd40eea70",
-    "lib/ui/pop_scope.dart": "79ce60ade9872e3b5bed07ee181f9e3d63334f4b68e9791be5f21da92d79ee02",
-    "lib/ui/popup.dart": "75608fe6dadfadadf3174bae0b3d555c6bed627d6efb6a0c14f915b3ebd572f0",
-    "lib/ui/qr_code.dart": "d95e4863b69adffc96dbd4bd2fc9ca412232e42812ee3eb21757e43d4510f8d4",
-    "lib/ui/route_motion_hold.dart": "aabf3177e791113cfbf4883076f16e1ebcacc904b02448f6345a175860fea6a4",
-    "lib/ui/scaffold.dart": "668a6c225cc6320379c5420780ceb1c6d1f389d841efc9fea4e37e3c05f6d6bc",
-    "lib/ui/scroll.dart": "8b5d04a08a508c6bfd5ce8a7096b8707ebbd78596d3d82d1911510e2dd927126",
-    "lib/ui/scroll_behavior.dart": "1a7335d8e5a35970b51a68a6d7abc76bc62790975a4f10f191e12e299d186ed9",
-    "lib/ui/search_field.dart": "718ad8c0be45a47b765052b69faf9484f8be345c16acd27be526a89a4e616b0b",
-    "lib/ui/segmented_control.dart": "5e6068b4cb473e471f17d68c29f8167b5b2de7fade0b9ead2f455ea8a489b185",
-    "lib/ui/selection_mark.dart": "c07d07172ed74a00f779dbdb8941bd77e2525cbf2f844d72ff91a5a7c10a5e84",
-    "lib/ui/setting.dart": "8e875ca0b254cd3600981493e8b62cb376cc9d5e0ba4e609bdb456d9342dab06",
-    "lib/ui/shape.dart": "33c13b2ef1e704376b0bb9048f616b22084b60315c9830b0f7d4cb7852e2ad1e",
-    "lib/ui/sheet.dart": "31d4d1930e624163debeba6b4cc16039e4ecca8382d57ce5b32fd368a946a496",
-    "lib/ui/sheet_header.dart": "7ffc70ba1d5b9ab68e0b2316d6c33826bd9d849e4cb9f202f1e4deecc1c88328",
-    "lib/ui/sheet_navigator.dart": "178d28e4b181d6e8dea1ad8fd292673430f4cfeb1fd037c4b38d30acf8497f9a",
-    "lib/ui/side_sheet.dart": "09fcf6b9f831316cbb7eae42877c6482e820b1531a1023a3c71139882a11c9bd",
-    "lib/ui/sidebar.dart": "fd3c023226cd189078132fc4efa32d02c5f0a1fb8f32635959561c2947a7e21c",
-    "lib/ui/skeleton.dart": "4fbc985ca9922c00325bd12b076c0544d46325a2cd959e879ead78274c41e1cb",
-    "lib/ui/snap_sheet.dart": "a2bca814cb542f68ee0bc2e1528090e05b261018d7c54f4415226212907d29cf",
-    "lib/ui/sortable.dart": "775d50c0d7ba151379509298a07efea27d27f107bf97fa47c670a0919d5b4ec8",
-    "lib/ui/super_reorderable_list.dart": "42038f1b3f755604877def2c3cdefaf73ca66ad96e6b3072cfd9998a1fb43b7f",
-    "lib/ui/surface.dart": "9f02cf0e9761fb4732005931ebc8c9753e3b86860bead335278882499cee8eb2",
-    "lib/ui/switch.dart": "b42849ebcf6584aaf58803eac68d6aad979e80d07b470d539d04eb21a5c863e6",
-    "lib/ui/table_layout.dart": "f7064a345e43788c14f24e9b9e46401e1bad5398cf45a669137255df11df6f89",
-    "lib/ui/text.dart": "2ebbb9f103cf9ba6fcffd566f66792eb3ede78e11c2dedb05ecbeccb2cca18ba",
-    "lib/ui/text_loupe.dart": "217fbfafbfc41909a0fcc7431d49c2f72b3337ea92a59dad4a270f374dfb9788",
-    "lib/ui/text_style.dart": "7a07b187033834c918414ad3bdb315e4d9f2b73f657e9ae0ffacff5aa36d934b",
-    "lib/ui/theme.dart": "75c3d80473d7ec681fac1190c05399d783a30c2ff21a4beca47d15b95717d94d",
-    "lib/ui/theme_cross_fade.dart": "aee42abc0f609f3b59107867d4548826534b65e9da6d49a70ebaa172a696ba60",
-    "lib/ui/typography.dart": "59a2f8f229258fab09df5472426c0bb76768868805a6e5798c62222229d80aaa",
-    "lib/ui/ui.dart": "c61efb93fe69c68315252e82bd7ea045e1b516deb105d61ae33aaa6d1b2f2183",
-    "lib/ui/view_scope.dart": "287cb67a7b05fdfc5e294b6fca351228b7015a5f597c38528d3473a36f011c0d",
-    "lib/common/input_limits.dart": "02d4eda17530bc036e9ec7505a1632f26ebe8d9f2b43a1bc0a1c598d570d0cef",
-    "lib/common/iterable.dart": "8a2732858de2e65357acf77df155ba2234efec71b1495dcdc9f11c9beb29c24d",
-    "lib/ui/generated/models.freezed.dart": "13eb4449fc46bf3d0bab4a2fb8f77ce02ee162c8e94183d7d4b231a39d0ab0fa",
-    "lib/ui/icons/animated_glyph.dart": "ad070614709757b5d784db380a4678d570ce44afb4dd70ef247fb85d9bad5669",
-    "lib/ui/icons/app_glyphs.dart": "8b53bad9b41455985973d548474ea34231ee5fd41157c8a6a52938fffa87cb17",
-    "lib/ui/icons/caption_icon.dart": "6a6fa5ebd2f1cf5a354a4d278281bbc925d3e435d7b67a5f3df393eff55dd339",
-    "lib/ui/icons/glyph.dart": "87a8634253a6c327e05fa1ff96bfbd6129702046f67d0a7d13fee8e16562e28e",
-    "lib/ui/icons/glyph_icon.dart": "a162d893cd94e391de9f61a6ff7d255ff568d1b8a226c59844fd4ddeb4ea46d8",
-    "lib/ui/icons/glyph_painter.dart": "bb6ad57d726bae4c14eb84667ccd30b7787c8abe5792b9fbea27f88dbe638b40",
-    "lib/ui/icons/icons.dart": "c2f5d927854f69f9ef871a86b14eda72bbd0a88585398351f28fba62cc85186e"
+    "lib/ui/delay_color.dart": "ce615641ad4aaff3203e0912bb8f3fc254be9c7447f83645e4beeb38d596f31d",
+    "lib/ui/emoji.dart": "7528631b68baeaf36fa47591a700e402c34142b8f1daae6050500a93785e2c05",
+    "lib/ui/fonts.dart": "d6371737a7b907522df3453cc4f26a304c888ef40b3665dee24545a50b450897",
+    "lib/ui/icons/app_glyphs.dart": "4a2a252feea72f93a73538c1f874f6a477474b5483189ac429b47829c9efb029",
+    "lib/ui/icons/icons.dart": "430f3178375dd236ca427d5fe3ae2ea6fbb259d5ae10328e8516e7ff2cf95a9c",
+    "lib/ui/list_item.dart": "e3e71e418d72ab423732b00dd412e87ce5633ceeb9f5ac2b0c9ea0e56d2e0afb",
+    "lib/ui/null_status_illustration.dart": "b313913dd8caedb7a8cb48bb89c410c289d42758f3f9800b272575b9373c3232",
+    "lib/ui/profile_id.dart": "9762e4c05a9108a8a5f9f2e2a8e5f6c211f0370013198d5a4e7ee3ca14792279",
+    "lib/ui/qr_code.dart": "e8141bc5f8c4d7e9cf8ac33e1a044e194ab17c404282f8be6d126373ff805923",
+    "lib/ui/qr_matrix.dart": "842f779809a20045d6fed2a763e5b166143f46cc532c5e2d1126465f1ffd5b87",
+    "lib/ui/scaffold/scaffold.dart": "9ebbfb1bb0293e97ff366f52834dd6a8a31b4357b6afe067ea2a6bfbb2b9d52e",
+    "lib/ui/scaffold/scaffold_actions.dart": "0d3fee5a534de3f5b5e101c91e887558deb6145358544ae10fde7d213c9e2557",
+    "lib/ui/scaffold/scaffold_search.dart": "da30487fd6fecc575f3a420f9808446bb962789beb08655e8fb88323014f0858",
+    "lib/ui/setting_text_card.dart": "0f0473dc9f542f67de7d2d98edbd71e3bef025369ff256e4cdb89a70b0845146",
+    "lib/ui/ui.dart": "3cc5a827f5ee549cc2848d61fef99b9342bd34671e734ae9725c504ee9e39046"
   },
   "adaptedFiles": {
     "lib/components/profile_panel.dart": {
       "source": "lib/views/dashboard/widgets/profiles.dart",
-      "sourceSHA256": "f04f71f02f4a1c6dc5af00e005248371e370a0150dd68a021914939c0f48864d",
-      "changes": "Mobile profile summary, update and profile-switch controls. Shows compact Room update times with full-date tooltips for local and remote profiles, retaining an unknown placeholder when absent. Remote sessions omit local profile metadata. Counts describe the actual sing-box configuration, with unavailable remote counts left unknown. Each count or loading placeholder is centered above its label. Disable the profile-switch control during native service start/stop transitions."
+      "sourceSHA256": "b7be96228167a2e4e13506df4a1b6cb031ab313e4fa6edee299d5d26e321539d",
+      "changes": "Mobile profile summary, update and profile-switch controls. Shows compact Room update times with full-date tooltips for local and remote profiles, retaining an unknown placeholder when absent. Remote sessions omit local profile metadata. Counts describe the actual sing-box configuration, with unavailable remote counts left unknown. Each count or loading placeholder is centered above its label. Disable the profile-switch control during native service start/stop transitions. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/pages/profile_details.dart": {
       "source": "lib/views/dashboard/widgets/profile_detail.dart",
-      "sourceSHA256": "37b7ae1ba8c16f6861c7b50b60267c6e0ae3bc207995035b51d3ae51c10f27e6",
-      "changes": "Profile summary and configuration editing page labeled Edit, with count presentation adapted to live Room metadata and unknown update times explicitly labeled. Metadata editing and advanced/raw sing-box configuration entries are retained. Clash subscription counters are not invented."
+      "sourceSHA256": "279a4e5336b34c593b79813b99d1432ce1fd2d950a37b05a2bed33df7ff024e8",
+      "changes": "Profile summary and configuration editing page labeled Edit, with count presentation adapted to live Room metadata and unknown update times explicitly labeled. Metadata editing and advanced/raw sing-box configuration entries are retained. Clash subscription counters are not invented. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/proxy_groups_panel.dart": {
       "source": "lib/views/dashboard/widgets/proxy_groups.dart",
-      "sourceSHA256": "c2ad5126d9af4a9c7786ef7a569c70a9855a615f0aaed2159b42022b6a1be47c",
-      "changes": "Mobile group count, overlapping badges and timeout count adapted to sing-box groups."
+      "sourceSHA256": "7ed6bc3e3613e1f5040b86895155c7066e22e28f898dcbe81195c72402355c03",
+      "changes": "Mobile group count, overlapping badges and timeout count adapted to sing-box groups. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/start_toggle.dart": {
       "source": "lib/views/dashboard/widgets/current_outbound.dart",
-      "sourceSHA256": "ee6f397a9b1bc78968699e2852c7a6ba36d1d1a05dfa4cbcd6545e09c6b55f28",
-      "changes": "Flutter presentation preserved; application state and actions use B-box callbacks."
+      "sourceSHA256": "1fb47cc2e4274dc940ba9876c1736410183bbdf867d9d863b46a0e3b8db77974",
+      "changes": "Flutter presentation preserved; application state and actions use B-box callbacks. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/shape_badge.dart": {
       "source": "lib/views/dashboard/widgets/card.dart",
-      "sourceSHA256": "7e1a759eae758576c4005fe250c7441bb606b4256a09e327f502e30d0851c8ab",
-      "changes": "Flutter presentation preserved; application state and actions use B-box callbacks."
+      "sourceSHA256": "0b2e8ec0da7adaf98e2e8ce135eadff9e9c1ab7907e8aff9fee4cfcf2cbaf664",
+      "changes": "Flutter presentation preserved; application state and actions use B-box callbacks. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/connected_buttons.dart": {
       "source": "lib/views/dashboard/widgets/card.dart",
-      "sourceSHA256": "7e1a759eae758576c4005fe250c7441bb606b4256a09e327f502e30d0851c8ab",
-      "changes": "Flutter presentation preserved; application state and actions use B-box callbacks."
+      "sourceSHA256": "0b2e8ec0da7adaf98e2e8ce135eadff9e9c1ab7907e8aff9fee4cfcf2cbaf664",
+      "changes": "Flutter presentation preserved; application state and actions use B-box callbacks. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/pages/dashboard.dart": {
       "source": "lib/views/dashboard/widgets/traffic.dart",
-      "sourceSHA256": "e218e48571bb9ab33b840d2a52eb037b59fba2ee8831bec7971d8c63f339a619",
-      "changes": "NetworkSpeedCard and SpeedTile layout adapted to sing-box traffic samples; traffic tiles subscribe independently from other dashboard cards. Other cards use B-box capability state. The capability-gated SystemProxyPanel uses the shared editable card order and visibility preferences."
+      "sourceSHA256": "0d9b65b6ec78bb81df7eea3f262ef0e6e109698db39094e446af168989202413",
+      "changes": "NetworkSpeedCard and SpeedTile layout adapted to sing-box traffic samples; traffic tiles subscribe independently from other dashboard cards. Other cards use B-box capability state. The capability-gated SystemProxyPanel uses the shared editable card order and visibility preferences. Migrated to the v0.9.3 prism_ui types and presentation. The v0.9.3 traffic tiles use a 1.45 aspect ratio minimum and draw the chart behind the figures below the title."
     },
     "lib/pages/proxies.dart": {
       "source": "lib/views/proxies/card.dart",
-      "sourceSHA256": "c82793561e6769d1532c8c2a62100fbe65d3551923d3f2b7f862b6b69a0f2500",
-      "changes": "Proxy card metrics, text, selection and delay presentation adapted to libbox groups. Only selector groups expose selection; Mihomo pinning and local-provider actions are omitted."
+      "sourceSHA256": "0e9dc58363dc907150406c2608df88980ac9e4c40f034b00207239cb414744bb",
+      "changes": "Proxy card metrics, text, selection and delay presentation adapted to libbox groups. Only selector groups expose selection; Mihomo pinning and local-provider actions are omitted. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/pages/profiles.dart": {
       "source": "lib/views/profiles/profiles.dart",
-      "sourceSHA256": "4a2cf3c73ca7dcff9f02883c1d684a80afedb76f80bc955ee6b1b3b81421407d",
-      "changes": "Anchored add menu with a New profile entry, grouped metadata form, selected-item reveal, adaptive grid, flat profile actions and decorated reorder sheet. Edit opens the configuration editing page with raw content access; copy link, QR code, share and export are direct menu actions. Imports and edits retain sing-box JSON, binary/QRS metadata and Room operations; preserve local/remote type conversion, clipboard import, a 15-minute Android update minimum and serialized native updates. No Mihomo custom generator, providers, overrides, age key or runtime-preview claim. Disable configuration selection in both the page and picker during native service start/stop transitions, and recheck current state when a press callback runs.",
+      "sourceSHA256": "e0fa8370288a6729611df86a4ac117c5e464354658c6af3a9edbeed7aa451a49",
+      "changes": "Anchored add menu with a New profile entry, grouped metadata form, selected-item reveal, adaptive grid, flat profile actions and decorated reorder sheet. Edit opens the configuration editing page with raw content access; copy link, QR code, share and export are direct menu actions. Imports and edits retain sing-box JSON, binary/QRS metadata and Room operations; preserve local/remote type conversion, clipboard import, a 15-minute Android update minimum and serialized native updates. No Mihomo custom generator, providers, overrides, age key or runtime-preview claim. Disable configuration selection in both the page and picker during native service start/stop transitions, and recheck current state when a press callback runs. Migrated to the v0.9.3 prism_ui types and presentation.",
       "supportingSources": [
         {
           "source": "lib/views/profiles/add.dart",
-          "sourceSHA256": "ce6110d78bbd3453c4ad3191832f6fa8d6c15d9c2186d16e07a0fcf0a802376f"
+          "sourceSHA256": "9bb37316b7d9fafa80a742d418a157038e59fc034031c82abfc6c272cda93c2e"
         },
         {
           "source": "lib/views/profiles/edit.dart",
-          "sourceSHA256": "e727d5d6e33953b849865cf6776c2dfd9db122852e93e957e500046853188cad"
+          "sourceSHA256": "ad032272eeb42346ad5f48b87d26dcfb1a9f24a40ffffb9e4cf7d1283b0a306a"
         },
         {
           "source": "lib/common/layout.dart",
@@ -166,105 +84,105 @@
     },
     "lib/components/theme_preview.dart": {
       "source": "lib/views/theme_preview.dart",
-      "sourceSHA256": "03565aea92009f1115f1c0c774d1bfec5d07f28872e9e8aafc298aa19f3cb0b1",
-      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Docked preview uses the page background and compact proportions to reflect B-box's flat 64 dp navigation bar. Desktop-only controls omitted."
+      "sourceSHA256": "62840cfee2864210f0b53216ca8fdb94bf1696bceeefc857dcf7c63c3521d1d8",
+      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Docked preview uses the page background and compact proportions to reflect B-box's flat 64 dp navigation bar. Desktop-only controls omitted. Migrated to the v0.9.3 prism_ui types and presentation. Uses v0.9.3 per-shape blur to avoid an offscreen layer for every glass preview frame; the fixed-bar sketch keeps the B-box page background."
     },
     "lib/components/palette.dart": {
       "source": "lib/widgets/palette.dart",
-      "sourceSHA256": "0b7700d2190a9721da68e2a7e129af561f04a3f5473c271f65bed7a4556436bb",
-      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Desktop-only controls omitted."
+      "sourceSHA256": "659a095430698afb61e0a76434c22958a93e5e29a286338ca942a1d9bb535656",
+      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Desktop-only controls omitted. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/pages/appearance.dart": {
       "source": "lib/views/theme.dart",
-      "sourceSHA256": "a5751491fbabb34065309577f84eb12f54a085cc9b827f2e3786156a17811bba",
-      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Font family and font scale controls removed; app text uses the default font and system scaling. Desktop-only controls omitted."
+      "sourceSHA256": "d3f201dbfd95b719baccca3210e927620c5b6e59e0ea7845591f78e3b807f144",
+      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Font family and font scale controls removed; app text uses the default font and system scaling. Desktop-only controls omitted. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/status_panel.dart": {
       "source": "lib/views/dashboard/widgets/current_outbound.dart",
-      "sourceSHA256": "ee6f397a9b1bc78968699e2852c7a6ba36d1d1a05dfa4cbcd6545e09c6b55f28",
-      "changes": "Mobile header, intrinsic runtime column, caption/figure styles, readable IP fitting, country badge states and decoration clipping retained. Reads native sing-box session and routed IP/quality data; route observation excludes traffic and memory notifications. Unavailable stopped/remote data stays explicit."
+      "sourceSHA256": "1fb47cc2e4274dc940ba9876c1736410183bbdf867d9d863b46a0e3b8db77974",
+      "changes": "Mobile header, intrinsic runtime column, caption/figure styles, readable IP fitting, country badge states and decoration clipping retained. Reads native sing-box session and routed IP/quality data; route observation excludes traffic and memory notifications. Unavailable stopped/remote data stays explicit. Migrated to the v0.9.3 prism_ui types and presentation. No FlClash private MITM/root-access border is inferred from B-box root settings."
     },
     "lib/components/memory_panel.dart": {
       "source": "lib/views/dashboard/widgets/memory_info.dart",
-      "sourceSHA256": "4cf6921e7d03b57bbccfa27506774623cf2119f57f8b6c4c8cc1831b5443ccb4",
-      "changes": "Mobile memory figure, segmented bar, legend and details. Reads Go runtime statistics from libbox and subtracts them from shared-process RSS. Card and details share a visibility-controlled native sampling subscription and rebuild on memory updates."
+      "sourceSHA256": "e79c8de55b1250b972900b63477b2ab66ffea26bcb297f4d0b5c4e24f05826c6",
+      "changes": "Mobile memory figure, segmented bar, legend and details. Reads Go runtime statistics from libbox and subtracts them from shared-process RSS. Card and details share a visibility-controlled native sampling subscription and rebuild on memory updates. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/intranet_panel.dart": {
       "source": "lib/views/dashboard/widgets/intranet_ip.dart",
-      "sourceSHA256": "c1f99b03a80f79a2044566b4fb1b9c8cea5a03ff4936a277130485e611bd284f",
+      "sourceSHA256": "ae59cd18e1e2fd99abccbe1d27da9fbdbf9be9f1c7e05acbb6a32bac7b3ca44b",
       "supportingSources": [
         {
           "source": "lib/views/dashboard/widgets/card.dart",
-          "sourceSHA256": "7e1a759eae758576c4005fe250c7441bb606b4256a09e327f502e30d0851c8ab"
+          "sourceSHA256": "0b2e8ec0da7adaf98e2e8ce135eadff9e9c1ab7907e8aff9fee4cfcf2cbaf664"
         }
       ],
-      "changes": "Mobile LAN IP, sharing switch, cookie/circle Wi-Fi badge, adaptive row and compact switch track from intranet_ip.dart/card.dart. Copy retains DashboardIconButton's fixed 32px square, 18px glyph, zero padding, surface-variant foreground and 8px right translation. Sharing changes native sing-box proxy inbound listen fields with independent ports and existing authentication/TLS. Copy expands actual running binds to device endpoints; stopped and remote sessions retain device IP copying. Card and details share visibility ownership for native callback-driven refresh and hotspot fallback checks."
+      "changes": "Mobile LAN IP, sharing switch, cookie/circle Wi-Fi badge, adaptive row and compact switch track from intranet_ip.dart/card.dart. Copy retains DashboardIconButton's fixed 32px square, 18px glyph, zero padding, surface-variant foreground and 8px right translation. Sharing changes native sing-box proxy inbound listen fields with independent ports and existing authentication/TLS. Copy expands actual running binds to device endpoints; stopped and remote sessions retain device IP copying. Card and details share visibility ownership for native callback-driven refresh and hotspot fallback checks. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/system_proxy_panel.dart": {
       "source": "lib/views/dashboard/widgets/network_takeover.dart",
-      "sourceSHA256": "e53348dcb6424dc12f334b88c498bf11e9a5df7f8dd2b910220124149f614389",
+      "sourceSHA256": "0f3bee19a4673164540be28469f9c5f9acf8ca030de89c9b3cb4fc4fc1357d37",
       "supportingSources": [
         {
           "source": "lib/views/dashboard/widgets/card.dart",
-          "sourceSHA256": "7e1a759eae758576c4005fe250c7441bb606b4256a09e327f502e30d0851c8ab"
+          "sourceSHA256": "0b2e8ec0da7adaf98e2e8ce135eadff9e9c1ab7907e8aff9fee4cfcf2cbaf664"
         }
       ],
-      "changes": "VpnCard mobile padding, 48px cookie/circle badge, title and enabled/disabled subtitle, whole-card tap and compact DashboardSwitch layout retained. Uses B-box's original continent globe glyph from system_proxy_glyph.dart and system HTTP proxy state/command instead of the VPN setting."
+      "changes": "VpnCard mobile padding, 48px cookie/circle badge, title and enabled/disabled subtitle, whole-card tap and compact DashboardSwitch layout retained. Uses B-box's original continent globe glyph from system_proxy_glyph.dart and system HTTP proxy state/command instead of the VPN setting. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/dashboard_chip.dart": {
       "source": "lib/views/dashboard/widgets/card.dart",
-      "sourceSHA256": "7e1a759eae758576c4005fe250c7441bb606b4256a09e327f502e30d0851c8ab",
-      "changes": "Shared status and quality chips, using the same surface and semantic color roles."
+      "sourceSHA256": "0b2e8ec0da7adaf98e2e8ce135eadff9e9c1ab7907e8aff9fee4cfcf2cbaf664",
+      "changes": "Shared status and quality chips, using the same surface and semantic color roles. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/group_tabs.dart": {
       "source": "lib/views/proxies/group_tabs.dart",
-      "sourceSHA256": "e8346fa81cedc40e7ff22227b2c78cc76a84d25b052b784038b31fe69c0ccf6b",
-      "changes": "Group chip strip, lazy variable-width layout, overflow menu, edge fade and selected-group reveal retained; names come from sing-box groups."
+      "sourceSHA256": "eed1d642dae20dde06128bbb1dfe5cf6cf86209771477c9a5579f859ee037797",
+      "changes": "Group chip strip, lazy variable-width layout, overflow menu, edge fade and selected-group reveal retained; names come from sing-box groups. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/record.dart": {
       "source": "lib/widgets/record.dart",
-      "sourceSHA256": "1a29b9c8e41a2f3dec32e496019dd3299234947c2dbad8c037094a8c0a67cd92",
-      "changes": "Shared log/connection/request record surfaces, header, timestamp, labels, typography and copyable detail rows retained; semantic color roles copied from the reference RecordTone enum. Detail rows constrain long labels and support stacked HTTP URLs, headers and cookies while retaining tap-to-copy feedback."
+      "sourceSHA256": "51e1e0849d04a9b05fe10c116b8b9a26130e787c618719f0ef9f5b8f42711c5a",
+      "changes": "Shared log/connection/request record surfaces, header, timestamp, labels, typography and copyable detail rows retained; semantic color roles copied from the reference RecordTone enum. Detail rows constrain long labels and support stacked HTTP URLs, headers and cookies while retaining tap-to-copy feedback. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/pages/tools.dart": {
       "source": "lib/views/tools.dart",
-      "sourceSHA256": "d493b7cfa19c3eb9d69e5c753603a26eb6b37cbca832a2021376765bcb6d0a9e",
-      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools. Uses tool-specific state notifications and shares a visibility-controlled native detail subscription with endpoint pages."
+      "sourceSHA256": "aa81cb38649ba5f4c7f48c5a29ad4993fac0362ad1857e937af77f4093d572f9",
+      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools. Uses tool-specific state notifications and shares a visibility-controlled native detail subscription with endpoint pages. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/pages/about.dart": {
       "source": "lib/views/about.dart",
-      "sourceSHA256": "0031e1fe57fae5e8f1b92b3db31acc167e7ec1a1e039e1535652b7fca18bf9e1",
-      "changes": "Hero geometry, version and license pills, update control and link badges retained with B-box branding and B-box release metadata."
+      "sourceSHA256": "a6c3de2a21cc8baa6be882a049d5ba16f88342e94d0c405de3d3346c920552ab",
+      "changes": "Hero geometry, version and license pills, update control and link badges retained with B-box branding and B-box release metadata. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/proxy_list.dart": {
       "source": "lib/views/proxies/list.dart",
-      "sourceSHA256": "898dc1d01e800f46b03754dc2e574643670157f9d9bcbae3c1f87a94ad0ae9a6",
-      "changes": "Pinned rounded group headers, fixed-extent lazy rows, folding motion and group controls adapted to real sing-box groups. Fold state persists per profile; no external group icon URLs are invented."
+      "sourceSHA256": "fa71e7b9d6d8dea7b1935a31b3ae80bcb565273ed45e04801f532ade8f400e9a",
+      "changes": "Pinned rounded group headers, fixed-extent lazy rows, folding motion and group controls adapted to real sing-box groups. Fold state persists per profile; no external group icon URLs are invented. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/proxy_card.dart": {
       "source": "lib/views/proxies/card.dart",
-      "sourceSHA256": "c82793561e6769d1532c8c2a62100fbe65d3551923d3f2b7f862b6b69a0f2500",
-      "changes": "Shared card metrics and node interactions for tabs and list rows. Selection is available only for selectable sing-box groups."
+      "sourceSHA256": "0e9dc58363dc907150406c2608df88980ac9e4c40f034b00207239cb414744bb",
+      "changes": "Shared card metrics and node interactions for tabs and list rows. Selection is available only for selectable sing-box groups. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/group_monogram.dart": {
       "source": "lib/widgets/icon.dart",
-      "sourceSHA256": "2d5a8e8f1c36085316da66988ed251f33df288dc0eb9028c0307c08a907d5161",
-      "changes": "Group-name monogram and typography retained; empty names use the existing proxy glyph."
+      "sourceSHA256": "57ef435a6f1df91170f0103b11b6e6170be0f8424e9e71b24bb98138bbbd242e",
+      "changes": "Group-name monogram and typography retained; empty names use the existing proxy glyph. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/dashboard_editor.dart": {
       "source": "lib/views/dashboard/edit.dart",
-      "sourceSHA256": "22c6b0d835e2b7c7c0bd5d9e2e50580a816fff889d0f8eda0b4c561bf084e462",
-      "changes": "In-place live cards, sway, long-press reordering, remove badges, presence motion and addable rows retained, including the B-box system HTTP proxy card with B-box's original continent globe glyph. Saves native preferences, preserves card keys and retries failed saves before leaving."
+      "sourceSHA256": "7eaf4a0bf066b42be18627e803ad5ec421da2042c819ec022a5f9aa154299234",
+      "changes": "In-place live cards, sway, long-press reordering, remove badges, presence motion and addable rows retained, including the B-box system HTTP proxy card with B-box's original continent globe glyph. Saves native preferences, preserves card keys and retries failed saves before leaving. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/form.dart": {
       "source": "lib/features/form/form_row.dart",
-      "sourceSHA256": "bf982ce6351cc38784dff9493b01ac929516d20601c1ca45ec0e2c07c7361f03",
-      "changes": "Grouped rows and end-aligned text/secret fields retained. Uses the inherited B-box measurement scope and local error handling."
+      "sourceSHA256": "573523cde6588821f2e77a04e062f9a0ef78746443c2e8cec10a8cf816c031c2",
+      "changes": "Grouped rows and end-aligned text/secret fields retained. Uses the inherited B-box measurement scope and local error handling. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/pages/backup.dart": {
       "source": "lib/views/backup_and_restore.dart",
-      "sourceSHA256": "616b6c7c23c7e3011da256db3e5f2d4b3cabb636c229c2b9d1b2788454bb8ce6",
-      "changes": "Remote/local sections, WebDAV form, connectivity indicator, restore scopes and strategy adapted to bounded bbox-1 backups. Waits for native writes and preserves edits on error."
+      "sourceSHA256": "a0ab41a3c2a3337914b4d29dcc37b8c534989bcbee7c7971a23bf550c359f4a5",
+      "changes": "Remote/local sections, WebDAV form, connectivity indicator, restore scopes and strategy adapted to bounded bbox-1 backups. Waits for native writes and preserves edits on error. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/common/ip_quality.dart": {
       "source": "lib/common/ip_quality.dart",
@@ -288,53 +206,63 @@
     },
     "test/support/flclash_status_reference.dart": {
       "source": "lib/views/dashboard/widgets/current_outbound.dart",
-      "sourceSHA256": "ee6f397a9b1bc78968699e2852c7a6ba36d1d1a05dfa4cbcd6545e09c6b55f28",
+      "sourceSHA256": "1fb47cc2e4274dc940ba9876c1736410183bbdf867d9d863b46a0e3b8db77974",
       "supportingSources": [
         {
           "source": "lib/views/dashboard/widgets/card.dart",
-          "sourceSHA256": "7e1a759eae758576c4005fe250c7441bb606b4256a09e327f502e30d0851c8ab"
+          "sourceSHA256": "0b2e8ec0da7adaf98e2e8ce135eadff9e9c1ab7907e8aff9fee4cfcf2cbaf664"
         },
         {
           "source": "lib/views/dashboard/style.dart",
-          "sourceSHA256": "317abf6becbc79b2162ec1f518971916e81c9d7662d3b463b7374a6c0609044b"
+          "sourceSHA256": "b8910af0d3f1c112269e07b8780a02bf0bcefb98094a22b71d3516cc818d0109"
         },
         {
           "source": "lib/views/dashboard/layout.dart",
-          "sourceSHA256": "6441fc27a9cc679fdba67a55f615b3dea5e3e6080eae2b7aab2ff5866515fc92"
+          "sourceSHA256": "c99e02e44ab64ea7ca8785ec50cbff6305087f6ecf4cddb3e4ffec2cc768ac59"
         },
         {
           "source": "lib/features/ip_quality/labels.dart",
-          "sourceSHA256": "b40e7fb586a74dc1f1c6859f5fb73c74f642b4578f5396c51765a9574850615a"
+          "sourceSHA256": "091f692a72b1e45c51902d1011d95c0650619bd546ede6f19d283f955b1915b5"
         },
         {
           "source": "lib/l10n/intl/messages_en.dart",
-          "sourceSHA256": "6292be55b042add7d2a988d8151ab5d9ba10d0d61ded91f0058443593af2aaea"
+          "sourceSHA256": "04327dc55a2cc342d4a60e58c13dd87516f8c3eb99ed24e52afc4aa9da842d38"
         },
         {
           "source": "lib/l10n/intl/messages_zh_CN.dart",
-          "sourceSHA256": "e2f06977b797d99df50eff5dec973e54d1dc230504d28526200c2599bc1dee86"
+          "sourceSHA256": "a20ea3e0ed4b8fbc54410e1b086d91f183f781ec8bade49f5bf007859617a6dc"
         }
       ],
-      "changes": "Frozen pixel comparison oracle. Extracted rendering declarations retain the reference layout, shapes, styles and labels. Provider reads, models, runtime and actions use fixtures; imports use the vendored shared UI. Does not import adapted B-box dashboard components."
+      "changes": "Frozen pixel comparison oracle. Extracted rendering declarations retain the reference layout, shapes, styles and labels. Provider reads, models, runtime and actions use fixtures; imports use the vendored shared UI. Does not import adapted B-box dashboard components. Migrated to the v0.9.3 prism_ui types and presentation. The v0.9.3 card surface and press/morph declarations are retained; rootAccess is represented as false, without inventing private FlClash state."
     },
     "lib/components/profile_card.dart": {
       "source": "lib/views/profiles/profiles.dart",
-      "sourceSHA256": "4a2cf3c73ca7dcff9f02883c1d684a80afedb76f80bc955ee6b1b3b81421407d",
+      "sourceSHA256": "e0fa8370288a6729611df86a4ac117c5e464354658c6af3a9edbeed7aa451a49",
       "supportingSources": [
         {
           "source": "lib/widgets/chip_title.dart",
-          "sourceSHA256": "7128892d6a3e12dda6463164e252445f468a0f4370bf7e91977ba16bd4eb194e"
+          "sourceSHA256": "5d8c4be6fbf7b6b5a18b82de50f1a2a4006a94dea707fc5c0978c685b2a682ab"
         },
         {
           "source": "lib/widgets/last_update_time_text.dart",
-          "sourceSHA256": "394113b5a3bbeff708b70158b3ada92ed9e8f60b5f7e7aa772f1296129a205f7"
+          "sourceSHA256": "7a6bc19593d917365e89aed783ed5fd762a5ac90c83b0b558df3dc52c72b685f"
         },
         {
           "source": "lib/common/datetime.dart",
           "sourceSHA256": "a539e15957a3cdb3f4cb2a1718aaa12bc2d398ebf08f949cca4b4812b1245439"
         }
       ],
-      "changes": "Profile row height, title strut, selected badge, updating transition and compact update-age labels retained. Uses Room timestamps for local content saves and remote subscription updates; missing timestamps show unknown. Refresh is scoped to visible/resumed pages. Does not invent subscription quotas or expiry badges absent from the native model. Accept a disabled selection callback while retaining the profile metadata and context menu."
+      "changes": "Profile row height, title strut, selected badge, updating transition and compact update-age labels retained. Uses Room timestamps for local content saves and remote subscription updates; missing timestamps show unknown. Refresh is scoped to visible/resumed pages. Does not invent subscription quotas or expiry badges absent from the native model. Accept a disabled selection callback while retaining the profile metadata and context menu. Migrated to the v0.9.3 prism_ui types and presentation."
+    },
+    "lib/main.dart": {
+      "source": "lib/application.dart",
+      "sourceSHA256": "5b89684b6596e0d3529b2ef05c6a499441188b1691c916f500858c3ec9110d2c",
+      "changes": "PrismApp, Prism themes, built-in glass/emoji/text scaling, banner messages and navigation adapted to the existing B-box controller. System language and 0.8–1.4 scaling remain; no Flutter or Android identity change."
+    },
+    "lib/widgets.dart": {
+      "source": "lib/views/dashboard/widgets/card.dart",
+      "sourceSHA256": "0b2e8ec0da7adaf98e2e8ce135eadff9e9c1ab7907e8aff9fee4cfcf2cbaf664",
+      "changes": "Dashboard card surfaces and press feedback use Prism. B-box retains its page/form helpers, labeled fields, confirmation flow and dirty/busy edit guards."
     }
   },
   "adaptedNativeFiles": {
@@ -355,7 +283,8 @@
           "sourceSHA256": "af8884a550912ee1bbd7ced944ca81b894fa5c90090bbf4268c2fc4d490b84ea",
           "changes": "IpInfo response fields adapted to Go JSON/trace parsers."
         }
-      ]
+      ],
+      "commit": "7fd417fb9a9a277c6a9339a8ac87f907df7c25f7"
     }
   },
   "supplementalReferences": [
@@ -367,7 +296,7 @@
         "f54486102172566e7342d7f5c138663c3c5dec0b",
         "1a7556d30a38707f39abfba4b7d6a6b8f57774ed"
       ],
-      "scope": "Request and MITM certificate design only; the overall UI, Android and sing-box baselines stay unchanged. Local paths are relative to the repository root.",
+      "scope": "Request and MITM certificate design only; maintained independently of the overall UI, Android and sing-box baselines. Local paths are relative to the repository root.",
       "files": [
         {
           "source": "LICENSE",
@@ -450,7 +379,7 @@
             "flutter/lib/pages/configuration.dart",
             "flutter/lib/pages/mitm_certificate.dart"
           ],
-          "changes": "Reference for explicit CA operations and certificate setup. B-box uses independent profile MITM with an allowlist (empty decrypts nothing), optional TLS/TCP streams and no exclusions. Decryption controls and one certificate entry share the MITM page; certificate access does not require a loaded profile. JSON editing covers additional ports/packages settings. HTTP rewriting and HTTP/cron scripts are separate B-box extensions. Certificate rotation is blocked during capture or active MITM. Shared form/navigation components are reused; no Mihomo configuration."
+          "changes": "Reference for explicit CA operations and certificate setup. B-box uses independent profile MITM with an ordered allowlist (empty decrypts nothing), exclusions and optional TLS/TCP streams. Decryption controls and one certificate entry share the MITM page; certificate access does not require a loaded profile. JSON editing covers additional ports/packages settings. HTTP rewriting and HTTP/cron scripts are separate B-box extensions. Certificate rotation is blocked during capture or active MITM. Shared form/navigation components are reused; no Mihomo configuration."
         },
         {
           "source": "lib/features/connection/mitm_exchanges.dart",
@@ -479,5 +408,201 @@
         }
       ]
     }
-  ]
+  ],
+  "prismUi": {
+    "repository": "https://github.com/chen08209/prism_ui",
+    "version": "0.1.2",
+    "commit": "63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185",
+    "flclashSubmodule": "plugins/prism_ui",
+    "localPath": "packages/prism_ui",
+    "changes": "Unmodified runtime source, generated models, shaders, pubspec, license, notices and analysis settings. Package paths below are relative to localPath; app adaptations and license assets are relative to flutter/.",
+    "files": {
+      "LICENSE": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "NOTICE": "10d286af3ca92adf6d54bff32386eee309a949f732b0ec9df636e45c233778cb",
+      "README.md": "4969d69933a507e0ab663a5811b08983bbbcabe1e45479f883652229ee6650a9",
+      "analysis_options.yaml": "ff51ea917a53364b47aac0e3f40400ffe1419b4ff06c156dd28fec746717090b",
+      "lib/activate_box.dart": "c0b6795d8284a63bee12de01ae307a6629e9eab8d9a0659d7f43991832c9afd2",
+      "lib/animated_entries.dart": "b26e8dea653d6947a0256dfdfee58c792bf2c33de3f7529f6f12091f9fb240f3",
+      "lib/animated_visibility.dart": "42dddcdd7d1119375263a9cf6134636ab7030a0e5d805f8e8be47594fb17d615",
+      "lib/app.dart": "98c8a7c68e17a33c5071bc17bd9e4754f1cb88b44cee1a3a1e2c83102dfbe6e2",
+      "lib/banner.dart": "c3aa285d14b0a6b87787c9df13889e22ef11323e559ed2507bd71098a26521ad",
+      "lib/bar_item_presence.dart": "1a42cef6c5eff50793386add3a471bf1973299a48ff776b2644410cbfad3406e",
+      "lib/builder.dart": "f30437e033fe340f74d180b5ebc78829d2689cdd378a212e81acd538d57de61c",
+      "lib/button.dart": "c309ab70f2c330ab4ce384e28dc57a415f5c106b19723462585c9332a9c49cd9",
+      "lib/card.dart": "92037c4b518d6d4fa8d7622e59560e0e1003d0c64e8c4318812476f009409bc2",
+      "lib/card_surface.dart": "252260e9f8ce0d58b0b51cf87f04780233429ca5ae9d637bff2183315ba34f89",
+      "lib/caret_popup.dart": "5408252a65ccb72fe44e8781453b42b6c5d53162aeeb0d95d512c39bbb384f67",
+      "lib/checkbox.dart": "a52024f64488d761a95d9aa3ff784f990f1a49e3e16c4920d2a1d3ff076d04e9",
+      "lib/chip.dart": "a8a7462ca5b03ebfb6182253d38c0eb0190e00b63fd6b1be216f0e2efc96297e",
+      "lib/collapsible_section.dart": "0c6b4d1e0f473381d843b60ddcc1c28bb29612920e979ebd7bafbdb7c13f824d",
+      "lib/color.dart": "8f292fcef4799d8109c3bb33632d2ac192aa6c7ebb99a279626992ee797f573a",
+      "lib/color_scheme.dart": "b79d5f08df22d85825bbe9c6adedcd0d88c80a1dd6767b2f3b566c097f24a64c",
+      "lib/common_button.dart": "fff6795c7b5dde539cb7e81135594aa3ca14e07bd8aecb6d36808a507b5c44a7",
+      "lib/context.dart": "1ef8a07775cc5b6700e53a8ea750d10194ea8496b60942a732f5fa5874ee49df",
+      "lib/context_menu.dart": "abf06fd9c7a0f9dafb7a539fceaa327568185bf2eafceb9e955c48525d670583",
+      "lib/deferred_push.dart": "2bf4cf35ee51f40b82baa031f14548a60e00de45697c56994b17f7c7ba635a04",
+      "lib/dialog.dart": "7ca6ad78189d6a97a450523d43cfba7dfe365fa1c0871a8f52f0eee072de9bef",
+      "lib/disabled_mask.dart": "7b4a199d0075f90e8fb35508603fe6a0719392be049aac5d9211348550cb0532",
+      "lib/divider.dart": "d363e19b5aa0d5a17044e2beac44a4152798c4009e2ba132e71c6d00ae7131aa",
+      "lib/drag_back.dart": "c673acd90adf9455c73623582bb8a0d40009f619801d1fde486472300f608e1c",
+      "lib/edit_menu.dart": "a7c450ea2166d019f24e2f2b6879fa26a8da1bcea336f5ec3b7f18d2c92bdd75",
+      "lib/effect.dart": "67f207094bba12387547e29af8e527661b29d7fd733c08636ab506ffe1c08224",
+      "lib/fade_box.dart": "9931b9a163fa652825931fa4f244c557ac08f6b446590835ed71a7471cdf3845",
+      "lib/fade_through.dart": "64f23e5afa83d6fde48804458d3cd0ffa2c99adf1bc47784c892ed06e0f243a1",
+      "lib/focus.dart": "080450fa2d2a16c6fceddab10805edacce0ace534107b66d1f15acf4973711b6",
+      "lib/focus_arrow_keys.dart": "0a0fd2e580a6529543c73f6641c47a32bee9ab8f4635517677f169521bab63c4",
+      "lib/focus_keyboard.dart": "09e12cb92e48f1858ea0fdbd9f7accfc7dec9720389d8b659d63190476b647aa",
+      "lib/focus_landing.dart": "2b13c7bf90968cd4d23da1d84eea6b01fe471fc38ba598e68fc44ad786191d89",
+      "lib/focus_moved_by_key.dart": "86fb813db5e5370aa78d8bec6e25bd1c02786768cecb76b4677b12694d7570cf",
+      "lib/focus_traversal.dart": "3cc12a910fbeb5c681e595c0b7a85bc45a8bf82cad1e8afe7b0a23585a2a0a87",
+      "lib/font.dart": "2345957377a076b6ba32b60b449b1b6f927205c1090dba56a4a79be127ecbb57",
+      "lib/foot_bar.dart": "41c4a84ef168f844ec189ee666966cab3eb0310598482c19c11edf9646c289e2",
+      "lib/form_sheet.dart": "d154f9cc4e6bb2eeabc4c233e81f66c3a19dcb8273469481fbdc7525d1636ffe",
+      "lib/generated/models.freezed.dart": "70f1e995e47670e85ce9522271f393a7d11e2a182b2bf3ce3a43d45951b4b156",
+      "lib/goo.dart": "082289b0c053f582fbedfb84077abfa95b31b706018d8002248b472acd23f1fd",
+      "lib/hct/color_math.dart": "d52df85a7aa98862aac20aff4f659e83ed6622bce197782c84f54bd4044e6ceb",
+      "lib/hct/dynamic_color.dart": "3e7f2a41a1b641f73a5f0e7d42ea3f6b097cc31ccdbcdc5a323fee5a219da930",
+      "lib/hct/dynamic_scheme.dart": "6c286d235700c172115c3552a3287b76911c075ec14ee9c31c0031fc016c5c76",
+      "lib/hct/hct.dart": "979883935331fdb2e8705fbf2d0351785bf19c33f5f6a19624ebf5ac1f4cc868",
+      "lib/hct/hct_solver.dart": "18e76d0a5300331561c4de9e3958f493e3668131ddd3cdbec4726eb651243e10",
+      "lib/hct/material_dynamic_colors.dart": "1f863cc4daa63acf686d9d464cd5d63b95b95afd5a82031062bdf6feaa00c83e",
+      "lib/hct/tonal_palette.dart": "b72479bf4ce1a654093a2b5746a0a91f187cfecb25352e73ae4f9e868988a983",
+      "lib/hct/viewing_conditions.dart": "7167120ccb089a05d98950b1f5a5cf5b3034d658457d3b17c0cb87840014f988",
+      "lib/icons/animated_glyph.dart": "f9e9b9d48d1e468121f80853610c90b58d9afcec830268e201848afb42e41138",
+      "lib/icons/caption_icon.dart": "d3c4ab9194f5d12f3a3e1b6357c14cd964172997d03d9d7c40613f928df850fd",
+      "lib/icons/glyph.dart": "8495b339abf5dd4bca8a4b87a26d4973f5efd0f6d8cb277acdb4c44514da0218",
+      "lib/icons/glyph_icon.dart": "cc70a276032a5cfd5a077b523543d380a83b82720e7ac12356682639a9530cd6",
+      "lib/icons/glyph_painter.dart": "3fb75af55fde1f740d969cbe48a0cc6b85e162ca443df2f065805fba50521893",
+      "lib/icons/glyphs.dart": "32d2fc873bf21805a3974e3eb2d2e440fa02f3bd24906bc937b9e9dd0e5ad20b",
+      "lib/icons/icons.dart": "7ed6b75b708c842dde23f363fb44971d0c66d01b830c1cb06188cd0506709f9e",
+      "lib/inherited.dart": "1583841c0387fd872c88118939b8758fe9c94356d6a58a5a6ce8dbdc64182105",
+      "lib/input.dart": "42732f6fb073e1651baf3125f6fa6ef9e6891211ab2fe76fdfa626f1863e8dd5",
+      "lib/input_border.dart": "06fe0210333d7f858e1b35a828f2d97d3cd308daf7780a249cbfb2c9b7eec1ff",
+      "lib/item_position.dart": "d3fa6264e5c5002d89c81d131b97ca82e4c34fd483cbaeec0fb1239b1b88f038",
+      "lib/keep_scope.dart": "9443b916129457d2eb3cbae65bc54b8ec39d771c97df6d459db686c9179cf6fd",
+      "lib/keyboard.dart": "b97b9a7b6bfff544b7f537b339dd3dda713058fedc6cc72412167f578ec28cc4",
+      "lib/keyboard_inset_hold.dart": "49ff46a2a7c9ce6ca80a9b14307b68e39c995d8d3370a417eea62d1f346ea5a4",
+      "lib/keyed_animated_list.dart": "35f8fb9c112f9a67afbc0d9794c67ed673be28e972b2a9d93070dd44ba14f940",
+      "lib/l10n.dart": "2dabcd6efe4525115daed03488e82699ee2e3767d8d27edc708df8e1ecc07e71",
+      "lib/line_chart.dart": "27ffa8f5b6d064f0a511e42c137868b29bbb2607eefc3a8d90498eb065b84444",
+      "lib/linear_progress.dart": "b81010bc6a0f503599f8bea7e3e5e7c52045c6199345c62e26ca2875f64eed51",
+      "lib/liquid_glass.dart": "e71b88315f590dc4e3b0908727c08897cf9f4763a33e7def1d00e4093efcb66d",
+      "lib/liquid_glass_capture.dart": "6abd0b2f5fae7f748d32fe39457d9f624da398e42da49c0f4f67d6adb290e4b6",
+      "lib/list.dart": "3ebabade17b4d07207cc02aec40ccf20db8fc61394f869ad02271ef9006afe99",
+      "lib/list_row.dart": "d0668749464cf24a59691de7b3a89b45468a137bce3a95aa80031f384ef548fa",
+      "lib/list_row_separator.dart": "b1c09367c59536a0e213d61d2c0f01d3eedf26a3a7ca35eaec26d702abbc8853",
+      "lib/list_selected.dart": "4a1c3e10bb2ef62949fe9fb16e1e0a79683c6389d5fc73e8f230d1c2ccb2d07c",
+      "lib/loading.dart": "0039e9492ee31af4af4f0ab223c0ef52c7736d1f3627785da3d9948d9bc4d0f8",
+      "lib/measure.dart": "42bebf51cb2a21df29c86ed9bdf8f22ab7618546eea04899d29b4a2647570a94",
+      "lib/metrics.dart": "df5e8b4979415de530ac1ff1d80bc9ec48ae276ab4e7a4777305e57f143285f0",
+      "lib/models.dart": "a99b9b5a6313b1175358679026bcfec9780877932f76152f767c61ccf2216fa6",
+      "lib/motion.dart": "1530b64d185f7d730fcf55d8587c61110d44a366dc6a7fac1c7f1ed2a57e7df4",
+      "lib/navigation_bar.dart": "75e311953c2715c312e0ca718fb339af2bd1828055b7e97a761395b090be999e",
+      "lib/navigation_dock.dart": "acafc3ed461f46fd81d0cd72f3f09fd9d86480ba37924fd2cab7e9baa3768cec",
+      "lib/navigator.dart": "250a220d7e25be1a61e0ccd9f8abe84e718f54fb8e88fb025d731cf1b4fd4f77",
+      "lib/navigator_resizable.dart": "3798a9208525657c6d363962adfa88e319987628b2aeb68a3b9a165d20b7abfe",
+      "lib/null_status.dart": "9529f18bfa85b2358ad43bb1ab6551053b02eb75f9f8f54ca2221382d80e784e",
+      "lib/open_container.dart": "5de0f7860ec20f86b5d5566cba1b99963114356d9a133536bb49a810786bd164",
+      "lib/page_transition.dart": "117bd378435d5b771888c085b02e8b46b92e60d0e2c20d982d9928ac18854609",
+      "lib/paged_sheet.dart": "7d5bfe25ba5208b32c530befb22eb36e2820772d130f6141a83088c314e164be",
+      "lib/pop_scope.dart": "fa4b65660a643615e5750d4d2ed296cae786957b29737a3e6e2fca627418b870",
+      "lib/popup.dart": "55dc14e65088f0cac0a464488b52fd1ab8d393157a7d86302cbd74f0fa7387c6",
+      "lib/press_region.dart": "1a190f64a4b778adfd7f328d7da6b649d87cbe30ac75d892887f9257c6be6be6",
+      "lib/press_sparkle.dart": "a3a6bf01dc65ab37026a1df51efd817157206be004b26e7b96146c84613e7e81",
+      "lib/press_surface.dart": "5e379aa6713a7532dbc4d3e9aa1f8d0a03b17eabc18ee999c76ebe3488da609f",
+      "lib/prism_list.dart": "4e045621df41624c2774a6588314d0e14f4d9e5f58bdb21246d9083ed977d58e",
+      "lib/prism_ui.dart": "dbee7e07fea9ca029a8958e6b88992e791a45b5d101e46223dcb8194a4cb8a25",
+      "lib/route_motion_hold.dart": "bdb9cc1f0c98a6a8221885f59ceda4c93bf778959851753549f62c1fc6a16a95",
+      "lib/scaffold.dart": "67cc44845988c6643087981524229df5b6f09d4d2b75a745e60f6d010294285c",
+      "lib/scroll.dart": "c93780f34d5773c5a781ed4c684a8aea8efb721480581030b03482371e346576",
+      "lib/scroll_behavior.dart": "c354426483eda408da59a8c3d7b288f1a92ecc161db7648ab67b7d211bfaa364",
+      "lib/search_field.dart": "fe691173f3561d542505515d7ec34e449cfc424291d5a79343c5b076069319dd",
+      "lib/segmented_control.dart": "c86642505d2a9ad515b9f3627cdc40fc9bdf4e3a679b97b7e02d56a648944255",
+      "lib/selectable_text.dart": "1dbbc58c2e37176925fdf0de6d1d12c9d7f2d54459355dfd8ed3b51fe6ba6cf3",
+      "lib/selection_mark.dart": "b9dd4009ecb20b3169cba46ab4ce11da27840b8287cb7da404f5159372d5fdd5",
+      "lib/shape.dart": "2d8a73ab0dd6c1622153b5002840c2582b91b8020251b2f5b169ba9a1d5f6edf",
+      "lib/shapes/corner_rounding.dart": "fea56acd47264a24e46d874ffa78346a8ffa53e42e6d8ef3b29d06e99cc8253f",
+      "lib/shapes/cubic.dart": "f3c2f06e0f50e68942062963f22102469dc8a9777c0be1e054f5b4d6982234b4",
+      "lib/shapes/feature_mapping.dart": "4ad0532c444636eeafb7a2e468b23e874a0bd064aa1fbb811dfff74794b7d791",
+      "lib/shapes/features.dart": "463e83a1b2269e9faef91894c9a129b32982d4ceadf4fb88339739bb42cb042b",
+      "lib/shapes/float_mapping.dart": "b8e5fa521fb5784fa1cf2f089eef3cd765bf1ee4e80ae093a4c3e2123678f184",
+      "lib/shapes/material_shapes.dart": "5c569c1b64dc3c88022b2b02ae4e46247bfad77f17a275b6e2b93e427c7530e6",
+      "lib/shapes/morph.dart": "9280474ebc49ba59d81761b0a9dd3d27b01edcd64e71f927b7ee98da2a9a6498",
+      "lib/shapes/point.dart": "fabc5fb6ad407313a882ff929ea13d047ab39baf1e139af5dd074f41fcb700eb",
+      "lib/shapes/polygon_measure.dart": "134e231066d16d915cc5ee1ee6213945041d2eeb728f551fac2ecf99726d9ffc",
+      "lib/shapes/rounded_polygon.dart": "245d37f46ac192d2f5d905f3e0a5163f3530be4f4d2b6004fe15269e86e58313",
+      "lib/shapes/shapes.dart": "45e12589f850745733a3343ac8fe9b6f0c3a3444fc5596311dfe204512ee82d4",
+      "lib/shapes/utils.dart": "41a8bdcae97ab8bfbbc3555fc3c6a1e7029465d451b427ecfe548ba2233eb9f7",
+      "lib/sheet.dart": "a03c39d87616af319921bf01ce8348ff4de19b4db33140d7d87452954cf4ad54",
+      "lib/sheet_header.dart": "b86eb3e100eca226010f2ce9ae1d7c949e01744f014737cc13ee2dea124eb4e7",
+      "lib/sheet_navigator.dart": "93787c532c11127428a9505b3153edf86298248c56ed96b5fa1ca9c0a593bf01",
+      "lib/side_sheet.dart": "fac5a2e5b45df42e478cbd1251bfe11a0b217f8124d4c5d6a186079d0f50bb52",
+      "lib/sidebar.dart": "cd277371c5fd4c7e278745201887b2ebdb9ad6e9db5b1886c9e23e0d237b5f94",
+      "lib/skeleton.dart": "71195d322c223ea30127bbf34f5af1c518237d870d3aca9e07bf5a2d27b2a8ae",
+      "lib/slider.dart": "08f943fdf3a89763e2d443adb286a9c5ad7f4130dc9fdc6539416f92871997cf",
+      "lib/sliver_list/element.dart": "5a1fd30ba6f870e2e599cdfa72c2008b15ac91b8baedcdc7ceef43cb6567f214",
+      "lib/sliver_list/extent_list.dart": "4f127ffc6acd4956623327bacb6838a6d64d091a3f0db461ace8aaee0efa4714",
+      "lib/sliver_list/extent_manager.dart": "d9f6cf12ce3abcca4e9c56bea256fbd32c8b401fce8b07c5be3bcd27fb263e7a",
+      "lib/sliver_list/fenwick_tree.dart": "66ca3951239dac27bc1d064bf9dbc44560cee9dac35fbd703c11f79241c7ae83",
+      "lib/sliver_list/layout_pass.dart": "b4bbe4c46b3d63d4d08d619fa461e0d01b9a536f2e0d89fa1bcd0e8f03e3ec3c",
+      "lib/sliver_list/render_object.dart": "f78c4251316d8be95ae11bcb4842ea87e88a2905d390e0cffda383f7367708da",
+      "lib/sliver_list/sliver_extensions.dart": "dc85145300b6de60dca0999831c090715d2f7d92225c43ba8b9dc10c0e554b35",
+      "lib/sliver_list/super_sliver_list.dart": "ca6c7c125e796b17142dff3b613bfce3d31747f13fd2fa947b1a2a42e0bdc9dc",
+      "lib/snap_sheet.dart": "9c9d52f942aa0a62d0336309ac8ae72f6b85d513e061c7101a299179dd701652",
+      "lib/sortable.dart": "e3062ac2c75ba088e00eb49da9a5f1f86b813a84cc699f22202b1127d322c28c",
+      "lib/surface.dart": "408ec6f97d923ea11b18b9e09170ce0857c99d7f0f240e8716c950de9ff75469",
+      "lib/switch.dart": "da451ab7cd9ca1690dcce88fbe5a3c2341deda2dab1769304c3540675c28f618",
+      "lib/tab_view.dart": "7a15aadc2d30eeaf1b7fb87c0fb31778e22dbef1af7996998c7674c874d22fad",
+      "lib/table_layout.dart": "4ce44ad97af4ffe13819d6ce1cb674332287fcc8e95689a6e65983b874d48152",
+      "lib/text.dart": "f75c9e4009fe95f7fa9b1ebefd269b29ce0b3dbd973d2f6c9091ee502468cf78",
+      "lib/text_field.dart": "de140d6a0afba8a1e3aa1c9c3cdb4524137f5c4d792e1bfa3166fed76fb64d37",
+      "lib/text_loupe.dart": "35135705e372b19046b37edaabcde390c6dec4890e9206f5486e8695489a620b",
+      "lib/text_selection_controls.dart": "3dfe58c4c545f482a0bfee659892fad79dacb6ef9df77a67b7d3391090c3e700",
+      "lib/text_selection_menu.dart": "04aeee55b0c304ccb1af33fdb8af13583e7a934e1f312e623429e1fb6149a4e0",
+      "lib/text_style.dart": "17b67b0af9a9b68c5b4dbbf7c8af586b246284bc5b04aca04d2166287470b1a9",
+      "lib/theme.dart": "73669d3c7f9f2384323ba17a4236cccdb2476f4a067b5a524d40c74a7a2ae775",
+      "lib/theme_cross_fade.dart": "9060e030abd447e779cd67faa60ebb8d082b39e141461aa6dce86895c2c63617",
+      "lib/theme_data.dart": "693a2b1c3684f22e3275c1ccc21615ea4227c2fa10d688eed3e34fe340e81649",
+      "lib/tooltip.dart": "19b143dd69c6a371a445c406c6fc987ab1e066a25f1f47f5fda6eca33994cd0d",
+      "lib/typography.dart": "2eb0033e409ad60727b83e3dd94a63140060ee8985d58ef91e8eebb5dbf312ff",
+      "lib/view_scope.dart": "287cb67a7b05fdfc5e294b6fca351228b7015a5f597c38528d3473a36f011c0d",
+      "lint_options.yaml": "b5a2342f33ce241f4e5bf6f9910add2341c681d6c2a66ebbe7b46a1f493a42f2",
+      "pubspec.yaml": "5fca979e506b829b53eb91635d016ed1f40512866c2f3a9993febf6dd0bd57cc",
+      "shaders/ink_sparkle.frag": "62de24eaa74427fbc2bb9f123df8ec4ec62a16a71d8fe69aedd25c283f9e369d",
+      "shaders/liquid_glass.frag": "13b807e3c493812bb90333ab72372f47d200045bd30341c23b28f602fbdd081e"
+    },
+    "adaptedFiles": {
+      "lib/components/navigation_bar.dart": {
+        "source": "lib/navigation_bar.dart",
+        "sourceSHA256": "75e311953c2715c312e0ca718fb339af2bd1828055b7e97a761395b090be999e",
+        "changes": "Prism destinations, selection indicator and press feedback retained. B-box keeps a 64 dp bar, page background and bottom-only safe area; shared Prism source stays unmodified."
+      }
+    },
+    "licenseAssets": {
+      "assets/licenses/prism_ui-NOTICE": {
+        "source": "NOTICE",
+        "sourceSHA256": "10d286af3ca92adf6d54bff32386eee309a949f732b0ec9df636e45c233778cb",
+        "usage": "verbatim",
+        "sha256": "10d286af3ca92adf6d54bff32386eee309a949f732b0ec9df636e45c233778cb"
+      },
+      "assets/licenses/prism_shapes-LICENSE": {
+        "source": "lib/shapes/shapes.dart",
+        "sourceSHA256": "45e12589f850745733a3343ac8fe9b6f0c3a3444fc5596311dfe204512ee82d4",
+        "usage": "header",
+        "sha256": "e3c370222e8b1b3a836335d2d8a0fd59c841686760a4db4677f4f29fe38e1e6d"
+      },
+      "assets/licenses/prism_sliver_list-LICENSE": {
+        "source": "lib/sliver_list/super_sliver_list.dart",
+        "sourceSHA256": "ca6c7c125e796b17142dff3b613bfce3d31747f13fd2fa947b1a2a42e0bdc9dc",
+        "usage": "header",
+        "sha256": "c7ea398d228b0f28d4dc0fb7157ee0e184afafab764294398d398cc8eeb1b5aa"
+      },
+      "assets/licenses/prism_navigator-LICENSE": {
+        "source": "lib/navigator_resizable.dart",
+        "sourceSHA256": "3798a9208525657c6d363962adfa88e319987628b2aeb68a3b9a165d20b7abfe",
+        "usage": "header",
+        "sha256": "4f085b42e34381b46515f3a9647373e7e3eead7a079f23cab506aaef653047bd"
+      }
+    }
+  }
 }

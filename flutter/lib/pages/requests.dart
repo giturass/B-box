@@ -30,13 +30,13 @@ class _RequestsPageState extends State<RequestsPage> {
       builder: (context, snapshot, error, refresh) {
         final state = json(snapshot?['state']), page = json(snapshot?['page']);
         final active = state['active'] == true, entries = rows(page['items']);
-        return CommonScaffold(
+        return Scaffold(
           title: context.tr('Requests'), isLoading: _busy,
           searchState: AppBarSearchState(onSearch: (query) => setState(() { _query = query; _limit = 50; })),
           onKeywordsUpdate: (words) => setState(() { _query = words.join(' '); _limit = 50; }),
           iconActions: [IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Refresh'), onPressed: refresh)],
           menuItems: [
-            CommonPopupMenuItem(glyph: AppGlyphs.sliders, label: context.tr('Capture settings'), onPressed: _busy || active || snapshot == null ? null : () async {
+            PopupMenuItem(glyph: AppGlyphs.sliders, label: context.tr('Capture settings'), onPressed: _busy || active || snapshot == null ? null : () async {
               setState(() => _busy = true);
               try {
                 final source = json(await context.box.call('capture.settings'));
@@ -44,8 +44,8 @@ class _RequestsPageState extends State<RequestsPage> {
               } catch (error) { if (context.mounted) context.box.messages.add(BoxController.describe(error)); }
               finally { if (mounted) setState(() { _busy = false; _revision++; }); }
             }),
-            CommonPopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'), onPressed: _busy || entries.isEmpty ? null : () => _act('capture.export', {'format': 'har', 'query': _query})),
-            CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear requests'), onPressed: _busy || snapshot == null ? null : () async {
+            PopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'), onPressed: _busy || entries.isEmpty ? null : () => _act('capture.export', {'format': 'har', 'query': _query})),
+            PopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear requests'), onPressed: _busy || snapshot == null ? null : () async {
               if (await confirm(context, 'Clear captured requests?') && mounted) await _act('capture.clear');
             }),
           ],
@@ -67,7 +67,7 @@ class _RequestsPageState extends State<RequestsPage> {
                 )),
                 if ((page['error'] as String? ?? '').isNotEmpty) Text(page['error'].toString(), style: TextStyle(color: context.colorScheme.error)),
                 if (error != null) ErrorState(error, retry: refresh),
-                if (snapshot == null && error == null) const Center(child: CircularProgressIndicator()),
+                if (snapshot == null && error == null) const Center(child: ActivityIndicator()),
                 if (snapshot != null && entries.isEmpty) EmptyState(_query.isEmpty ? 'No captured requests' : 'No results',
                   message: _query.isEmpty ? 'Configure MITM domains and trust the CA to record HTTPS or TLS/TCP. Recording starts with new requests or streams. Reconnect the target app if its connection was not already intercepted. Stopping recording keeps existing connections running.' : null),
               ]));
@@ -184,12 +184,12 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
           if (mounted) setState(() => _busy = false);
         }),
       ], menuItems: [
-        for (final part in ['Request', 'Response', if (metadata['rawTCP'] != true) 'Cookies']) CommonPopupMenuItem(label: context.tr(part),
-          section: part == 'Request' ? CommonPopupMenuSection(title: context.tr('Message type')) : null,
+        for (final part in ['Request', 'Response', if (metadata['rawTCP'] != true) 'Cookies']) PopupMenuItem(label: context.tr(part),
+          section: part == 'Request' ? PopupMenuSection(title: context.tr('Message type')) : null,
           checked: part == _part, onPressed: () => setState(() => _part = part)),
       ], children: [
         if (error != null) ErrorState(error, retry: refresh),
-        if (detail == null && error == null) const Center(child: CircularProgressIndicator()),
+        if (detail == null && error == null) const Center(child: ActivityIndicator()),
         if (detail != null) ...[
           generateGroup([for (final value in values.entries) DetailRow.text(title: context.tr(value.key),
             value: value.value?.toString() ?? '—', stacked: const ['URL', 'Original URL', 'Connection ID', 'App', 'Error', 'Note', 'Upstream certificate SHA-256'].contains(value.key))]),

@@ -75,7 +75,7 @@ class _DashboardPageState extends State<DashboardPage> {
     final hidden = box.preferences['hiddenCards'] as List? ?? defaultHiddenCards;
     final shown = [for (final card in dashboardOrder(box.preferences))
       if (cards.containsKey(card) && (card == 'Status' || !hidden.contains(card))) card];
-    return CommonScaffold(title: context.tr(_editing ? 'Edit dashboard' : 'Dashboard'),
+    return Scaffold(title: context.tr(_editing ? 'Edit dashboard' : 'Dashboard'),
       isLoading: _saving, backgroundColor: SurfaceLevel.page.colorOf(context.colorScheme),
       confirmationAction: _editing ? IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Done'),
         onPressed: _saving ? null : () { _editor.currentState?.finish(); }) : null,
@@ -109,7 +109,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 }
 
-// Adapted from FlClash v0.9.2 dashboard/widgets/traffic.dart.
+// Adapted from FlClash v0.9.3 dashboard/widgets/traffic.dart.
 class _SpeedPanel extends StatelessWidget {
   const _SpeedPanel();
   @override Widget build(BuildContext context) => BoxPanel(child: Column(children: [
@@ -127,19 +127,19 @@ class _SpeedTile extends StatelessWidget {
     final color = upload ? colors.onSurfaceVariant : colors.primary;
     final show = bytes(box.rates[upload ? 'upload' : 'download'] as num? ?? 0).split(' ');
     final scale = math.max(1.0, MediaQuery.textScalerOf(context).scale(1));
-    final textHeight = 14 + 4 + (AppTextStyle.footnote.leading + AppTextStyle.title1.leading + AppTextStyle.caption1.leading) * scale;
+    final chartTop = 14 + 4 + AppTextStyle.footnote.leading * scale;
     return LayoutBuilder(builder: (context, constraints) {
-      final chartHeight = math.max(36.0, constraints.maxWidth / 1.06 - textHeight - 12 + 2);
       return Container(
+        constraints: BoxConstraints(minHeight: constraints.maxWidth / 1.45),
         clipBehavior: Clip.antiAlias,
         decoration: ShapeDecoration(color: SurfaceLevel.block.colorOf(colors), shape: AppShape.all(22)),
         child: Stack(children: [
-          Positioned(left: -2, right: -2, bottom: -2, height: chartHeight, child: LineChart(
+          Positioned(left: -2, right: -2, top: chartTop, bottom: -2, child: RepaintBoundary(child: LineChart(
             values: List.of(upload ? box.uploadHistory : box.downloadHistory), revision: box.sampleRevision,
             capacity: 30, minScale: 8 * 1024, baselineRatio: 1,
             color: upload ? Color.alphaBlend(colors.primary.withValues(alpha: .45), SurfaceLevel.card.colorOf(colors)) : colors.primary,
-          )),
-          Padding(padding: EdgeInsets.fromLTRB(16, 14, 16, chartHeight - 2 + 12), child: Column(
+          ))),
+          Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 12), child: Column(
             crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(spacing: 4, children: [
                 GlyphIcon(upload ? AppGlyphs.arrowUp : AppGlyphs.arrowDown, size: 16, color: color),

@@ -5,12 +5,12 @@ import 'package:b_box_ui/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-CommonScaffold scaffold(WidgetTester tester) => tester.widget<CommonScaffold>(
-  find.descendant(of: find.byType(AccessPage), matching: find.byType(CommonScaffold)).first,
+Scaffold scaffold(WidgetTester tester) => tester.widget<Scaffold>(
+  find.descendant(of: find.byType(AccessPage), matching: find.byType(Scaffold)).first,
 );
 
-CommonPopupMenuItem action(WidgetTester tester, String label) {
-  Iterable<CommonPopupMenuItem> flatten(List<CommonPopupMenuItem> items) sync* {
+PopupMenuItem action(WidgetTester tester, String label) {
+  Iterable<PopupMenuItem> flatten(List<PopupMenuItem> items) sync* {
     for (final item in items) {
       yield item;
       yield* flatten(item.subItems);

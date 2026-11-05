@@ -1,4 +1,4 @@
-// Adapted from FlClash v0.9.2 lib/common/ip_quality.dart (GPL-3.0).
+// Adapted from FlClash v0.9.3 lib/common/ip_quality.dart (GPL-3.0).
 // Provider order, response parsing, inferred fallback and quality rules are
 // preserved; requests use a cancellable sing-box transport instead of Dio.
 import 'dart:async';

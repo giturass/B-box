@@ -68,11 +68,11 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
             value: _values[field['submissionKey']] ?? '',
             textBuilder: (value) => rows(field['options']).firstWhere((o) => o['value'] == value, orElse: () => {'label': value})['label'].toString(),
             onChanged: (value) => setState(() => _values[field['submissionKey'].toString()] = value),
-          ) else Padding(padding: const EdgeInsets.all(16), child: TextField(
+          ) else Padding(padding: const EdgeInsets.all(16), child: BoxField(
+            label: (field['label'] ?? field['name']).toString(), child: TextField(
             controller: _controllers[field['submissionKey']], obscureText: field['kind'] == 'password',
             autocorrect: false, enableSuggestions: false,
-            decoration: InputDecoration(labelText: (field['label'] ?? field['name']).toString()),
-          )),
+          ))),
       ] else if (challenge['kind'] == 'open-url') ListItem(
         title: Text(context.tr('Open sign-in page')), subtitle: SelectableText((challenge['url'] ?? '').toString()),
         onTap: () => _box!.act('url.open', {'url': challenge['url']}),
@@ -87,10 +87,10 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
         Padding(padding: const EdgeInsets.all(16), child: FilledButton(onPressed: _busy ? null : _submit, child: Text(context.tr('Submit')))),
     ]);
   }
-  Widget _field(String key, String label, {bool secret = false}) => Padding(padding: const EdgeInsets.all(16), child: TextField(
+  Widget _field(String key, String label, {bool secret = false}) => Padding(padding: const EdgeInsets.all(16), child: BoxField(
+    label: context.tr(label), child: TextField(
     controller: _controllers[key], obscureText: secret, autocorrect: false, enableSuggestions: false,
-    decoration: InputDecoration(labelText: context.tr(label)),
-  ));
+  )));
 }
 
 class AuthBrowser extends StatefulWidget {
@@ -107,7 +107,7 @@ class _AuthBrowserState extends State<AuthBrowser> {
     });
   }
   @override void dispose() { _subscription?.cancel(); super.dispose(); }
-  @override Widget build(BuildContext context) => CommonScaffold(title: context.tr('Authentication'), body: Padding(
+  @override Widget build(BuildContext context) => Scaffold(title: context.tr('Authentication'), body: Padding(
     padding: EdgeInsets.only(top: context.contentTopPadding, bottom: context.bottomInset),
     child: AndroidView(viewType: 'io.ericlee.bfa/openconnect',
       creationParams: {'endpoint': widget.endpoint, 'challenge': widget.challenge},

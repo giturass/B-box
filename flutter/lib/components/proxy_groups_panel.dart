@@ -1,4 +1,4 @@
-import 'package:material_new_shapes/material_new_shapes.dart';
+import 'package:prism_ui/shapes/shapes.dart';
 import '../widgets.dart';
 import '../pages/proxies.dart';
 import 'shape_badge.dart';

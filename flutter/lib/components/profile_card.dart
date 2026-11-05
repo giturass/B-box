@@ -1,7 +1,7 @@
 import 'dart:async';
 import '../widgets.dart';
 
-// FlClash v0.9.2 profile rows, using only metadata supplied by Room.
+// FlClash v0.9.3 profile rows, using only metadata supplied by Room.
 double profileCardHeight(BuildContext context) {
   final measure = MeasureScope.of(context);
   return measure.textHeight(AppTextStyle.headline) + 4 +
@@ -14,13 +14,13 @@ class ProfileCard extends StatelessWidget {
   final Json profile;
   final bool selected, updating;
   final VoidCallback? onPressed;
-  final List<CommonPopupMenuItem> menuItems;
+  final List<PopupMenuItem> menuItems;
 
   @override Widget build(BuildContext context) {
     final titleStyle = AppTextStyle.headline.of(context);
     return ContextMenuRegion(
       menuItems: updating ? null : menuItems,
-      child: CommonCard(radius: AppCorner.xl, isSelected: selected, enterActionsOnRight: true,
+      child: Card(radius: AppCorner.xl, isSelected: selected, enterActionsOnRight: true,
         onPressed: onPressed,
         child: ListItem(
           minTileHeight: profileCardHeight(context), minVerticalPadding: listRowVerticalPadding,
@@ -37,7 +37,7 @@ class ProfileCard extends StatelessWidget {
               duration: context.motionDuration(commonDuration),
               layoutBuilder: (currentChild, previousChildren) => Stack(
                 alignment: AlignmentDirectional.centerEnd, children: [...previousChildren, ?currentChild]),
-              child: updating ? const CommonCircleLoading(key: ValueKey('updating'), size: 24)
+              child: updating ? const ActivityIndicator(key: ValueKey('updating'), size: 24)
                 : ProfileUpdateTime(key: const ValueKey('lastUpdate'), milliseconds: (profile['updatedAt'] as num?)?.toInt()),
             ),
             if (selected) const SelectionBadge(size: 24),

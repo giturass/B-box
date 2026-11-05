@@ -63,7 +63,7 @@ class _MemoryDetailsState extends State<MemoryDetails> {
   Future<void> _release() async {
     setState(() => _releasing = true);
     final box = context.box;
-    if (await box.act('dashboard.releaseMemory') && mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(context.tr('Memory released'))));
+    if (await box.act('dashboard.releaseMemory') && mounted) BannerHost.maybeOf(context)?.show(context.tr('Memory released'));
     if (mounted) setState(() => _releasing = false);
   }
   @override Widget build(BuildContext context) {

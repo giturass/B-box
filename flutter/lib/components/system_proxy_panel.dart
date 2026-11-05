@@ -1,5 +1,5 @@
-// Adapted from FlClash v0.9.2 network_takeover.dart (VpnCard) and card.dart (GPL-3.0).
-import 'package:material_new_shapes/material_new_shapes.dart';
+// Adapted from FlClash v0.9.3 network_takeover.dart (VpnCard) and card.dart (GPL-3.0).
+import 'package:prism_ui/shapes/shapes.dart';
 import '../widgets.dart';
 import 'shape_badge.dart';
 import 'system_proxy_glyph.dart';
@@ -35,12 +35,12 @@ class SystemProxyPanel extends StatelessWidget {
               style: AppTextStyle.footnote.of(context).copyWith(color: colors.onSurfaceVariant)),
           ])),
           SizedBox(
-            width: CommonSwitch.trackWidth,
-            height: CommonSwitch.trackHeight,
+            width: Switch.trackWidth,
+            height: Switch.trackHeight,
             child: OverflowBox(
               maxWidth: double.infinity,
               maxHeight: double.infinity,
-              child: CommonSwitch(value: enabled, semanticLabel: title, onChanged: change),
+              child: Switch(value: enabled, semanticLabel: title, onChanged: change),
             ),
           ),
         ]),

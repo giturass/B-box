@@ -91,7 +91,7 @@ class _CaptureAppsPageState extends State<CaptureAppsPage> {
     super.didChangeDependencies();
     _apps ??= context.box.call('apps.list', {'system': true, 'refresh': true}).then(rows);
   }
-  @override Widget build(BuildContext context) => CommonScaffold(title: context.tr('Capture applications'),
+  @override Widget build(BuildContext context) => Scaffold(title: context.tr('Capture applications'),
     searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query.toLowerCase())),
     confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Done'), onPressed: () => Navigator.pop(context, _selected.toList()..sort())),
     iconActions: [IconButtonData(glyph: AppGlyphs.clearAll, tooltip: context.tr('All applications'), onPressed: () => setState(_selected.clear))],
@@ -105,7 +105,7 @@ class _CaptureAppsPageState extends State<CaptureAppsPage> {
           if (index == 0) return Column(children: [
             Padding(padding: const EdgeInsets.all(12), child: Text(context.tr('An empty selection captures all applications routed through the local service. Unknown owners do not match a selected application. Applications sharing a UID share the same filter.'))),
             if (snapshot.hasError) ErrorState(snapshot.error!, retry: () => setState(() => _apps = context.box.call('apps.list', {'system': true, 'refresh': true}).then(rows))),
-            if (!snapshot.hasData && !snapshot.hasError) const Center(child: CircularProgressIndicator()),
+            if (!snapshot.hasData && !snapshot.hasError) const Center(child: ActivityIndicator()),
           ]);
           final app = visible[index - 1], package = app['package'].toString();
           return ListItem.checkbox(title: Text(app['name']?.toString() ?? package), subtitle: Text(package), value: _selected.contains(package),

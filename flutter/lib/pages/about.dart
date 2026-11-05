@@ -1,6 +1,7 @@
 import '../widgets.dart';
+import 'licenses.dart';
 
-// Hero and link badges adapted from FlClash v0.9.2 views/about.dart.
+// Hero and link badges adapted from FlClash v0.9.3 views/about.dart.
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key});
   @override State<AboutPage> createState() => _AboutPageState();
@@ -17,9 +18,9 @@ class _AboutPageState extends State<AboutPage> {
       final result = json(await box.call('updates.check'));
       if (!mounted) return;
       setState(() => _checking = false);
-      await showDialog<void>(context: context, builder: (context) => AlertDialog(
-        title: Text(context.tr(result['available'] == true ? 'Update available' : 'Check for updates')),
-        content: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: SingleChildScrollView(child: Column(
+      await showBoxDialog<void>(context: context, builder: (context) => AlertDialog(
+        title: context.tr(result['available'] == true ? 'Update available' : 'Check for updates'),
+        child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: SingleChildScrollView(child: Column(
           mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, spacing: 12, children: [
             Text(result['available'] == true ? 'B-box ${result['version']}' : context.tr(result['hasMetadata'] == false ? 'No release metadata available' : 'You are up to date')),
             if (result['available'] == true && result['notes'] is String && (result['notes'] as String).isNotEmpty) SelectableText(result['notes'] as String),
@@ -46,7 +47,7 @@ class _AboutPageState extends State<AboutPage> {
 
   @override Widget build(BuildContext context) {
     final box = context.box, colors = context.colorScheme;
-    return CommonScaffold(title: context.tr('About'), isLoading: _checking,
+    return Scaffold(title: context.tr('About'), isLoading: _checking,
       body: ListView(padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 32 + context.bottomInset), children: [
         Padding(padding: const EdgeInsets.fromLTRB(24, 16, 24, 0), child: Column(children: [
           DecoratedBox(decoration: ShapeDecoration(color: context.raisedSurfaceLevel.colorOf(colors), shape: AppShape.all(AppCorner.fit(96))),
@@ -68,9 +69,9 @@ class _AboutPageState extends State<AboutPage> {
         generateSection(title: context.tr('More'), items: [
           _link(AppGlyphs.code, 'Source code', 'github.com/giturass/B-box', 'https://github.com/giturass/B-box'),
           _link(AppGlyphs.cpu, 'Core', 'sing-box ${box.coreVersion}', 'https://github.com/SagerNet/sing-box'),
-          _link(AppGlyphs.paintbrush, 'FlClash interface', 'chen08209/FlClash · v0.9.2 · GPL-3.0', 'https://github.com/chen08209/FlClash/tree/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7'),
+          _link(AppGlyphs.paintbrush, 'FlClash interface', 'FlClash v0.9.3 · prism_ui 0.1.2 · GPL-3.0', 'https://github.com/chen08209/FlClash/tree/be84736605527034689c95bf27828ff27d912c5e'),
           ListItem(leading: const _LinkBadge(glyph: AppGlyphs.info), title: Text(context.tr('Open-source licenses')),
-            onTap: () => showLicensePage(context: context, applicationName: 'B-box', applicationVersion: box.version)),
+            onTap: () => openPage(context, const LicensesPage())),
         ]),
       ]),
     );

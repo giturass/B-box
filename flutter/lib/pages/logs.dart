@@ -1,4 +1,4 @@
-import 'package:super_sliver_list/super_sliver_list.dart';
+import 'package:prism_ui/sliver_list/super_sliver_list.dart';
 import '../widgets.dart';
 import '../components/record.dart';
 import '../components/data_subscription.dart';
@@ -46,7 +46,7 @@ class _LogsPageState extends State<LogsPage> {
       _matchesLevel(item, box.defaultLogLevel) &&
       words.every(([item['level'], item['message']].join(' ').toLowerCase()).contains),
     ).toList();
-    return BoxDataSubscription(data: BoxData.logs, child: CommonScaffold(
+    return BoxDataSubscription(data: BoxData.logs, child: Scaffold(
       title: context.tr('Logs'),
       onKeywordsUpdate: (words) => setState(() => _query = words.join(' ')),
       searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
@@ -54,16 +54,16 @@ class _LogsPageState extends State<LogsPage> {
         'name': 'B-box.log', 'content': logs.map((line) => '${recordTime(line['receivedAt'])} [${line['level']}] ${line['message']}').join('\n'),
       }))],
       menuItems: [
-        CommonPopupMenuItem(glyph: _paused == null ? AppGlyphs.playPause(1) : AppGlyphs.playPause(0),
+        PopupMenuItem(glyph: _paused == null ? AppGlyphs.playPause(1) : AppGlyphs.playPause(0),
           label: context.tr(_paused == null ? 'Pause' : 'Resume'), onPressed: _paused == null ? _pause : _resume),
-        CommonPopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear'), onPressed: () async {
+        PopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear'), onPressed: () async {
           if (await box.act('logs.clear') && mounted) setState(() => _paused = null);
         }),
         for (final level in ['Default', 'All', 'Trace', 'Debug', 'Info', 'Warn', 'Error', 'Fatal', 'Panic'])
-          CommonPopupMenuItem(label: level == 'Default'
+          PopupMenuItem(label: level == 'Default'
               ? '${context.tr('Follow configuration')}${box.defaultLogLevel == null ? '' : ' (${context.tr(box.defaultLogLevel!)})'}'
               : context.tr(level), checked: _level == level,
-            section: level == 'Default' ? CommonPopupMenuSection(title: context.tr('Log level')) : null,
+            section: level == 'Default' ? PopupMenuSection(title: context.tr('Log level')) : null,
             onPressed: () => setState(() => _level = level)),
       ],
       body: NullStatusSwitcher(

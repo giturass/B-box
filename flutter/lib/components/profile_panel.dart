@@ -18,7 +18,7 @@ class _ProfilePanelState extends State<ProfilePanel> {
       ? openForm(context, const AddProfilePage()) : openForm(context, ProfileDetailsPage(profile: profile)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         PanelTitle('Profile', AppGlyphs.profiles, trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-          if (profile?['remote'] == true) SizedBox.square(dimension: 26, child: _updating ? const Center(child: CommonCircleLoading(size: 18)) : IconButton(
+          if (profile?['remote'] == true) SizedBox.square(dimension: 26, child: _updating ? const Center(child: ActivityIndicator(size: 18)) : IconButton(
             padding: EdgeInsets.zero, tooltip: context.tr('Update'), icon: const GlyphIcon(AppGlyphs.sync, size: 18), onPressed: () async {
               setState(() => _updating = true);
               await box.act('profiles.update', {'id': profile!['id']});

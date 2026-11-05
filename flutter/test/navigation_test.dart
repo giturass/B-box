@@ -12,6 +12,9 @@ import 'package:b_box_ui/pages/settings.dart';
 import 'package:b_box_ui/pages/diagnostics.dart';
 import 'package:b_box_ui/pages/reports.dart';
 import 'package:b_box_ui/pages/profiles.dart';
+import 'package:b_box_ui/pages/proxies.dart';
+import 'package:b_box_ui/components/navigation_bar.dart';
+import 'package:b_box_ui/components/page_switcher.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -23,6 +26,54 @@ void main() {
       if (font.existsSync()) await (FontLoader('Roboto')..addFont(Future.value(ByteData.sublistView(await font.readAsBytes())))).load();
     }
   });
+  for (final (dark, pureBlack, scale) in [(false, false, 1.0), (true, false, 1.4), (true, true, 1.4)]) {
+    testWidgets('fixed navigation keeps safe area, background and tab selection dark=$dark black=$pureBlack', (tester) async {
+      tester.view.physicalSize = const Size(320, 800);
+      tester.view.devicePixelRatio = 1;
+      tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+      tester.platformDispatcher.textScaleFactorTestValue = scale;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      const channel = MethodChannel('test.navigation.fixed');
+      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready' ? {
+        'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'},
+        'preferences': {'theme': dark ? 'dark' : 'light', 'pureBlack': pureBlack, 'floatingNavigation': false},
+      } : null);
+      final events = StreamController<dynamic>.broadcast();
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox());
+        await events.close();
+        messenger.setMockMethodCallHandler(channel, null);
+      });
+      final boundary = GlobalKey();
+      await tester.pumpWidget(RepaintBoundary(key: boundary,
+        child: BoxApp(controller: BoxController(channel: channel, events: events.stream))));
+      await tester.pumpAndSettle();
+      final bar = find.byType(BoxNavigationBar);
+      expect(tester.getSize(bar).height, 64 + 24);
+      expect(tester.getBottomRight(bar).dy, 800);
+      expect(tester.getBottomRight(find.byType(PageSwitcher)).dy, tester.getTopLeft(bar).dy);
+      final surface = tester.widget<Surface>(find.descendant(of: bar, matching: find.byType(Surface)).first);
+      expect(surface.color, Theme.of(tester.element(bar)).scaffoldBackgroundColor);
+      if (pureBlack) expect(surface.color, Colors.black);
+      await tester.tap(find.descendant(of: bar, matching: find.text('Proxies')));
+      await tester.pumpAndSettle();
+      expect(tester.widget<BoxNavigationBar>(bar).selectedIndex, 1);
+      expect(find.byType(ProxiesPage), findsOneWidget);
+      expect(find.ancestor(of: find.descendant(of: bar, matching: find.text('Proxies')),
+        matching: find.byWidgetPredicate((widget) => widget is Semantics && widget.properties.selected == true)), findsWidgets);
+      expect(tester.takeException(), isNull);
+      await tester.runAsync(() async {
+        final bitmap = await (boundary.currentContext!.findRenderObject()! as RenderRepaintBoundary).toImage();
+        final data = await bitmap.toByteData(format: ui.ImageByteFormat.png);
+        final file = File('build/screenshots/navigation/fixed-${pureBlack ? 'black' : dark ? 'dark' : 'light'}.png');
+        await file.parent.create(recursive: true);
+        await file.writeAsBytes(data!.buffer.asUint8List());
+        bitmap.dispose();
+      });
+    });
+  }
   for (final (size, dark, fontScale) in [(const Size(360, 800), false, 1.0), (const Size(360, 800), true, 1.4), (const Size(800, 1000), false, 1.0)]) {
     testWidgets('all primary routes render at $size dark=$dark scale=$fontScale', (tester) async {
       tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];

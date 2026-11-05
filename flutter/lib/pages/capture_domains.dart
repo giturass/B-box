@@ -30,7 +30,7 @@ class _CaptureDomainsPageState extends State<CaptureDomainsPage> {
     if (context.box.remote) return const BoxPage(title: 'Extract domains', children: [EmptyState('HTTP debugging is only available for the local service')]);
     return FutureBuilder<List<String>>(future: _domains, builder: (context, snapshot) {
       final domains = snapshot.data ?? [];
-      return CommonScaffold(title: context.tr('Extract domains'), isLoading: _busy,
+      return Scaffold(title: context.tr('Extract domains'), isLoading: _busy,
         confirmationAction: widget.select ? IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Add domains'),
           onPressed: _selected.isEmpty ? null : () => Navigator.pop(context, _selected.toList()..sort())) : null,
         iconActions: [
@@ -47,7 +47,7 @@ class _CaptureDomainsPageState extends State<CaptureDomainsPage> {
             if (index == 0) return Column(children: [
               ListFooter(text: context.tr('Domains are extracted from retained requests and visible TLS/QUIC names, using the current search filter. Encrypted hostnames cannot be recovered.')),
               if (snapshot.hasError) ErrorState(snapshot.error!, retry: () => setState(() => _domains = _load())),
-              if (!snapshot.hasData && !snapshot.hasError) const Center(child: CircularProgressIndicator()),
+              if (!snapshot.hasData && !snapshot.hasError) const Center(child: ActivityIndicator()),
               if (snapshot.hasData && domains.isEmpty) const EmptyState('No captured domains'),
             ]);
             final host = domains[index - 1];

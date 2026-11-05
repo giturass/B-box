@@ -9,12 +9,13 @@ import 'pages/tools.dart';
 import 'pages/taildrop.dart';
 import 'theme_settings.dart';
 import 'components/page_switcher.dart';
+import 'components/navigation_bar.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   LicenseRegistry.addLicense(() async* {
-    for (final entry in const {'FlClash': 'LICENSE', 'Goja': 'goja-LICENSE', 'robfig/cron': 'cron-LICENSE', 'regexp2': 'regexp2-LICENSE', 'go-sourcemap': 'sourcemap-LICENSE', 'Google pprof': 'pprof-LICENSE', 'Brotli': 'brotli-LICENSE', 'klauspost/compress': 'klauspost-compress-LICENSE', 'cilium/ebpf': 'cilium-ebpf-LICENSE', 'golang.org/x/arch': 'golang-x-arch-LICENSE', 'ulikunitz/xz': 'xz-LICENSE', 'JetBrains Mono': 'JetBrainsMono-OFL.txt', 'Twemoji / Mozilla': 'Twemoji-LICENSE.md'}.entries) {
+    for (final entry in const {'FlClash': 'LICENSE', 'prism_ui': 'LICENSE', 'prism_ui third-party notices': 'prism_ui-NOTICE', 'prism_ui shapes / material_new_shapes': 'prism_shapes-LICENSE', 'prism_ui lists / super_sliver_list': 'prism_sliver_list-LICENSE', 'prism_ui sheets / navigator_resizable': 'prism_navigator-LICENSE', 'Goja': 'goja-LICENSE', 'robfig/cron': 'cron-LICENSE', 'regexp2': 'regexp2-LICENSE', 'go-sourcemap': 'sourcemap-LICENSE', 'Google pprof': 'pprof-LICENSE', 'Brotli': 'brotli-LICENSE', 'klauspost/compress': 'klauspost-compress-LICENSE', 'cilium/ebpf': 'cilium-ebpf-LICENSE', 'golang.org/x/arch': 'golang-x-arch-LICENSE', 'ulikunitz/xz': 'xz-LICENSE', 'JetBrains Mono': 'JetBrainsMono-OFL.txt', 'Twemoji / Mozilla': 'Twemoji-LICENSE.md'}.entries) {
       yield LicenseEntryWithLineBreaks([entry.key], await rootBundle.loadString('assets/licenses/${entry.value}'));
     }
   });
@@ -28,13 +29,14 @@ class BoxApp extends StatefulWidget {
 }
 
 class _BoxAppState extends State<BoxApp> with WidgetsBindingObserver {
-  final _messenger = GlobalKey<ScaffoldMessengerState>();
+  final _navigator = GlobalKey<NavigatorState>();
   StreamSubscription<String>? _messages;
   @override void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _messages = widget.controller.messages.stream.listen((message) {
-      _messenger.currentState?.showSnackBar(SnackBar(content: Text(message)));
+      final context = _navigator.currentContext;
+      if (context != null) BannerHost.maybeOf(context)?.show(message);
     });
     widget.controller.initialize();
   }
@@ -53,18 +55,10 @@ class _BoxAppState extends State<BoxApp> with WidgetsBindingObserver {
     final scheme = appColorScheme(widget.controller, brightness);
     final key = "$brightness:${scheme.hashCode}";
     return _themes.putIfAbsent(key, () => ThemeData(
-      useMaterial3: true,
       colorScheme: scheme,
       fontFamilyFallback: appFontFamilyFallback(platform: defaultTargetPlatform, locales: WidgetsBinding.instance.platformDispatcher.locales),
-      actionIconTheme: ActionIconThemeData(
-        backButtonIconBuilder: (context) => GlyphIcon(AppGlyphs.backFor(Theme.of(context).platform)),
-        closeButtonIconBuilder: (_) => const GlyphIcon(AppGlyphs.close),
-      ),
-      pageTransitionsTheme: const PageTransitionsTheme(builders: {
-        TargetPlatform.android: commonSharedXPageTransitions,
-      }),
-      extensions: [if (brightness == Brightness.dark) ElevatedColorScheme(scheme.elevated)],
-    ).withAppShapes.withAppSurfaces.withAppTypography);
+      elevatedColorScheme: brightness == Brightness.dark ? scheme.elevated : null,
+    ));
   }
 
   @override
@@ -73,47 +67,46 @@ class _BoxAppState extends State<BoxApp> with WidgetsBindingObserver {
     child: Builder(
       builder: (context) {
         final prefs = BoxScope.of(context, aspect: BoxAspect.appearance).preferences;
-        return MaterialApp(
+        return PrismApp(
           title: 'B-box',
           debugShowCheckedModeBanner: false,
-          scaffoldMessengerKey: _messenger,
+          navigatorKey: _navigator,
           theme: _theme(Brightness.light),
           darkTheme: _theme(Brightness.dark),
           themeMode: ThemeMode.values.firstWhere((mode) => mode.name == prefs['theme'], orElse: () => ThemeMode.system),
           supportedLocales: const [Locale('en'), Locale('zh')],
           localizationsDelegates: const [
-            BoxUiDelegate(), ...GlobalMaterialLocalizations.delegates,
+            BoxUiDelegate(), GlobalWidgetsLocalizations.delegate,
           ],
+          minTextScale: .8,
+          maxTextScale: 1.4,
+          liquidGlass: switch (prefs['liquidGlass']) {
+            'ultra' => LiquidGlassQuality.ultra,
+            'standard' => LiquidGlassQuality.standard,
+            _ => null,
+          },
+          emojiFont: (family: FontFamily.twEmoji.value, pattern: emojiPattern),
           builder: (context, child) {
             final media = MediaQuery.of(context);
-            final scale = media.textScaler.scale(1).clamp(.8, 1.4);
-            final glass = (prefs['liquidGlass'] ?? 'none') != 'none';
-            return MeasureScope(
-              measure: Measure.of(context, scale),
-              child: ViewScope(
+            return ViewScope(
               size: media.size,
               isMobile: media.size.width < 600,
-              child: MediaQuery(
-                data: media.copyWith(textScaler: TextScaler.linear(scale)),
-                child: AnnotatedRegion<SystemUiOverlayStyle>(
+              child: AnnotatedRegion<SystemUiOverlayStyle>(
                   value: SystemUiOverlayStyle(
                     statusBarColor: Colors.transparent, systemNavigationBarColor: Colors.transparent,
                     statusBarIconBrightness: Theme.of(context).brightness == Brightness.dark ? Brightness.light : Brightness.dark,
                     systemNavigationBarIconBrightness: Theme.of(context).brightness == Brightness.dark ? Brightness.light : Brightness.dark,
                   ),
-                  child: LiquidGlassScope(enabled: glass,
-                    quality: prefs['liquidGlass'] == 'ultra' ? LiquidGlassQuality.ultra : LiquidGlassQuality.standard,
-                    child: LiquidGlassHost(enabled: glass, child: child!)),
-                ),
+                  child: child!,
               ),
-            ),
             );
           },
-          home: widget.controller.ready ? const HomePage() : Scaffold(
-            body: SafeArea(child: Center(child: widget.controller.startupError == null
-                ? const CircularProgressIndicator()
+          home: widget.controller.ready ? const HomePage() : Builder(builder: (context) => Surface(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            child: SafeArea(child: Center(child: widget.controller.startupError == null
+                ? const ActivityIndicator()
                 : ErrorState(widget.controller.startupError!, retry: widget.controller.initialize))),
-          ),
+          )),
         );
       },
     ),
@@ -127,6 +120,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int _index = 0;
+  bool _sidebarExpanded = false;
   StreamSubscription<String>? _intents;
   BoxController? _box;
   bool _handlingIntent = false;
@@ -178,25 +172,17 @@ class _HomePageState extends State<HomePage> {
         TickerMode(enabled: i == _index, child: PageActivityScope(isActive: i == _index, child: _pages[i])),
       ],
     );
-    return Scaffold(
-        bottomNavigationBar: mobile && !floating ? NavigationBar(
-          height: 64,
-          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-          elevation: 0,
-          surfaceTintColor: Colors.transparent,
-          selectedIndex: _index,
-          onDestinationSelected: (index) => setState(() => _index = index),
-          destinations: [for (final (i, item) in _items.indexed)
-            NavigationDestination(icon: AnimatedGlyph(glyph: item.$2, filled: i == _index), label: context.tr(item.$1)),
-          ],
-        ) : null,
-        body: Row(children: [
-          if (!mobile) NavigationRail(
+    return Surface(
+      color: Theme.of(context).scaffoldBackgroundColor,
+      child: Column(children: [
+        Expanded(child: Row(children: [
+          if (!mobile) NavigationSidebar(
             selectedIndex: _index,
-            onDestinationSelected: (index) => setState(() => _index = index),
-            labelType: NavigationRailLabelType.all,
-            destinations: [for (final item in _items) NavigationRailDestination(
-              icon: GlyphIcon(item.$2), label: Text(context.tr(item.$1)),
+            expanded: _sidebarExpanded,
+            onToggle: () => setState(() => _sidebarExpanded = !_sidebarExpanded),
+            onSelected: (index) => setState(() => _index = index),
+            destinations: [for (final item in _items) SidebarDestination(
+              glyph: item.$2, label: context.tr(item.$1),
             )],
           ),
           Expanded(child: Stack(children: [
@@ -213,7 +199,15 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
           ])),
-        ]),
+        ])),
+        if (mobile && !floating) BoxNavigationBar(
+          selectedIndex: _index,
+          onDestinationSelected: (index) => setState(() => _index = index),
+          destinations: [for (final (i, item) in _items.indexed)
+            NavigationDestination(icon: AnimatedGlyph(glyph: item.$2, filled: i == _index), label: context.tr(item.$1)),
+          ],
+        ),
+      ]),
     );
   }
 }

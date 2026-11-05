@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
-import 'ui/l10n.dart';
+import 'package:prism_ui/l10n.dart';
 
 const _zh = <String, String>{
   "Scripts": "脚本",
@@ -347,6 +347,7 @@ const _zh = <String, String>{
   'Style': '样式', 'Size': '大小', 'Tight': '密集', 'Loose': '宽松', 'Speed': '速度',
   'Scroll to selected': '定位已选代理', 'Hide timeout proxies': '隐藏超时代理',
   'Log level': '日志级别', 'Follow configuration': '跟随配置',
+  'Cut': '剪切', 'Dialog': '对话框',
   'Trace': '跟踪', 'Debug': '调试', 'Info': '信息', 'Warn': '警告', 'Fatal': '致命', 'Panic': '崩溃',
   'Turn on': '开启', 'Turn off': '关闭', 'Select all': '全选', 'Deselect all': '取消全选', 'Action': '操作', 'Time': '时间',
   'Clipboard import': '从剪贴板导入', 'Clipboard export': '导出到剪贴板',
@@ -366,11 +367,17 @@ class BoxUiLocalizations extends UiLocalizations {
   @override String get cancel => _t('Cancel');
   @override String get clearSearch => _t('Clear search');
   @override String get close => _t('Close');
+  @override String get copy => _t('Copy');
+  @override String get cut => _t('Cut');
+  @override String get dialog => _t('Dialog');
   @override String get hidePassword => _t('Hide password');
   @override String get more => _t('More');
   @override String get noSearchResults => _t('No search results');
+  @override String get paste => _t('Paste');
   @override String get reset => _t('Reset');
   @override String get search => _t('Search');
+  @override String get select => _t('Select');
+  @override String get selectAll => _t('Select all');
   @override String get showLess => _t('Show less');
   @override String get showMore => _t('Show more');
   @override String get showPassword => _t('Show password');

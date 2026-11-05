@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'package:material_new_shapes/material_new_shapes.dart';
+import 'package:prism_ui/shapes/shapes.dart';
 import '../widgets.dart';
 import 'shape_badge.dart';
 
@@ -10,8 +10,6 @@ final _startMorph = Morph(MaterialShapes.circle, MaterialShapes.cookie9Sided);
 
 Path _morphPath(double progress) => _startMorph.toPath(
   progress: progress,
-  rotationPivotX: 0.5,
-  rotationPivotY: 0.5,
 );
 
 double _morphTurn(double progress) => progress * 2 * math.pi / 9;
@@ -54,7 +52,7 @@ class _StartToggleState extends State<StartToggle>
   var _focused = false;
 
   /// The M3 state layer, painted inside the shape: the card's decoration
-  /// covers the button, so ink on the card's Material would never show.
+  /// covers the button, so ink on the card would never show.
   double get _overlay => !widget.enabled
       ? 0
       : _focused
@@ -105,14 +103,13 @@ class _StartToggleState extends State<StartToggle>
         button: true,
         enabled: enabled,
         label: tooltip,
-        child: InkResponse(
+        child: PressRegion(
           onTap: enabled ? _toggle : null,
           onHover: (value) => setState(() => _hovered = value),
-          onHighlightChanged: (value) => setState(() => _pressed = value),
+          onPressedChanged: (value) => setState(() => _pressed = value),
           onFocusChange: (value) => setState(() => _focused = value),
-          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-          splashFactory: NoSplash.splashFactory,
-          child: ElasticPress(
+
+child: ElasticPress(
             enabled: enabled,
             child: TweenAnimationBuilder<double>(
               tween: Tween(end: _overlay),

@@ -32,19 +32,18 @@ class _Scenario {
 }
 
 Widget _frame(_Scenario scenario, GlobalKey boundary, Widget child, BoxController box, {String runtime = '00:05:30'}) =>
-  BoxScope(controller: box, child: MaterialApp(
+  BoxScope(controller: box, child: PrismApp(
     locale: Locale(scenario.locale), supportedLocales: const [Locale('en'), Locale('zh')],
-    localizationsDelegates: const [BoxUiDelegate(), ...GlobalMaterialLocalizations.delegates],
-    theme: ThemeData(useMaterial3: true, fontFamily: 'Roboto', fontFamilyFallback: const ['BboxStatusCJK'],
+    localizationsDelegates: const [BoxUiDelegate(), GlobalWidgetsLocalizations.delegate],
+    theme: ThemeData(fontFamily: 'Roboto', fontFamilyFallback: const ['BboxStatusCJK'],
       colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff007aff),
-        brightness: scenario.dark ? Brightness.dark : Brightness.light))
-      .withAppShapes.withAppSurfaces.withAppTypography,
+        brightness: scenario.dark ? Brightness.dark : Brightness.light)),
     home: Builder(builder: (context) => MeasureScope(measure: Measure.of(context, scenario.scale),
       child: ViewScope(size: Size(scenario.width, 800), isMobile: true,
         child: MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scenario.scale), disableAnimations: true),
           child: reference.DashboardDensityScope(density: reference.DashboardDensity.mobile, scale: math.max(1, scenario.scale),
             child: reference.ReferenceRuntimeScope(text: runtime,
-              child: Scaffold(body: Align(alignment: Alignment.topCenter,
+              child: Surface(child: Align(alignment: Alignment.topCenter,
                 child: UnconstrainedBox(constrainedAxis: Axis.horizontal, alignment: Alignment.topCenter,
                   child: RepaintBoundary(key: boundary,
                   child: ColoredBox(color: SurfaceLevel.page.colorOf(context.colorScheme),

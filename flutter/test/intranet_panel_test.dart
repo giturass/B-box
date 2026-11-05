@@ -31,9 +31,9 @@ class _LAN {
 
   List<MethodCall> get mutations => calls.where((call) => call.method == 'dashboard.lan.set').toList();
   Finder get panel => find.byType(IntranetPanel);
-  Finder get switchWidget => find.descendant(of: panel, matching: find.byType(CommonSwitch));
+  Finder get switchWidget => find.descendant(of: panel, matching: find.byType(Switch));
   Finder get copy => find.descendant(of: panel, matching: find.byTooltip('Copy'));
-  CommonSwitch switchValue(WidgetTester tester) => tester.widget<CommonSwitch>(switchWidget);
+  Switch switchValue(WidgetTester tester) => tester.widget<Switch>(switchWidget);
 
   Future<void> mount(WidgetTester tester, {String locale = 'en', double scale = 1, double width = 360}) async {
     reportFlutterErrors();

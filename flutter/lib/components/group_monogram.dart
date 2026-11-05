@@ -1,6 +1,6 @@
 import '../widgets.dart';
 
-// FlClash v0.9.2 widgets/icon.dart: a real group name supplies the fallback.
+// FlClash v0.9.3 widgets/icon.dart: a real group name supplies the fallback.
 class GroupMonogram extends StatelessWidget {
   const GroupMonogram(this.name, {super.key});
   final String name;

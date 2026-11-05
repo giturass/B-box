@@ -197,7 +197,7 @@ void main() {
     await tester.enterText(find.byType(TextField).last, draft);
     await tester.pumpAndSettle();
     expect(tester.widget<BoxEditGuard>(find.byType(BoxEditGuard)).dirty, isTrue);
-    expect(SheetProvider.of(tester.element(find.descendant(of: find.byType(ConfigValueEditor), matching: find.byType(CommonScaffold))))?.onClose, isNotNull);
+    expect(SheetProvider.of(tester.element(find.descendant(of: find.byType(ConfigValueEditor), matching: find.byType(Scaffold))))?.onClose, isNotNull);
     await tester.tap(find.text('Cancel').last);
     await tester.pumpAndSettle();
     expect(find.text('Discard changes?'), findsOneWidget);

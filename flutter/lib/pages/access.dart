@@ -111,8 +111,8 @@ class _AccessPageState extends State<AccessPage> {
 
   Future<bool> _back(BuildContext context) async {
     if (_saving) return false;
-    final decision = await showDialog<String>(context: context, builder: (context) => AlertDialog(
-      title: Text(context.tr('Unsaved changes')),
+    final decision = await showBoxDialog<String>(context: context, builder: (context) => AlertDialog(
+      title: context.tr('Unsaved changes'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: Text(context.tr('Cancel'))),
         TextButton(onPressed: () => Navigator.pop(context, 'discard'), child: Text(context.tr('Discard'))),
@@ -146,8 +146,8 @@ class _AccessPageState extends State<AccessPage> {
     if (mounted && (retry || permissionRequested || box.settings['queryMode'] != previousMode)) _reload();
   }
 
-  CommonPopupMenuItem _option(String label, String value, VoidCallback change, {bool checked = false, CommonPopupMenuSection? section}) =>
-    CommonPopupMenuItem(label: context.tr(label), checked: checked, section: section, onPressed: change);
+  PopupMenuItem _option(String label, String value, VoidCallback change, {bool checked = false, PopupMenuSection? section}) =>
+    PopupMenuItem(label: context.tr(label), checked: checked, section: section, onPressed: change);
 
   @override Widget build(BuildContext context) => FutureBuilder<List<Json>>(
     future: _apps,
@@ -165,9 +165,9 @@ class _AccessPageState extends State<AccessPage> {
         },
       ) : null;
       final mode = _managed ? 1 : _draft!['perAppMode'];
-      return CommonPopScope(
+      return PopGuard(
         onPop: _hasChanges || _saving ? _back : null,
-        child: CommonScaffold(
+        child: Scaffold(
           title: context.tr('Access control'), isLoading: _saving || _scanning,
           searchInBar: true,
           searchState: AppBarSearchState(onSearch: (query) => _filter(() { _query = query; _pinned = _selected; })),
@@ -175,28 +175,28 @@ class _AccessPageState extends State<AccessPage> {
           iconActions: [if (selectAll != null) selectAll],
           confirmationAction: _hasChanges ? IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'), onPressed: _saving ? null : _save) : null,
           menuItems: [
-            CommonPopupMenuItem(glyph: AppGlyphs.toggleOn, label: context.tr('Turn on'), checked: _enabled,
-              section: CommonPopupMenuSection(title: context.tr('Access control')), onPressed: () => _set('perAppEnabled', true)),
-            CommonPopupMenuItem(glyph: AppGlyphs.toggle, label: context.tr('Turn off'), checked: !_enabled, onPressed: () => _set('perAppEnabled', false)),
-            CommonPopupMenuItem(glyph: AppGlyphs.sliders, label: context.tr('Settings'), subtitle: context.tr(mode == 2 ? 'Proxy selected apps' : 'Bypass selected apps'),
-              section: const CommonPopupMenuSection(), subItems: [
+            PopupMenuItem(glyph: AppGlyphs.toggleOn, label: context.tr('Turn on'), checked: _enabled,
+              section: PopupMenuSection(title: context.tr('Access control')), onPressed: () => _set('perAppEnabled', true)),
+            PopupMenuItem(glyph: AppGlyphs.toggle, label: context.tr('Turn off'), checked: !_enabled, onPressed: () => _set('perAppEnabled', false)),
+            PopupMenuItem(glyph: AppGlyphs.sliders, label: context.tr('Settings'), subtitle: context.tr(mode == 2 ? 'Proxy selected apps' : 'Bypass selected apps'),
+              section: const PopupMenuSection(), subItems: [
                 for (final value in [2, 1]) _option(value == 2 ? 'Proxy selected apps' : 'Bypass selected apps', '$value', () => _set('perAppMode', value),
-                  checked: mode == value, section: value == 2 ? CommonPopupMenuSection(title: context.tr('Mode')) : null),
+                  checked: mode == value, section: value == 2 ? PopupMenuSection(title: context.tr('Mode')) : null),
                 for (final sort in ['Default', 'Name', 'Time']) _option(sort, sort, () => _filter(() => _sort = sort), checked: sort == _sort,
-                  section: sort == 'Default' ? CommonPopupMenuSection(title: context.tr('Sort')) : null),
+                  section: sort == 'Default' ? PopupMenuSection(title: context.tr('Sort')) : null),
                 _option('Show system apps', '', () => _filter(() => _system = !_system, sourceChanged: true), checked: _system,
-                  section: CommonPopupMenuSection(title: context.tr('Source'))),
+                  section: PopupMenuSection(title: context.tr('Source'))),
                 _option('Show apps without Internet permission', '', () => _filter(() => _nonInternet = !_nonInternet, sourceChanged: true), checked: _nonInternet),
                 _option('Selected apps', '', () => _filter(() => _selectedOnly = !_selectedOnly), checked: _selectedOnly),
                 _option('Managed app list', '', () => _set('perAppManaged', !_managed), checked: _managed),
               ]),
-            CommonPopupMenuItem(glyph: AppGlyphs.moreCircle, label: context.tr('Action'), subItems: [
-              CommonPopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Clipboard export'), onPressed: () => Clipboard.setData(ClipboardData(text: selected.join('\n')))),
-              if (!_managed) CommonPopupMenuItem(glyph: AppGlyphs.paste, label: context.tr('Clipboard import'), onPressed: _import),
-              CommonPopupMenuItem(glyph: AppGlyphs.refresh, label: context.tr('Refresh'), onPressed: _reload),
-              if (_managed) CommonPopupMenuItem(glyph: AppGlyphs.appsList, label: context.tr('Rescan managed apps'),
+            PopupMenuItem(glyph: AppGlyphs.moreCircle, label: context.tr('Action'), subItems: [
+              PopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Clipboard export'), onPressed: () => Clipboard.setData(ClipboardData(text: selected.join('\n')))),
+              if (!_managed) PopupMenuItem(glyph: AppGlyphs.paste, label: context.tr('Clipboard import'), onPressed: _import),
+              PopupMenuItem(glyph: AppGlyphs.refresh, label: context.tr('Refresh'), onPressed: _reload),
+              if (_managed) PopupMenuItem(glyph: AppGlyphs.appsList, label: context.tr('Rescan managed apps'),
                 onPressed: _scanning || _saving || _hasChanges ? null : _rescan),
-              CommonPopupMenuItem(glyph: AppGlyphs.lockOpen, label: context.tr('Application query'), onPressed: _querySettings),
+              PopupMenuItem(glyph: AppGlyphs.lockOpen, label: context.tr('Application query'), onPressed: _querySettings),
             ]),
           ],
           body: FloatingFootBar(
@@ -210,10 +210,10 @@ class _AccessPageState extends State<AccessPage> {
             body: snapshot.hasError ? NullStatus(
               label: context.tr('Application query failed'), description: BoxController.describe(snapshot.error!), illustration: NullStatusIllustration.permission,
               action: TonalButton(size: TonalButtonSize.bar, glyph: AppGlyphs.lockOpen, label: context.tr('Application query'), onPressed: () => _querySettings(retry: true)),
-            ) : !snapshot.hasData ? const Center(child: CommonCircleLoading.page())
+            ) : !snapshot.hasData ? const Center(child: ActivityIndicator.page())
               : NullStatusSwitcher(isEmpty: apps.isEmpty, isSearching: _query.trim().isNotEmpty,
                   nullStatus: NullStatus(label: context.tr('No results'), illustration: NullStatusIllustration.apps),
-                  child: DisabledMask(status: !_enabled, child: CommonScrollBar(controller: _scroll, child: ListView.builder(
+                  child: DisabledMask(status: !_enabled, child: Scrollbar(controller: _scroll, child: ListView.builder(
                     controller: _scroll, itemCount: apps.length,
                     itemExtent: 72 * MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 1.4),
                     padding: EdgeInsets.only(top: context.contentTopPadding, bottom: context.bottomInset),
