@@ -125,14 +125,14 @@ void main() {
     expect(find.text('No domains selected'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('mitm-enabled')));
     await tester.pumpAndSettle();
-    for (final key in ['mitm-h2', 'mitm-skip-server-cert-verify', 'mitm-block-quic']) {
-      await tester.ensureVisible(find.byKey(ValueKey(key)));
-      await tester.tap(find.byKey(ValueKey(key)));
+    for (final key in ['mitm-h2', 'mitm-skip-server-cert-verify', 'mitm-tcp', 'mitm-block-quic']) {
+      final control = find.byKey(ValueKey(key));
+      await tester.ensureVisible(control);
+      await tester.pumpAndSettle();
+      expect(control.hitTestable(), findsOneWidget);
+      await tester.tap(control.hitTestable());
       await tester.pumpAndSettle();
     }
-    await tester.ensureVisible(find.byKey(const ValueKey('mitm-tcp')));
-    await tester.tap(find.byKey(const ValueKey('mitm-tcp')));
-    await tester.pumpAndSettle();
     expect(store.value(MitmConfigPage.path), {'enabled': true, 'tcp': true, 'h2': true, 'skip_server_cert_verify': true, 'block_quic': false});
     expect(store.value(ScriptsConfigPage.path), isNull);
     openPage(tester.element(find.byType(MitmConfigPage)), ScriptsConfigPage(store: store));

@@ -190,6 +190,10 @@ void main() {
     expect(find.text('No domains selected'), findsOneWidget);
     expect(find.text('HTTPS excluded domains'), findsNothing);
     await capture(tester, 'independent-mitm-config');
+    final mitmScrollable = find.descendant(of: find.byType(MitmConfigPage), matching: find.byType(Scrollable)).first;
+    await tester.scrollUntilVisible(find.byKey(const ValueKey('mitm-block-quic')), 220, scrollable: mitmScrollable);
+    await tester.pumpAndSettle();
+    await capture(tester, 'independent-mitm-tcp-quic');
     Navigator.pop(tester.element(find.byType(MitmPage))); await tester.pumpAndSettle();
     await open(tester, ScriptsConfigPage(store: store));
     await capture(tester, 'independent-scripts-cron');

@@ -196,7 +196,10 @@ func TestMITMHTTP2OptionSeparatesClientAndOriginVersions(t *testing.T) {
 						io.WriteString(w, "ok")
 					}))
 					origin.EnableHTTP2 = originH2
-					origin.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
+					origin.TLS = &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"http/1.1"}}
+					if originH2 {
+						origin.TLS.NextProtos = []string{"h2", "http/1.1"}
+					}
 					origin.StartTLS()
 					defer origin.Close()
 					e, store, ca := mitmEngine(t, Config{})
