@@ -50,15 +50,16 @@ Future<T?> showBoxDialog<T>({required BuildContext context, required WidgetBuild
     showFloatingDialog<T>(context: context, child: Builder(builder: builder));
 
 class BoxField extends StatelessWidget {
-  const BoxField({super.key, required this.label, required this.child});
+  const BoxField({super.key, required this.label, required this.child, this.borderRadius = AppRadius.full});
   final String label;
   final Widget child;
+  final BorderRadius borderRadius;
 
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     spacing: 6,
-    children: [Text(label, style: context.listSubtitleStyle), FilledInputTheme(child: child)],
+    children: [Text(label, style: context.listSubtitleStyle), FilledInputTheme(borderRadius: borderRadius, child: child)],
   );
 }
 

@@ -562,8 +562,10 @@ class _ConfigValueEditorState extends State<ConfigValueEditor> {
     }),
     children: [
       if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: SelectableText(_error!, style: TextStyle(color: context.colorScheme.error))),
-      BoxField(label: context.tr('Configuration'), child: TextField(controller: _text, readOnly: _saving, maxLines: 16, minLines: 8, autocorrect: false, enableSuggestions: false,
+      BoxField(label: context.tr('Configuration'), borderRadius: AppRadius.md,
+        child: TextField(controller: _text, readOnly: _saving, maxLines: 16, minLines: 8, autocorrect: false, enableSuggestions: false,
         smartDashesType: SmartDashesType.disabled, smartQuotesType: SmartQuotesType.disabled,
+        textAlignVertical: TextAlignVertical.top,
         style: const TextStyle(fontFamily: 'JetBrainsMono', fontSize: 13, height: 1.6),
       )),
     ],

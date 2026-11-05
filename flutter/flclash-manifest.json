@@ -273,7 +273,7 @@
     "lib/widgets.dart": {
       "source": "lib/views/dashboard/widgets/card.dart",
       "sourceSHA256": "0b2e8ec0da7adaf98e2e8ce135eadff9e9c1ab7907e8aff9fee4cfcf2cbaf664",
-      "changes": "Dashboard card surfaces and press feedback use Prism. B-box retains its page/form helpers, labeled fields, confirmation flow and dirty/busy edit guards."
+      "changes": "Dashboard card surfaces and press feedback use Prism. B-box retains its page/form helpers, labeled fields, confirmation flow and dirty/busy edit guards. Labeled fields accept a corner radius so multiline configuration editors use fixed rounded corners across filled and focus states."
     }
   },
   "adaptedNativeFiles": {
