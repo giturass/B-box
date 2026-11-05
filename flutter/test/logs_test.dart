@@ -110,6 +110,23 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('record filter chips combine with typed search and can be removed', (tester) async {
+    await mount(tester);
+    await emit(tester, null);
+    await tester.tap(find.text('error'));
+    await tester.pumpAndSettle();
+    expect(scaffold(tester).keywords!.value.single.label, 'error');
+    await expectExport(tester, ['Error']);
+    scaffold(tester).searchState!.onSearch('Warn');
+    await tester.pumpAndSettle();
+    await expectExport(tester, []);
+    scaffold(tester).keywords!.value.single.onDeleted!();
+    await tester.pumpAndSettle();
+    await expectExport(tester, ['Warn']);
+    expect(scaffold(tester).keywords!.value, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('unknown defaults, pause, search, export and clear keep records available', (tester) async {
     await mount(tester);
     await emit(tester, null);
@@ -117,10 +134,10 @@ void main() {
     await emit(tester, 'Warn');
     await choose(tester, 'Pause');
     await emit(tester, 'Warn', [..._records, {'id': 8, 'level': 'Error', 'message': 'later record'}]);
-    scaffold(tester).onKeywordsUpdate!(['core']);
+    scaffold(tester).searchState!.onSearch('core');
     await tester.pumpAndSettle();
     await expectExport(tester, ['Warn', 'Error', 'Fatal', 'Panic']);
-    scaffold(tester).onKeywordsUpdate!([]);
+    scaffold(tester).searchState!.onSearch('');
     await tester.pumpAndSettle();
     expect(find.text('later record'), findsNothing);
     await choose(tester, 'Resume');

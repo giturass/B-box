@@ -520,11 +520,15 @@ class _ConfigOrderPageState extends State<ConfigOrderPage> {
     }),
     body: Column(children: [
       if (_error != null) Padding(padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 8), child: SelectableText(_error!, style: TextStyle(color: context.colorScheme.error))),
-      Expanded(child: ReorderableListView.builder(padding: EdgeInsets.fromLTRB(16, _error == null ? context.contentTopPadding : 0, 16, 16 + context.bottomInset), itemCount: _entries.length,
-      onReorder: (old, next) { if (!_saving) setState(() { if (old < next) next--; _entries.insert(next, _entries.removeAt(old)); }); },
-      itemBuilder: (context, index) => ListItem(key: ObjectKey(_entries[index]), trailing: const GlyphIcon(AppGlyphs.sort),
-        title: Text((_entries[index]['tag'] ?? _entries[index]['action'] ?? '${index + 1}').toString())),
-      )),
+      Expanded(child: AbsorbPointer(absorbing: _saving, child: PrismReorderableListView(
+        padding: EdgeInsets.fromLTRB(16, _error == null ? context.contentTopPadding : 0, 16, 16 + context.bottomInset),
+        itemCount: _entries.length,
+        proxyDecorator: commonProxyDecorator,
+        onReorderItem: (old, next) { if (!_saving) setState(() => _entries.insert(next, _entries.removeAt(old))); },
+        itemBuilder: (context, index) => ReorderDragStartListener(key: ObjectKey(_entries[index]), index: index,
+          child: ListItem(trailing: SortHandle(index: index),
+            title: Text((_entries[index]['tag'] ?? _entries[index]['action'] ?? '${index + 1}').toString()))),
+      ))),
     ]),
   ));
 }

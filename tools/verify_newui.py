@@ -75,7 +75,8 @@ def check_adaptations(entries, local_root, source_files=None):
             errors.append(f"Missing adaptation: {local}")
         if "commit" in entry:
             check_commit(entry["commit"], local)
-        for source in ([entry] if "source" in entry else []) + entry.get("sources", []):
+        sources = ([entry] if "source" in entry else []) + entry.get("sources", []) + entry.get("supportingSources", [])
+        for source in sources:
             if not re.fullmatch(r"[0-9a-f]{64}", source["sourceSHA256"]):
                 errors.append(f"Invalid adaptation source hash: {local}")
             if source_files is not None and source_files.get(source["source"]) != source["sourceSHA256"]:

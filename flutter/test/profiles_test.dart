@@ -219,7 +219,7 @@ void main() {
     });
     openForm(tester.element(find.byType(HomePage)), const ProfileOrderPage());
     await tester.pumpAndSettle();
-    tester.widget<ReorderableListView>(find.byType(ReorderableListView)).onReorderItem!(0, 1);
+    tester.widget<PrismReorderableListView>(find.byType(PrismReorderableListView)).onReorderItem(0, 1);
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Save').last);
     await tester.pumpAndSettle();

@@ -33,7 +33,6 @@ class _RequestsPageState extends State<RequestsPage> {
         return Scaffold(
           title: context.tr('Requests'), isLoading: _busy,
           searchState: AppBarSearchState(onSearch: (query) => setState(() { _query = query; _limit = 50; })),
-          onKeywordsUpdate: (words) => setState(() { _query = words.join(' '); _limit = 50; }),
           iconActions: [IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Refresh'), onPressed: refresh)],
           menuItems: [
             PopupMenuItem(glyph: AppGlyphs.sliders, label: context.tr('Capture settings'), onPressed: _busy || active || snapshot == null ? null : () async {

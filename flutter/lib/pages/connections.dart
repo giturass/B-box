@@ -10,17 +10,21 @@ class ConnectionsPage extends StatefulWidget {
 }
 class _ConnectionsPageState extends State<ConnectionsPage> {
   final _list = ConnectionList();
+  late final _keywords = RecordKeywords()..addListener(_keywordsChanged);
   String _query = '', _filter = 'Active', _sort = 'Speed';
+  void _keywordsChanged() => setState(() {});
+  @override void dispose() { _keywords.dispose(); super.dispose(); }
   Future<void> _closeAll() async {
     final box = context.box;
     if (await confirm(context, 'Close all active connections?', action: 'Close')) await box.act('connections.closeAll');
   }
   @override Widget build(BuildContext context) {
     final box = context.watchBox(BoxAspect.connections);
-    final list = _list.select(box.connections, query: _query, filter: _filter, sort: _sort);
+    final query = _keywords.queryWith(_query);
+    final list = _list.select(box.connections, query: query, filter: _filter, sort: _sort);
     return BoxDataSubscription(data: BoxData.connections, child: Scaffold(
       title: context.tr('Connections'),
-      onKeywordsUpdate: (words) => setState(() => _query = words.join(' ')),
+      keywords: _keywords,
       searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
       iconActions: [IconButtonData(glyph: AppGlyphs.clearAll, tooltip: context.tr('Close all connections'), onPressed: box.running ? _closeAll : null)],
       menuItems: [
@@ -32,7 +36,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
           PopupMenuItem(glyph: AppGlyphs.sort, label: context.tr(sort), checked: sort == _sort, onPressed: () => setState(() => _sort = sort)),
       ],
       body: NullStatusSwitcher(
-        isEmpty: list.isEmpty, isSearching: _query.trim().isNotEmpty,
+        isEmpty: list.isEmpty, isSearching: query.trim().isNotEmpty,
         nullStatus: NullStatus(label: context.tr('No connections'), illustration: NullStatusIllustration.connections),
         child: ListView.separated(
             padding: EdgeInsets.only(top: context.contentTopPadding, bottom: 16 + context.bottomInset),
@@ -40,7 +44,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
             separatorBuilder: (_, _) => const SizedBox(height: recordListGap),
             itemBuilder: (context, index) {
               final connection = list[index];
-              return ConnectionRecord(key: ValueKey(connection['id']), connection: connection);
+              return ConnectionRecord(key: ValueKey(connection['id']), connection: connection, onKeyword: _keywords.add);
             },
           ),
       ),
@@ -49,8 +53,9 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
 }
 
 class ConnectionRecord extends StatelessWidget {
-  const ConnectionRecord({super.key, required this.connection});
+  const ConnectionRecord({super.key, required this.connection, this.onKeyword});
   final Json connection;
+  final ValueChanged<String>? onKeyword;
   @override Widget build(BuildContext context) {
     final c = connection, box = context.box;
     final styles = RecordTextStyles.of(context);
@@ -61,7 +66,7 @@ class ConnectionRecord extends StatelessWidget {
       header: RecordHeader(
         children: [
           RecordTimestamp(recordTime(c['createdAt'])),
-          RecordLabel(label: c['network'].toString().toUpperCase(), onPressed: () => context.commonScaffoldState?.addKeyword(c['network'].toString())),
+          RecordLabel(label: c['network'].toString().toUpperCase(), onPressed: () => onKeyword?.call(c['network'].toString())),
           if (closed) RecordLabel(label: context.tr('Closed')),
         ],
         trailing: !closed && box.running ? Tooltip(

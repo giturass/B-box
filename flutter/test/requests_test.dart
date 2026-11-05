@@ -261,7 +261,7 @@ void main() {
       'method': 'GET', 'protocol': 'HTTP/1.1', 'status': 200, 'complete': true}], 'total': 1, 'storedBytes': 0};
     await open(tester, const RequestsPage());
     final scaffold = tester.widget<Scaffold>(find.descendant(of: find.byType(RequestsPage), matching: find.byType(Scaffold)).first);
-    scaffold.onKeywordsUpdate!(['api.test']); await tester.pumpAndSettle();
+    scaffold.searchState!.onSearch('api.test'); await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
     await tester.tap(find.text('Export HAR').last); await tester.pumpAndSettle();
     final exports = calls.where((call) => call.method == 'capture.export').map((call) => json(call.arguments)).toList();
@@ -288,7 +288,7 @@ void main() {
     };
     await open(tester, const RequestsPage());
     Scaffold scaffold() => tester.widget<Scaffold>(find.descendant(of: find.byType(RequestsPage), matching: find.byType(Scaffold)).first);
-    scaffold().onKeywordsUpdate!(['match']);
+    scaffold().searchState!.onSearch('match');
     await tester.pumpAndSettle();
     expect(find.text('Capture stopped'), findsOneWidget);
     expect(find.text('https://match-0.test/request'), findsOneWidget);
@@ -303,7 +303,7 @@ void main() {
     expect(json(calls.lastWhere((call) => call.method == 'capture.snapshot').arguments), {'query': 'match', 'limit': 100});
     await tester.scrollUntilVisible(find.text('https://match-50.test/request'), 240, scrollable: scrollable);
     expect(find.text('Show more'), findsNothing);
-    scaffold().onKeywordsUpdate!(['other']);
+    scaffold().searchState!.onSearch('other');
     await tester.pumpAndSettle();
     tester.state<ScrollableState>(scrollable).position.jumpTo(0);
     await tester.pumpAndSettle();
@@ -559,9 +559,9 @@ void main() {
       return {...snapshot, 'page': {'items': [{'id': 'new', 'url': 'https://new.example/', 'method': 'GET', 'status': 200}], 'total': 1}};
     };
     Scaffold scaffold() => tester.widget<Scaffold>(find.descendant(of: find.byType(RequestsPage), matching: find.byType(Scaffold)).first);
-    scaffold().onKeywordsUpdate!(['old']);
+    scaffold().searchState!.onSearch('old');
     await tester.pump();
-    scaffold().onKeywordsUpdate!(['new']);
+    scaffold().searchState!.onSearch('new');
     await tester.pump();
     slow.complete({...snapshot, 'page': {'items': [{'id': 'old', 'url': 'https://old.example/', 'method': 'GET'}], 'total': 1}});
     await tester.pumpAndSettle();

@@ -38,13 +38,18 @@ class RecordTextStyles {
 
 const recordListGap = 8.0;
 
-double recordListExtentEstimation(int? index, double crossAxisExtent) {
-  return switch (index) {
-    // SuperSliverList gives every child the null estimate unless it is 0.
-    null => 0,
-    _ when index.isEven => 100,
-    _ => recordListGap,
-  };
+/// The page owns removable filter chips in the v0.9.3 scaffold.
+class RecordKeywords extends ValueNotifier<List<ScaffoldKeyword>> {
+  RecordKeywords() : super(const []);
+
+  String queryWith(String query) => [query, ...value.map((item) => item.label)]
+      .where((part) => part.isNotEmpty).join(' ');
+
+  void add(String keyword) {
+    if (value.any((item) => item.key == keyword)) return;
+    value = [...value, ScaffoldKeyword(key: keyword, label: keyword,
+      onDeleted: () => value = value.where((item) => item.key != keyword).toList())];
+  }
 }
 
 class RecordListItem extends StatelessWidget {

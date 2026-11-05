@@ -352,8 +352,7 @@ class _ProfileOrderPageState extends State<ProfileOrderPage> {
         if (saved) context.safeNestedPop();
         else setState(() => _saving = false);
       }),
-      body: AbsorbPointer(absorbing: _saving, child: ReorderableListView.builder(
-        buildDefaultDragHandles: false,
+      body: AbsorbPointer(absorbing: _saving, child: PrismReorderableListView(
         padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 32 + context.bottomInset),
         itemCount: _profiles!.length,
         proxyDecorator: (child, index, animation) => commonProxyDecorator(_item(index), index, animation),

@@ -137,24 +137,43 @@ class _ProxiesPageState extends State<ProxiesPage> {
         profileKey: box.remote ? 'remote:${box.dashboard['remote']}' : 'local:${box.selectedProfileId}',
         groups: [for (final group in groups) ProxyListGroup(group, _nodes(group))],
         testing: Set.of(_testing), cardBuilder: _card, onTest: _test,
-      ) : DefaultTabController(
+      ) : _ProxyTabs(
         key: ValueKey(groups.map((group) => '${group['tag'].toString().length}:${group['tag']}').join()),
         initialIndex: groups.indexWhere((group) => group['tag'] == _currentGroup).clamp(0, groups.length - 1),
-        length: groups.length,
-        child: Padding(
-          padding: EdgeInsets.only(top: context.contentTopPadding),
-          child: Column(children: [
-            Padding(padding: const EdgeInsets.only(bottom: 16), child: Builder(builder: (context) => GroupTabs(
-              controller: DefaultTabController.of(context), groups: groups,
-              onSelected: (index) { if (mounted) setState(() => _currentGroup = groups[index]['tag'] as String); },
-            ))),
-            Expanded(child: TabBarView(children: [for (final group in groups) Column(children: [
-              if (group['selectable'] != true) Padding(padding: const EdgeInsets.only(top: 8), child: Text(context.tr('Automatic selection'), style: context.listCaptionStyle)),
-              Expanded(child: _grid(group)),
-            ])])),
-          ]),
-        ),
+        groups: groups, grid: _grid,
+        onSelected: (index) { if (mounted) setState(() => _currentGroup = groups[index]['tag'] as String); },
       ),
     );
   }
+}
+
+// Recreated when group identities change, retaining the active group by tag.
+class _ProxyTabs extends StatefulWidget {
+  const _ProxyTabs({super.key, required this.groups, required this.initialIndex,
+    required this.onSelected, required this.grid});
+  final List<Json> groups;
+  final int initialIndex;
+  final ValueChanged<int> onSelected;
+  final Widget Function(Json) grid;
+
+  @override State<_ProxyTabs> createState() => _ProxyTabsState();
+}
+
+class _ProxyTabsState extends State<_ProxyTabs> with SingleTickerProviderStateMixin {
+  late final _controller = TabController(length: widget.groups.length,
+    initialIndex: widget.initialIndex, vsync: this);
+  @override void dispose() { _controller.dispose(); super.dispose(); }
+
+  @override Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.only(top: context.contentTopPadding),
+    child: Column(children: [
+      Padding(padding: const EdgeInsets.only(bottom: 16), child: GroupTabs(
+        controller: _controller, groups: widget.groups, onSelected: widget.onSelected,
+      )),
+      Expanded(child: TabBarView(controller: _controller, children: [for (final group in widget.groups) Column(children: [
+        if (group['selectable'] != true) Padding(padding: const EdgeInsets.only(top: 8), child: Text(context.tr('Automatic selection'), style: context.listCaptionStyle)),
+        Expanded(child: widget.grid(group)),
+      ])])),
+    ]),
+  );
 }

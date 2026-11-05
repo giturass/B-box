@@ -1,4 +1,3 @@
-import 'package:prism_ui/sliver_list/super_sliver_list.dart';
 import '../widgets.dart';
 import '../components/record.dart';
 import '../components/data_subscription.dart';
@@ -10,6 +9,8 @@ class LogsPage extends StatefulWidget {
 
 class _LogsPageState extends State<LogsPage> {
   String _query = '', _level = 'Default';
+  late final _keywords = RecordKeywords()..addListener(_keywordsChanged);
+  void _keywordsChanged() => setState(() {});
   static const _priorities = {
     'panic': 0, 'fatal': 1, 'error': 2, 'warn': 3, 'warning': 3,
     'info': 4, 'debug': 5, 'trace': 6,
@@ -17,7 +18,7 @@ class _LogsPageState extends State<LogsPage> {
   List<Json>? _paused;
   late final _scroll = ScrollController(initialScrollOffset: double.maxFinite);
   late final _physics = FollowEndScrollPhysics(isFollowing: () => _paused == null);
-  @override void dispose() { _scroll.dispose(); super.dispose(); }
+  @override void dispose() { _keywords.dispose(); _scroll.dispose(); super.dispose(); }
 
   void _pause() {
     if (_paused == null) setState(() => _paused = List.of(context.box.logs));
@@ -41,14 +42,15 @@ class _LogsPageState extends State<LogsPage> {
 
   @override Widget build(BuildContext context) {
     final box = context.watchBox(BoxAspect.logs);
-    final words = _query.toLowerCase().trim().split(RegExp(r'\s+'));
+    final query = _keywords.queryWith(_query);
+    final words = query.toLowerCase().trim().split(RegExp(r'\s+'));
     final logs = (_paused ?? box.logs).where((item) =>
       _matchesLevel(item, box.defaultLogLevel) &&
       words.every(([item['level'], item['message']].join(' ').toLowerCase()).contains),
     ).toList();
     return BoxDataSubscription(data: BoxData.logs, child: Scaffold(
       title: context.tr('Logs'),
-      onKeywordsUpdate: (words) => setState(() => _query = words.join(' ')),
+      keywords: _keywords,
       searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
       iconActions: [IconButtonData(glyph: AppGlyphs.export, tooltip: context.tr('Export'), onPressed: () => box.act('document.save', {
         'name': 'B-box.log', 'content': logs.map((line) => '${recordTime(line['receivedAt'])} [${line['level']}] ${line['message']}').join('\n'),
@@ -67,7 +69,7 @@ class _LogsPageState extends State<LogsPage> {
             onPressed: () => setState(() => _level = level)),
       ],
       body: NullStatusSwitcher(
-        isEmpty: logs.isEmpty, isSearching: _query.trim().isNotEmpty || !['Default', 'All'].contains(_level),
+        isEmpty: logs.isEmpty, isSearching: query.trim().isNotEmpty || !['Default', 'All'].contains(_level),
         nullStatus: NullStatus(label: context.tr('No logs'), illustration: NullStatusIllustration.logs),
         child: logs.isEmpty ? const SizedBox.shrink() : Align(
           alignment: Alignment.topCenter,
@@ -77,12 +79,12 @@ class _LogsPageState extends State<LogsPage> {
             child: ScrollToEndBox(
               controller: _scroll, enable: _paused == null,
               onCancelToEnd: _pause, onResumeToEnd: _resume,
-              child: SuperListView.separated(
+              child: PrismListView(
                 controller: _scroll, physics: _physics, reverse: true, shrinkWrap: true,
                 padding: EdgeInsets.only(top: context.contentTopPadding, bottom: 16 + context.bottomInset),
-                extentEstimation: recordListExtentEstimation,
+                estimatedItemExtent: 100,
+                gap: recordListGap,
                 itemCount: logs.length,
-                separatorBuilder: (_, _) => const SizedBox(height: recordListGap),
                 itemBuilder: (context, index) {
                   final log = logs[index];
                   final level = log['level'].toString().toLowerCase();
@@ -92,7 +94,7 @@ class _LogsPageState extends State<LogsPage> {
                     key: ValueKey(log['id']), onTap: () {},
                     header: RecordHeader(children: [
                       if ((log['receivedAt'] as num? ?? 0) > 0) RecordTimestamp(recordTime(log['receivedAt'])),
-                      RecordLabel(label: level, tone: tone, onPressed: () => context.commonScaffoldState?.addKeyword(level)),
+                      RecordLabel(label: level, tone: tone, onPressed: () => _keywords.add(level)),
                     ]),
                     body: SelectableText(log['message'].toString(), style: RecordTextStyles.of(context).primary),
                   );
