@@ -188,6 +188,13 @@ class ProfileRecoveryTest {
                     val path = if (tcp) "/http-no-alpn" else "/probe?raw=1;2"
                     profiles.writeContent(id, candidate, BoxProfiles.revision(profiles.read(id)))
                     assertEquals(Status.Started, activity.serviceStatus.value)
+                    if (raw) {
+                        // This mode reuses the previous profile. A no-op write
+                        // keeps recording active, so end that session explicitly.
+                        assertTrue(JSONObject(Libbox.readUICaptureStatus()).getBoolean("active"))
+                        Libbox.stopUICapture()
+                    }
+                    assertFalse(JSONObject(Libbox.readUICaptureStatus()).getBoolean("active"))
                     val captures = File(activity.noBackupFilesDir, "http-debug/captures")
                     Libbox.openUICapture(captures.absolutePath)
                     Libbox.clearUICapture()
