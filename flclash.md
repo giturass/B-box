@@ -131,7 +131,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 ## 验证与升级参考版本
 
-2026-11-04 核对 [Actions 41818907770](https://github.com/giturass/B-box/actions/runs/41818907770) 在 `0328e83690bb5b9605da70159b24ca1b9fdb19c3` 生成的 `requests/requests-recording-off.png`：360 × 900 英文浅色 fixture 中，新请求/流边界、未接管连接需重连及停止录制保持连接的说明完整可读，没有遮挡搜索栏。该检查只覆盖这张截图，不代替中文、大字号或实机验收。
+2026-11-05，FlClash v0.9.3 / Prism UI 升级的验证源码为 `d9254711ccf34cda547d2f2287b0e0a508e861a6`。对应 [Actions 41982716632](https://github.com/giturass/B-box/actions/runs/41982716632) 的 Flutter 分析、215 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 78 条 info、0 条 warning/error。后续只记录结果的 Markdown 提交不改变验证源码，Android 与核心复核见 [应用验证记录](app.md#prism-ui-升级验证)。
 
 [newui.yml](.github/workflows/newui.yml) 在各分支代码推送时自动运行，统一包含核心、Flutter、JVM 和 Android smoke；[setup-flutter](.github/actions/setup-flutter/action.yml) 固定 SDK 和依赖锁文件。Flutter 测试按功能组织，覆盖导航、配置编辑、首页编辑、代理列表、备份、外观、关于、终端设置、模式、内网 IP 和 IP 查询/缓存；[verify_newui.py](tools/verify_newui.py) 核验 FlClash/prism_ui 文件哈希、许可、适配目标和退役依赖等源码约束。截图/像素比较仍由同一测试入口运行，截图与验证 AAR 分别上传到 `newui-validation` 和 `flutter-aar-arm64`。手动 Release 构建独立准备所需的 Flutter Release AAR，不依赖测试运行，见 [构建与发布](app.md#构建与发布)。
 
@@ -157,7 +157,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 [requests_test.dart](flutter/test/requests_test.dart) 覆盖独立工具入口、远程隔离、本机设置修订、MITM 域名选择、端口、启动确认及后台轮询/迟到结果；证书测试检查无配置时从抓包设置经 MITM 页进入证书、明确生成、取消导出、活跃 MITM 禁止重生成、远程切换和信任刷新。其他回归包括 HAR 搜索、停止抓取时的历史分页与搜索重置、TCP 流完成/导出限制、既有 socket 元数据、报文菜单、字段/Cookie 复制及正文格式/Unicode 展开；分页检查“显示更多”可实际点击并加载下一批，请求页不订阅连接。窄屏、大字号深色及宽屏测试运行后将截图写入 build/screenshots/requests/，包含独立配置、请求设置、证书、请求列表、分页按钮及报文详情；桥接替身不能代替实际 TLS 或系统安装验收。
 
-配置页面将滚动视口放在共享标题下方，避免文字穿过标题；测试核对几何位置与 320 宽、1.3 倍字号深色主题。源码验证见 [MITM 与 Surge 对齐验证](app.md#mitm-与-surge-对齐验证)，当前 MITM 截图检查范围记录在本节末尾。
+配置页面将滚动视口放在共享标题下方，避免文字穿过标题；测试核对几何位置与 320 宽、1.3 倍字号深色主题。配置约定见 [MITM 配置](libbox.md#独立-mitm-配置)，当前截图检查范围记录在本节末尾。
 
 [http_message_test.dart](flutter/test/http_message_test.dart) 检查 JSON 数值/重复键/转义保真、无效或过大内容回退，以及重复 Cookie、空值、等号和 Expires 逗号。请求正文不完整或截断时不提供 cURL 导出。
 
@@ -167,6 +167,19 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 这些测试只覆盖声明的页面和情景，不等于全应用逐像素一致或已经完成实机验收。升级参考版本时同步审查来源清单、适配文件、许可和独立参考渲染器，按实际 Actions 运行记录结果；Android 验证入口见 [app.md](app.md)。
 
-2026-11-05 的 MITM 对齐视觉检查读取 [Actions 41964904848](https://github.com/giturass/B-box/actions/runs/41964904848) 在 `5e40bd30a3695cb2e7ed84716955fc64e4a08495` 生成的 `newui-validation` 产物，实际查看 requests 目录中的 `independent-mitm-config.png` 和 `independent-mitm-tcp-quic.png`。两张为 320 宽、1.3 倍字号深色主题，分别覆盖首屏及滚动后的 TCP/QUIC 区域：HTTP/2、服务器证书校验、TCP 和 QUIC 控件可读，默认开关状态与配置一致，证书及 JSON 编辑入口可见，标题与滚动内容分离。同次 Flutter job 的分析、210 项交互/布局测试和 ARM64 AAR 构建通过。
+本轮实际查看上述运行在同一源码生成的 `newui-validation`，以下文件名均相对产物中的 `build/screenshots/`：
 
-这些为英文 Flutter fixture 截图，未覆盖中文实机、系统证书设置或 Root 管理器；应用验证范围见 [MITM 与 Surge 对齐验证](app.md#mitm-与-surge-对齐验证)。此前独立配置、请求录制及 CA 的截图记录可通过本文 Git 历史查询。
+| 情景 | 实际查看的截图 | 检查结果 |
+| --- | --- | --- |
+| 800 宽浅色 | `800-light-1.0-Proxies-populated.png`、`800-light-1.0-Profiles-populated.png`、`800-light-1.0-Tools.png`、`800-light-1.0-Profile-edit.png` | 收起侧栏的选择与实际页面一致；代理延迟、配置元数据、工具分区和居中表单可读，表单保留取消/保存操作 |
+| 360 宽浅色及深色大字号 | `360-light-1.0-Dashboard-populated.png`、`360-dark-1.4-Appearance.png`、`360-dark-1.4-Profile-edit.png` | 状态、速度和模式卡片使用新版布局；外观页无隐藏首页工具栏残影；编辑表单标签、开关及顶部操作可见，长输入保留横向编辑与页面滚动 |
+| MITM，320 宽、1.3 倍深色 | `requests/independent-mitm-config.png`、`requests/independent-mitm-tcp-quic.png` | 首屏和滚动后的 TCP/QUIC、证书及 JSON 编辑入口可读，标题与滚动内容分离，顶部无代理页按钮残影 |
+| 请求菜单与宽屏设置 | `requests/360-1.4-dark-message-menu.png`、`requests/800-1.0-light-settings.png` | 请求/响应/Cookies 菜单保留选中态，正文在有界卡片中展示，宽屏设置侧页保留关闭与保存按钮 |
+| 固定导航，320 宽 | `navigation/fixed-light.png`、`navigation/fixed-dark.png`、`navigation/fixed-black.png` | 浅色、深色及纯黑背景与页面一致；栏体及底部安全区不遮挡内容。1.4 倍字号的长英文标签按现有策略省略，完整标签仍用于语义 |
+| 中文状态卡，深色大字号 | `status-card/zh-dark-large-bbox.png` | 中文字体、状态徽章、启停图形和卡片排版可读；声明的状态情景同时通过独立上游参考渲染器的像素比较 |
+
+工具栏残影由首页保活方式与 Prism 浮层定位的组合引起，当前使用参考版分页保活；复制及保存失败横幅避让顶部操作。相应像素、点击和失败重试断言在本轮通过，宽屏截图在实际切页并核对当前页后生成。旧截图和失败运行不作为本版通过依据。
+
+同次 `android-smoke-api-31` 产物中实际查看了 `03-vpn-running.png`、`04-core-proxies.png` 和 `05-restored-profile.png`：应用显示运行状态、真实 `Smoke selector` 分组及 `direct` 节点，停止并重启进程后保留导入配置。模拟器报告与上述源码 SHA 一致。
+
+以上是抽样视觉检查及已声明情景的像素回归；没有进行全应用逐像素验收、ARM64 实机性能测量、完整系统证书设置或 Root 管理器交互验收。模拟器运行范围见 [应用验证记录](app.md#prism-ui-升级验证)，此前视觉记录通过本文 Git 历史查询。

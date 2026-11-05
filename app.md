@@ -206,6 +206,22 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### Prism UI 升级验证
+
+2026-11-05，验证源码为 `d9254711ccf34cda547d2f2287b0e0a508e861a6`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/41982716632)，所有 job 通过。FlClash v0.9.3、Prism UI 固定提交和适配范围见 [界面来源](flclash.md#参考版本与来源清单)，不改变 Android 上游或核心比较基线；后续记录结果的 Markdown 提交不改变应用或测试源码。
+
+- Flutter 分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过，具体数量、分析提示和实际查看的截图见 [界面验证记录](flclash.md#验证与升级参考版本)。
+- Go 扩展、HTTP/MITM `-race`、原路由及 Android 重定向布局回归通过。
+- 50 项 JVM 测试通过，无失败、错误或跳过；模拟器应用和仪器测试 APK 构建通过。
+- API 31 UI smoke 及全部 20 项原生测试通过，覆盖远程 JSON 导入、VPN 授权/启停、实际内核分组、进程重启后配置保留，以及 Keystore、原路由 HTTPS/TCP 和配置恢复。
+- Root CA 隔离挂载及启动补查回归通过。
+
+已读取本次 `native-unit-tests` 的 12 份 XML，以及 `android-smoke-api-31` 的 `results.json`、`native-tests.txt` 和 `mitm-origin.json`，报告源码 SHA 与上述提交一致。设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（来源 `getconf`）。独立服务器收到 `/probe?raw=1;2`、`/http-no-alpn` 及二进制 TLS/TCP 请求，HTTP Host 保留原始目标。
+
+导入 smoke 的保存点击现在等待弹层位置稳定，并在返回仪表盘后核对导入结果。本轮通过记录包含该检查；界面升级期间的旧失败运行没有被记为通过。
+
+本机仅完成差异、来源哈希/许可、`python3 tools/verify_newui.py`、Python 语法及文档链接/旧引用等静态检查，未在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未触发签名 ARM64 Release/R8 APK 工作流或发布 APK，未覆盖其他 Android 版本、16 KiB 页运行、ARM64 实机性能、完整系统证书设置、真实 Root 管理器安装或第三方应用信任。
+
 ### MITM 与 Surge 对齐验证
 
 2026-11-05，验证源码为 `5e40bd30a3695cb2e7ed84716955fc64e4a08495`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/41964904848)，全部通过。对齐范围及默认值见 [核心 MITM 配置](libbox.md#独立-mitm-配置)；后续记录结果的 Markdown 提交不改变应用或测试源码。
