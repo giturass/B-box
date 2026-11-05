@@ -84,7 +84,10 @@ void main() {
       {'tag': 'Node A', 'type': 'Shadowsocks', 'delay': 10}, {'tag': 'Node B', 'type': 'Shadowsocks', 'delay': 20},
     ]}]});
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Proxies'));
+    final destination = find.descendant(of: find.byType(NavigationSidebar),
+      matching: find.byKey(const ValueKey('Proxies')));
+    expect(destination.hitTestable(), findsOneWidget);
+    await tester.tap(destination);
     await tester.pumpAndSettle();
     expect(find.byType(ProxiesPage), findsOneWidget);
     await tester.tap(find.text('Node B'));

@@ -114,7 +114,7 @@ void main() {
       Future<void> selectTab(String label) async {
         final sidebar = find.byType(NavigationSidebar);
         final target = sidebar.evaluate().isEmpty ? find.text(label).last
-            : find.descendant(of: sidebar, matching: find.byTooltip(label));
+            : find.descendant(of: sidebar, matching: find.byKey(ValueKey(label)));
         expect(target.hitTestable(), findsOneWidget);
         await tester.tap(target);
         await tester.pumpAndSettle();

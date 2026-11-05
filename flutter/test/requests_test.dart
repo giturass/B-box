@@ -109,7 +109,18 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> dismissCopyFeedback(WidgetTester tester) async {
+    // Dismiss the transient banner before interacting with content beneath it;
+    // toolbar actions are tested separately while feedback is still visible.
+    if (find.text('Copied').evaluate().isNotEmpty) {
+      await tester.fling(find.text('Copied'), const Offset(0, -120), 1000);
+      await tester.pumpAndSettle();
+      expect(find.text('Copied'), findsNothing);
+    }
+  }
+
   Future<void> showDetailItem(WidgetTester tester, Finder finder) async {
+    await dismissCopyFeedback(tester);
     final scrollable = find.descendant(of: find.byType(RequestDetailPage), matching: find.byType(Scrollable)).first;
     if (finder.evaluate().isEmpty) {
       tester.state<ScrollableState>(scrollable).position.jumpTo(0);
@@ -120,13 +131,7 @@ void main() {
   }
 
   Future<void> chooseMessage(WidgetTester tester, String part) async {
-    // Clear transient feedback with the banner's user gesture before opening
-    // a menu over the same area; toolbar actions remain available throughout.
-    if (find.text('Copied').evaluate().isNotEmpty) {
-      await tester.fling(find.text('Copied'), const Offset(0, -120), 1000);
-      await tester.pumpAndSettle();
-      expect(find.text('Copied'), findsNothing);
-    }
+    await dismissCopyFeedback(tester);
     await tester.tap(find.byTooltip('More').last);
     await tester.pumpAndSettle();
     expect(find.text('Message type'), findsOneWidget);
