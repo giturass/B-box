@@ -273,8 +273,7 @@ class _ExitRow extends StatelessWidget {
                 onTap: () => showIpQualitySheet(context, ip: info.ip),
                 shape: AppShape.xs,
                 overlay: PressRegion.focusOverlay,
-
-child: _IpText(ip: info.ip, style: style),
+                child: _IpText(ip: info.ip, style: style),
               ),
             ),
           )
@@ -491,8 +490,7 @@ class _CountryBadgeState extends State<_CountryBadge>
           onTap: enabled ? widget.onRefresh : null,
           onHover: (value) => setState(() => _hovered = value),
           onFocusChange: (value) => setState(() => _focused = value),
-
-child: ElasticPress(
+          child: ElasticPress(
             enabled: enabled,
             child: AnimatedBuilder(
               animation: _turns,
@@ -737,8 +735,7 @@ class FlClashStartToggleState extends State<FlClashStartToggle>
           onHover: (value) => setState(() => _hovered = value),
           onPressedChanged: (value) => setState(() => _pressed = value),
           onFocusChange: (value) => setState(() => _focused = value),
-
-child: ElasticPress(
+          child: ElasticPress(
             enabled: enabled,
             child: TweenAnimationBuilder<double>(
               tween: Tween(end: _overlay),

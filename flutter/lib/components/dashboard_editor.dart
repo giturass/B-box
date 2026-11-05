@@ -404,8 +404,7 @@ class _LiftedCard extends StatelessWidget {
           ),
         );
       },
-      child: Surface(
-child: child),
+      child: Surface(child: child),
     );
   }
 }

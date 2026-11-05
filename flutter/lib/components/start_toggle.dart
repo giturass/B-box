@@ -108,8 +108,7 @@ class _StartToggleState extends State<StartToggle>
           onHover: (value) => setState(() => _hovered = value),
           onPressedChanged: (value) => setState(() => _pressed = value),
           onFocusChange: (value) => setState(() => _focused = value),
-
-child: ElasticPress(
+          child: ElasticPress(
             enabled: enabled,
             child: TweenAnimationBuilder<double>(
               tween: Tween(end: _overlay),

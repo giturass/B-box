@@ -388,12 +388,3 @@ class _AddColorButton extends StatelessWidget {
     );
   }
 }
-
-final _floatingBarProvider = appSettingProvider.select(
-  (state) => state.floatingNavigationBar,
-);
-
-final _liquidGlassProvider = themeSettingProvider.select(
-  (state) => state.liquidGlass != LiquidGlassMode.none,
-);
-

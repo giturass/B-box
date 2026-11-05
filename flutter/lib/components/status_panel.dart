@@ -295,8 +295,7 @@ class _CountryBadgeState extends State<_CountryBadge> with SingleTickerProviderS
     final background = Color.alphaBlend(color.withValues(alpha: enabled && _hovered ? .08 : 0), SurfaceLevel.inset.colorOf(context.colorScheme));
     return Tooltip(message: context.tr('Retry'), child: Semantics(button: true, label: context.tr('Retry'), enabled: enabled,
       child: PressRegion(onTap: widget.onRefresh, onHover: (value) => setState(() => _hovered = value), onFocusChange: (value) => setState(() => _focused = value),
-
-child: ElasticPress(enabled: enabled, child: AnimatedBuilder(animation: _turn, builder: (_, child) => ShapeBadge(
+        child: ElasticPress(enabled: enabled, child: AnimatedBuilder(animation: _turn, builder: (_, child) => ShapeBadge(
           shape: MaterialShapes.clover4Leaf, color: background, size: 48,
           rotation: _turn.value * 2 * math.pi, ring: _focused ? focusRingSide(context.colorScheme) : null, child: child), child: widget.country?.isNotEmpty == true
           ? Text(widget.country!.toUpperCase(), maxLines: 1, style: AppTextStyle.footnote.of(context, emphasized: true).copyWith(color: color, letterSpacing: .04 * AppTextStyle.footnote.size))
