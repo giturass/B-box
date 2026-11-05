@@ -61,7 +61,12 @@ class ProfileRecoveryTest {
             val generated = if (createdCA) authority.generate(authority.snapshot()["revision"] as String) else authority.snapshot()
             val caFile = File(activity.noBackupFilesDir, "http-debug/mitm-authority.json")
             val createdAlias = if (createdCA) JSONObject(caFile.readText()).getString("alias") else null
+            val profileDirectory = File(profiles.get(id).typed.path).parentFile!!
+            val fileResource = File(profileDirectory, "rewrite-$id-${UUID.randomUUID()}.json")
+            val scriptResource = File(profileDirectory, "rewrite-$id-${UUID.randomUUID()}.js")
             try {
+                fileResource.writeText("""{"message":"word word"}""")
+                scriptResource.writeText("${'$'}done({body:${'$'}response.body.replace('paired-jq','from-file-script')});")
                 val certificate = authority.publicCertificate(generated["revision"] as String)
                 val trustStore = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("mitm", certificate) }
                 val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(trustStore) }
@@ -96,11 +101,19 @@ class ProfileRecoveryTest {
                         "map_remote":[{"pattern":"^http://source\\.test:80/remote$","replacement":"http://mapped.test:$originPort/profile.json"}],
                         "body_rewrite":[{"pattern":"/remote$","phase":"response","regex":"old","replacement":"static"}]
                     }""")
+                    extension.getJSONArray("map_local").put(JSONObject().put("pattern", "/file$")
+                        .put("data_type", "file").put("data", fileResource.name).put("status", 999))
+                    extension.getJSONArray("body_rewrite")
+                        .put(JSONObject().put("pattern", "/file$").put("phase", "response")
+                            .put("regex", "(?<=:\")([a-z]+) \\1(?=\")").put("replacement", "paired"))
+                        .put(JSONObject().put("pattern", "/file$").put("phase", "response").put("jq", ".message += \"-jq\""))
                     val scripts = JSONObject().put("enabled", true).put("http", JSONArray()
                         .put(JSONObject().put("pattern", "/dynamic$").put("phase", "request")
                             .put("source", "${'$'}done({response:{status:202,body:'script-mock'}});"))
                         .put(JSONObject().put("pattern", "/remote$").put("phase", "response").put("requires_body", true)
-                            .put("source", "${'$'}done({body:${'$'}response.body.replace('static','script')});")))
+                            .put("source", "${'$'}done({body:${'$'}response.body.replace('static','script')});"))
+                        .put(JSONObject().put("pattern", "/file$").put("phase", "response").put("requires_body", true)
+                            .put("script_path", scriptResource.name).put("debug", true)))
                     val config = JSONObject("""{
                         "inbounds":[{"type":"mixed","tag":"rewrite-in","listen":"127.0.0.1","listen_port":$proxyPort}],
                         "outbounds":[{"type":"direct","tag":"original"},{"type":"direct","tag":"mapped"}],
@@ -118,6 +131,12 @@ class ProfileRecoveryTest {
                     assertTrue(static.startsWith("HTTP/1.1 201"))
                     assertTrue(static.endsWith("local-response"))
                     assertTrue(request("offline.test", 443, "/dynamic", true).endsWith("script-mock"))
+                    val fileMock = request("offline.test", 443, "/file", true)
+                    assertTrue(fileMock.startsWith("HTTP/1.1 999"))
+                    assertTrue(fileMock.contains("Content-Type: application/json", ignoreCase = true))
+                    assertTrue(fileMock.endsWith("""{"message":"from-file-script"}"""))
+                    fileResource.writeText("""{"message":"fresh"}""")
+                    assertTrue(request("offline.test", 443, "/file", true).endsWith("""{"message":"fresh-jq"}"""))
                     assertEquals(0, origin.requests.get())
 
                     val captures = File(activity.noBackupFilesDir, "http-debug/captures")
@@ -141,6 +160,7 @@ class ProfileRecoveryTest {
                         assertEquals(Status.Started, activity.serviceStatus.value)
                         assertTrue(JSONObject(Libbox.readUICaptureStatus()).getBoolean("rewriteActive"))
                         assertTrue(request("offline.test", 443, "/dynamic", true).endsWith("script-mock"))
+                        assertTrue(request("offline.test", 443, "/file", true).endsWith("""{"message":"fresh-jq"}"""))
                     }
                     profiles.writeContent(id, "{}", BoxProfiles.revision(profiles.read(id)))
                     assertFalse(JSONObject(Libbox.readUICaptureStatus()).getBoolean("rewriteActive"))
@@ -151,6 +171,8 @@ class ProfileRecoveryTest {
                 withContext(Dispatchers.Main) { activity.stopService() }
                 withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
                 createdAlias?.let { KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry(it) }; caFile.delete() }
+                fileResource.delete()
+                scriptResource.delete()
             }
         }
     }
@@ -388,13 +410,19 @@ class ProfileRecoveryTest {
 
                 rule.put("storage_namespace", "isolated-${UUID.randomUUID()}").remove("http_client")
                 profiles.writeContent(id, config.toString(), BoxProfiles.revision(profiles.read(id)))
-                assertTrue(request().startsWith("HTTP/1.1 502"))
-                assertEquals(1, origin.requests.get())
+                assertTrue(request().endsWith("api-value"))
+                assertEquals(2, origin.requests.get())
 
-                rule.put("storage_namespace", namespace)
+                rule.put("http_client", JSONObject().put("allowed_origins", JSONArray()))
+                    .put("source", "${'$'}httpClient.get(${'$'}argument,(error)=>{if(!error) throw Error('restriction bypass'); ${'$'}done({response:{status:299,body:'denied'}});});")
+                profiles.writeContent(id, config.toString(), BoxProfiles.revision(profiles.read(id)))
+                assertTrue(request().endsWith("denied"))
+                assertEquals(2, origin.requests.get())
+
+                rule.put("storage_namespace", namespace).put("source", script)
                 profiles.writeContent(id, config.toString(), BoxProfiles.revision(profiles.read(id)))
                 assertTrue(request().endsWith("api-value"))
-                assertEquals(1, origin.requests.get())
+                assertEquals(2, origin.requests.get())
                 rule.put("source", "if(!${'$'}persistentStore.write(null,'value')) throw Error('delete'); ${'$'}done({response:{body:'cleared'}});")
                 profiles.writeContent(id, config.toString(), BoxProfiles.revision(profiles.read(id)))
                 assertTrue(request().endsWith("cleared"))

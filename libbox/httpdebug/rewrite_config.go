@@ -8,33 +8,38 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 
+	"github.com/itchyny/gojq"
 	"golang.org/x/net/http/httpguts"
 )
 
 const (
-	MaxRewriteConfigBytes = 2 * 1024 * 1024
-	MaxRewriteRules       = 256
-	MaxScriptBytes        = 128 * 1024
+	MaxRewriteConfigBytes  = 2 * 1024 * 1024
+	MaxRewriteRules        = 256
+	MaxScriptBytes         = 128 * 1024
+	MaxRewriteRequestBody  = 32 * 1024 * 1024
+	MaxRewriteResponseBody = 10 * 1024 * 1024
+	MaxLocalResourceBytes  = 15 * 1024 * 1024
 )
 
 // RewriteConfig is the B-box experimental.http_rewrite profile extension.
 // It is deliberately separate from the device's private capture settings.
-// Resources are embedded in the JSON profile; validation never reads files,
+// Resources may be embedded or loaded by the active service; validation never reads files,
 // downloads code, runs scripts, installs certificates or starts interception.
 type RewriteConfig struct {
-	Enabled       bool                       `json:"enabled,omitempty"`
-	Ports         []uint16                   `json:"ports,omitempty"`
-	Packages      []string                   `json:"packages,omitempty"`
-	MaxBodyBytes  int64                      `json:"max_body_bytes,omitempty"`
-	HeaderRewrite []HeaderRewrite            `json:"header_rewrite,omitempty"`
-	URLRewrite    []URLRewrite               `json:"url_rewrite,omitempty"`
-	MapRemote     []MapRemote                `json:"map_remote,omitempty"`
-	BodyRewrite   []BodyRewrite              `json:"body_rewrite,omitempty"`
-	MapLocal      []MapLocal                 `json:"map_local,omitempty"`
-	Resources     map[string]RewriteResource `json:"resources,omitempty"`
+	Enabled              bool                       `json:"enabled,omitempty"`
+	Ports                []uint16                   `json:"ports,omitempty"`
+	Packages             []string                   `json:"packages,omitempty"`
+	MaxBodyBytes         int64                      `json:"max_body_bytes,omitempty"`
+	MaxRequestBodyBytes  int64                      `json:"max_request_body_bytes,omitempty"`
+	MaxResponseBodyBytes int64                      `json:"max_response_body_bytes,omitempty"`
+	HeaderRewrite        []HeaderRewrite            `json:"header_rewrite,omitempty"`
+	URLRewrite           []URLRewrite               `json:"url_rewrite,omitempty"`
+	MapRemote            []MapRemote                `json:"map_remote,omitempty"`
+	BodyRewrite          []BodyRewrite              `json:"body_rewrite,omitempty"`
+	MapLocal             []MapLocal                 `json:"map_local,omitempty"`
+	Resources            map[string]RewriteResource `json:"resources,omitempty"`
 }
 
 type RewriteMatch struct {
@@ -67,9 +72,10 @@ type MapRemote struct {
 
 type BodyRewrite struct {
 	RewriteMatch
-	Phase       string `json:"phase"`
-	Regex       string `json:"regex"`
-	Replacement string `json:"replacement"`
+	Phase       string  `json:"phase"`
+	Regex       string  `json:"regex,omitempty"`
+	Replacement string  `json:"replacement,omitempty"`
+	JQ          *string `json:"jq,omitempty"`
 }
 
 type MapLocal struct {
@@ -82,8 +88,9 @@ type MapLocal struct {
 }
 
 type RewriteResource struct {
-	DataType string `json:"data_type,omitempty"`
-	Data     string `json:"data"`
+	DataType       string `json:"data_type,omitempty"`
+	Data           string `json:"data"`
+	UpdateInterval int64  `json:"update_interval,omitempty"`
 }
 
 func (c *RewriteConfig) UnmarshalJSON(data []byte) error {
@@ -104,33 +111,50 @@ func (c *RewriteConfig) UnmarshalJSON(data []byte) error {
 
 type compiledRule[T any] struct {
 	options T
-	pattern *regexp.Regexp
-	regex   *regexp.Regexp
+	pattern *rewriteRegexp
+	regex   *rewriteRegexp
 	label   string
+	jq      *gojq.Code
+	jqError error
 }
 
 // RewriteProgram is immutable and can be shared by concurrent HTTP/2 streams.
 type RewriteProgram struct {
-	scope   Config
-	limit   int64
-	headers []compiledRule[HeaderRewrite]
-	urls    []compiledRule[URLRewrite]
-	remote  []compiledRule[MapRemote]
-	bodies  []compiledRule[BodyRewrite]
-	local   []compiledRule[MapLocal]
-	data    [][]byte
-	count   int
+	scope        Config
+	limit        int64
+	requestLimit int64
+	headers      []compiledRule[HeaderRewrite]
+	urls         []compiledRule[URLRewrite]
+	remote       []compiledRule[MapRemote]
+	bodies       []compiledRule[BodyRewrite]
+	local        []compiledRule[MapLocal]
+	data         [][]byte
+	sources      []*processingResource
+	count        int
 }
 
 func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 	if c == nil {
 		return nil, nil
 	}
-	if c.MaxBodyBytes == 0 {
-		c.MaxBodyBytes = MaxBodyLimit
+	requestLimit, responseLimit := c.MaxRequestBodyBytes, c.MaxResponseBodyBytes
+	if c.MaxBodyBytes < 0 || c.MaxBodyBytes > MaxRewriteResponseBody {
+		return nil, errors.New("max_body_bytes must be between 1 and 10485760")
 	}
-	if c.MaxBodyBytes < 1 || c.MaxBodyBytes > MaxBodyLimit {
-		return nil, errors.New("max_body_bytes must be between 1 and 1048576")
+	if requestLimit == 0 {
+		requestLimit = c.MaxBodyBytes
+	}
+	if responseLimit == 0 {
+		responseLimit = c.MaxBodyBytes
+	}
+	if requestLimit == 0 {
+		requestLimit = MaxRewriteRequestBody
+	}
+	if responseLimit == 0 {
+		responseLimit = MaxBodyLimit
+	}
+	if requestLimit < 1 || requestLimit > MaxRewriteRequestBody || responseLimit < 1 || responseLimit > MaxRewriteResponseBody {
+		return nil, errors.New("request body limit must be 1..33554432; response body limit must be 1..10485760")
 	}
 	if len(c.HeaderRewrite)+len(c.URLRewrite)+len(c.MapRemote)+len(c.BodyRewrite)+len(c.MapLocal) > MaxRewriteRules {
 		return nil, errors.New("http_rewrite supports at most 256 rules")
@@ -139,16 +163,25 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 	if err := scope.validate(); err != nil {
 		return nil, fmt.Errorf("http_rewrite scope: %w", err)
 	}
-	p := &RewriteProgram{scope: scope, limit: c.MaxBodyBytes}
+	p := &RewriteProgram{scope: scope, limit: responseLimit, requestLimit: requestLimit}
 	resources := make(map[string][]byte)
+	resourceSources := make(map[string]*processingResource)
 	if len(c.Resources) > MaxRewriteRules {
-		return nil, errors.New("too many embedded rewrite resources")
+		return nil, errors.New("too many rewrite resources")
 	}
 	for name, resource := range c.Resources {
 		if name == "" || len(name) > 256 {
 			return nil, errors.New("invalid rewrite resource name")
 		}
-		data, err := decodeRewriteData(resource.DataType, resource.Data, c.MaxBodyBytes)
+		if resource.DataType == "file" {
+			spec, err := compileProcessingResource(resource.Data, MaxLocalResourceBytes, false, resource.UpdateInterval, false)
+			if err != nil {
+				return nil, fmt.Errorf("resource %q: %w", name, err)
+			}
+			resources[name], resourceSources[name] = nil, spec
+			continue
+		}
+		data, err := decodeRewriteData(resource.DataType, resource.Data, MaxLocalResourceBytes)
 		if err != nil {
 			return nil, fmt.Errorf("resource %q: %w", name, err)
 		}
@@ -186,7 +219,7 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 		}
 		switch rule.Action {
 		case "header", "302", "307":
-			if err = validateURLTemplate(rule.Replacement); err != nil {
+			if err = validateRewriteURLTemplate(rule.Replacement, rule.Action); err != nil {
 				return nil, fmt.Errorf("%s: %w", item.label, err)
 			}
 		case "reject":
@@ -217,9 +250,25 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 		if !rewritePhase(rule.Phase) {
 			return nil, fmt.Errorf("%s: phase must be request or response", item.label)
 		}
-		item.regex, err = compileRewritePattern("(?m)" + rule.Regex)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", item.label, err)
+		if rule.JQ != nil {
+			if rule.Regex != "" || rule.Replacement != "" {
+				return nil, fmt.Errorf("%s: jq cannot be combined with regex/replacement", item.label)
+			}
+			if len(*rule.JQ) > 4096 {
+				return nil, fmt.Errorf("%s: jq expression exceeds 4096 bytes", item.label)
+			}
+			query, parseErr := gojq.Parse(*rule.JQ)
+			if parseErr == nil {
+				item.jq, parseErr = gojq.Compile(query)
+			}
+			// Surge skips invalid jq rules with a journal warning. Unlike the
+			// regexp URL selector, jq errors do not invalidate the profile.
+			item.jqError = parseErr
+		} else {
+			item.regex, err = compileRewritePattern("(?m)" + rule.Regex)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", item.label, err)
+			}
 		}
 		if !rule.Disable {
 			p.bodies = append(p.bodies, item)
@@ -233,24 +282,32 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 		if rule.Status == 0 {
 			item.options.Status = http.StatusOK
 		}
-		if item.options.Status < 200 || item.options.Status > 599 {
-			return nil, fmt.Errorf("%s: status must be between 200 and 599", item.label)
+		if item.options.Status < 200 || item.options.Status > 999 {
+			return nil, fmt.Errorf("%s: status must be between 200 and 999", item.label)
 		}
 		if _, err = rewriteHeaders(rule.Headers); err != nil {
 			return nil, fmt.Errorf("%s: %w", item.label, err)
 		}
 		var data []byte
+		var source *processingResource
 		if rule.Resource != "" {
 			if rule.Data != "" || rule.DataType != "" {
 				return nil, fmt.Errorf("%s: resource cannot be combined with data/data_type", item.label)
 			}
 			var found bool
 			data, found = resources[rule.Resource]
+			source = resourceSources[rule.Resource]
 			if !found {
-				return nil, fmt.Errorf("%s: unknown embedded resource %q", item.label, rule.Resource)
+				return nil, fmt.Errorf("%s: unknown resource %q", item.label, rule.Resource)
+			}
+			item.options.DataType = c.Resources[rule.Resource].DataType
+		} else if rule.DataType == "file" {
+			source, err = compileProcessingResource(rule.Data, MaxLocalResourceBytes, false, 0, false)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", item.label, err)
 			}
 		} else {
-			data, err = decodeRewriteData(rule.DataType, rule.Data, c.MaxBodyBytes)
+			data, err = decodeRewriteData(rule.DataType, rule.Data, MaxLocalResourceBytes)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", item.label, err)
 			}
@@ -258,6 +315,7 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 		if !rule.Disable {
 			p.local = append(p.local, item)
 			p.data = append(p.data, data)
+			p.sources = append(p.sources, source)
 		}
 	}
 	p.count = len(p.headers) + len(p.urls) + len(p.remote) + len(p.bodies) + len(p.local)
@@ -280,17 +338,6 @@ func compileRewriteRule[T any](options T, match RewriteMatch, kind string, index
 		return compiledRule[T]{}, fmt.Errorf("%s: %w", label, err)
 	}
 	return compiledRule[T]{options: options, pattern: pattern, label: label}, nil
-}
-
-func compileRewritePattern(pattern string) (*regexp.Regexp, error) {
-	if len(pattern) > 4096 {
-		return nil, errors.New("regular expression exceeds 4096 bytes")
-	}
-	re, err := regexp.Compile(pattern)
-	if err == nil && re.NumSubexp() > 32 {
-		return nil, errors.New("regular expression exceeds 32 capture groups")
-	}
-	return re, err
 }
 
 func rewritePhase(phase string) bool { return phase == "request" || phase == "response" }
@@ -327,13 +374,13 @@ func decodeRewriteData(kind, value string, limit int64) ([]byte, error) {
 	case "tiny-gif":
 		data, err = base64.StdEncoding.DecodeString("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
 	default:
-		return nil, errors.New("data_type must be text, base64 or tiny-gif")
+		return nil, errors.New("embedded data_type must be text, base64 or tiny-gif")
 	}
 	if err != nil {
 		return nil, err
 	}
 	if int64(len(data)) > limit {
-		return nil, errors.New("embedded data exceeds max_body_bytes")
+		return nil, errors.New("embedded data exceeds resource size limit")
 	}
 	return data, nil
 }
@@ -347,6 +394,25 @@ func validateURLTemplate(value string) error {
 		return err
 	}
 	return nil
+}
+
+const gatewayPlaceholder = "{{{GATEWAY_ADDRESS}}}"
+
+func validateRewriteURLTemplate(value, action string) error {
+	if action == "header" && strings.HasPrefix(value, "ws://") {
+		value = "http://" + strings.TrimPrefix(value, "ws://")
+	}
+	if action == "302" || action == "307" {
+		value = strings.ReplaceAll(value, gatewayPlaceholder, "192.0.2.1")
+	}
+	return validateURLTemplate(value)
+}
+
+func (p *RewriteProgram) bodyLimit(phase string) int64 {
+	if phase == "request" && p.requestLimit > 0 {
+		return p.requestLimit
+	}
+	return p.limit
 }
 
 func parseRewriteURL(value string) (*url.URL, error) {

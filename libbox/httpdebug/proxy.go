@@ -319,8 +319,12 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 			}
 		}
 		display := request.Clone(request.Context())
-		display.URL.Scheme = target.Scheme
-		display.URL.Host = request.Host
+		if display.URL.Scheme == "" {
+			display.URL.Scheme = target.Scheme
+		}
+		if display.URL.Host == "" {
+			display.URL.Host = request.Host
+		}
 		if display.URL.Host == "" {
 			display.URL.Host = target.Host
 		}
@@ -354,7 +358,7 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 			}
 		}()
 		originalURL := *request.URL
-		program := e.httpProgram(requestMetadata)
+		program := e.httpProgram(metadata)
 		scriptID := id
 		if scriptID == "" {
 			scriptID = rand.Text()

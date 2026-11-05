@@ -3,6 +3,8 @@ package httpdebug
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,9 +23,9 @@ const (
 	maxScriptStorageNamespaces = 256
 	maxScriptStorageKeys       = 128
 	maxScriptStorageKeyBytes   = 256
-	maxScriptStorageValueBytes = 16 * 1024
-	maxScriptStorageBytes      = 64 * 1024
-	maxScriptStorageTotalBytes = 4 * 1024 * 1024
+	maxScriptStorageValueBytes = 4 * 1024 * 1024
+	maxScriptStorageBytes      = 32 * 1024 * 1024
+	maxScriptStorageTotalBytes = 64 * 1024 * 1024
 	maxScriptStorageCalls      = 64
 	scriptStorageTemporary     = ".pending"
 )
@@ -46,7 +48,7 @@ type scriptStorageDocument struct {
 }
 
 func validateStorageNamespace(namespace string) error {
-	if namespace == "" { // Storage is opt-in, independently for each rule.
+	if namespace == "" { // The shared default namespace preserves Surge key semantics.
 		return nil
 	}
 	if len(namespace) > 64 {
@@ -63,17 +65,20 @@ func validateStorageNamespace(namespace string) error {
 }
 
 func (p *ScriptProgram) needsStorage() bool {
-	for _, rule := range p.http {
-		if rule.options.StorageNamespace != "" {
-			return true
-		}
+	return len(p.http)+len(p.cron) > 0
+}
+
+func scriptDefaultStorageKey(source, path, reference string, resources map[string]RewriteResource) string {
+	identity := source
+	if reference != "" {
+		resource := resources[reference]
+		identity = resource.DataType + ":" + resource.Data
 	}
-	for _, rule := range p.cron {
-		if rule.options.StorageNamespace != "" {
-			return true
-		}
+	if path != "" {
+		identity = path
 	}
-	return false
+	sum := sha256.Sum256([]byte(identity))
+	return "script." + hex.EncodeToString(sum[:])
 }
 
 // Only preparation opens storage. Config validation never reads or writes
@@ -152,7 +157,7 @@ func openScriptStore(directory string) (*scriptStore, error) {
 		}
 		store.totalBytes += len(data)
 		if store.totalBytes > maxScriptStorageTotalBytes {
-			return nil, errors.New("script storage exceeds its global 4 MiB quota")
+			return nil, errors.New("script storage exceeds its global 64 MiB quota")
 		}
 		store.namespaces[namespace] = scriptNamespace{values, len(data)}
 	}
@@ -202,7 +207,7 @@ func (s *scriptStore) write(ctx context.Context, namespace, key string, value *s
 		return err
 	}
 	if value != nil && (!utf8.ValidString(*value) || len(*value) > maxScriptStorageValueBytes) {
-		return errors.New("storage value exceeds 16 KiB or is not UTF-8")
+		return errors.New("storage value exceeds 4 MiB or is not UTF-8")
 	}
 	if err := s.lock(ctx); err != nil {
 		return err
@@ -242,7 +247,7 @@ func (s *scriptStore) write(ctx context.Context, namespace, key string, value *s
 	}
 	nextTotal := s.totalBytes - old.bytes + len(data)
 	if len(data) > maxScriptStorageBytes || nextTotal > maxScriptStorageTotalBytes {
-		return errors.New("script storage byte quota exceeded (64 KiB per namespace, 4 MiB total)")
+		return errors.New("script storage byte quota exceeded (32 MiB per namespace, 64 MiB total)")
 	}
 	if err = s.commit(ctx, namespace+".json", data); err != nil {
 		return err
@@ -282,14 +287,18 @@ func (s *scriptStore) commit(ctx context.Context, name string, data []byte) erro
 	return os.Rename(temporary, filepath.Join(s.directory, name))
 }
 
-func installScriptStorage(vm *goja.Runtime, ctx context.Context, store *scriptStore, namespace, label string) {
+func installScriptStorage(vm *goja.Runtime, ctx context.Context, store *scriptStore, namespace, label string, defaultKeys ...string) {
+	if namespace == "" {
+		namespace = "default"
+	}
+	defaultKey := label
+	if len(defaultKeys) > 0 {
+		defaultKey = defaultKeys[0]
+	}
 	calls := 0
 	warned := false
 	check := func() error {
 		calls++
-		if namespace == "" {
-			return errors.New("persistent storage requires storage_namespace on this rule")
-		}
 		if store == nil {
 			return errors.New("persistent storage requires the running local service")
 		}
@@ -299,6 +308,9 @@ func installScriptStorage(vm *goja.Runtime, ctx context.Context, store *scriptSt
 		return ctx.Err()
 	}
 	keyValue := func(value goja.Value) string {
+		if missingScriptValue(value) {
+			return defaultKey
+		}
 		if value.ExportType() != reflect.TypeFor[string]() {
 			panic(vm.NewTypeError("storage key must be a string"))
 		}

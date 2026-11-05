@@ -13,16 +13,31 @@ import (
 // Preparation cannot execute scripts or intercept traffic. Activation happens
 // only after the core has started successfully under the service lifecycle lock.
 type PreparedProcessing struct {
-	rewrite *RewriteProgram
-	mitm    *MITMConfig
-	scripts *ScriptProgram
-	ca      *authority
-	cron    *cronRunner
+	rewrite          *RewriteProgram
+	mitm             *MITMConfig
+	scripts          *ScriptProgram
+	ca               *authority
+	cron             *cronRunner
+	resources        *processingResources
+	directory        string
+	profileDirectory string
+	gateway          func() string
+}
+
+func (p *PreparedProcessing) SetProfileDirectory(directory string) {
+	if p != nil {
+		p.profileDirectory = directory
+	}
+}
+func (p *PreparedProcessing) SetGatewayResolver(resolve func() string) {
+	if p != nil {
+		p.gateway = resolve
+	}
 }
 
 func PrepareProcessing(directory string, mitm *MITMConfig, rewrite *RewriteConfig, scripts *ScriptsConfig,
 	certificate string, signer crypto.Signer, timezone string) (*PreparedProcessing, error) {
-	prepared := &PreparedProcessing{}
+	prepared := &PreparedProcessing{directory: directory}
 	var err error
 	if mitm != nil {
 		copy := *mitm
@@ -90,13 +105,40 @@ func ActivateProcessing(prepared *PreparedProcessing, dial RewriteDialFunc, root
 	if profileProcessing != nil && profileProcessing.cron != nil {
 		profileProcessing.cron.Close()
 	}
+	if profileProcessing != nil {
+		profileProcessing.resources.Close()
+	}
 	profileProcessing = prepared
 	var next *Engine
 	if prepared != nil {
 		next = newProcessingEngine(prepared)
-		next.scriptEnvironment = scriptEnvironment{dial: dial, roots: roots}
+		var sources []*processingResource
+		if prepared.rewrite != nil {
+			for _, source := range prepared.rewrite.sources {
+				if source != nil {
+					sources = append(sources, source)
+				}
+			}
+		}
+		if prepared.scripts != nil {
+			for _, script := range prepared.scripts.http {
+				if script.source != nil {
+					sources = append(sources, script.source)
+				}
+			}
+			for _, script := range prepared.scripts.cron {
+				if script.source != nil {
+					sources = append(sources, script.source)
+				}
+			}
+		}
+		if len(sources) > 0 {
+			prepared.resources = newProcessingResources(next.ctx, prepared.directory, prepared.profileDirectory, dial, roots, sources)
+		}
+		next.scriptEnvironment = scriptEnvironment{dial: dial, roots: roots, gateway: prepared.gateway, resources: prepared.resources}
 		if prepared.scripts != nil {
 			next.scriptEnvironment.storage = prepared.scripts.storage
+			prepared.scripts.resources = prepared.resources
 		}
 	}
 	if previous := active.Swap(next); previous != nil {
@@ -118,6 +160,9 @@ func StopService() {
 	defer SetLogger(nil)
 	if profileProcessing != nil && profileProcessing.cron != nil {
 		profileProcessing.cron.Close()
+	}
+	if profileProcessing != nil {
+		profileProcessing.resources.Close()
 	}
 	profileProcessing = nil
 	if engine := active.Swap(nil); engine != nil {

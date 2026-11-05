@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -122,10 +121,10 @@ func normalizeResponseBody(request *http.Request, response *http.Response) {
 
 // Expand Go/RE2 replacement templates without allowing a small template and a
 // large capture to allocate an unbounded intermediate replacement string.
-func boundedReplace(re *regexp.Regexp, value, template string, limit int64) (string, error) {
-	matches := re.FindAllStringSubmatchIndex(value, 8193)
-	if len(matches) > 8192 {
-		return "", errors.New("rewrite exceeds 8192 replacements in one message")
+func boundedReplace(re *rewriteRegexp, value, template string, limit int64, budgets ...*regexBudget) (string, error) {
+	var budget *regexBudget
+	if len(budgets) > 0 {
+		budget = budgets[0]
 	}
 	var result strings.Builder
 	appendPart := func(part string) error {
@@ -136,25 +135,25 @@ func boundedReplace(re *regexp.Regexp, value, template string, limit int64) (str
 		return nil
 	}
 	position := 0
-	for _, match := range matches {
+	err := re.eachMatch(value, budget, func(match []int) error {
 		if err := appendPart(value[position:match[0]]); err != nil {
-			return "", err
+			return err
 		}
 		for rest := template; rest != ""; {
 			at := strings.IndexByte(rest, '$')
 			if at < 0 {
 				if err := appendPart(rest); err != nil {
-					return "", err
+					return err
 				}
 				break
 			}
 			if err := appendPart(rest[:at]); err != nil {
-				return "", err
+				return err
 			}
 			rest = rest[at+1:]
 			if strings.HasPrefix(rest, "$") {
 				if err := appendPart("$"); err != nil {
-					return "", err
+					return err
 				}
 				rest = rest[1:]
 				continue
@@ -162,7 +161,7 @@ func boundedReplace(re *regexp.Regexp, value, template string, limit int64) (str
 			name, consumed := replacementName(rest)
 			if consumed == 0 {
 				if err := appendPart("$"); err != nil {
-					return "", err
+					return err
 				}
 				continue
 			}
@@ -173,11 +172,15 @@ func boundedReplace(re *regexp.Regexp, value, template string, limit int64) (str
 			}
 			if index >= 0 && index < len(match)/2 && match[index*2] >= 0 {
 				if err := appendPart(value[match[index*2]:match[index*2+1]]); err != nil {
-					return "", err
+					return err
 				}
 			}
 		}
 		position = match[1]
+		return nil
+	})
+	if err != nil {
+		return "", err
 	}
 	if err := appendPart(value[position:]); err != nil {
 		return "", err
@@ -211,17 +214,46 @@ func replacementName(value string) (string, int) {
 	return value[:end], end
 }
 
-func (p *RewriteProgram) rewriteBody(phase, address string, data []byte, note func(string)) ([]byte, bool, error) {
+func (p *httpProgram) rewriteBody(phase, address string, data []byte, note func(string)) ([]byte, bool, error) {
 	changed := false
 	for _, rule := range p.bodies {
-		if rule.options.Phase != phase || !rule.pattern.MatchString(address) {
+		if rule.options.Phase != phase {
+			continue
+		}
+		matched, err := p.match(rule.pattern, address)
+		if err != nil {
+			return nil, false, err
+		}
+		if !matched {
+			continue
+		}
+		if rule.options.JQ != nil {
+			if rule.jqError != nil {
+				message := rule.label + ": jq skipped: " + rule.jqError.Error()
+				note(message)
+				writeLog("warn", message)
+				continue
+			}
+			start := time.Now()
+			next, jqErr := rewriteJSONBody(p.regex.ctx, rule.jq, data, p.bodyLimit(phase), p.jqRemaining)
+			p.jqRemaining -= time.Since(start)
+			if jqErr != nil {
+				message := rule.label + ": jq skipped: " + jqErr.Error()
+				note(message)
+				writeLog("warn", message)
+				continue
+			}
+			if !bytes.Equal(next, data) {
+				data, changed = next, true
+				note(rule.label)
+			}
 			continue
 		}
 		if !utf8.Valid(data) {
 			note(rule.label + ": skipped non-UTF-8 body")
 			continue
 		}
-		next, err := boundedReplace(rule.regex, string(data), rule.options.Replacement, p.limit)
+		next, err := boundedReplace(rule.regex, string(data), rule.options.Replacement, p.bodyLimit(phase), p.regex)
 		if err != nil {
 			return nil, false, err
 		}

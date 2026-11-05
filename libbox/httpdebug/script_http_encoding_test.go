@@ -17,7 +17,7 @@ import (
 func runCronHTTPResponseScript(t *testing.T, origin *httptest.Server, limit int64, source string) {
 	t.Helper()
 	program, err := CompileScripts(&ScriptsConfig{MaxBodyBytes: limit, Cron: []CronScript{{
-		Cron: "0 2 * * *", Source: source, TimeoutMS: 5000,
+		Cron: "0 2 * * *", Source: source, TimeoutMS: 5000, HTTPClient: &ScriptHTTPOptions{MaxBodyBytes: limit},
 	}}}, time.UTC)
 	if err != nil {
 		t.Fatal(err)

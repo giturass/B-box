@@ -77,15 +77,14 @@ func TestScriptStorageEnforcesBytesKeysNamespacesAndTotalQuota(t *testing.T) {
 		for _, test := range []struct{ key, value string }{
 			{"", "value"}, {strings.Repeat("中", 86), "value"},
 			{"large", strings.Repeat("x", maxScriptStorageValueBytes+1)},
-			{"unicode", strings.Repeat("中", 5462)},
-			{"escaped", strings.Repeat("<", 12000)},
+			{"unicode", strings.Repeat("中", maxScriptStorageValueBytes/3+1)},
 		} {
 			if err := store.write(context.Background(), "ns", test.key, &test.value); err == nil {
 				t.Fatal("accepted oversized or invalid entry")
 			}
 		}
 		value := strings.Repeat("v", maxScriptStorageValueBytes)
-		for _, key := range []string{"a", "b", "c"} {
+		for _, key := range []string{"a", "b", "c", "e", "f", "g", "h"} {
 			storeScriptValue(t, store, "ns", key, value)
 		}
 		before := store.totalBytes
@@ -304,11 +303,11 @@ func TestPersistentStoreAPIIsScopedSharedWithCronAndBounded(t *testing.T) {
 	if err := run("other", `if($persistentStore.read('key','shared')!==null) throw Error('escaped namespace'); $done();`); err != nil {
 		t.Fatal(err)
 	}
-	if err := run("", `if($persistentStore.write('bad','key')) throw Error('missing capability');
-		let failed=false; try{$persistentStore.read('key');}catch(e){failed=true;} if(!failed) throw Error('read without namespace'); $done();`); err != nil {
+	if err := run("", `if(!$persistentStore.write('default','key') || $persistentStore.read('key')!=='default') throw Error('default storage');
+		if(!$persistentStore.write('own') || $persistentStore.read()!=='own') throw Error('implicit key'); $done();`); err != nil {
 		t.Fatal(err)
 	}
-	if err := run("shared", `if($persistentStore.write('x'.repeat(16385),'key')) throw Error('value quota'); $done();`); err != nil {
+	if err := run("shared", `if($persistentStore.write('x'.repeat(4194305),'key')) throw Error('value quota'); $done();`); err != nil {
 		t.Fatal(err)
 	}
 	if err := run("shared", `for(let i=0;i<64;i++) $persistentStore.read('key'); if($persistentStore.write('bad','key')) throw Error('operation quota'); $done();`); err != nil {

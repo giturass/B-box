@@ -161,7 +161,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             DefaultNetworkMonitor.start()
 
             try {
-                startOrReloadCore(content, generation)
+                startOrReloadCore(content, generation, File(profile.typed.path).parent.orEmpty())
             } catch (e: Exception) {
                 stopAndAlert(generation, Alert.CreateService, e.message)
                 return
@@ -231,7 +231,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
         lastProfileName = profile.name
         try {
-            startOrReloadCore(content, generation)
+            startOrReloadCore(content, generation, File(profile.typed.path).parent.orEmpty())
         } catch (e: Exception) {
             stopAndAlert(generation, Alert.CreateService, e.message)
             // Return reload failures to the command client so configuration
@@ -260,7 +260,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         _dashboardConfig.value = DashboardConfig(commandServer, profileId, content)
     }
 
-    private fun startOrReloadCore(content: String, generation: Long) = synchronized(MitmCertificate.accessLock) {
+    private fun startOrReloadCore(content: String, generation: Long, profileDirectory: String) = synchronized(MitmCertificate.accessLock) {
         check(!stopRequested && generation == serviceGeneration) { "Service start cancelled" }
         val server = commandServer
         val overrides = OverrideOptions().apply {
@@ -275,6 +275,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
             scriptTimezone = TimeZone.getDefault().id
             processingDirectory = File(service.noBackupFilesDir, "http-debug/captures").absolutePath
+            processingProfileDirectory = profileDirectory
             if (Libbox.needsUIMITMCA(content)) {
                 val material = MitmCertificate(service).material()
                 mitmCertificate = material.first

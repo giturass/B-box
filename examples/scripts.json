@@ -7,25 +7,30 @@
           "name": "Dynamic API mock",
           "pattern": "^https?://api\\.example\\.test/dynamic$",
           "phase": "request",
-          "source": "$done({response:{status:200,headers:{'Content-Type':'application/json'},body:JSON.stringify({ok:true,method:$request.method})}});"
+          "source": "$done({response:{status:200,headers:{'Content-Type':'application/json'},body:JSON.stringify({ok:true,method:$request.method})}});",
+          "timeout_ms": 5000
         },
         {
           "name": "Request JSON",
           "pattern": "^https?://api\\.example\\.test/json$",
           "phase": "request",
           "requires_body": true,
-          "source": "const body=JSON.parse($request.body); body.debug=true; $done({body:JSON.stringify(body)});"
+          "source": "const body=JSON.parse($request.body); body.debug=true; $done({body:JSON.stringify(body)});",
+          "timeout_ms": 5000
         },
         {
           "name": "Cached routed API",
           "pattern": "^https?://api\\.example\\.test/cached$",
           "phase": "request",
-          "timeout_ms": 2000,
+          "timeout_ms": 5000,
           "max_body_bytes": 8192,
           "storage_namespace": "example-api",
           "http_client": {
-            "allowed_origins": ["https://api.example.test"],
-            "max_requests": 1
+            "allowed_origins": [
+              "https://api.example.test"
+            ],
+            "max_requests": 1,
+            "max_body_bytes": 8192
           },
           "source": "const cached=$persistentStore.read('latest'); if(cached!==null) $done({response:{body:cached}}); $httpClient.get('https://api.example.test/task', function(error,response,data) { if(error || response.status!==200) throw Error(error || 'HTTP status '+response.status); if(!$persistentStore.write(data,'latest')) throw Error('Storage write failed'); $done({response:{body:data}}); });"
         },
@@ -35,8 +40,40 @@
           "phase": "response",
           "requires_body": true,
           "full_headers": true,
-          "timeout_ms": 200,
+          "timeout_ms": 5000,
           "resource": "response.js"
+        },
+        {
+          "name": "Local response script",
+          "disabled": true,
+          "pattern": "^https?://api\\.example\\.test/file-script$",
+          "phase": "response",
+          "requires_body": true,
+          "script_path": "resources/response.js",
+          "debug": true,
+          "timeout_ms": 5000
+        },
+        {
+          "name": "Cached remote script",
+          "disabled": true,
+          "pattern": "^https?://api\\.example\\.test/remote-script$",
+          "phase": "response",
+          "requires_body": true,
+          "script_path": "https://resources.example.test/response.js",
+          "script_update_interval": 86400,
+          "timeout_ms": 5000
+        },
+        {
+          "name": "Asynchronous binary mock",
+          "disabled": true,
+          "pattern": "^https?://api\\.example\\.test/binary$",
+          "phase": "request",
+          "binary_body": true,
+          "timeout_ms": 5000,
+          "http_client": {
+            "max_body_bytes": 1048576
+          },
+          "source": "$httpClient.get({url:'https://api.example.test/binary','binary-mode':true,'full-header-mode':true,timeout:4}, (error,response,data)=>{if(error) throw Error(error); $done({response:{status:response.status,body:data}});});"
         }
       ],
       "cron": [
@@ -47,8 +84,11 @@
           "timeout_ms": 5000,
           "storage_namespace": "example-api",
           "http_client": {
-            "allowed_origins": ["https://api.example.test"],
-            "max_requests": 1
+            "allowed_origins": [
+              "https://api.example.test"
+            ],
+            "max_requests": 1,
+            "max_body_bytes": 8192
           },
           "argument": "https://api.example.test/task",
           "source": "$httpClient.get($argument, function(error, response, data) { if(error || response.status!==200) throw Error(error || 'HTTP status '+response.status); if(!$persistentStore.write(data,'latest')) throw Error('Storage write failed'); console.log(response.status); $done(); });"
@@ -59,7 +99,8 @@
           "data_type": "text",
           "data": "const body=JSON.parse($response.body); body.debug=true; $response.headers.push({field:'X-Script',value:'B-box'}); $done({headers:$response.headers,body:JSON.stringify(body)});"
         }
-      }
+      },
+      "max_body_bytes": 1048576
     }
   }
 }

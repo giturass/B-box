@@ -3,6 +3,7 @@ package httpdebug
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"reflect"
 	"time"
@@ -11,9 +12,8 @@ import (
 )
 
 const (
-	maxScriptTimers       = 32
-	maxScriptTimerCalls   = 128
-	maxScriptTimerDelayMS = 30000
+	maxScriptTimers       = 64
+	maxScriptTimerDelayMS = 24 * 60 * 60 * 1000
 )
 
 type scriptTimer struct {
@@ -26,16 +26,24 @@ type scriptTimer struct {
 }
 
 // Timers belong to a single invocation. No timer or callback goroutine retains
-// a VM after $done, an error or cancellation. Host HTTP calls remain sequential;
-// timer callbacks run only after the current JavaScript/host call returns.
+// a VM after $done, an error or cancellation. HTTP workers enqueue events;
+// all callbacks run only after the current JavaScript/host call returns.
 type scriptTimers struct {
 	ctx        context.Context
 	pending    map[int64]*scriptTimer
 	registered int64
+	events     chan scriptHTTPEvent
+}
+
+type scriptLoopKey struct{}
+
+type scriptHTTPEvent struct {
+	call    func() error
+	release func()
 }
 
 func installScriptTimers(vm *goja.Runtime, ctx context.Context) *scriptTimers {
-	timers := &scriptTimers{ctx: ctx, pending: make(map[int64]*scriptTimer)}
+	timers := &scriptTimers{ctx: ctx, pending: make(map[int64]*scriptTimer), events: make(chan scriptHTTPEvent, maxScriptHTTPConcurrent*2)}
 	for _, name := range []string{"setTimeout", "setInterval"} {
 		_ = vm.Set(name, func(call goja.FunctionCall) goja.Value {
 			callback, ok := goja.AssertFunction(call.Argument(0))
@@ -50,10 +58,10 @@ func installScriptTimers(vm *goja.Runtime, ctx context.Context) *scriptTimers {
 				delay = value.ToFloat()
 			}
 			if math.IsNaN(delay) || math.IsInf(delay, 0) || delay < 0 || delay > maxScriptTimerDelayMS {
-				panic(vm.NewTypeError("timer delay must be between 0 and 30000 milliseconds"))
+				panic(vm.NewTypeError("timer delay must be between 0 and 86400000 milliseconds"))
 			}
-			if len(timers.pending) >= maxScriptTimers || timers.registered >= maxScriptTimerCalls {
-				panic(vm.NewGoError(errors.New("script timer limit exceeded (32 pending, 128 registrations)")))
+			if len(timers.pending) >= maxScriptTimers {
+				panic(vm.NewGoError(errors.New("script timer limit exceeded (64 pending)")))
 			}
 			timers.registered++
 			duration := max(time.Duration(delay*float64(time.Millisecond)), time.Millisecond)
@@ -83,12 +91,9 @@ func installScriptTimers(vm *goja.Runtime, ctx context.Context) *scriptTimers {
 }
 
 func (t *scriptTimers) run() error {
-	for fired := 0; len(t.pending) > 0; fired++ {
+	for {
 		if err := t.ctx.Err(); err != nil {
 			return err
-		}
-		if fired >= maxScriptTimerCalls {
-			return errors.New("script timer callback limit exceeded (128)")
 		}
 		var next *scriptTimer
 		for _, timer := range t.pending {
@@ -96,12 +101,28 @@ func (t *scriptTimers) run() error {
 				next = timer
 			}
 		}
-		wait := time.NewTimer(max(time.Until(next.next), 0))
+		var wait *time.Timer
+		var ready <-chan time.Time
+		if next != nil {
+			wait = time.NewTimer(max(time.Until(next.next), 0))
+			ready = wait.C
+		}
 		select {
 		case <-t.ctx.Done():
-			wait.Stop()
-			return t.ctx.Err()
-		case <-wait.C:
+			if wait != nil {
+				wait.Stop()
+			}
+			return fmt.Errorf("script must call $done() before its deadline: %w", t.ctx.Err())
+		case event := <-t.events:
+			if wait != nil {
+				wait.Stop()
+			}
+			err := func() error { defer event.release(); return event.call() }()
+			if err != nil {
+				return err
+			}
+			continue
+		case <-ready:
 		}
 		if err := t.ctx.Err(); err != nil {
 			return err
@@ -112,11 +133,10 @@ func (t *scriptTimers) run() error {
 		if _, err := next.callback(goja.Undefined(), next.arguments...); err != nil {
 			return err
 		}
-		// Skip elapsed intervals; never queue a catch-up burst after blocking
-		// HTTP, a slow callback or device suspension.
+		// Skip elapsed intervals; never queue a catch-up burst after a slow
+		// callback or device suspension.
 		if next.repeat {
 			next.next = time.Now().Add(next.delay)
 		}
 	}
-	return nil
 }

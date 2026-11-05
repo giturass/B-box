@@ -56,13 +56,13 @@ func TestRewriteConfigValidation(t *testing.T) {
 		`{"url_rewrite":[{"pattern":".","action":"302","replacement":"http://"}]}`,
 		`{"map_remote":[{"pattern":".","replacement":"https://example.test:99999/"}]}`,
 		`{"map_remote":[{"pattern":".","replacement":"https://user:password@example.test/"}]}`,
-		`{"body_rewrite":[{"pattern":".","phase":"request","regex":"(?<=x)y"}]}`,
+		`{"body_rewrite":[{"pattern":".","phase":"request","regex":"(?<=x"}]}`,
 		`{"scripts":[{"pattern":".","phase":"request","source":"function {"}]}`,
 		`{"scripts":[{"pattern":".","phase":"request","source":"$done()","timeout_ms":2001}]}`,
 		`{"scripts":[{"pattern":".","phase":"request","source":"$done()","script_path":"https://example.com/x.js"}]}`,
 		`{"map_local":[{"pattern":".","resource":"missing"}]}`,
 		`{"map_local":[{"pattern":".","data_type":"base64","data":"%%%"}]}`,
-		`{"max_body_bytes":1048577}`, `{"ports":[0]}`,
+		`{"max_body_bytes":10485761}`, `{"ports":[0]}`,
 	} {
 		var config RewriteConfig
 		if err := json.Unmarshal([]byte(invalid), &config); err == nil {

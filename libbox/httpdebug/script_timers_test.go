@@ -20,6 +20,8 @@ func TestScriptTimersOrderArgumentsIntervalsAndDone(t *testing.T) {
 		`let order=[]; setTimeout(()=>{order.push(1); setTimeout(()=>{order.push(3); $done({response:{body:order.join(',')}});},1);},0);
 			setTimeout(()=>{order.push(2);},0);`,
 		`setTimeout(()=>{throw Error('survived done');},30000); $done();`,
+		`setTimeout(()=>{throw Error('survived done');},86400000); $done();`,
+		`for(let i=0;i<129;i++) clearTimeout(setTimeout(()=>{},100)); $done();`,
 		`setTimeout(()=>{$done(); throw Error('after done');},0);`,
 	} {
 		rule := httpAPIScript(t, HTTPScript{Source: source})
@@ -52,10 +54,9 @@ func TestScriptTimersEnforceLimitsAndCancellation(t *testing.T) {
 		{`setTimeout(()=>{},NaN); $done();`, "delay", 2000},
 		{`setTimeout(()=>{},Infinity); $done();`, "delay", 2000},
 		{`setTimeout(()=>{},-1); $done();`, "delay", 2000},
-		{`setTimeout(()=>{},30001); $done();`, "delay", 2000},
-		{`for(let i=0;i<33;i++) setTimeout(()=>{},100); $done();`, "timer limit", 2000},
-		{`for(let i=0;i<129;i++) clearTimeout(setTimeout(()=>{},100)); $done();`, "timer limit", 2000},
-		{`setInterval(()=>{},0);`, "callback limit", 2000},
+		{`setTimeout(()=>{},86400001); $done();`, "delay", 2000},
+		{`for(let i=0;i<65;i++) setTimeout(()=>{},100); $done();`, "timer limit", 2000},
+		{`setInterval(()=>{},0);`, "deadline", 20},
 		{`setTimeout(()=>{$done();},1000);`, "deadline", 20},
 		{`setTimeout(()=>{for(;;){}},0);`, "deadline", 20},
 		{`const id=setTimeout(()=>{$done();},0); clearTimeout(id);`, "must call", 2000},

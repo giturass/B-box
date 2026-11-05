@@ -35,7 +35,6 @@
         8080,
         8443
       ],
-      "max_body_bytes": 1048576,
       "header_rewrite": [
         {
           "name": "Request header",
@@ -65,6 +64,20 @@
           "name": "Reject",
           "pattern": "^https?://api\\.example\\.test/ads/",
           "action": "reject"
+        },
+        {
+          "name": "WebSocket target",
+          "disabled": true,
+          "pattern": "^http://api\\.example\\.test/ws$",
+          "action": "header",
+          "replacement": "ws://backend.example.test/socket"
+        },
+        {
+          "name": "Gateway redirect",
+          "disabled": true,
+          "pattern": "^http://api\\.example\\.test/gateway$",
+          "action": "302",
+          "replacement": "http://{{{GATEWAY_ADDRESS}}}/"
         }
       ],
       "map_remote": [
@@ -89,6 +102,25 @@
           "phase": "response",
           "regex": "old-result",
           "replacement": "new-result"
+        },
+        {
+          "name": "Request JSON",
+          "pattern": "^https?://api\\.example\\.test/json$",
+          "phase": "request",
+          "jq": ".debug = true"
+        },
+        {
+          "name": "Response JSON",
+          "pattern": "^https?://api\\.example\\.test/json$",
+          "phase": "response",
+          "jq": "del(.debug) | .source = \"B-box\""
+        },
+        {
+          "name": "Lookaround and internal backreference",
+          "pattern": "^https?://api\\.example\\.test/echo$",
+          "phase": "response",
+          "regex": "(?<=token=)([a-z]+)-\\1(?=&|$)",
+          "replacement": "checked"
         }
       ],
       "map_local": [
@@ -108,14 +140,38 @@
           "name": "Empty pixel",
           "pattern": "^https?://api\\.example\\.test/pixel$",
           "data_type": "tiny-gif"
+        },
+        {
+          "name": "Local file mock",
+          "disabled": true,
+          "pattern": "^https?://api\\.example\\.test/file$",
+          "status": 999,
+          "resource": "local-file"
+        },
+        {
+          "name": "Cached URL mock",
+          "disabled": true,
+          "pattern": "^https?://api\\.example\\.test/cached-file$",
+          "resource": "remote-json"
         }
       ],
       "resources": {
         "mock.json": {
           "data_type": "text",
           "data": "{\"ok\":true,\"source\":\"Map Local\"}"
+        },
+        "local-file": {
+          "data_type": "file",
+          "data": "resources/mock.json"
+        },
+        "remote-json": {
+          "data_type": "file",
+          "data": "https://resources.example.test/mock.json",
+          "update_interval": 86400
         }
-      }
+      },
+      "max_request_body_bytes": 33554432,
+      "max_response_body_bytes": 1048576
     }
   }
 }

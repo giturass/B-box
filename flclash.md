@@ -24,7 +24,7 @@ FlClash 应用层组件位于 [flutter/lib/ui](flutter/lib/ui)，共享控件以
 
 字体归属见 [JetBrainsMono-OFL.txt](flutter/assets/licenses/JetBrainsMono-OFL.txt) 和 [Twemoji-LICENSE.md](flutter/assets/licenses/Twemoji-LICENSE.md)。Twemoji 原始图形来自 Twitter，字体转换由 Mozilla 提供，图形未修改；字体许可同样用于应用内许可证页。
 
-核心正文解码新增使用的许可通过 [main.dart](flutter/lib/main.dart) 注册至应用内许可证页：[brotli-LICENSE](flutter/assets/licenses/brotli-LICENSE) 与 [klauspost-compress-LICENSE](flutter/assets/licenses/klauspost-compress-LICENSE)。依赖版本及执行范围见 [libbox.md](libbox.md#独立脚本与-cron)，不改变 FlClash 参考基线或直接导入文件。
+核心正文解码及 jq 使用的许可通过 [main.dart](flutter/lib/main.dart) 注册至应用内许可证页：[brotli-LICENSE](flutter/assets/licenses/brotli-LICENSE)、[klauspost-compress-LICENSE](flutter/assets/licenses/klauspost-compress-LICENSE)、[gojq-LICENSE](flutter/assets/licenses/gojq-LICENSE) 和 [timefmt-go-LICENSE](flutter/assets/licenses/timefmt-go-LICENSE)。依赖版本及执行范围见 [libbox.md](libbox.md#独立脚本与-cron)，不改变 FlClash 参考基线或直接导入文件。
 
 应用打包的字体均有实际用途：[JetBrainsMono-Regular.ttf](flutter/assets/fonts/JetBrainsMono-Regular.ttf) 用于代码编辑、请求报文、记录详情及终端预览，[Twemoji.Mozilla.ttf](flutter/assets/fonts/Twemoji.Mozilla.ttf) 用于代理名称等 Emoji 文本。[NotoSansSC-status.ttf](flutter/test/support/fonts/NotoSansSC-status.ttf) 仅供状态卡像素比较测试使用，不进入应用资源。
 
@@ -102,7 +102,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 原始 JSON 编辑器使用 [code_editor.dart](flutter/lib/components/code_editor.dart) 显示从 1 开始的逻辑行号，空行和末尾换行保留编号；长行折行不增加行号，行号随正文滚动。行号布局与正文使用相同的字形、字号比例和换行宽度，仅创建可见编号；搜索、格式化、撤销及修订校验沿用原编辑流程。
 
-配置“编辑”页的高级配置依次提供“MITM”、“HTTP 改写”和“脚本”，由 [configuration.dart](flutter/lib/pages/configuration.dart) 复用共享分组、规则列表、排序及 JSON 表单。MITM 一级页直接编辑 HTTPS、域名及排除项、HTTP/2、服务器证书校验、TCP 和 QUIC 回退，并提供单一证书入口；证书入口独立于配置加载。域名编辑器保留输入顺序及通配符、端口后缀，新增抓取域名追加在列表末尾。端口、应用等额外筛选通过同页的 MITM JSON 编辑入口修改。默认值及匹配语义见 [MITM 配置](libbox.md#独立-mitm-配置)。HTTP 改写仅编辑 Header/URL/Body Rewrite、Map Remote、Map Local 与静态资源；脚本独立编辑启用状态、HTTP 规则、Cron 任务和资源。新建规则与任务提供默认禁用的示例，完整 JSON 仍可编辑。字段与执行语义见 [libbox.md](libbox.md#独立脚本与-cron)。
+配置“编辑”页的高级配置依次提供“MITM”、“HTTP 改写”和“脚本”，由 [configuration.dart](flutter/lib/pages/configuration.dart) 复用共享分组、规则列表、排序及 JSON 表单。MITM 一级页直接编辑 HTTPS、域名及排除项、HTTP/2、服务器证书校验、TCP 和 QUIC 回退，并提供单一证书入口；证书入口独立于配置加载。域名编辑器保留输入顺序及通配符、端口后缀，新增抓取域名追加在列表末尾。端口、应用等额外筛选通过同页 JSON 编辑入口修改，见 [MITM 配置](libbox.md#独立-mitm-配置)。HTTP 改写编辑 Header/URL/Body Rewrite（含 jq）、Map Remote、Map Local 与资源；脚本独立编辑启用状态、HTTP、Cron 和资源。前后查找/反向引用、文件/URL 资源及独立正文限额通过完整 JSON 表单配置，字段及运行行为见 [libbox.md](libbox.md#json-配置中的-http-改写)。新建规则/任务示例仍默认禁用；本次核心对齐没有引入新的页面或视觉验收结论。
 
 所有修改通过 ProfileConfigStore.set 保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
 

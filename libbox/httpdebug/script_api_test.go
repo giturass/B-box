@@ -44,7 +44,7 @@ func TestScriptCapabilitiesValidateWithoutExecuting(t *testing.T) {
 		`{"http_client":{"allowed_origins":["http://api.test:0"]}}`,
 		`{"http_client":{"allowed_origins":["http://api.test:65536"]}}`,
 		`{"http_client":{"max_requests":-1}}`,
-		`{"http_client":{"max_requests":17}}`,
+		`{"http_client":{"max_body_bytes":33554433}}`,
 		`{"http_client":{"proxy":"http://other.test"}}`,
 		`{"storage_namespace":"../other"}`,
 		`{"storage_namespace":"/absolute"}`,
@@ -71,8 +71,8 @@ func TestScriptCapabilitiesValidateWithoutExecuting(t *testing.T) {
 			}
 		}
 	}
-	if _, err := compileScriptHTTP(&ScriptHTTPOptions{MaxRequests: 5}, false); err == nil {
-		t.Fatal("HTTP script could increase its hard request limit")
+	if policy, err := compileScriptHTTP(&ScriptHTTPOptions{MaxRequests: 5}, false); err != nil || policy.maxRequests != 5 {
+		t.Fatal("explicit total request cap was not preserved", err)
 	}
 	if err := validateStorageNamespace(strings.Repeat("n", 65)); err == nil {
 		t.Fatal("unbounded namespace")
@@ -153,8 +153,7 @@ func TestHTTPClientDeniesUnconfiguredDestinationsAndHostOverrides(t *testing.T) 
 		options *ScriptHTTPOptions
 		request string
 	}{
-		{nil, `'http://allowed.test:8080/'`},
-		{&ScriptHTTPOptions{}, `'http://allowed.test:8080/'`},
+		{&ScriptHTTPOptions{AllowedOrigins: []string{}}, `'http://allowed.test:8080/'`},
 		{allowed, `'http://allowed.test/'`},
 		{allowed, `'https://allowed.test:8080/'`},
 		{allowed, `'http://sub.allowed.test:8080/'`},
@@ -163,7 +162,7 @@ func TestHTTPClientDeniesUnconfiguredDestinationsAndHostOverrides(t *testing.T) 
 		{allowed, `'file:///etc/passwd'`},
 		{allowed, `{url:'http://allowed.test:8080/',headers:{Host:'evil.test:8080'}}`},
 		{allowed, `{url:'http://allowed.test:8080/',headers:[{field:'Host',value:'allowed.test:8080'},{field:'Host',value:'evil.test:8080'}]}`},
-		{allowed, `{url:'http://allowed.test:8080/',insecure:true}`},
+		{allowed, `{url:'http://allowed.test:8080/',insecure:'true'}`},
 	} {
 		rule := httpAPIScript(t, HTTPScript{HTTPClient: test.options,
 			Source: "$httpClient.get(" + test.request + ",function(error,response,data){if(!error || response!==null || data!==undefined) throw Error('allowed'); $done();});"})
@@ -207,14 +206,15 @@ func TestHTTPClientLimitsRedirectsBodiesAndRequests(t *testing.T) {
 		{`$httpClient.get('http://aux.test/large',(e)=>{if(!e || !e.includes('max_body_bytes')) throw Error('size'); $done();});`, 1},
 		{`$httpClient.get('http://aux.test/binary',(e)=>{if(!e || !e.includes('UTF-8')) throw Error('binary'); $done();});`, 1},
 		{`$httpClient.post({url:'http://aux.test/',body:'123456789'},(e)=>{if(!e) throw Error('upload'); $done();});`, 0},
-		{`$httpClient.get('http://aux.test/redirect',(e,r,d)=>{if(e || r.status!==302 || d!=='redirect') throw Error('redirect'); $done();});`, 1},
-		{`for(let i=0;i<3;i++) $httpClient.get('http://aux.test/',(e)=>{if(!!e!==(i===2)) throw Error('request limit');}); $done();`, 2},
+		{`$httpClient.get({url:'http://aux.test/redirect','auto-redirect':false},(e,r,d)=>{if(e || r.status!==302 || d!=='redirect') throw Error('redirect'); $done();});`, 1},
+		{`$httpClient.get('http://aux.test/redirect',(e)=>{if(!e || !e.includes('allowed_origins')) throw Error('redirect restriction'); $done();});`, 1},
+		{`let completed=0; for(let i=0;i<3;i++) $httpClient.get('http://aux.test/',(e)=>{if(!!e!==(i===2)) throw Error('request limit'); if(++completed===3) $done();});`, 2},
 		{`for(let i=0;i<2;i++) $httpClient.get('http://denied.test/',(e)=>{if(!e) throw Error('origin');});
 			$httpClient.get('http://aux.test/',(e)=>{if(!e || !e.includes('request limit')) throw Error('failed calls not counted'); $done();});`, 0},
 	} {
 		before := requests.Load()
 		rule := httpAPIScript(t, HTTPScript{Source: test.source, MaxBodyBytes: 8,
-			HTTPClient: &ScriptHTTPOptions{AllowedOrigins: []string{"http://aux.test"}, MaxRequests: 2}})
+			HTTPClient: &ScriptHTTPOptions{AllowedOrigins: []string{"http://aux.test"}, MaxRequests: 2, MaxBodyBytes: 8}})
 		request, _ := http.NewRequest("GET", "http://intercepted.test/", nil)
 		if _, err := runHTTPScript(request, nil, rule, "test", nil, environment, func(string) {}); err != nil {
 			t.Fatal(err)

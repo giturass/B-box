@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/net/http/httpguts"
 )
@@ -17,8 +19,14 @@ import (
 // extension enables the other, and only MITM may admit a TLS connection.
 type httpProgram struct {
 	*RewriteProgram
-	scripts     *ScriptProgram
-	environment scriptEnvironment
+	scripts        *ScriptProgram
+	environment    scriptEnvironment
+	regex          *regexBudget
+	jqRemaining    time.Duration
+	candidates     []string
+	matched        map[*rewriteRegexp]string
+	connectionHost string
+	connectionPort uint16
 }
 
 func (e *Engine) httpProgram(metadata Metadata) *httpProgram {
@@ -36,10 +44,73 @@ func (e *Engine) httpProgram(metadata Metadata) *httpProgram {
 	if rewrite == nil {
 		rewrite = &RewriteProgram{limit: scripts.limit}
 	}
-	return &httpProgram{RewriteProgram: rewrite, scripts: scripts, environment: e.scriptEnvironment}
+	return &httpProgram{RewriteProgram: rewrite, scripts: scripts, environment: e.scriptEnvironment,
+		connectionHost: metadata.Host, connectionPort: metadata.Port}
+}
+
+func (p *httpProgram) prepareMatcher(request *http.Request, address string) {
+	if p.regex != nil {
+		return
+	}
+	p.regex = newRegexBudget(request.Context())
+	p.jqRemaining = 500 * time.Millisecond
+	p.matched = make(map[*rewriteRegexp]string)
+	p.candidates = []string{address}
+	base := *request.URL
+	for _, host := range []string{request.Host, p.connectionHost} {
+		if host == "" {
+			continue
+		}
+		if host == p.connectionHost && p.connectionPort != 0 {
+			port := strconv.Itoa(int(p.connectionPort))
+			if (base.Scheme == "https" && port != "443") || (base.Scheme != "https" && port != "80") {
+				host = net.JoinHostPort(host, port)
+			} else if strings.Contains(host, ":") {
+				host = "[" + host + "]"
+			}
+		}
+		base.Host = host
+		candidate := base.String()
+		if candidate != address {
+			p.candidates = append(p.candidates, candidate)
+		}
+	}
+}
+
+func (p *httpProgram) matchURL(pattern *rewriteRegexp, address string) (string, error) {
+	if result, found := p.matched[pattern]; found {
+		return result, nil
+	}
+	candidates := p.candidates
+	if len(candidates) == 0 {
+		candidates = []string{address}
+	}
+	for _, candidate := range candidates {
+		matched, err := pattern.match(candidate, p.regex)
+		if err != nil {
+			return "", err
+		}
+		if matched {
+			if p.matched != nil {
+				p.matched[pattern] = candidate
+			}
+			return candidate, nil
+		}
+	}
+	if p.matched != nil {
+		p.matched[pattern] = ""
+	}
+	return "", nil
+}
+
+func (p *httpProgram) match(pattern *rewriteRegexp, address string) (bool, error) {
+	matched, err := p.matchURL(pattern, address)
+	return matched != "", err
 }
 
 func (p *httpProgram) request(request *http.Request, id, address string, note func(string)) (local *http.Response, err error) {
+	p.regex = nil
+	p.prepareMatcher(request, address)
 	var lease *bodyLease
 	bufferedRequest, scriptedResponse := false, false
 	defer func() {
@@ -55,8 +126,14 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 			lease.release()
 		}
 	}()
-	script := p.script("request", address)
-	bodyRules := p.hasBodyRules("request", address)
+	script, err := p.script("request", address)
+	if err != nil {
+		return nil, err
+	}
+	bodyRules, err := p.hasBodyRules("request", address)
+	if err != nil {
+		return nil, err
+	}
 	needsBody := bodyRules || script != nil && script.options.RequiresBody
 	eligible := !needsBody || bodyEligible(request.Header, note)
 	encoding := contentEncoding(request.Header)
@@ -64,20 +141,47 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 		return nil, err
 	}
 	for _, rule := range p.urls {
-		if !rule.pattern.MatchString(address) {
+		matched, err := p.matchURL(rule.pattern, address)
+		if err != nil {
+			return nil, err
+		}
+		if matched == "" {
 			continue
 		}
 		note(rule.label)
 		if rule.options.Action == "reject" {
 			return localRewriteResponse(request, http.StatusForbidden, make(http.Header), []byte("Request rejected by B-box rewrite\n")), nil
 		}
-		next, err := boundedReplace(rule.pattern, address, rule.options.Replacement, 8192)
+		replacement := rule.options.Replacement
+		if rule.options.Action != "header" && strings.Contains(replacement, gatewayPlaceholder) {
+			gateway := ""
+			if p.environment.gateway != nil {
+				gateway = p.environment.gateway()
+			}
+			ip := net.ParseIP(gateway)
+			if ip == nil {
+				note(rule.label + ": skipped: outgoing interface has no default gateway")
+				break
+			}
+			gateway = ip.String()
+			if ip.To4() == nil {
+				gateway = "[" + gateway + "]"
+			}
+			replacement = strings.ReplaceAll(replacement, gatewayPlaceholder, gateway)
+		}
+		next, err := boundedReplace(rule.pattern, matched, replacement, 8192, p.regex)
 		if err != nil {
 			return nil, err
 		}
+		// ws is the HTTP Upgrade transport. Keep the URL's host/path/query
+		// and existing Upgrade headers while using net/http's HTTP transport.
+		if rule.options.Action == "header" && strings.HasPrefix(next, "ws://") {
+			next = "http://" + strings.TrimPrefix(next, "ws://")
+		}
 		target, err := parseRewriteURL(next)
 		if err != nil {
-			return nil, err
+			note(rule.label + ": invalid rewritten URL discarded: " + err.Error())
+			break
 		}
 		if rule.options.Action != "header" {
 			status, _ := strconv.Atoi(rule.options.Action)
@@ -87,10 +191,14 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 		break
 	}
 	for _, rule := range p.remote {
-		if !rule.pattern.MatchString(address) {
+		matched, err := p.matchURL(rule.pattern, address)
+		if err != nil {
+			return nil, err
+		}
+		if matched == "" {
 			continue
 		}
-		next, err := boundedReplace(rule.pattern, address, rule.options.Replacement, 8192)
+		next, err := boundedReplace(rule.pattern, matched, rule.options.Replacement, 8192, p.regex)
 		if err != nil {
 			return nil, err
 		}
@@ -109,7 +217,10 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 	available := false
 	// Even a header-only request script may generate a bounded mock body.
 	if needsBody && eligible || script != nil && !script.options.RequiresBody {
-		limit := p.limit
+		limit := int64(0)
+		if bodyRules {
+			limit = p.bodyLimit("request")
+		}
 		if script != nil {
 			limit = max(limit, script.options.MaxBodyBytes)
 		}
@@ -120,7 +231,7 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 	}
 	if needsBody && eligible && lease != nil {
 		bufferedRequest = true
-		limit := p.limit
+		limit := p.bodyLimit("request")
 		if !bodyRules && script != nil {
 			limit = script.options.MaxBodyBytes
 		}
@@ -144,7 +255,14 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 		if lease != nil && (!script.options.RequiresBody || available) {
 			result, err := runHTTPScript(request, nil, script, id, data, p.environment, note)
 			if err != nil {
-				return nil, err
+				var invalid *scriptResultError
+				if errors.As(err, &invalid) || errors.Is(err, errRewriteSize) {
+					return nil, err
+				}
+				message := script.label + ": script skipped; original message preserved: " + err.Error()
+				note(message)
+				writeLog("warn", message)
+				result = scriptResult{}
 			}
 			if result.abort {
 				return nil, errors.New("request aborted by rewrite script")
@@ -176,22 +294,51 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 		}
 	}
 	for i, rule := range p.local {
-		if !rule.pattern.MatchString(address) {
+		matched, err := p.match(rule.pattern, address)
+		if err != nil {
+			return nil, err
+		}
+		if !matched {
 			continue
+		}
+		data := p.data[i]
+		var resourceLease *bodyLease
+		var source *processingResource
+		if i < len(p.sources) {
+			source = p.sources[i]
+		}
+		if source != nil {
+			value, lease, err := p.environment.resources.get(request.Context(), source)
+			if err != nil {
+				message := rule.label + ": Map Local skipped: " + err.Error()
+				note(message)
+				writeLog("warn", message)
+				break
+			}
+			data, resourceLease = value.data, lease
 		}
 		headers, _ := rewriteHeaders(rule.options.Headers)
 		if headers.Get("Content-Type") == "" {
-			switch rule.options.DataType {
-			case "tiny-gif":
-				headers.Set("Content-Type", "image/gif")
-			case "base64":
-				headers.Set("Content-Type", "application/octet-stream")
-			default:
-				headers.Set("Content-Type", "text/plain; charset=utf-8")
+			if source != nil {
+				headers.Set("Content-Type", source.contentType())
+			} else {
+				switch rule.options.DataType {
+				case "tiny-gif":
+					headers.Set("Content-Type", "image/gif")
+				case "base64":
+					headers.Set("Content-Type", "application/octet-stream")
+				default:
+					headers.Set("Content-Type", "text/plain; charset=utf-8")
+				}
 			}
 		}
 		note(rule.label + ": local response")
-		return localRewriteResponse(request, rule.options.Status, headers, p.data[i]), nil
+		response := localRewriteResponse(request, rule.options.Status, headers, data)
+		if resourceLease != nil {
+			response.Body = resourceLease.wrap(response.Body)
+			resourceLease.release()
+		}
+		return response, nil
 	}
 	if err := validRewriteRequest(request); err != nil {
 		return nil, err
@@ -200,6 +347,7 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 }
 
 func (p *httpProgram) response(request *http.Request, response *http.Response, id, address string, note func(string)) (err error) {
+	p.prepareMatcher(request, address)
 	var lease *bodyLease
 	defer func() {
 		if lease != nil {
@@ -209,8 +357,14 @@ func (p *httpProgram) response(request *http.Request, response *http.Response, i
 			lease.release()
 		}
 	}()
-	script := p.script("response", address)
-	bodyRules := p.hasBodyRules("response", address)
+	script, err := p.script("response", address)
+	if err != nil {
+		return err
+	}
+	bodyRules, err := p.hasBodyRules("response", address)
+	if err != nil {
+		return err
+	}
 	needsBody := bodyRules || script != nil && script.options.RequiresBody
 	eligible := true
 	if needsBody {
@@ -263,7 +417,14 @@ func (p *httpProgram) response(request *http.Request, response *http.Response, i
 		} else {
 			result, err := runHTTPScript(request, response, script, id, data, p.environment, note)
 			if err != nil {
-				return err
+				var invalid *scriptResultError
+				if errors.As(err, &invalid) {
+					return err
+				}
+				message := script.label + ": script skipped; original message preserved: " + err.Error()
+				note(message)
+				writeLog("warn", message)
+				result = scriptResult{}
 			}
 			if result.abort {
 				return errors.New("response aborted by rewrite script")
@@ -287,9 +448,16 @@ func (p *httpProgram) response(request *http.Request, response *http.Response, i
 	return nil
 }
 
-func (p *RewriteProgram) rewriteHeader(phase, address string, header http.Header, host *string, note func(string)) error {
+func (p *httpProgram) rewriteHeader(phase, address string, header http.Header, host *string, note func(string)) error {
 	for _, rule := range p.headers {
-		if rule.options.Phase != phase || !rule.pattern.MatchString(address) {
+		if rule.options.Phase != phase {
+			continue
+		}
+		matched, err := p.match(rule.pattern, address)
+		if err != nil {
+			return err
+		}
+		if !matched {
 			continue
 		}
 		key := http.CanonicalHeaderKey(rule.options.Header)
@@ -311,7 +479,7 @@ func (p *RewriteProgram) rewriteHeader(phase, address string, header http.Header
 			values = append([]string(nil), values...)
 			for i, value := range values {
 				var err error
-				values[i], err = boundedReplace(rule.regex, value, rule.options.Replacement, MaxHeaderBytes)
+				values[i], err = boundedReplace(rule.regex, value, rule.options.Replacement, MaxHeaderBytes, p.regex)
 				if err != nil {
 					return err
 				}
@@ -341,26 +509,38 @@ func (p *RewriteProgram) rewriteHeader(phase, address string, header http.Header
 	return nil
 }
 
-func (p *httpProgram) script(phase, address string) *compiledScript {
+func (p *httpProgram) script(phase, address string) (*compiledScript, error) {
 	if p.scripts == nil {
-		return nil
+		return nil, nil
 	}
 	for i := range p.scripts.http {
 		script := &p.scripts.http[i]
-		if script.options.Phase == phase && script.pattern.MatchString(address) {
-			return script
+		if script.options.Phase == phase {
+			matched, err := p.match(script.pattern, address)
+			if err != nil {
+				return nil, err
+			}
+			if matched {
+				return script, nil
+			}
 		}
 	}
-	return nil
+	return nil, nil
 }
 
-func (p *RewriteProgram) hasBodyRules(phase, address string) bool {
+func (p *httpProgram) hasBodyRules(phase, address string) (bool, error) {
 	for _, rule := range p.bodies {
-		if rule.options.Phase == phase && rule.pattern.MatchString(address) {
-			return true
+		if rule.options.Phase == phase {
+			matched, err := p.match(rule.pattern, address)
+			if err != nil {
+				return false, err
+			}
+			if matched {
+				return true, nil
+			}
 		}
 	}
-	return false
+	return false, nil
 }
 
 func localRewriteResponse(request *http.Request, status int, header http.Header, body []byte) *http.Response {

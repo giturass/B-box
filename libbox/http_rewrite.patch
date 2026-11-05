@@ -23,11 +23,12 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
  	if s.grpcServer != nil {
  		s.grpcServer.Stop()
  	}
-@@ -196,17 +196,27 @@
+@@ -196,17 +196,28 @@
  	AutoRedirect   bool
  	IncludePackage StringIterator
  	ExcludePackage StringIterator
 +	ProcessingDirectory string
++	ProcessingProfileDirectory string
 +	MitmCertificate string
 +	MitmSigner UICaptureSigner
 +	ScriptTimezone string
@@ -54,7 +55,7 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
  		AutoRedirect:   options.AutoRedirect,
  		IncludePackage: iteratorToArray(options.IncludePackage),
  		ExcludePackage: iteratorToArray(options.ExcludePackage),
-@@ -215,13 +222,14 @@
+@@ -215,13 +223,14 @@
  	if err != nil {
  		return E.Cause(err, "start or reload service")
  	}

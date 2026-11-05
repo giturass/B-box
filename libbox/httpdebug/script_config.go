@@ -28,52 +28,63 @@ type ScriptsConfig struct {
 
 type HTTPScript struct {
 	RewriteMatch
-	Phase            string             `json:"phase"`
-	Source           string             `json:"source,omitempty"`
-	Resource         string             `json:"resource,omitempty"`
-	RequiresBody     bool               `json:"requires_body,omitempty"`
-	BinaryBody       bool               `json:"binary_body,omitempty"`
-	FullHeaders      bool               `json:"full_headers,omitempty"`
-	MaxBodyBytes     int64              `json:"max_body_bytes,omitempty"`
-	TimeoutMS        int                `json:"timeout_ms,omitempty"`
-	Argument         string             `json:"argument,omitempty"`
-	HTTPClient       *ScriptHTTPOptions `json:"http_client,omitempty"`
-	StorageNamespace string             `json:"storage_namespace,omitempty"`
+	Phase                string             `json:"phase"`
+	Source               string             `json:"source,omitempty"`
+	Resource             string             `json:"resource,omitempty"`
+	ScriptPath           string             `json:"script_path,omitempty"`
+	ScriptUpdateInterval int64              `json:"script_update_interval,omitempty"`
+	Debug                bool               `json:"debug,omitempty"`
+	RequiresBody         bool               `json:"requires_body,omitempty"`
+	BinaryBody           bool               `json:"binary_body,omitempty"`
+	FullHeaders          bool               `json:"full_headers,omitempty"`
+	MaxBodyBytes         int64              `json:"max_body_bytes,omitempty"`
+	TimeoutMS            int                `json:"timeout_ms,omitempty"`
+	Argument             string             `json:"argument,omitempty"`
+	HTTPClient           *ScriptHTTPOptions `json:"http_client,omitempty"`
+	StorageNamespace     string             `json:"storage_namespace,omitempty"`
 }
 
 type CronScript struct {
-	Name             string             `json:"name,omitempty"`
-	Disable          bool               `json:"disabled,omitempty"`
-	Cron             string             `json:"cron"`
-	Timezone         string             `json:"timezone,omitempty"`
-	Source           string             `json:"source,omitempty"`
-	Resource         string             `json:"resource,omitempty"`
-	TimeoutMS        int                `json:"timeout_ms,omitempty"`
-	Argument         string             `json:"argument,omitempty"`
-	HTTPClient       *ScriptHTTPOptions `json:"http_client,omitempty"`
-	StorageNamespace string             `json:"storage_namespace,omitempty"`
+	Name                 string             `json:"name,omitempty"`
+	Disable              bool               `json:"disabled,omitempty"`
+	Cron                 string             `json:"cron"`
+	Timezone             string             `json:"timezone,omitempty"`
+	Source               string             `json:"source,omitempty"`
+	Resource             string             `json:"resource,omitempty"`
+	ScriptPath           string             `json:"script_path,omitempty"`
+	ScriptUpdateInterval int64              `json:"script_update_interval,omitempty"`
+	Debug                bool               `json:"debug,omitempty"`
+	TimeoutMS            int                `json:"timeout_ms,omitempty"`
+	Argument             string             `json:"argument,omitempty"`
+	HTTPClient           *ScriptHTTPOptions `json:"http_client,omitempty"`
+	StorageNamespace     string             `json:"storage_namespace,omitempty"`
 }
 
 type compiledScript struct {
 	compiledRule[HTTPScript]
-	program *goja.Program
-	client  scriptHTTPPolicy
+	program    *goja.Program
+	client     scriptHTTPPolicy
+	source     *processingResource
+	storageKey string
 }
 
 type compiledCron struct {
-	options  CronScript
-	label    string
-	program  *goja.Program
-	schedule cron.Schedule
-	client   scriptHTTPPolicy
+	options    CronScript
+	label      string
+	program    *goja.Program
+	schedule   cron.Schedule
+	client     scriptHTTPPolicy
+	source     *processingResource
+	storageKey string
 }
 
 type ScriptProgram struct {
-	scope   Config
-	limit   int64
-	http    []compiledScript
-	cron    []compiledCron
-	storage *scriptStore
+	scope     Config
+	limit     int64
+	http      []compiledScript
+	cron      []compiledCron
+	storage   *scriptStore
+	resources *processingResources
 }
 
 func (c *ScriptsConfig) UnmarshalJSON(data []byte) error {
@@ -124,8 +135,11 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 	if c.MaxBodyBytes == 0 {
 		c.MaxBodyBytes = MaxBodyLimit
 	}
-	if c.MaxBodyBytes < 1 || c.MaxBodyBytes > MaxBodyLimit {
-		return nil, errors.New("max_body_bytes must be between 1 and 1048576")
+	if c.MaxBodyBytes == -1 {
+		c.MaxBodyBytes = MaxRewriteRequestBody
+	}
+	if c.MaxBodyBytes < 1 || c.MaxBodyBytes > MaxRewriteRequestBody {
+		return nil, errors.New("max_body_bytes must be between 1 and 33554432, or -1")
 	}
 	if len(c.HTTP)+len(c.Cron) > MaxRewriteRules || len(c.Resources) > MaxRewriteRules {
 		return nil, errors.New("scripts supports at most 256 rules and resources")
@@ -135,16 +149,19 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 		return nil, fmt.Errorf("scripts scope: %w", err)
 	}
 	p := &ScriptProgram{scope: scope, limit: c.MaxBodyBytes}
-	resources := make(map[string][]byte)
 	for name, resource := range c.Resources {
 		if name == "" || len(name) > 256 {
 			return nil, errors.New("invalid script resource name")
 		}
-		data, err := decodeRewriteData(resource.DataType, resource.Data, MaxScriptBytes)
+		var err error
+		if resource.DataType == "file" {
+			_, err = compileProcessingResource(resource.Data, MaxScriptBytes, true, resource.UpdateInterval, false)
+		} else {
+			_, err = decodeRewriteData(resource.DataType, resource.Data, MaxScriptBytes)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("resource %q: %w", name, err)
 		}
-		resources[name] = data
 	}
 	for i, rule := range c.HTTP {
 		item, err := compileRewriteRule(rule, rule.RewriteMatch, "scripts.http", i)
@@ -155,16 +172,19 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 			return nil, fmt.Errorf("%s: phase must be request or response", item.label)
 		}
 		if rule.TimeoutMS == 0 {
-			item.options.TimeoutMS = 200
+			item.options.TimeoutMS = 5000
 		}
-		if item.options.TimeoutMS < 1 || item.options.TimeoutMS > 2000 {
-			return nil, fmt.Errorf("%s: timeout_ms must be between 1 and 2000", item.label)
+		if item.options.TimeoutMS < 1 || item.options.TimeoutMS > maxScriptTimeoutMS {
+			return nil, fmt.Errorf("%s: timeout_ms must be between 1 and %d", item.label, maxScriptTimeoutMS)
 		}
 		if rule.MaxBodyBytes == 0 {
 			item.options.MaxBodyBytes = c.MaxBodyBytes
 		}
-		if item.options.MaxBodyBytes < 1 || item.options.MaxBodyBytes > c.MaxBodyBytes {
-			return nil, fmt.Errorf("%s: script body limit exceeds profile limit", item.label)
+		if item.options.MaxBodyBytes == -1 {
+			item.options.MaxBodyBytes = MaxRewriteRequestBody
+		}
+		if item.options.MaxBodyBytes < 1 || item.options.MaxBodyBytes > MaxRewriteRequestBody {
+			return nil, fmt.Errorf("%s: script body limit must be 1..33554432, or -1", item.label)
 		}
 		client, err := compileScriptHTTP(rule.HTTPClient, false)
 		if err != nil {
@@ -173,12 +193,13 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 		if err = validateStorageNamespace(rule.StorageNamespace); err != nil {
 			return nil, fmt.Errorf("%s: %w", item.label, err)
 		}
-		program, err := compileScriptSource(item.label, rule.Source, rule.Resource, resources)
+		program, source, err := compileScriptResource(item.label, rule.Source, rule.ScriptPath, rule.Resource, c.Resources, rule.ScriptUpdateInterval, rule.Debug)
 		if err != nil {
 			return nil, err
 		}
 		if !rule.Disable {
-			p.http = append(p.http, compiledScript{item, program, client})
+			p.http = append(p.http, compiledScript{compiledRule: item, program: program, client: client, source: source,
+				storageKey: scriptDefaultStorageKey(rule.Source, rule.ScriptPath, rule.Resource, c.Resources)})
 		}
 	}
 	for i, rule := range c.Cron {
@@ -189,8 +210,8 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 		if rule.TimeoutMS == 0 {
 			rule.TimeoutMS = 5000
 		}
-		if rule.TimeoutMS < 1 || rule.TimeoutMS > 30000 {
-			return nil, fmt.Errorf("%s: timeout_ms must be between 1 and 30000", label)
+		if rule.TimeoutMS < 1 || rule.TimeoutMS > maxScriptTimeoutMS {
+			return nil, fmt.Errorf("%s: timeout_ms must be between 1 and %d", label, maxScriptTimeoutMS)
 		}
 		client, err := compileScriptHTTP(rule.HTTPClient, true)
 		if err != nil {
@@ -203,12 +224,13 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", label, err)
 		}
-		program, err := compileScriptSource(label, rule.Source, rule.Resource, resources)
+		program, source, err := compileScriptResource(label, rule.Source, rule.ScriptPath, rule.Resource, c.Resources, rule.ScriptUpdateInterval, rule.Debug)
 		if err != nil {
 			return nil, err
 		}
 		if !rule.Disable {
-			p.cron = append(p.cron, compiledCron{rule, label, program, schedule, client})
+			p.cron = append(p.cron, compiledCron{options: rule, label: label, program: program, schedule: schedule, client: client, source: source,
+				storageKey: scriptDefaultStorageKey(rule.Source, rule.ScriptPath, rule.Resource, c.Resources)})
 		}
 	}
 	return p, nil

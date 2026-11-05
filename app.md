@@ -115,11 +115,11 @@ HAR/cURL、域名、CRT 和模块导出使用 Android 文档选择器，取消�
 
 `experimental.mitm`、`experimental.scripts` 和 `experimental.http_rewrite` 相互独立；字段、迁移及执行范围由 [libbox.md](libbox.md#独立-mitm-配置) 维护。规则与资源随原始/高级编辑、分享、订阅更新及配置备份保存，本机记录设置、CA 与记录继续留在设备私有目录。
 
-[BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 启动/重载时调用 `NeedsUIMITMCA`，只有启用且非空的 MITM 域名配置要求 CA。OverrideOptions 的 ProcessingDirectory/MitmCertificate/MitmSigner 传入私有路径、公钥证书及 Keystore 回调，ScriptTimezone 传入设备时区。缺少所需 CA 时明确失败，不自动生成或安装。
+[BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 启动/重载时调用 `NeedsUIMITMCA`，只有启用且非空的 MITM 域名配置要求 CA。OverrideOptions 的 ProcessingDirectory/MitmCertificate/MitmSigner 传入私有路径、公钥证书及 Keystore 回调，ScriptTimezone 传入设备时区，ProcessingProfileDirectory 传入当前实际配置文件的父目录，供相对文件资源解析。缺少所需 CA 时明确失败，不自动生成或安装。
 
-libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理、启动核心，成功后才激活 MITM/改写/脚本和 Cron。HTTP 脚本与 Cron 的客户端使用已启动实例的路由及证书库；配置校验和预览不执行脚本。重载/停止取消在途任务及本次执行的定时器，等待调度退出；手动抓包启停不会重建调度。授权和限额见 [脚本 HTTP 客户端](libbox.md#脚本-http-客户端)。
+libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理、启动核心，成功后才激活 MITM/改写/脚本、Cron 和外部资源刷新。脚本及资源下载使用已启动实例的路由和证书库，`policy` 查找该实例的真实出站，网关模板读取该实例默认接口的网关；配置校验和预览不读取外部源码、不联网或执行脚本。重载/停止取消在途网络及定时器，等待调度/刷新退出；手动抓包启停不会重建调度。默认联网、可选限制及失败语义见 [脚本 HTTP 客户端](libbox.md#脚本-http-客户端)。
 
-脚本持久数据按显式命名空间保存在私有 `noBackupFilesDir/http-debug/captures/script-storage/`，与抓包记录独立计额，清空记录、启停录制及服务重载不删除数据。配置/订阅/备份携带规则中的命名空间和联网授权配置，实际存储值留在本机，不加入配置导出、应用备份或系统自动备份。命名空间共享、读写语义、配额及原子提交由 [核心存储说明](libbox.md#脚本持久存储) 维护。
+脚本持久数据保存在私有 `noBackupFilesDir/http-debug/captures/script-storage/`，使用默认共享或显式命名空间；URL 资源缓存位于同级 `resource-cache/`。二者与抓包独立计额，清空记录、启停录制及服务重载不删除。配置/订阅/备份携带资源引用、命名空间和联网限制，实际存储值和下载缓存留在本机，不加入配置导出、应用备份或系统自动备份；本地文件引用也不会自动打包。配额、原子提交及失败保留旧缓存分别见 [存储](libbox.md#脚本持久存储)和[资源加载](libbox.md#文件和-url-资源加载)。
 
 所有保存继续经过 ProfileContent 修订检查、完整 Libbox.checkConfig、原子写入及失败恢复。配置应用、恢复和后台启动使用同一入口；失败不能留下部分生效的处理或被报告为启动成功。旧嵌套配置的保守迁移见 [核心说明](libbox.md#旧抓包配置清理)。
 
@@ -127,9 +127,9 @@ libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理�
 
 CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期间不能轮换密钥；活跃 MITM 或手动抓包拒绝重新生成。界面入口及状态展示见 [flclash.md](flclash.md#配置页与内核差异)。
 
-`ProfileRecoveryTest.profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 使用实际 gomobile、Keystore、mixed CONNECT 和 HTTP 服务器，覆盖平级 MITM/脚本与改写、HTTPS 离线 Mock、跨域映射重新匹配路由、响应改写、停记录后继续处理及应用失败恢复。`independentCronUsesRoutingAndStopsWithTheService` 覆盖仅启用脚本时的定时路由请求、抓包启停、非法 Cron 保存拒绝及移除配置后不再发请求；Go 测试补充回调结果与任务取消检查。这些测试由 [统一 smoke 矩阵](#验证与历史记录) 运行，实际结果见验证记录。
+`ProfileRecoveryTest.profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 使用实际 gomobile、Keystore、mixed CONNECT 和 HTTP 服务器，覆盖平级 MITM/脚本与改写、HTTPS 离线 Mock、跨域映射重新匹配路由、响应改写、停记录后继续处理及应用失败恢复；资源用例通过实际配置目录加载文件与脚本，检查 999 状态、MIME、后查找/内部反向引用 → jq → 脚本的顺序及本地文件更新。`independentCronUsesRoutingAndStopsWithTheService` 覆盖定时路由请求、抓包启停、非法 Cron 保存拒绝及移除配置后不再请求。这些测试由 [统一 smoke 矩阵](#验证与历史记录) 运行，实际结果见验证记录。
 
-`httpScriptsUseRoutedClientTimersAndPersistentNamespaces` 为脚本 API 增加实际 libbox 回归：使用仅当前路由可解析、也匹配脚本范围的 HTTP 目标，检查客户端回调及防递归、定时器返回、磁盘快照、规则改名/重载/清空记录后保留值、命名空间隔离及未授权请求拒绝。该新增测试和核心 API 回归仍需由当前源码的 Actions 结果确认，下文此前的通过记录不覆盖本次扩展。
+`httpScriptsUseRoutedClientTimersAndPersistentNamespaces` 使用仅当前路由可解析、也匹配脚本范围的 HTTP 目标，检查异步回调及防递归、定时器、磁盘快照、规则改名/重载/清空记录后保留值、命名空间隔离、默认联网及显式空允许列表禁止联网。Go 回归补充四种前后查找、数字/命名反向引用及 Unicode 位置、jq 失败透传、正文限额、20 并发 HTTP、重定向/Cookie/二进制、资源更新/损坏缓存/关闭取消。新用例以当前源码的 Actions 为准，此前记录不替代本次验收。
 
 ## 已移除能力与兼容入口
 

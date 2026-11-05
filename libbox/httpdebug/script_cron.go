@@ -112,6 +112,8 @@ func (r *cronRunner) worker() {
 }
 
 func (r *cronRunner) run(job compiledCron) error {
+	ctx, cancel := context.WithTimeout(r.ctx, time.Duration(job.options.TimeoutMS)*time.Millisecond)
+	defer cancel()
 	lease := reserveBodyWork(r.program.limit)
 	if lease == nil {
 		err := errors.New("global body budget exhausted")
@@ -120,14 +122,28 @@ func (r *cronRunner) run(job compiledCron) error {
 	}
 	defer lease.release()
 	writeLog("info", job.label+": cron started")
+	program := job.program
+	if job.source != nil {
+		value, sourceLease, err := r.program.resources.get(ctx, job.source)
+		if err != nil {
+			writeLog("error", job.label+": script loading: "+err.Error())
+			return err
+		}
+		defer sourceLease.release()
+		program = value.program
+	}
 	var cleanup = func() {}
 	defer func() { cleanup() }()
-	err := executeScript(r.ctx, job.program, job.label, "cron", job.options.TimeoutMS, job.options.Argument, false,
+	err := executeScript(ctx, program, job.label, "cron", job.options.TimeoutMS, job.options.Argument, false,
 		func(vm *goja.Runtime, ctx context.Context) {
 			_ = vm.Set("$cronexp", job.options.Cron)
 			_ = vm.Set("$trigger", "cron")
 			cleanup = installScriptHTTP(vm, ctx, r.dial, r.roots, r.program.limit, job.client)
-			installScriptStorage(vm, ctx, r.program.storage, job.options.StorageNamespace, job.label)
+			key := job.storageKey
+			if job.source != nil {
+				key = "script." + r.program.resources.key(job.source)
+			}
+			installScriptStorage(vm, ctx, r.program.storage, job.options.StorageNamespace, job.label, key)
 		}, func(*goja.Runtime, goja.Value) error { return nil })
 	if err != nil {
 		writeLog("error", job.label+": cron failed: "+err.Error())

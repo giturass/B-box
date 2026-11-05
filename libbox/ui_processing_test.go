@@ -159,12 +159,76 @@ func TestUIScriptCapabilitiesSchemaAndValidation(t *testing.T) {
 	}
 	for _, invalid := range []string{
 		strings.Replace(content, "https://api.test", "https://*.test", 1),
-		strings.Replace(content, `"max_requests":2`, `"max_requests":5`, 1),
+		strings.Replace(content, `"max_requests":2`, `"max_requests":-1`, 1),
 		strings.Replace(content, "api-cache", "../escape", 1),
 		strings.Replace(content, `"max_requests":2`, `"proxy":"direct"`, 1),
 	} {
 		if err := CheckConfig(invalid); err == nil {
 			t.Fatal("invalid script capability bypassed complete config validation")
+		}
+	}
+}
+
+func TestUISurgeProcessingFieldsSurviveFormattingWithoutLoadingResources(t *testing.T) {
+	content := `{
+		"experimental": {
+			"http_rewrite": {
+				"enabled": true, "max_request_body_bytes": 33554432, "max_response_body_bytes": 10485760,
+				"resources": {"mock": {"data_type":"file", "data":"mock.json", "update_interval":60}},
+				"map_local": [{"pattern":"(?<=/)mock$","resource":"mock","status":999}],
+				"url_rewrite": [{"pattern":"/ws$","action":"header","replacement":"ws://example.test/socket"}],
+				"body_rewrite": [{"pattern":".","phase":"response","jq":".ok=true"}]
+			},
+			"scripts": {
+				"enabled":true, "max_body_bytes":-1,
+				"http": [
+					{"pattern":".","phase":"request","script_path":"missing.js","debug":true,"timeout_ms":5000,
+					 "http_client":{"allowed_origins":[],"max_body_bytes":8192}},
+					{"pattern":".","phase":"response","script_path":"https://missing.invalid/script.js","script_update_interval":60}
+				]
+			}
+		}
+	}`
+	if err := CheckConfig(content); err != nil {
+		t.Fatal(err)
+	}
+	formatted, err := FormatConfig(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options, err := parseConfig(baseContext(nil), formatted.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scripts := options.Experimental.Scripts
+	if scripts.HTTP[0].HTTPClient == nil || scripts.HTTP[0].HTTPClient.AllowedOrigins == nil || len(scripts.HTTP[0].HTTPClient.AllowedOrigins) != 0 {
+		t.Fatal("formatting removed the explicit network prohibition")
+	}
+	if scripts.HTTP[1].HTTPClient != nil {
+		t.Fatal("formatting restricted a default network client")
+	}
+	rewrite := options.Experimental.HTTPRewrite
+	if rewrite.MaxRequestBodyBytes != 33554432 || rewrite.MaxResponseBodyBytes != 10485760 ||
+		rewrite.BodyRewrite[0].JQ == nil || *rewrite.BodyRewrite[0].JQ != ".ok=true" || rewrite.MapLocal[0].Status != 999 {
+		t.Fatal("formatting changed body limits, jq or mock status")
+	}
+	schema, err := GenerateConfigSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"max_request_body_bytes", "max_response_body_bytes", "jq", "update_interval", "script_path", "script_update_interval", "debug"} {
+		if !strings.Contains(formatted.Value, `"`+field+`"`) || !strings.Contains(schema.Value, `"`+field+`"`) {
+			t.Errorf("field missing from formatting or schema: %s", field)
+		}
+	}
+	for _, invalid := range []string{
+		strings.Replace(content, `"jq":".ok=true"`, `"jq":".ok=true","regex":"x"`, 1),
+		strings.Replace(content, "missing.js", "../outside.js", 1),
+		strings.Replace(content, "33554432", "33554433", 1),
+		strings.Replace(content, "10485760", "10485761", 1),
+	} {
+		if err := CheckConfig(invalid); err == nil {
+			t.Fatal("invalid processing extension bypassed full config validation")
 		}
 	}
 }

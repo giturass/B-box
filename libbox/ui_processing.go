@@ -38,9 +38,14 @@ func (s *CommandServer) prepareUIProcessing(configContent string, overrides *Ove
 		}
 		signer = &uiCaptureSigner{ca.PublicKey, overrides.MitmSigner}
 	}
-	return httpdebug.PrepareProcessing(overrides.ProcessingDirectory, (*httpdebug.MITMConfig)(config.MITM),
+	prepared, err := httpdebug.PrepareProcessing(overrides.ProcessingDirectory, (*httpdebug.MITMConfig)(config.MITM),
 		(*httpdebug.RewriteConfig)(config.HTTPRewrite), (*httpdebug.ScriptsConfig)(config.Scripts),
 		overrides.MitmCertificate, signer, overrides.ScriptTimezone)
+	if err != nil {
+		return nil, err
+	}
+	prepared.SetProfileDirectory(overrides.ProcessingProfileDirectory)
+	return prepared, nil
 }
 
 func (s *CommandServer) activateUIProcessing(prepared *httpdebug.PreparedProcessing) {
@@ -79,11 +84,38 @@ func (s *CommandServer) activateUIProcessing(prepared *httpdebug.PreparedProcess
 		}
 		metadata := adapter.InboundContext{Inbound: "b-box-scripts", Network: "tcp", Source: M.ParseSocksaddr("127.0.0.1:0"), Destination: destination}
 		routeCtx := adapter.WithContext(httpdebug.WithoutProcessing(ctx), &metadata)
+		if policy := httpdebug.ScriptPolicy(ctx); policy != "" {
+			outbound, found := instance.Box().Outbound().Outbound(policy)
+			if !found {
+				return nil, fmt.Errorf("script policy %q is not a configured sing-box outbound", policy)
+			}
+			return outbound.DialContext(routeCtx, "tcp", destination)
+		}
 		local, routed := net.Pipe()
 		stop := context.AfterFunc(routeCtx, func() { local.Close(); routed.Close() })
 		go instance.Box().Router().RouteConnectionEx(routeCtx, routed, metadata, func(error) { stop(); routed.Close() })
 		return local, nil
 	}
+	prepared.SetGatewayResolver(func() string {
+		if s.Instance() != instance {
+			return ""
+		}
+		current := instance.Box().Network().DefaultNetworkInterface()
+		if current == nil {
+			return ""
+		}
+		for _, gateway := range current.Gateways {
+			if gateway.Is4() && !gateway.IsUnspecified() {
+				return gateway.String()
+			}
+		}
+		for _, gateway := range current.Gateways {
+			if gateway.IsValid() && !gateway.IsUnspecified() {
+				return gateway.WithZone("").String()
+			}
+		}
+		return ""
+	})
 	httpdebug.ActivateProcessing(prepared, dial, instance.UIRootPool())
 }
 

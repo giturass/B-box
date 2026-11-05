@@ -23,6 +23,10 @@ var httpScriptSlots = make(chan struct{}, 4)
 var cronScriptSlots = make(chan struct{}, 2)
 var scriptFinished = errors.New("script called $done")
 
+const maxScriptTimeoutMS = 24 * 60 * 60 * 1000
+
+type scriptResultError struct{ error }
+
 func init() {
 	// Interrupt stops VM bytecode, while regexp2 runs inside a native Go call.
 	// Configure its own deadline once, before any runtime compiles expressions.
@@ -41,6 +45,8 @@ type scriptResult struct {
 }
 
 func runHTTPScript(request *http.Request, response *http.Response, script *compiledScript, id string, data []byte, environment scriptEnvironment, note func(string)) (scriptResult, error) {
+	ctx, cancel := context.WithTimeout(request.Context(), time.Duration(script.options.TimeoutMS)*time.Millisecond)
+	defer cancel()
 	if script.options.RequiresBody {
 		if int64(len(data)) > script.options.MaxBodyBytes {
 			return scriptResult{}, errRewriteSize
@@ -51,13 +57,26 @@ func runHTTPScript(request *http.Request, response *http.Response, script *compi
 		}
 	}
 	var result scriptResult
+	program := script.program
+	if script.source != nil {
+		value, lease, err := environment.resources.get(ctx, script.source)
+		if err != nil {
+			return result, fmt.Errorf("%s: script loading: %w", script.label, err)
+		}
+		defer lease.release()
+		program = value.program
+	}
 	cleanup := func() {}
 	defer func() { cleanup() }()
-	err := executeScript(request.Context(), script.program, script.label, "http-"+script.options.Phase,
+	err := executeScript(ctx, program, script.label, "http-"+script.options.Phase,
 		script.options.TimeoutMS, script.options.Argument, script.options.BinaryBody,
 		func(vm *goja.Runtime, ctx context.Context) {
 			cleanup = installScriptHTTP(vm, ctx, environment.dial, environment.roots, script.options.MaxBodyBytes, script.client)
-			installScriptStorage(vm, ctx, environment.storage, script.options.StorageNamespace, script.label)
+			key := script.storageKey
+			if script.source != nil {
+				key = "script." + environment.resources.key(script.source)
+			}
+			installScriptStorage(vm, ctx, environment.storage, script.options.StorageNamespace, script.label, key)
 			requestValue := map[string]any{"url": request.URL.String(), "method": request.Method,
 				"headers": scriptHeaders(vm, request.Header, request.Host, script.options.FullHeaders), "id": id}
 			if response == nil && script.options.RequiresBody {
@@ -78,6 +97,11 @@ func runHTTPScript(request *http.Request, response *http.Response, script *compi
 		})
 	if err == nil {
 		note(script.label)
+	} else {
+		if result.response != nil && result.response.Body != nil {
+			result.response.Body.Close()
+		}
+		result = scriptResult{}
 	}
 	return result, err
 }
@@ -106,7 +130,7 @@ func executeScript(parent context.Context, program *goja.Program, label, kind st
 	stop := context.AfterFunc(ctx, func() { vm.Interrupt(ctx.Err()) })
 	defer stop()
 	_ = vm.Set("$argument", argument)
-	_ = vm.Set("$script", map[string]any{"name": label, "type": kind, "binaryBodyMode": binary})
+	_ = vm.Set("$script", map[string]any{"name": label, "type": kind, "binaryBodyMode": binary, "startTime": float64(time.Now().UnixMilli()) / 1000})
 	logs := 0
 	console := make(map[string]any)
 	for _, level := range []string{"log", "info", "warn", "error", "debug"} {
@@ -136,10 +160,12 @@ func executeScript(parent context.Context, program *goja.Program, label, kind st
 	}
 	_ = vm.Set("console", console)
 	timers := installScriptTimers(vm, ctx)
-	setup(vm, ctx)
+	setup(vm, context.WithValue(ctx, scriptLoopKey{}, timers))
 	completed := false
+	var resultError error
 	_ = vm.Set("$done", func(call goja.FunctionCall) goja.Value {
 		if err := done(vm, call.Argument(0)); err != nil {
+			resultError = &scriptResultError{err}
 			panic(vm.NewGoError(err))
 		}
 		completed = true
@@ -152,6 +178,9 @@ func executeScript(parent context.Context, program *goja.Program, label, kind st
 	_, err := vm.RunProgram(program)
 	if err == nil && !completed {
 		err = timers.run()
+	}
+	if resultError != nil {
+		return resultError
 	}
 	var interrupted *goja.InterruptedError
 	if completed && (err == nil || errors.As(err, &interrupted) && interrupted.Value() == scriptFinished) {
@@ -337,8 +366,8 @@ func scriptStatus(value goja.Value) (int, error) {
 	}
 	number := value.ToFloat()
 	status := int(number)
-	if status < 200 || status > 599 || float64(status) != number {
-		return 0, errors.New("script status must be an integer between 200 and 599")
+	if status < 200 || status > 999 || float64(status) != number {
+		return 0, errors.New("script status must be an integer between 200 and 999")
 	}
 	return status, nil
 }

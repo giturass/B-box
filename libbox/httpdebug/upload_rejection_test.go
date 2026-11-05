@@ -31,8 +31,8 @@ func TestRejectedHTTP1UploadDoesNotWaitForRemainingBody(t *testing.T) {
 			status:  http.StatusRequestEntityTooLarge,
 		},
 		{
-			name:    "script error before reading",
-			scripts: `{"enabled":true,"http":[{"pattern":".","phase":"request","source":"throw new Error('rejected');"}]}`,
+			name:    "invalid script framing before reading",
+			scripts: `{"enabled":true,"http":[{"pattern":".","phase":"request","source":"$done({headers:{'Content-Length':'999'}});"}]}`,
 			status:  http.StatusBadGateway,
 		},
 	} {
