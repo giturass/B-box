@@ -6,7 +6,7 @@ import (
 )
 
 func TestUIHTTPRewriteSchemaValidationAndFormatting(t *testing.T) {
-	content := `{"outbounds":[{"type":"direct","tag":"kept"}],"experimental":{"cache_file":{"enabled":true},"mitm":{"enabled":true,"hosts":["api.example.test"]},"scripts":{"enabled":true,"http":[{"pattern":"/script$","phase":"response","requires_body":true,"source":"$done({body: JSON.stringify({ok:true})});"}],"cron":[{"cron":"0 2 * * *","source":"$done();"}]},"http_rewrite":{"enabled":true,"resources":{"mock.json":{"data":"{\"ok\":true}"}},"map_local":[{"pattern":"/mock$","resource":"mock.json"}]}}}`
+	content := `{"outbounds":[{"type":"direct","tag":"kept"}],"experimental":{"cache_file":{"enabled":true},"mitm":{"enabled":true,"hosts":["-private.example.test","api?.example.test:8443","*.example.test:0"],"h2":true,"skip_server_cert_verify":true,"block_quic":false},"scripts":{"enabled":true,"http":[{"pattern":"/script$","phase":"response","requires_body":true,"source":"$done({body: JSON.stringify({ok:true})});"}],"cron":[{"cron":"0 2 * * *","source":"$done();"}]},"http_rewrite":{"enabled":true,"resources":{"mock.json":{"data":"{\"ok\":true}"}},"map_local":[{"pattern":"/mock$","resource":"mock.json"}]}}}`
 	if err := CheckConfig(content); err != nil {
 		t.Fatal(err)
 	}
@@ -18,7 +18,7 @@ func TestUIHTTPRewriteSchemaValidationAndFormatting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"http_rewrite", "mitm", "scripts", "cron", "cache_file", "kept", "mock.json", "$done"} {
+	for _, field := range []string{"http_rewrite", "mitm", "h2", "skip_server_cert_verify", "block_quic", "-private.example.test", "api?.example.test:8443", "scripts", "cron", "cache_file", "kept", "mock.json", "$done"} {
 		if !strings.Contains(formatted.Value, field) {
 			t.Errorf("format discarded %q", field)
 		}
@@ -26,9 +26,22 @@ func TestUIHTTPRewriteSchemaValidationAndFormatting(t *testing.T) {
 	if err = CheckConfig(formatted.Value); err != nil {
 		t.Fatalf("formatted profile rejected: %v", err)
 	}
+	options, err := parseConfig(baseContext(nil), formatted.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mitm := options.Experimental.MITM
+	if !mitm.H2 || !mitm.SkipServerCertVerify || mitm.BlockQUIC {
+		t.Fatalf("formatting changed MITM options: %+v", mitm)
+	}
 	schema, err := GenerateConfigSchema()
 	if err != nil || !strings.Contains(schema.Value, `"http_rewrite"`) || !strings.Contains(schema.Value, `"requires_body"`) {
 		t.Fatalf("extension missing from schema: %v", err)
+	}
+	for _, field := range []string{`"h2"`, `"skip_server_cert_verify"`, `"block_quic"`} {
+		if !strings.Contains(schema.Value, field) {
+			t.Errorf("MITM option missing from schema: %s", field)
+		}
 	}
 	for _, invalid := range []string{
 		`{"experimental":{"http_rewrite":{"enabled":true,"unsupported":true}}}`,

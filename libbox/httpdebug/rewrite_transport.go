@@ -27,8 +27,8 @@ func newRewriteTransport(lifetime context.Context, dial RewriteDialFunc, roots *
 }
 
 // Profile rules may answer offline or map the URL to another origin. Complete
-// the client handshake without opening the original server; every real upstream
-// TLS connection is still verified before any HTTP bytes are sent to it.
+// the client handshake without opening the original server. Real upstream TLS
+// connections follow the profile's MITM verification and HTTP/2 options.
 func (e *Engine) openRewriteMITM(ctx context.Context, raw net.Conn, metadata Metadata, dial DialFunc, roots *x509.CertPool) (net.Conn, *http.Transport, Metadata, func(), error) {
 	e.tlsOpened.Add(1)
 	metadata.CaptureSource, metadata.TLSAdapter = "MITM", "Go crypto/tls"
@@ -42,7 +42,7 @@ func (e *Engine) openRewriteMITM(ctx context.Context, raw net.Conn, metadata Met
 				return nil, err
 			}
 			return &tls.Config{MinVersion: tls.VersionTLS12, SessionTicketsDisabled: true,
-				Certificates: []tls.Certificate{*certificate}, NextProtos: []string{"h2", "http/1.1"}}, nil
+				Certificates: []tls.Certificate{*certificate}, NextProtos: e.mitm.httpProtocols()}, nil
 		}})
 	handshake, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -57,12 +57,13 @@ func (e *Engine) openRewriteMITM(ctx context.Context, raw net.Conn, metadata Met
 	metadata.TLS = &TLSMetadata{ServerName: metadata.Host, ClientVersion: tlsVersion(state.Version), ALPN: state.NegotiatedProtocol}
 	e.plaintextConnections.Add(1)
 	transport := newTransport(dial)
-	transport.ForceAttemptHTTP2 = true
-	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ServerName: metadata.Host}
+	transport.ForceAttemptHTTP2 = e.mitm.H2
+	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ServerName: metadata.Host,
+		NextProtos: e.mitm.httpProtocols(), InsecureSkipVerify: e.mitm.SkipServerCertVerify}
 	transport.DialTLSContext = func(callCtx context.Context, _, _ string) (net.Conn, error) {
 		deadline, cancel := context.WithTimeout(callCtx, 10*time.Second)
 		defer cancel()
-		conn, err := verifiedTLS(callCtx, deadline, dial, metadata.Host, []string{"h2", "http/1.1"}, roots)
+		conn, err := dialUpstreamTLS(callCtx, deadline, dial, metadata.Host, e.mitm.httpProtocols(), roots, e.mitm.SkipServerCertVerify)
 		if err != nil {
 			e.tlsFailed.Add(1)
 			e.reportError(fmt.Sprintf("Rewrite upstream TLS for %s: %v", metadata.Host, err))

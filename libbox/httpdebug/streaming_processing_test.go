@@ -34,6 +34,7 @@ func TestGRPCStreamsBeforeUploadCompletionAndPreservesTrailers(t *testing.T) {
 	origin.StartTLS()
 	defer origin.Close()
 	e, saved, ca := mitmEngine(t, Config{})
+	e.mitm.H2 = true
 	defer e.Close()
 	e.rewrite = rewriteProgram(t, `{"enabled":true,"body_rewrite":[{"pattern":".","phase":"request","regex":"old","replacement":"new"},{"pattern":".","phase":"response","regex":"old","replacement":"new"}]}`).RewriteProgram
 	client, _ := mitmClient(t, e, origin.Listener.Addr().String(), ca, roots, true)

@@ -92,16 +92,22 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 | 字段 | 含义 |
 | --- | --- |
 | `enabled` | 启用 HTTPS/TLS 解密，默认 false；不依赖改写、脚本或抓包开关 |
-| `hosts` | 精确域名、IP 或 `*.example.com`，最多 256 项；空列表不解密任何连接，无排除列表。精确名称只匹配本域，通配项只匹配子域；不接受 `*`、`?`、URL 或内嵌端口 |
-| `ports` / `packages` | 原始目的端口及应用范围；MITM 端口留空允许任意 TLS 端口，仍须命中域名；应用为空表示不限 |
-| `tcp` | 默认 false；开启后支持非 HTTP ALPN 和没有协商 HTTP 协议的 TLS/TCP 字节流 |
-| `block_quic` | 默认 false；在 MITM 启用且命中域名/端口/应用时，拒绝已观测的 QUIC 连接以促使应用改用 TCP |
+| `hosts` | 最多 256 项，支持域名、IP、`*` / `?` 通配符、`-` 排除前缀及 `:port`（`:0` 匹配所有端口）；按顺序取首个匹配项，排除项应放在前面。空列表不解密任何连接，非法项拒绝保存 |
+| `ports` / `packages` | 额外限定原始目的端口及应用，与 `hosts` 取交集；为空时不增加该项限制 |
+| `tcp` | 默认 false；开启后支持非 HTTP TLS 字节流，无 ALPN 时先识别 HTTP/1.x 请求，其他内容按 TCP 转发 |
+| `h2` | 默认 false；开启后允许 HTTP/2 MITM，客户端与上游分别协商 HTTP 版本；关闭时使用 HTTP/1.1 |
+| `skip_server_cert_verify` | 默认 false；开启后跳过 MITM 上游服务器证书校验 |
+| `block_quic` | 默认 true；在 MITM 启用且命中域名/端口/应用时，拒绝已观测的 QUIC 连接以促使应用改用 TCP；显式 false 在配置格式化后保留 |
+
+[mitm_hosts.go](libbox/httpdebug/mitm_hosts.go) 按 Surge [Host List](https://manual.nssurge.com/profile/host-list.html) 和 [MITM](https://manual.nssurge.com/http/mitm.html) 的规则匹配。未写端口的项默认匹配 443；名称来自实际 TLS/QUIC SNI 时，未写端口的项可匹配其他端口，显式端口仍按原始目标端口判断。IPv6 端口写为 `[2001:db8::1]:8443`；支持 `<ip-address>`、`<ipv4-address>`、`<ipv6-address>` 和 `<simple-hostname>`。例如 `["-private.example.com", "*.example.com:0"]` 排除前项命中的连接后匹配其他子域。
 
 [MITM 处理器](libbox/httpdebug/mitm.go) 用只读 TLS 探测器读取实际 ClientHello，探测阶段不写 ServerHello 或 alert。域名以实际 SNI 为准；没有 SNI 时仅接受已知 IP 目标，不以 DNS 映射冒充 SNI。无法解析的 hello、未命中域名及关闭 TCP 解密时的非 HTTP ALPN 流原样回放。route 的端口覆写不改变原始筛选端口和抓取 authority。
 
-普通 MITM 先通过原路由完成上游握手，用 `adapter.RootPoolFromContext` 的当前证书库验证服务器链、有效期和名称，再签发客户端证书；已验证的连接直接复用，后续连接重新验证，没有跳过验证选项。支持 TLS 1.2/1.3，ALPN 跟随上游。HTTP/1.1、HTTP/2 进入 HTTP 引擎；`tcp=false` 时没有 ALPN 的连接按 HTTP/1.1 处理，`tcp=true` 时按原始 TCP 流处理。同时提供 HTTP 和其他 ALPN 的客户端也先协商上游，再选择实际处理方式。
+普通 MITM 先通过原路由完成上游握手，默认使用 `adapter.RootPoolFromContext` 的当前证书库验证服务器链、有效期和名称，再签发客户端证书；原连接直接复用，后续连接沿用本配置的校验选项。支持 TLS 1.2/1.3。HTTP/1.1、HTTP/2 进入 HTTP 引擎；开启 `h2` 后允许客户端 HTTP/2 与上游 HTTP/1.1 互通，分别记录客户端 `alpn` 和 `upstreamALPN`。HTTP 协商方式对照 Surge [HTTP 协议版本说明](https://kb.nssurge.com/surge-knowledge-base/zh/technotes/http-protocol-version)。同时提供 HTTP 和其他 ALPN 的客户端先协商上游，已协商的非 HTTP 协议继续按原始流处理。
 
-[mitm_tcp.go](libbox/httpdebug/mitm_tcp.go) 双向转发解密后的原始字节，支持服务器先发数据、二进制和 TLS 半关闭；不把 TCP 内容送进 HTTP 解析器、改写或 HTTP 脚本。开启记录时保存为 `TLS/TCP`，分别保留两个方向的有界前缀和完整性状态，元数据带 `rawTCP`。HTTPS 和 TCP 均记录真实 SNI、双方 TLS 版本、ALPN 和上游叶证书 SHA-256。
+`tcp=false` 时没有 ALPN 的连接按 HTTP/1.1 处理。`tcp=true` 时，[mitm_detect.go](libbox/httpdebug/mitm_detect.go) 在已建立的 TLS 连接上识别完整 HTTP/1.x 请求行；识别成功后，HTTP 改写、脚本及 HAR/cURL 导出照常工作。探测同时观察上游首字节，服务器先发数据时直接选择原始流；客户端探测最多 64 KiB 请求行、10 秒，二进制或不符合 HTTP 的内容提前结束探测。探测结束先回收两个读取任务，再完整回放双方已读字节，保留半关闭；停止服务取消探测并关闭双方连接。探测限额仅决定处理方式，不截断转发内容。
+
+[mitm_tcp.go](libbox/httpdebug/mitm_tcp.go) 双向转发已确定为非 HTTP 的解密字节，支持服务器先发数据、二进制和 TLS 半关闭；不执行 HTTP 改写或 HTTP 脚本。开启记录时保存为 `TLS/TCP`，分别保留两个方向的有界前缀和完整性状态，元数据带 `rawTCP`。HTTPS 和 TCP 均记录真实 SNI、双方 TLS 版本、双方 ALPN 和上游叶证书 SHA-256。
 
 [签发器](libbox/httpdebug/authority.go) 使用平台 P-256 `crypto.Signer`，根私钥留在 Android Keystore。三年期自签名 CA 的名称包含公钥摘要；启动验证 CA 约束、有效期、公钥及随机挑战签名。[绑定](libbox/ui_capture_signer.go) 只接受 SHA-256 摘要并验证返回的 ECDSA 签名。叶证书只含当前名称的一个 SAN，有效期不超过十二小时及根有效期，最多缓存 128 个。HTTP authority 不同时返回 421，防止 HTTP/2 合并连接越过允许域名。
 
@@ -158,7 +164,7 @@ HTTP 离线 Mock 的握手方式见下文。TCP 支持限于直接建立 TLS 的
 
 未改变 origin 的请求沿用原出站、解析结果和网络选项；跨 origin 目标重新进入同一核心，保留入站、来源和应用归属，清除旧目的地/规则缓存并阻止递归处理，无直连回退。记录保留原 URL 与命中说明，路由字段表示原连接。
 
-为支持离线静态/脚本 Mock，[rewrite_transport.go](libbox/httpdebug/rewrite_transport.go) 对确定按 HTTP 处理且配置了 HTTP 规则的 TLS 连接先完成客户端握手，实际转发时才连接上游。每次真实上游仍验证证书链、名称及有效期，Mock 不伪造上游 TLS 信息。纯 MITM 和原始 TCP 流使用上游优先握手。
+为支持离线静态/脚本 Mock，[rewrite_transport.go](libbox/httpdebug/rewrite_transport.go) 对确定按 HTTP 处理且配置了 HTTP 规则的 TLS 连接先完成客户端握手，实际转发时才连接上游。每次真实上游沿用 MITM 的证书校验及 HTTP/2 选项，Mock 不伪造上游 TLS 信息。纯 MITM、原始 TCP 及尚待识别的无 ALPN 流使用上游优先握手。
 
 ### 独立脚本与 Cron
 

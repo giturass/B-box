@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
-	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"io"
@@ -89,6 +88,7 @@ func (e *Engine) WantsQUIC(metadata Metadata) bool {
 // The caller must have observed a QUIC ClientHello, never just an IP/UDP port.
 func (e *Engine) RejectQUIC(metadata Metadata) bool {
 	metadata.Protocol = "tls"
+	metadata.sniffedSNI = true
 	e.Observe(metadata, "QUIC")
 	if !e.mitm.matches(metadata) || !e.mitm.BlockQUIC {
 		return false
@@ -197,6 +197,11 @@ func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, di
 	var mappedTransport *http.Transport
 	if mapped != nil {
 		mappedTransport = newRewriteTransport(ctx, mapped, roots)
+		if metadata.Protocol == "tls" {
+			mappedTransport.ForceAttemptHTTP2 = e.mitm.H2
+			mappedTransport.TLSClientConfig.NextProtos = e.mitm.httpProtocols()
+			mappedTransport.TLSClientConfig.InsecureSkipVerify = e.mitm.SkipServerCertVerify
+		}
 		defer mappedTransport.CloseIdleConnections()
 	}
 	target := &url.URL{Scheme: scheme, Host: net.JoinHostPort(metadata.Host, strconv.Itoa(int(metadata.Port)))}
@@ -225,8 +230,8 @@ func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, di
 		IdleTimeout:                  60 * time.Second,
 		MaxUploadBufferPerConnection: 256 * 1024, MaxUploadBufferPerStream: 64 * 1024,
 	}
-	if secure, ok := conn.(*tls.Conn); ok {
-		if secure.ConnectionState().NegotiatedProtocol == "h2" {
+	if metadata.Protocol == "tls" {
+		if metadata.TLS != nil && metadata.TLS.ALPN == "h2" {
 			h2.ServeConn(conn, &http2.ServeConnOpts{Context: ctx, BaseConfig: base, Handler: handler})
 			return nil
 		}

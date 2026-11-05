@@ -22,7 +22,9 @@
       "hosts": [
         "api.example.test"
       ],
-      "block_quic": false,
+      "block_quic": true,
+      "h2": false,
+      "skip_server_cert_verify": false,
       "tcp": false
     },
     "http_rewrite": {

@@ -7,6 +7,7 @@ import http.server
 import json
 import os
 import re
+import socketserver
 import subprocess
 import ssl
 import tempfile
@@ -203,33 +204,54 @@ def mitm_origin():
                 self.send_header("Connection", "close")
                 self.end_headers()
                 self.wfile.write(body)
-                if self.path == "/tcp-stream":
-                    # Raw TLS streams have no Content-Length framing. Exchange
-                    # close_notify so the capture can prove a complete stream.
-                    self.wfile.flush()
-                    self.connection.settimeout(10)
-                    self.connection.unwrap().close()
+
+        class TCPOrigin(socketserver.BaseRequestHandler):
+            def handle(self):
+                self.request.settimeout(10)
+                self.request.sendall(b"\x00BBOX\xff")
+                expected = b"\x00client\xff"
+                payload = b""
+                while len(payload) < len(expected):
+                    part = self.request.recv(len(expected) - len(payload))
+                    if not part:
+                        break
+                    payload += part
+                assert payload == expected, payload
+                requests.append({"protocol": "TLS/TCP", "payload": base64.b64encode(payload).decode("ascii")})
+                self.request.sendall(b"\x00through-original-route\xff")
+                # Exchange close_notify so both directions prove completion.
+                self.request.unwrap().close()
 
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.set_alpn_protocols(["http/1.1"])
         context.load_cert_chain(root / "origin.pem", root / "origin.key")
-        with http.server.ThreadingHTTPServer(("127.0.0.1", 0), Origin) as server:
+        with (http.server.ThreadingHTTPServer(("127.0.0.1", 0), Origin) as server,
+              socketserver.ThreadingTCPServer(("127.0.0.1", 0), TCPOrigin) as tcp_server):
             port = server.server_port
+            tcp_port = tcp_server.server_address[1]
             server.socket = context.wrap_socket(server.socket, server_side=True)
+            tcp_server.socket = context.wrap_socket(tcp_server.socket, server_side=True)
             threading.Thread(target=server.serve_forever, daemon=True).start()
+            threading.Thread(target=tcp_server.serve_forever, daemon=True).start()
             try:
                 adb("reverse", f"tcp:{port}", f"tcp:{port}")
+                adb("reverse", f"tcp:{tcp_port}", f"tcp:{tcp_port}")
                 yield ["-e", "mitmOriginPort", str(port), "-e", "mitmOriginCA",
-                       base64.b64encode((root / "root.pem").read_bytes()).decode("ascii")]
-                assert requests == [{"path": path, "host": f"origin.test:{port}"}
-                                    for path in ("/probe?raw=1;2", "/tcp-stream")], requests
+                       base64.b64encode((root / "root.pem").read_bytes()).decode("ascii"),
+                       "-e", "mitmTCPOriginPort", str(tcp_port)]
+                expected = [{"path": path, "host": f"origin.test:{port}"}
+                            for path in ("/probe?raw=1;2", "/http-no-alpn")]
+                expected.append({"protocol": "TLS/TCP", "payload": base64.b64encode(b"\x00client\xff").decode("ascii")})
+                assert requests == expected, requests
             finally:
                 server.shutdown()
-                try:
-                    adb("reverse", "--remove", f"tcp:{port}")
-                except (subprocess.SubprocessError, OSError) as error:
-                    print(f"Reverse-port cleanup failed: {error}")
+                tcp_server.shutdown()
+                for cleanup_port in (port, tcp_port):
+                    try:
+                        adb("reverse", "--remove", f"tcp:{cleanup_port}")
+                    except (subprocess.SubprocessError, OSError) as error:
+                        print(f"Reverse-port cleanup failed: {error}")
                 (OUT / "mitm-origin.json").write_text(json.dumps(requests, indent=2) + "\n")
 
 

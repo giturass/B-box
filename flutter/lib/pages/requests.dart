@@ -166,6 +166,8 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
         if (tls.isNotEmpty) 'Upstream TLS': tls['upstreamVersion'],
         if ((tls['upstreamServerName'] as String? ?? '').isNotEmpty) 'Upstream TLS server name': tls['upstreamServerName'],
         if (tls.isNotEmpty) 'ALPN': tls['alpn']?.toString().isNotEmpty == true ? tls['alpn'] : context.tr('Not negotiated'),
+        if ((tls['upstreamVersion'] as String? ?? '').isNotEmpty && tls.containsKey('upstreamALPN'))
+          'Upstream ALPN': tls['upstreamALPN']?.toString().isNotEmpty == true ? tls['upstreamALPN'] : context.tr('Not negotiated'),
         if (tls.isNotEmpty) 'Upstream certificate SHA-256': tls['upstreamCertificate'],
         if (socket.isNotEmpty) 'Socket FD': socket['fd'],
         if (socket.isNotEmpty) 'Socket inode': socket['inode'],

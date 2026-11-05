@@ -34,6 +34,7 @@ import org.junit.runner.RunWith
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.Closeable
+import java.io.DataInputStream
 import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -157,6 +158,7 @@ class ProfileRecoveryTest {
     @Test fun routedMITMUsesKeystoreAndTheOriginalOutbound() {
         val arguments = InstrumentationRegistry.getArguments()
         val originPort = arguments.getString("mitmOriginPort")?.toInt() ?: error("Run with tools/android_smoke.py TLS fixture")
+        val tcpOriginPort = arguments.getString("mitmTCPOriginPort")?.toInt() ?: error("Run with tools/android_smoke.py TCP fixture")
         val originCA = android.util.Base64.decode(arguments.getString("mitmOriginCA"), android.util.Base64.DEFAULT).toString(Charsets.US_ASCII)
         withRunningProfile { activity, profiles, id ->
             val directory = File(activity.noBackupFilesDir, "http-debug")
@@ -170,21 +172,27 @@ class ProfileRecoveryTest {
                 val certificate = authority.publicCertificate(generated["revision"] as String)
                 val proxyPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
                 val config = JSONObject("""{
-                    "experimental":{"mitm":{"enabled":true,"hosts":["origin.test"],"ports":[$originPort]}},
+                    "experimental":{"mitm":{"enabled":true,"hosts":["-excluded.test","origin.test"],"ports":[$originPort,$tcpOriginPort]}},
                     "inbounds":[{"type":"mixed","tag":"mitm-in","listen":"127.0.0.1","listen_port":$proxyPort}],
                     "outbounds":[{"type":"selector","tag":"mitm-route","outbounds":["fixture-direct"]},{"type":"direct","tag":"fixture-direct"}],
                     "route":{"rules":[{"domain":["origin.test"],"action":"route","outbound":"mitm-route","override_address":"127.0.0.1"}]}
                 }""").put("certificate", JSONObject().put("store", "none").put("certificate", JSONArray().put(originCA))).toString()
-                for (tcp in listOf(false, true)) {
+                val greeting = byteArrayOf(0) + "BBOX".toByteArray() + byteArrayOf(-1)
+                val payload = byteArrayOf(0) + "client".toByteArray() + byteArrayOf(-1)
+                val rawResponse = byteArrayOf(0) + "through-original-route".toByteArray() + byteArrayOf(-1)
+                for (mode in listOf("http", "http-no-alpn", "tcp")) {
+                    val tcp = mode != "http"
+                    val raw = mode == "tcp"
+                    val port = if (raw) tcpOriginPort else originPort
                     val candidate = JSONObject(config).apply { getJSONObject("experimental").getJSONObject("mitm").put("tcp", tcp) }.toString()
-                    val path = if (tcp) "/tcp-stream" else "/probe?raw=1;2"
+                    val path = if (tcp) "/http-no-alpn" else "/probe?raw=1;2"
                     profiles.writeContent(id, candidate, BoxProfiles.revision(profiles.read(id)))
                     assertEquals(Status.Started, activity.serviceStatus.value)
                     val captures = File(activity.noBackupFilesDir, "http-debug/captures")
                     Libbox.openUICapture(captures.absolutePath)
                     Libbox.clearUICapture()
                     BoxService.dashboardServer!!.startUICapture(captures.absolutePath,
-                        """{"version":3,"ports":[$originPort]}""", "", null)
+                        """{"version":3,"ports":[$originPort,$tcpOriginPort]}""", "", null)
                     assertTrue(JSONObject(Libbox.readUICaptureStatus()).getBoolean("active"))
 
                     val trustStore = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("mitm", certificate) }
@@ -192,7 +200,7 @@ class ProfileRecoveryTest {
                     val ssl = SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, SecureRandom()) }
                     Socket("127.0.0.1", proxyPort).use { tunnel ->
                         tunnel.soTimeout = 10_000
-                        tunnel.getOutputStream().write("CONNECT origin.test:$originPort HTTP/1.1\r\nHost: origin.test:$originPort\r\n\r\n".toByteArray())
+                        tunnel.getOutputStream().write("CONNECT origin.test:$port HTTP/1.1\r\nHost: origin.test:$port\r\n\r\n".toByteArray())
                         val reply = StringBuilder()
                         while (!reply.endsWith("\r\n\r\n")) {
                             val value = tunnel.getInputStream().read()
@@ -200,7 +208,7 @@ class ProfileRecoveryTest {
                             reply.append(value.toChar())
                         }
                         assertTrue(reply.toString().startsWith("HTTP/1.1 200"))
-                        (ssl.socketFactory.createSocket(tunnel, "origin.test", originPort, true) as SSLSocket).use { client ->
+                        (ssl.socketFactory.createSocket(tunnel, "origin.test", port, true) as SSLSocket).use { client ->
                             client.soTimeout = 10_000
                             client.sslParameters = client.sslParameters.apply {
                                 endpointIdentificationAlgorithm = "HTTPS"
@@ -212,10 +220,18 @@ class ProfileRecoveryTest {
                             val peer = client.session.peerCertificates[0] as X509Certificate
                             assertFalse(peer.encoded.contentEquals(certificate.encoded))
                             peer.verify(certificate.publicKey)
-                            client.getOutputStream().write("GET $path HTTP/1.1\r\nHost: origin.test:$originPort\r\nConnection: close\r\n\r\n".toByteArray())
-                            val response = client.getInputStream().readBytes().toString(Charsets.UTF_8)
-                            assertTrue(response.startsWith("HTTP/1.1 200"))
-                            assertTrue(response.contains("through-original-route"))
+                            if (raw) {
+                                val receivedGreeting = ByteArray(greeting.size)
+                                DataInputStream(client.inputStream).readFully(receivedGreeting)
+                                assertArrayEquals(greeting, receivedGreeting)
+                                client.outputStream.write(payload)
+                                assertArrayEquals(rawResponse, client.inputStream.readBytes())
+                            } else {
+                                client.outputStream.write("GET $path HTTP/1.1\r\nHost: origin.test:$port\r\nConnection: close\r\n\r\n".toByteArray())
+                                val response = client.inputStream.readBytes().toString(Charsets.UTF_8)
+                                assertTrue(response.startsWith("HTTP/1.1 200"))
+                                assertTrue(response.contains("through-original-route"))
+                            }
                         }
                     }
                     val detail = withTimeout(5_000) {
@@ -233,18 +249,23 @@ class ProfileRecoveryTest {
                     assertEquals("mitm-in", metadata.getString("inbound"))
                     assertEquals("mitm-route", metadata.getString("outbound"))
                     assertEquals("origin.test", metadata.getJSONObject("tls").getString("serverName"))
-                    assertEquals("${if (tcp) "tls" else "https"}://origin.test:$originPort${if (tcp) "" else path}", detail.getJSONObject("request").getString("url"))
-                    assertTrue(detail.getJSONObject("responsePreview").getString("text").contains("through-original-route"))
+                    assertEquals("${if (raw) "tls" else "https"}://origin.test:$port${if (raw) "" else path}", detail.getJSONObject("request").getString("url"))
                     assertTrue(detail.getJSONObject("response").getBoolean("bodyComplete"))
-                    assertEquals(tcp, metadata.optBoolean("rawTCP"))
-                    if (tcp) {
+                    assertEquals(raw, metadata.optBoolean("rawTCP"))
+                    assertEquals("", metadata.getJSONObject("tls").getString("alpn"))
+                    if (raw) {
                         assertEquals("TLS/TCP", detail.getJSONObject("request").getString("protocol"))
-                        assertTrue(detail.getJSONObject("requestPreview").getString("text").contains("GET /tcp-stream HTTP/1.1"))
+                        for ((key, expected) in listOf("requestPreview" to payload, "responsePreview" to (greeting + rawResponse))) {
+                            val preview = detail.getJSONObject(key)
+                            assertEquals("base64", preview.getString("encoding"))
+                            assertArrayEquals(expected, android.util.Base64.decode(preview.getString("text"), android.util.Base64.DEFAULT))
+                        }
                         assertTrue(runCatching { Libbox.exportUICaptureCurl(detail.getString("id")) }.isFailure)
                     } else {
+                        assertTrue(detail.getJSONObject("responsePreview").getString("text").contains("through-original-route"))
                         val headers = detail.getJSONObject("response").getJSONArray("headers")
                         assertEquals(2, (0 until headers.length()).count { headers.getJSONObject(it).getString("name").equals("Set-Cookie", true) })
-                        assertTrue(Libbox.exportUICaptureCurl(detail.getString("id")).contains("origin.test:$originPort"))
+                        assertTrue(Libbox.exportUICaptureCurl(detail.getString("id")).contains("origin.test:$port"))
                     }
                 }
                 profiles.writeContent(id, "{}", BoxProfiles.revision(profiles.read(id)))

@@ -50,13 +50,13 @@ func TestDomainSelection(t *testing.T) {
 			}
 		})
 	}
-	for _, host := range []string{"*", "https://example.com", "example.com:443", "a..b", "-bad.example", "*.127.0.0.1", ".example.com", "hello world", "example.com/"} {
+	for _, host := range []string{"https://example.com", "example.com:65536", "a..b", "-", "a[bc].test", ".example.com", "hello world", "example.com/"} {
 		c := MITMConfig{Hosts: []string{host}}
 		if c.validate() == nil {
 			t.Errorf("accepted invalid filter %q", host)
 		}
 	}
-	for _, invalid := range []string{`{"excluded_hosts":[]}`, `{"hosts":["*"]}`, `{"ports":[0]}`, `null`} {
+	for _, invalid := range []string{`{"excluded_hosts":[]}`, `{"hosts":["<unknown>"]}`, `{"ports":[0]}`, `null`} {
 		var c MITMConfig
 		if json.Unmarshal([]byte(invalid), &c) == nil {
 			t.Fatalf("accepted invalid MITM settings: %s", invalid)

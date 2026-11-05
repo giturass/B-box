@@ -163,6 +163,7 @@ func TestMITMHTTP1AndHTTP2UseVerifiedConnectionAndPreserveMessages(t *testing.T)
 				origin.StartTLS()
 				defer origin.Close()
 				e, store, ca := mitmEngine(t, Config{BodyLimit: 64})
+				e.mitm.H2 = h2
 				client, dials := mitmClient(t, e, origin.Listener.Addr().String(), ca, roots, h2)
 				for i := 0; i < 2; i++ {
 					request, _ := http.NewRequest("POST", "https://origin.test/echo?q=1;raw=2&esc=%2F", strings.NewReader(strings.Repeat("payload", 100)))
@@ -269,6 +270,7 @@ func TestMITMClientPinningFailureClosesVerifiedUpstream(t *testing.T) {
 	origin.StartTLS()
 	defer origin.Close()
 	e, store, ca := mitmEngine(t, Config{})
+	e.mitm.SkipServerCertVerify = true
 	client, _ := mitmClient(t, e, origin.Listener.Addr().String(), ca, roots, false)
 	client.Transport.(*http.Transport).TLSClientConfig.VerifyConnection = func(tls.ConnectionState) error { return errors.New("certificate pin mismatch") }
 	if _, err := client.Get("https://origin.test/"); err == nil || !strings.Contains(err.Error(), "certificate pin mismatch") {
@@ -340,6 +342,7 @@ func TestMITMHTTP2ConcurrentStreamsCancellationAndAuthority(t *testing.T) {
 	origin.StartTLS()
 	defer origin.Close()
 	e, store, ca := mitmEngine(t, Config{})
+	e.mitm.H2 = true
 	client, _ := mitmClient(t, e, origin.Listener.Addr().String(), ca, roots, true)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -464,10 +467,10 @@ func TestMITMDialDeadlineAndConnectionLifetime(t *testing.T) {
 	defer cancel()
 	finished := make(chan error, 1)
 	go func() {
-		_, err := verifiedTLS(context.Background(), ctx, func(ctx context.Context) (net.Conn, error) {
+		_, err := dialUpstreamTLS(context.Background(), ctx, func(ctx context.Context) (net.Conn, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
-		}, "origin.test", nil, nil)
+		}, "origin.test", nil, nil, false)
 		finished <- err
 	}()
 	select {

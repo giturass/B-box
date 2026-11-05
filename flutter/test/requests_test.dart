@@ -331,7 +331,7 @@ void main() {
 
   testWidgets('MITM domains are saved in the profile and can be selected from captured names', (tester) async {
     await mount(tester);
-    var content = jsonEncode({'experimental': {'mitm': {'hosts': ['existing.test']}, 'http_rewrite': {'enabled': false}}});
+    var content = jsonEncode({'experimental': {'mitm': {'hosts': ['-private.test', '*api?.test:8443', 'existing.test']}, 'http_rewrite': {'enabled': false}}});
     extra = (call) async {
       if (call.method == 'profiles.config') return {'formatted': content, 'revision': 'before'};
       if (call.method == 'capture.domains') return ['api.test', 'pinned.test'];
@@ -351,7 +351,7 @@ void main() {
     await tester.tap(find.text('pinned.test')); await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Add domains').last); await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Save').last); await tester.pumpAndSettle();
-    expect(store.value(['experimental', 'mitm', 'hosts']), ['existing.test', 'pinned.test']);
+    expect(store.value(['experimental', 'mitm', 'hosts']), ['-private.test', '*api?.test:8443', 'existing.test', 'pinned.test']);
     expect(store.value(['experimental', 'http_rewrite', 'enabled']), isFalse);
     expect(calls.where((call) => call.method == 'capture.configure'), isEmpty);
   });

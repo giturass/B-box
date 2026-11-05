@@ -4,20 +4,22 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"net"
+	"fmt"
 	"slices"
-	"strings"
 )
 
 // MITMConfig controls TLS interception independently of recording and HTTP
 // processing. An empty allowlist never decrypts a connection, even when enabled.
 type MITMConfig struct {
-	Enabled   bool     `json:"enabled,omitempty"`
-	Hosts     []string `json:"hosts,omitempty"`
-	Ports     []uint16 `json:"ports,omitempty"`
-	Packages  []string `json:"packages,omitempty"`
-	TCP       bool     `json:"tcp,omitempty"`
-	BlockQUIC bool     `json:"block_quic,omitempty"`
+	Enabled              bool     `json:"enabled,omitempty"`
+	Hosts                []string `json:"hosts,omitempty"`
+	Ports                []uint16 `json:"ports,omitempty"`
+	Packages             []string `json:"packages,omitempty"`
+	TCP                  bool     `json:"tcp,omitempty"`
+	H2                   bool     `json:"h2,omitempty"`
+	SkipServerCertVerify bool     `json:"skip_server_cert_verify,omitempty"`
+	// Keep explicit false when formatting a profile: omission means true.
+	BlockQUIC bool `json:"block_quic"`
 }
 
 func (c *MITMConfig) UnmarshalJSON(data []byte) error {
@@ -25,7 +27,7 @@ func (c *MITMConfig) UnmarshalJSON(data []byte) error {
 		return errors.New("mitm must be an object of at most 64 KiB")
 	}
 	type plain MITMConfig
-	var value plain
+	value := plain{BlockQUIC: true}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&value); err != nil {
@@ -46,16 +48,11 @@ func (c *MITMConfig) validate() error {
 		return errors.New("mitm supports at most 256 hosts")
 	}
 	for i, host := range c.Hosts {
-		host = strings.TrimSpace(host)
-		wildcard := strings.HasPrefix(host, "*.")
-		host = normalizeHost(strings.TrimPrefix(host, "*."))
-		if !validHost(host) || wildcard && net.ParseIP(host) != nil {
-			return errors.New("MITM hosts must be exact names, IP addresses or *.example.com, without a URL or port")
+		rule, err := parseMITMHost(host)
+		if err != nil {
+			return fmt.Errorf("MITM host %d: %w", i+1, err)
 		}
-		if wildcard {
-			host = "*." + host
-		}
-		c.Hosts[i] = host
+		c.Hosts[i] = rule.String()
 	}
 	return nil
 }
@@ -81,5 +78,21 @@ func (c *MITMConfig) candidate(m Metadata) bool {
 }
 
 func (c *MITMConfig) matches(m Metadata) bool {
-	return c.candidate(m) && validHost(normalizeHost(m.Host)) && hostMatches(m.Host, c.Hosts)
+	if !c.candidate(m) || !validHost(normalizeHost(m.Host)) {
+		return false
+	}
+	for _, pattern := range c.Hosts {
+		rule, err := parseMITMHost(pattern)
+		if err == nil && rule.matches(m) {
+			return !rule.exclude
+		}
+	}
+	return false
+}
+
+func (c *MITMConfig) httpProtocols() []string {
+	if c != nil && c.H2 {
+		return []string{"h2", "http/1.1"}
+	}
+	return []string{"http/1.1"}
 }

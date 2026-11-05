@@ -53,7 +53,7 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 - 工具页依次提供独立的“请求”和“连接”入口。连接页默认显示活动连接，可切换已关闭/全部，并按速度、创建时间及上下行总量排序；连接订阅不查询请求记录。请求列表沿用连接页的卡片、左右边距、行间距和字形，支持搜索，每批加载 50 条，最多显示内核保留的 300 条。抓取开关等待原生确认，停止抓取或停服后保留请求历史；远程会话的请求页显示不可用，连接页继续展示远端连接。
 - 请求页空态说明从新 HTTP 请求/TCP 流开始记录，启停不关闭已有连接；需要重新连接的范围及停止时的记录冻结语义由 [核心录制生命周期](libbox.md#httphttps-请求调试) 维护，中英文文案同步。
 - 请求详情使用同一点击复制行及反馈，长 URL、头部与 Cookie 分行显示；右上角菜单切换请求、响应和 Cookies，请求与响应 Cookie 分组展示，保留重复 `Set-Cookie`、空值、值中的等号及属性，点击 Cookie 复制该条原文。
-- 抓包设置只提供记录应用、原始目标端口、正文限额和可见域名提取，保存检查本机修订，失败保留草稿。MITM 独立提供配置及证书设置，默认关闭，只解密配置的域名；空列表不解密，无排除列表，可开启 TCP 解密及 QUIC 回退。证书页显示有效期、公钥 SHA-256、用户/系统信任和私钥可用性，提供 CRT/系统模块导出与 Android 设置入口；打开页面不生成证书，生成是明确操作，重新生成需确认，返回前台可刷新信任。远程会话隔离与平台边界见 [app.md](app.md#请求抓取与-mitm)。
+- 抓包设置只提供记录应用、原始目标端口、正文限额和可见域名提取，保存检查本机修订，失败保留草稿。MITM 独立提供配置及证书设置，默认关闭；域名、排除项及协议选项遵循 [MITM 配置](libbox.md#独立-mitm-配置)。证书页显示有效期、公钥 SHA-256、用户/系统信任和私钥可用性，提供 CRT/系统模块导出与 Android 设置入口；打开页面不生成证书，生成是明确操作，重新生成需确认，返回前台可刷新信任。远程会话隔离与平台边界见 [app.md](app.md#请求抓取与-mitm)。
 - 请求菜单提供抓包设置、当前搜索的 HAR 导出和清空请求；只显示请求录制状态，移除“配置中的 HTTP 改写已生效”提示及抓包日志功能。运行错误和脚本 console 输出进入应用现有日志，见 [libbox.md](libbox.md#httphttps-请求调试)。
 - 请求详情保留重复头部、Cookie、正文状态及 trailers，显示原路由/应用、真实 SNI、双方 TLS 版本、ALPN 和上游证书 SHA-256，字段支持复制。已有记录中保存过的 PID/socket 字段仍可读，缺失值保持未知。域名观察与握手失败标为“仅域名”，不能导出 cURL；请求正文/头部不完整、截断或含 trailers 也不能导出 cURL。TLS/TCP 详情分别显示两个方向的原始字节，不显示 HTTP 状态、头部和 Cookies，禁用 cURL；正常完成的流显示“已完成”。页面复用现有共享组件，没有修改 FlClash 直接导入文件。
 - 常规服务页使用即时应用的开关，保存和重启期间显示进度并禁用开关，底部没有“应用服务设置”按钮；启动确认及失败恢复见 [app.md](app.md#配置服务应用与备份)。
@@ -96,11 +96,11 @@ Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。
 
 原始 JSON 编辑器使用 [code_editor.dart](flutter/lib/components/code_editor.dart) 显示从 1 开始的逻辑行号，空行和末尾换行保留编号；长行折行不增加行号，行号随正文滚动。行号布局与正文使用相同的字形、字号比例和换行宽度，仅创建可见编号；搜索、格式化、撤销及修订校验沿用原编辑流程。
 
-配置“编辑”页的高级配置依次提供“MITM”、“HTTP 改写”和“脚本”，由 [configuration.dart](flutter/lib/pages/configuration.dart) 复用共享分组、规则列表、排序及 JSON 表单。MITM 一级页直接编辑 HTTPS、允许域名、TCP 和 QUIC 回退，并提供单一证书入口；证书入口独立于配置加载。端口、应用等扩展字段通过同页的 MITM JSON 编辑入口修改。HTTP 改写仅编辑 Header/URL/Body Rewrite、Map Remote、Map Local 与静态资源；脚本独立编辑启用状态、HTTP 规则、Cron 任务和资源。新建规则与任务提供默认禁用的示例，完整 JSON 仍可编辑。字段与执行语义见 [libbox.md](libbox.md#独立脚本与-cron)。
+配置“编辑”页的高级配置依次提供“MITM”、“HTTP 改写”和“脚本”，由 [configuration.dart](flutter/lib/pages/configuration.dart) 复用共享分组、规则列表、排序及 JSON 表单。MITM 一级页直接编辑 HTTPS、域名及排除项、HTTP/2、服务器证书校验、TCP 和 QUIC 回退，并提供单一证书入口；证书入口独立于配置加载。域名编辑器保留输入顺序及通配符、端口后缀，新增抓取域名追加在列表末尾。端口、应用等额外筛选通过同页的 MITM JSON 编辑入口修改。默认值及匹配语义见 [MITM 配置](libbox.md#独立-mitm-配置)。HTTP 改写仅编辑 Header/URL/Body Rewrite、Map Remote、Map Local 与静态资源；脚本独立编辑启用状态、HTTP 规则、Cron 任务和资源。新建规则与任务提供默认禁用的示例，完整 JSON 仍可编辑。字段与执行语义见 [libbox.md](libbox.md#独立脚本与-cron)。
 
 所有修改通过 ProfileConfigStore.set 保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
 
-[configuration_test.dart](flutter/test/configuration_test.dart) 验证三种开关及 Cron 草稿通过独立路径保存，关闭改写保留 MITM/脚本，校验失败保留内容；[requests_test.dart](flutter/test/requests_test.dart) 覆盖空域名、域名选择、旧记录设置清理、无改写横幅/抓包日志入口及 TCP 详情。生成的独立配置截图为 requests/independent-mitm-config.png、requests/independent-scripts-cron.png；结果按实际源码 SHA 记录。
+[configuration_test.dart](flutter/test/configuration_test.dart) 验证三种配置及 Cron 草稿通过独立路径保存，HTTP/2、证书校验及 QUIC 显式关闭选项正确保存，关闭改写保留 MITM/脚本，校验失败保留内容；[requests_test.dart](flutter/test/requests_test.dart) 覆盖空域名、有序域名/排除项选择、旧记录设置清理、无改写横幅/抓包日志入口及 TCP 详情。请求详情分别显示客户端与上游 ALPN。生成的独立配置截图为 requests/independent-mitm-config.png、requests/independent-scripts-cron.png；结果按实际源码 SHA 记录。
 
 ### 状态卡片与出口查询
 

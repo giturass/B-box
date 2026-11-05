@@ -67,6 +67,7 @@ func (e *Engine) SelectTLS(ctx context.Context, conn net.Conn, metadata Metadata
 		metadata.ProcessingReason = "TLS passed through: no SNI or known IP target"
 		return replay, metadata, false
 	}
+	metadata.sniffedSNI = name != ""
 	// Any non-HTTP offer requires upstream-first negotiation, even when HTTP
 	// is also offered. openMITM chooses the final mode from the negotiated ALPN.
 	metadata.RawTCP = e.mitm.TCP && (len(protos) == 0 || slices.ContainsFunc(protos, func(proto string) bool {
@@ -109,10 +110,8 @@ type replayConn struct {
 
 func (c *replayConn) Read(buffer []byte) (int, error) { return c.reader.Read(buffer) }
 
-// Match mitmproxy's upstream-first handshake order. A trusted local certificate
-// is never presented before the original route's server chain/name is verified.
-// The verified upstream connection is then consumed by the HTTP transport; it
-// is not a disposable probe followed by an unrelated second connection.
+// Keep the upstream-first handshake order, applying the profile's certificate
+// verification choice. Reuse that same connection for HTTP or raw TLS traffic.
 func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, dial DialFunc, roots *x509.CertPool) (net.Conn, *http.Transport, Metadata, func(), error) {
 	if !metadata.RawTCP && e.httpProgram(metadata) != nil {
 		return e.openRewriteMITM(ctx, raw, metadata, dial, roots)
@@ -120,7 +119,7 @@ func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, 
 	e.tlsOpened.Add(1)
 	metadata.CaptureSource = "MITM"
 	metadata.TLSAdapter = "Go crypto/tls"
-	var upstream *tls.Conn
+	var upstream net.Conn
 	var upstreamState tls.ConnectionState
 	var offered []string
 	var primeMu sync.Mutex
@@ -144,28 +143,43 @@ func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, 
 				return nil, errors.New("server name changed after MITM selection")
 			}
 			for _, proto := range hello.SupportedProtos {
-				if proto == "h2" || proto == "http/1.1" || e.mitm != nil && e.mitm.TCP {
+				if proto == "http/1.1" || proto == "h2" && e.mitm.H2 ||
+					proto != "h2" && proto != "http/1.1" && e.mitm.TCP {
 					offered = append(offered, proto)
 				}
 			}
 			if len(hello.SupportedProtos) > 0 && len(offered) == 0 {
-				return nil, errors.New("non-HTTP TLS must be passed through")
+				if !slices.Contains(hello.SupportedProtos, "h2") {
+					return nil, errors.New("non-HTTP TLS must be passed through")
+				}
+				offered = []string{"http/1.1"}
+			}
+			if !metadata.RawTCP {
+				// A known HTTP connection can use either HTTP version upstream,
+				// independently of the client's offer. Unknown TCP stays unchanged.
+				offered = e.mitm.httpProtocols()
 			}
 			phase = "Upstream TLS"
-			var err error
-			upstream, err = verifiedTLS(ctx, handshakeCtx, dial, metadata.Host, offered, roots)
+			remote, err := dialUpstreamTLS(ctx, handshakeCtx, dial, metadata.Host, offered, roots, e.mitm.SkipServerCertVerify)
 			if err != nil {
 				return nil, err
 			}
-			upstreamState = upstream.ConnectionState()
+			upstream = remote
+			upstreamState = remote.ConnectionState()
 			phase = "Client TLS"
 			leaf, err := e.ca.leaf(metadata.Host)
 			if err != nil {
 				return nil, err
 			}
-			protos := []string(nil)
-			if upstreamState.NegotiatedProtocol != "" {
-				protos = []string{upstreamState.NegotiatedProtocol}
+			// HTTP versions are independent on the two TLS legs. A client may
+			// use h2 while the origin uses HTTP/1.1, as in Surge's HTTP MITM.
+			protos := e.mitm.httpProtocols()
+			negotiated := upstreamState.NegotiatedProtocol
+			if negotiated != "" && negotiated != "h2" && negotiated != "http/1.1" {
+				protos = []string{negotiated}
+			} else if negotiated == "" && e.mitm.TCP && (len(hello.SupportedProtos) == 0 ||
+				slices.ContainsFunc(hello.SupportedProtos, func(p string) bool { return p != "h2" && p != "http/1.1" })) {
+				protos = nil
 			}
 			return &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{*leaf},
 				NextProtos: protos, SessionTicketsDisabled: true}, nil
@@ -182,17 +196,29 @@ func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, 
 	clientState := client.ConnectionState()
 	metadata.RawTCP = e.mitm != nil && e.mitm.TCP && clientState.NegotiatedProtocol != "h2" && clientState.NegotiatedProtocol != "http/1.1"
 	metadata.TLS = &TLSMetadata{ServerName: metadata.Host, ClientVersion: tlsVersion(clientState.Version),
-		UpstreamVersion: tlsVersion(upstreamState.Version), ALPN: clientState.NegotiatedProtocol}
+		UpstreamVersion: tlsVersion(upstreamState.Version), ALPN: clientState.NegotiatedProtocol, UpstreamALPN: upstreamState.NegotiatedProtocol}
 	if len(upstreamState.PeerCertificates) > 0 {
 		fingerprint := sha256.Sum256(upstreamState.PeerCertificates[0].Raw)
 		metadata.TLS.UpstreamCertificate = hex.EncodeToString(fingerprint[:])
 	}
 	e.plaintextConnections.Add(1)
+	var downstream net.Conn = client
+	if metadata.RawTCP && clientState.NegotiatedProtocol == "" {
+		var http1 bool
+		var err error
+		downstream, upstream, http1, err = inspectTLSProtocol(ctx, client, upstream.(*tls.Conn))
+		if err != nil {
+			cleanup()
+			return nil, nil, metadata, nil, err
+		}
+		metadata.RawTCP = !http1
+	}
 	writeLog("info", fmt.Sprintf("MITM connected: %s; ALPN=%s; client=%s; upstream=%s", metadata.Host,
 		clientState.NegotiatedProtocol, metadata.TLS.ClientVersion, metadata.TLS.UpstreamVersion))
 	transport := newTransport(dial)
-	transport.ForceAttemptHTTP2 = true
-	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ServerName: metadata.Host}
+	transport.ForceAttemptHTTP2 = e.mitm.H2
+	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ServerName: metadata.Host,
+		NextProtos: e.mitm.httpProtocols(), InsecureSkipVerify: e.mitm.SkipServerCertVerify}
 	transport.DialTLSContext = func(callCtx context.Context, _, _ string) (net.Conn, error) {
 		primeMu.Lock()
 		if closed {
@@ -208,13 +234,12 @@ func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, 
 		primeMu.Unlock()
 		deadlineCtx, stop := context.WithTimeout(callCtx, 10*time.Second)
 		defer stop()
-		// Each replacement connection verifies the chain and the same SNI again.
-		return verifiedTLS(callCtx, deadlineCtx, dial, metadata.Host, offered, roots)
+		return dialUpstreamTLS(callCtx, deadlineCtx, dial, metadata.Host, offered, roots, e.mitm.SkipServerCertVerify)
 	}
-	return client, transport, metadata, cleanup, nil
+	return downstream, transport, metadata, cleanup, nil
 }
 
-func verifiedTLS(lifetime, handshake context.Context, dial DialFunc, host string, protos []string, roots *x509.CertPool) (*tls.Conn, error) {
+func dialUpstreamTLS(lifetime, handshake context.Context, dial DialFunc, host string, protos []string, roots *x509.CertPool, skipVerify bool) (*tls.Conn, error) {
 	// Bound both dialing and handshaking, but retain the route context after a
 	// successful handshake. Cancelling a short-lived handshake context must not
 	// tear down the verified connection while HTTP is still using it.
@@ -227,7 +252,7 @@ func verifiedTLS(lifetime, handshake context.Context, dial DialFunc, host string
 		return nil, err
 	}
 	client := tls.Client(&cancelConn{Conn: conn, cancel: cancel}, &tls.Config{MinVersion: tls.VersionTLS12,
-		ServerName: normalizeHost(host), RootCAs: roots, NextProtos: protos})
+		ServerName: normalizeHost(host), RootCAs: roots, NextProtos: protos, InsecureSkipVerify: skipVerify})
 	if err = client.HandshakeContext(handshake); err != nil {
 		client.Close()
 		return nil, err

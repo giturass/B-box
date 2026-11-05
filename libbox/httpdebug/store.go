@@ -225,6 +225,7 @@ func (s *Store) response(id string, response *http.Response) {
 		if response.TLS != nil && record.Metadata.TLS != nil {
 			metadata := *record.Metadata.TLS
 			metadata.UpstreamVersion = tlsVersion(response.TLS.Version)
+			metadata.UpstreamALPN = response.TLS.NegotiatedProtocol
 			metadata.UpstreamServerName = response.TLS.ServerName
 			if len(response.TLS.PeerCertificates) > 0 {
 				fingerprint := sha256.Sum256(response.TLS.PeerCertificates[0].Raw)

@@ -30,6 +30,7 @@ func TestRecordingTogglesKeepHTTP1AndHTTP2Connections(t *testing.T) {
 	for _, h2 := range []bool{false, true} {
 		t.Run(map[bool]string{false: "http1", true: "http2"}[h2], func(t *testing.T) {
 			e, saved, ca := mitmEngine(t, Config{})
+			e.mitm.H2 = h2
 			e.recording.Store(nil)
 			e.rewrite = rewriteProgram(t, `{"enabled":true,"map_local":[{"pattern":".","data":"profile"}]}`).RewriteProgram
 			recordingManager(t, e)

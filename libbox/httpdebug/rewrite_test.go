@@ -131,6 +131,7 @@ func TestRewriteHTTPSOfflineMockAndRecordingOff(t *testing.T) {
 			e.rewrite = rewriteProgram(t, `{"enabled":true,"map_local":[{"pattern":"/static$","status":201,"data":"local","headers":[{"name":"Set-Cookie","value":"a=1"},{"name":"Set-Cookie","value":"b=2"}]}]}`).RewriteProgram
 			e.scripts = scriptProgram(t, `{"enabled":true,"http":[{"pattern":"/dynamic$","phase":"request","source":"$done({response:{status:202,headers:{'Content-Type':'application/json'},body:JSON.stringify({method:$request.method})}});"}]}`)
 			e.mitm = mitmConfig(t, `{"enabled":true,"hosts":["origin.test"]}`)
+			e.mitm.H2 = h2
 			client, dials := mitmClient(t, e, "127.0.0.1:1", ca, nil, h2)
 			for _, path := range []string{"static", "dynamic"} {
 				response, err := client.Get("https://origin.test/" + path)

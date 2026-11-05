@@ -3,10 +3,14 @@
     "mitm": {
       "enabled": false,
       "hosts": [
-        "api.example.test"
+        "-private.example.test",
+        "*.example.test",
+        "api.example.net:8443"
       ],
       "tcp": true,
-      "block_quic": false
+      "h2": false,
+      "skip_server_cert_verify": false,
+      "block_quic": true
     }
   }
 }

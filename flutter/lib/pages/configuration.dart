@@ -230,18 +230,24 @@ class MitmConfigPage extends StatelessWidget {
           onChanged: store.saving ? null : (value) => store.set([...path, 'enabled'], value)),
         ListItem.open(key: const ValueKey('mitm-hosts'), leading: const GlyphIcon(AppGlyphs.dns), title: Text(context.tr('Decryption domains')),
           subtitle: Text(hosts.isEmpty ? context.tr('No domains selected') : hosts.join(', ')), widget: MitmHostsEditor(store: store)),
+        ListItem.toggle(key: const ValueKey('mitm-h2'), title: Text(context.tr('MITM over HTTP/2')),
+          value: store.value([...path, 'h2']) == true,
+          onChanged: store.saving ? null : (value) => store.set([...path, 'h2'], value)),
+        ListItem.toggle(key: const ValueKey('mitm-skip-server-cert-verify'), title: Text(context.tr('Skip server certificate verification')),
+          value: store.value([...path, 'skip_server_cert_verify']) == true,
+          onChanged: store.saving ? null : (value) => store.set([...path, 'skip_server_cert_verify'], value)),
         ListItem.toggle(key: const ValueKey('mitm-tcp'), title: Text(context.tr('Decrypt non-HTTP TLS over TCP')),
-          subtitle: Text(context.tr('TLS connections without a negotiated HTTP protocol are forwarded and recorded as TCP streams.')),
+          subtitle: Text(context.tr('HTTP requests are processed as HTTP, including TLS without ALPN. Other TLS payloads are forwarded and recorded as TCP streams.')),
           value: store.value([...path, 'tcp']) == true,
           onChanged: store.saving ? null : (value) => store.set([...path, 'tcp'], value)),
-        ListItem.toggle(title: Text(context.tr('Request TCP fallback for QUIC')), value: store.value([...path, 'block_quic']) == true,
+        ListItem.toggle(key: const ValueKey('mitm-block-quic'), title: Text(context.tr('Request TCP fallback for QUIC')), value: store.value([...path, 'block_quic']) != false,
           subtitle: Text(context.tr('Reject only observed QUIC connections whose names match the HTTPS filters. Apps may retry over TCP. Unknown names and other UDP stay unchanged.')),
           onChanged: store.saving ? null : (value) => store.set([...path, 'block_quic'], value)),
       ]),
       generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.key), title: Text(context.tr('MITM certificate')), widget: const MitmCertificatePage()),
         if (store != null && store.ready) ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit MITM options')),
-          widget: ConfigValueEditor(title: 'MITM configuration', initial: store.value(path) ?? const {'enabled': false, 'hosts': [], 'tcp': false, 'block_quic': false},
+          widget: ConfigValueEditor(title: 'MITM configuration', initial: store.value(path) ?? const {'enabled': false, 'hosts': [], 'tcp': false, 'h2': false, 'skip_server_cert_verify': false, 'block_quic': true},
             onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
       ]),
     ]);
@@ -271,10 +277,10 @@ class _MitmHostsEditorState extends State<MitmHostsEditor> {
   }
   @override Widget build(BuildContext context) => BoxEditGuard(dirty: _dirty, busy: _busy, child: FormPage(
     title: 'Decryption domains', saving: _busy, error: _error, onSave: _save, children: [
-      ListFooter(text: context.tr('Exact names and *.example.com are accepted. Leave empty to decrypt nothing.')),
+      ListFooter(text: context.tr('Supports * and ? wildcards, - exclusions and :port (:0 for all ports). First match wins; put exclusions first. Leave empty to decrypt nothing.')),
       TextField(key: const ValueKey('mitm-domain-input'), controller: _hosts, minLines: 4, maxLines: 8, readOnly: _busy,
         autocorrect: false, enableSuggestions: false, keyboardType: TextInputType.multiline,
-        decoration: const InputDecoration(hintText: 'api.example.com\n*.example.net'),
+        decoration: const InputDecoration(hintText: '-private.example.com\n*.example.com\napi.example.net:8443'),
         onChanged: (_) => setState(() => _dirty = true)),
       ListItem(key: const ValueKey('add-https-hosts'), title: Text(context.tr('Add captured domains')), onTap: _busy ? null : () async {
         final selected = await openPage<List<String>>(context, const CaptureDomainsPage(select: true));
