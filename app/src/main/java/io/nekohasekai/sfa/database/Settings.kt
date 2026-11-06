@@ -16,9 +16,12 @@ import io.nekohasekai.sfa.ktx.long
 import io.nekohasekai.sfa.ktx.map
 import io.nekohasekai.sfa.ktx.string
 import io.nekohasekai.sfa.ktx.stringSet
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 object Settings {
@@ -106,14 +109,16 @@ object Settings {
         }
     }
 
-    suspend fun detectServiceMode(): String {
+    suspend fun detectServiceMode(): String = withContext(Dispatchers.IO) {
         try {
             if (needVPNService()) {
-                return ServiceMode.VPN
+                return@withContext ServiceMode.VPN
             }
+        } catch (error: CancellationException) {
+            throw error
         } catch (_: Exception) {
         }
-        return ServiceMode.NORMAL
+        ServiceMode.NORMAL
     }
 
     private suspend fun needVPNService(): Boolean {
