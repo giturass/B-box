@@ -3,6 +3,11 @@ import 'package:flutter/widgets.dart';
 import 'package:prism_ui/l10n.dart';
 
 const _zh = <String, String>{
+  "Diagnostics": "诊断",
+  "Framework": "系统框架",
+  "Network interfaces": "网络接口",
+  "Application": "应用",
+  "HTTP proxy": "HTTP 代理",
   "Privilege settings": "特权增强",
   "Privilege settings applied": "特权设置已应用",
   "Module settings have not been confirmed": "模块尚未确认设置已应用",
