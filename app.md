@@ -230,6 +230,18 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### LSPosed 恢复验证
+
+2026-11-07，验证源码为 `0a3c0fa28df1ce776c5b0187eec14243c451117a`；后续补充验证记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。
+
+- [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42308927615) 全部 job 通过，包含 Root CA、Go 扩展、HTTP/MITM race、原路由及 Android 重定向布局回归。第一次 Android job 在下载 Go 依赖时遇到代理 HTTP/2 错误，尚未编译应用；同一源码重试后通过。
+- Flutter 分析、交互/布局测试及 ARM64 Debug/Release AAR 构建通过，具体数量和实际查看的截图见 [LSPosed 新 UI 验证](flclash.md#lsposed-新-ui-验证)。
+- 读取 `native-unit-tests` 的 13 份 XML，56 项 JVM 测试全部通过，无失败、错误或跳过；新增用例覆盖模块同步未确认、设置写入、VPN 重启失败及取消后的恢复。`play` Kotlin 编译、模拟器应用/仪器测试 APK 构建与 LSPosed DEX/元数据检查通过。
+- API 31 UI smoke 和全部 28 项原生测试通过。已读取 `android-smoke-api-31` 的 `results.json` 与 `native-tests.txt`，核对源码 SHA 一致及三个 `PrivilegeBridgeTest` 用例成功：模块缺失时不改设置/请求 Root、真实 Room 批量提交失败时保留缓存、应用列表和 Hook 日志的 Parcelable 往返。设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（`getconf`）；UI smoke 同时覆盖普通 VPN 授权、启停、真实分组及进程重启后配置保留。
+- 同一源码的 [ARM64 Release 构建](https://github.com/giturass/B-box/actions/runs/42308989406) 通过，使用既有签名密钥构建 R8 APK；安装身份、API 24、ARM64、应用标签及签名校验通过。额外检查确认模块入口、Provider 与 Parcelable 保留，`compileOnly` 的框架 API 未打包。`publish_release=false`，未发布 GitHub Release；[APK Artifact](https://github.com/giturass/B-box/actions/runs/42308989406/artifacts/13547787541) 中的 `B-box-1.15.0-alpha.13-arm64-v8a.apk` 为 48,245,911 字节，SHA-256 为 `6661e9278c97eef908f5e3fe0c84c64682a89c2ebf348ba34c3dc7254488b7ef`。
+
+本机仅完成差异、源码约束、Python/XML 语法及文档链接静态检查，未在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未验证真实 LSPosed 注入、目标应用的 VPN/代理信息隐藏、接口重命名及 Root 诊断导出，也未覆盖其他 Android 版本、ARM64 实机或 16 KiB 页运行。
+
 ### 订阅下载、备份回滚与配置删除修复验证
 
 2026-11-07，验证源码为 `9eda9945d23ca6916844f2c294cfd314c1185cb0`；后续补充验证记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。

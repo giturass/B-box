@@ -190,3 +190,11 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 同次 `android-smoke-api-31` 产物中实际查看了 `03-vpn-running.png`、`04-core-proxies.png` 和 `05-restored-profile.png`：应用显示运行状态、真实 `Smoke selector` 分组及 `direct` 节点，停止并重启进程后保留导入配置。模拟器报告与上述源码 SHA 一致。
 
 以上是抽样视觉检查及已声明情景的像素回归；没有进行全应用逐像素验收、ARM64 实机性能测量、完整系统证书设置或 Root 管理器交互验收。模拟器运行范围见 [应用验证记录](app.md#prism-ui-升级验证)，此前视觉记录通过本文 Git 历史查询。
+
+### LSPosed 新 UI 验证
+
+2026-11-07，验证源码为 `0a3c0fa28df1ce776c5b0187eec14243c451117a`，对应 [Actions 42308927615](https://github.com/giturass/B-box/actions/runs/42308927615)。Flutter 分析、226 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 86 条 info、0 条 warning/error。后续补充验证记录的 Markdown 提交不改变应用或测试源码。
+
+新增特权页回归已通过模块未激活/版本不匹配、MODULE_SETTINGS 导航、保存等待/失败草稿、应用选择保留、远程会话隔离、迟到结果及取消诊断导出检查。已实际查看同一源码 `newui-validation` 产物中的 `build/screenshots/privilege/320-1.4-dark.png` 和 `build/screenshots/privilege/800-1.0-light.png`：模块状态、隐藏设置、应用选择、接口名称及诊断入口可读；窄屏大字号允许纵向滚动，顶部标题按现有策略省略，宽屏表单正常居中。自检结果页布局也通过测试。
+
+这些截图使用桥接替身，不证明实际系统模块已激活或目标应用的 VPN 检测已被隐藏；没有新增全应用逐像素验收结论。Android、签名 Release 产物及未覆盖的实机范围见 [LSPosed 恢复验证](app.md#lsposed-恢复验证)。
