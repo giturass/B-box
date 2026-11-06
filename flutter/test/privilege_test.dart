@@ -87,6 +87,10 @@ void main() {
   List<MethodCall> saves() => calls.where((call) => call.method == 'privilege.save').toList();
   Future<void> tap(WidgetTester tester, String label) async {
     final finder = find.text(label).last;
+    if (find.text(label).evaluate().isEmpty) {
+      await tester.scrollUntilVisible(find.text(label), 250,
+        scrollable: find.descendant(of: find.byType(PrivilegePage), matching: find.byType(Scrollable)).first);
+    }
     await tester.ensureVisible(finder);
     await tester.tap(finder);
     await tester.pumpAndSettle();
