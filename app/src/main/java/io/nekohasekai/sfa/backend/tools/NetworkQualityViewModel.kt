@@ -8,16 +8,15 @@ import io.nekohasekai.libbox.NetworkQualityProgress
 import io.nekohasekai.libbox.NetworkQualityResult
 import io.nekohasekai.libbox.NetworkQualityTestHandler
 import io.nekohasekai.libbox.NetworkQualityTestSession
-import io.nekohasekai.sfa.R
 import io.nekohasekai.sfa.backend.base.BaseViewModel
 import io.nekohasekai.sfa.utils.CommandTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-enum class MaxRuntimeOption(val seconds: Int, val labelRes: Int) {
-    THIRTY(30, R.string.network_quality_max_runtime_30s),
-    SIXTY(60, R.string.network_quality_max_runtime_60s),
+enum class MaxRuntimeOption(val seconds: Int) {
+    THIRTY(30),
+    SIXTY(60),
 }
 
 data class NetworkQualityState(

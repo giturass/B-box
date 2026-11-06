@@ -7,8 +7,6 @@
     <string name="stop">Остановить</string>
 
     <!-- Common States -->
-    <string name="enabled">Включено</string>
-    <string name="disabled">Выключено</string>
 
     <!-- Navigation Titles -->
 
@@ -74,8 +72,6 @@
     <!-- Content Descriptions (Accessibility) -->
     
     <!-- Tools -->
-    <string name="network_quality_max_runtime_30s">30s</string>
-    <string name="network_quality_max_runtime_60s">60s</string>
 
     <!-- STUN Test -->
     <!-- Tailscale -->

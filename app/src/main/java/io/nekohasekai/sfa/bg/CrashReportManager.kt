@@ -198,8 +198,6 @@ object CrashReportManager {
         _unreadCount.value = 0
     }
 
-    fun hasConfigFile(report: CrashReport): Boolean = File(report.directory, CONFIG_FILE_NAME).exists()
-
     suspend fun createZipArchive(report: CrashReport, includeConfig: Boolean, includeLog: Boolean, useAgeEncryption: Boolean): File = withContext(Dispatchers.IO) {
         val cacheDir = File(Application.application.cacheDir, CRASH_REPORTS_DIR_NAME)
         cacheDir.mkdirs()

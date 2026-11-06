@@ -160,16 +160,6 @@ func (c Config) candidate(m Metadata) bool {
 
 func (c Config) matches(m Metadata) bool { return c.candidate(m) }
 
-func hostMatches(host string, patterns []string) bool {
-	host = normalizeHost(host)
-	for _, pattern := range patterns {
-		if host == pattern || (strings.HasPrefix(pattern, "*.") && strings.HasSuffix(host, pattern[1:])) {
-			return true
-		}
-	}
-	return false
-}
-
 func normalizeHost(host string) string {
 	return strings.TrimSuffix(strings.ToLower(strings.Trim(host, "[]")), ".")
 }

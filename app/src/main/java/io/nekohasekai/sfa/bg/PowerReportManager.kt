@@ -152,10 +152,6 @@ object PowerReportManager {
         _unreadCount.value = 0
     }
 
-    fun hasConfigFile(report: PowerReport): Boolean = File(report.directory, CONFIG_FILE_NAME).exists()
-
-    fun hasLogFile(report: PowerReport): Boolean = File(report.directory, GO_LOG_FILE_NAME).exists()
-
     suspend fun createZipArchive(report: PowerReport, includeConfig: Boolean, includeLog: Boolean, useAgeEncryption: Boolean): File = withContext(Dispatchers.IO) {
         val cacheDir = File(Application.application.cacheDir, POWER_REPORTS_DIR_NAME)
         cacheDir.mkdirs()

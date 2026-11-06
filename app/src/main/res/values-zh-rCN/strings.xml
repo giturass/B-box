@@ -7,8 +7,6 @@
     <string name="stop">停止</string>
 
     <!-- Common States -->
-    <string name="enabled">启用</string>
-    <string name="disabled">禁用</string>
 
     <!-- Navigation Titles -->
 
@@ -74,8 +72,6 @@
     <!-- Content Descriptions (Accessibility) -->
 
     <!-- Tools -->
-    <string name="network_quality_max_runtime_30s">30s</string>
-    <string name="network_quality_max_runtime_60s">60s</string>
 
     <!-- STUN Test -->
     <!-- Tailscale -->

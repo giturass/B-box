@@ -2,7 +2,6 @@ package io.nekohasekai.sfa.bg
 
 import android.content.Intent
 import android.content.pm.PackageInfo
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Binder
 import android.os.IBinder
@@ -306,11 +305,7 @@ class RootServer : RootService() {
         env["SHELL"] = shell
         env["LANG"] = "en_US.UTF-8"
         env["COLORTERM"] = "truecolor"
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
-            env["LD_LIBRARY_PATH"] = "$prefix/lib"
-        } else {
-            env.remove("LD_LIBRARY_PATH")
-        }
+        env.remove("LD_LIBRARY_PATH")
         val termuxExec = File("$prefix/lib/libtermux-exec.so")
         if (termuxExec.exists()) {
             env["LD_PRELOAD"] = termuxExec.absolutePath

@@ -14,7 +14,6 @@ import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
 import android.util.Log
-import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.MutableLiveData
@@ -111,9 +110,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     }
 
                     PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            serviceUpdateIdleMode()
-                        }
+                        serviceUpdateIdleMode()
                     }
                 }
             }
@@ -300,7 +297,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         serviceReload()
     }
 
-    @RequiresApi(Build.VERSION_CODES.M)
     private fun serviceUpdateIdleMode() {
         if (::commandServer.isInitialized) {
             idleModeUpdates.trySend(Application.powerManager.isDeviceIdleMode)
@@ -380,9 +376,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 receiver,
                 IntentFilter().apply {
                     addAction(Action.SERVICE_CLOSE)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
-                    }
+                    addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
                 },
                 ContextCompat.RECEIVER_NOT_EXPORTED,
             )

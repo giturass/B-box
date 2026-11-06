@@ -2,7 +2,6 @@ package io.nekohasekai.sfa
 
 import android.app.Application
 import android.app.NotificationManager
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -135,6 +134,5 @@ class Application : Application() {
         val powerManager by lazy { application.getSystemService<PowerManager>()!! }
         val notificationManager by lazy { application.getSystemService<NotificationManager>()!! }
         val wifiManager by lazy { application.getSystemService<WifiManager>()!! }
-        val clipboard by lazy { application.getSystemService<ClipboardManager>()!! }
     }
 }

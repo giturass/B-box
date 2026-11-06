@@ -148,7 +148,7 @@
     "lib/components/record.dart": {
       "source": "lib/widgets/record.dart",
       "sourceSHA256": "51e1e0849d04a9b05fe10c116b8b9a26130e787c618719f0ef9f5b8f42711c5a",
-      "changes": "Shared log/connection/request record surfaces, header, timestamp, labels, typography and copyable detail rows retained; semantic color roles copied from the reference RecordTone enum. Detail rows constrain long labels and support stacked HTTP URLs, headers and cookies while retaining tap-to-copy feedback. Migrated to the v0.9.3 prism_ui types and presentation. Removable keyword chips are owned by B-box pages and combined with typed search text."
+      "changes": "Shared log/connection/request record surfaces, header, timestamp, labels, typography and copyable detail rows retained; semantic label color roles copied from the reference RecordTone enum, with the unused accentColor helper omitted. Detail rows constrain long labels and support stacked HTTP URLs, headers and cookies while retaining tap-to-copy feedback. Migrated to the v0.9.3 prism_ui types and presentation. Removable keyword chips are owned by B-box pages and combined with typed search text."
     },
     "lib/pages/tools.dart": {
       "source": "lib/views/tools.dart",
@@ -178,7 +178,7 @@
     "lib/components/dashboard_editor.dart": {
       "source": "lib/views/dashboard/edit.dart",
       "sourceSHA256": "7eaf4a0bf066b42be18627e803ad5ec421da2042c819ec022a5f9aa154299234",
-      "changes": "In-place live cards, sway, long-press reordering, remove badges, presence motion and addable rows retained, including the B-box system HTTP proxy card with B-box's original continent globe glyph. Saves native preferences, preserves card keys and retries failed saves before leaving. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "In-place live cards, sway, long-press reordering, remove badges, presence motion and addable rows retained, including the B-box system HTTP proxy card with B-box's original continent globe glyph. Saves native preferences, preserves card keys and retries failed saves before leaving. Retains the e2 drag shadow and omits the unused e1 helper and shadow data; the independent status reference renderer keeps its own shadows. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/form.dart": {
       "source": "lib/features/form/form_row.dart",

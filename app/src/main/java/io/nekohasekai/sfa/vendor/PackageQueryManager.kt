@@ -19,19 +19,8 @@ object PackageQueryManager {
             PackageQueryStrategy.Direct
         }
 
-    val showModeSelector: Boolean
-        get() = strategy is PackageQueryStrategy.UserSelected
-
     private val _queryMode = MutableStateFlow(Settings.perAppProxyPackageQueryMode)
     val queryMode: StateFlow<String> = _queryMode
-
-    val shizukuInstalled: StateFlow<Boolean> get() = ShizukuPackageManager.shizukuInstalled
-    val shizukuBinderReady: StateFlow<Boolean> get() = ShizukuPackageManager.binderReady
-    val shizukuPermissionGranted: StateFlow<Boolean> get() = ShizukuPackageManager.permissionGranted
-    val rootAvailable: StateFlow<Boolean?> get() = RootClient.rootAvailable
-    val rootServiceConnected: StateFlow<Boolean> get() = RootClient.serviceConnected
-
-    fun isShizukuAvailable(): Boolean = ShizukuPackageManager.isAvailable() && ShizukuPackageManager.checkPermission()
 
     fun registerListeners() {
         ShizukuPackageManager.registerListeners()
@@ -44,10 +33,6 @@ object PackageQueryManager {
 
     fun requestShizukuPermission() {
         ShizukuPackageManager.requestPermission()
-    }
-
-    fun refreshShizukuState() {
-        ShizukuPackageManager.refresh()
     }
 
     suspend fun checkRootAvailable(): Boolean = RootClient.checkRootAvailable()

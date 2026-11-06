@@ -268,7 +268,6 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 else activity.applyProfile(args["restart"] == true)
                 null
             }
-            "profiles.list" -> withContext(Dispatchers.IO) { profiles.list() }
             "profiles.read" -> withContext(Dispatchers.IO) { profiles.read(id()) }
             "profiles.config" -> withContext(Dispatchers.IO) { profiles.config(id()) }
             "profiles.stats" -> withContext(Dispatchers.IO) { profiles.stats(id()) }
@@ -398,7 +397,6 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 withContext(Dispatchers.IO) { check(preferences.edit().putString("value", JSONObject(updated).toString()).commit()) { "Unable to save preferences" } }
                 updated
             }
-            "settings.get" -> settings()
             "settings.set" -> operations.withLock { saveSettings(args); settings() }
             "settings.patch" -> operations.withLock {
                 @Suppress("UNCHECKED_CAST")

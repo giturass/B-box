@@ -265,6 +265,8 @@ HTTP/Cron 默认允许经核心主动联网。`http_client.allowed_origins` 可�
 
 当前 legacy 补丁只排除 Android API 21 产物，不裁剪标准核心协议、上游构建标签或已有导出绑定。`ui_*.go` 是对标准核心的新增适配，不能将整个 B-box 核心描述为“与上游完全无差异”。
 
+HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.go) 的 Host List 匹配器处理，记录设置只按应用、原始端口和协议筛选。无法检查 ClientHello 时，[mitm.go](libbox/httpdebug/mitm.go) 的 `SelectTLS` 直接更新 `skipped` 计数并记录原因。内部无调用辅助函数的清理不改变这些路径、配置字段或 `ui_*` 导出绑定。
+
 ## 构建、同步和验证
 
 - [Release 工作流](.github/workflows/build-release.yml) 仅手动构建、不运行测试；通过共享构建 Action 使用 JDK 17、版本文件指定的 Go 和 NDK 28.0.13004108，执行上游 `make lib_install` 与 `build_libbox -target android -platform android/arm64`，与 Flutter Release AAR 并行准备。

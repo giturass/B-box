@@ -106,7 +106,7 @@ class USBIPService : Service() {
                 this,
                 0,
                 Intent(this, MainActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
-                pendingIntentFlags(),
+                PendingIntent.FLAG_IMMUTABLE,
             ),
         )
         .addAction(
@@ -117,7 +117,7 @@ class USBIPService : Service() {
                     this,
                     0,
                     Intent(this, USBIPService::class.java).setAction(ACTION_STOP),
-                    pendingIntentFlags(),
+                    PendingIntent.FLAG_IMMUTABLE,
                 ),
             ).build(),
         )
@@ -139,8 +139,6 @@ class USBIPService : Service() {
         const val ACTION_STOP = BuildConfig.APPLICATION_ID + ".action.USBIP_STOP"
         private const val NOTIFICATION_ID = 2
         private const val NOTIFICATION_CHANNEL = "usbip"
-
-        private fun pendingIntentFlags() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
 
         private fun foregroundServiceType() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
     }

@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.net.Uri
 import android.net.http.SslError
-import android.os.Build
 import android.os.Message
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -185,14 +184,6 @@ internal class OpenConnectWebViewBrowser(
                     fail(view.context.getString(R.string.endpoint_browser_navigation_failed, detail.toString()))
                 }
                 return true
-            }
-
-            @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
-            override fun onReceivedError(view: WebView, errorCode: Int, description: String, failingUrl: String) {
-                super.onReceivedError(view, errorCode, description, failingUrl)
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M && navigationStates.containsKey(view)) {
-                    fail(view.context.getString(R.string.endpoint_browser_navigation_failed, description))
-                }
             }
         }
         view.webChromeClient = object : WebChromeClient() {

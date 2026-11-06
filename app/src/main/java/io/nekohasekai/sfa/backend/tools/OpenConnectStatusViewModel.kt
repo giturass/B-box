@@ -188,21 +188,6 @@ class OpenConnectStatusViewModel : BaseViewModel<OpenConnectStatusState>() {
         }
     }
 
-    fun submitBrowserResponse(endpointTag: String, challengeID: String, result: OpenConnectBrowserResultData) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val browserResult = Libbox.newOpenConnectBrowserResult(result.finalURL)
-                for (cookie in result.cookies) {
-                    browserResult.addCookie(cookie.name, cookie.value)
-                }
-                val response = Libbox.newOpenConnectBrowserAuthResponse(browserResult)
-                CommandTarget.standaloneClient().submitOpenConnectAuthResponse(endpointTag, challengeID, response)
-            } catch (exception: Exception) {
-                sendErrorMessage(exception.message ?: "submit browser authentication result failed")
-            }
-        }
-    }
-
     fun cancelAuthChallenge(endpointTag: String, challengeID: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {

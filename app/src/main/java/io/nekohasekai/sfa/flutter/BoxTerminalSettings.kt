@@ -5,7 +5,6 @@ import io.github.sagernet.libghostty.GhosttyTheme
 import io.github.sagernet.libghostty.extras.GhosttyFontStore
 import io.github.sagernet.libghostty.extras.GhosttyThemeStore
 import io.nekohasekai.sfa.database.Settings
-import io.nekohasekai.sfa.terminal.GhosttyCustomConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -96,12 +95,6 @@ internal class BoxTerminalSettings(private val activity: BoxActivity) {
                 GhosttyThemeStore.listThemes(activity, args["dark"] == true).map { name ->
                     mapOf("name" to name) + themeWire(GhosttyThemeStore.loadTheme(activity, name))
                 }
-            }
-            "terminal.preview" -> return withContext(Dispatchers.IO) {
-                val dark = args["dark"] == true
-                val custom = args["config"] as? String
-                themeWire(if (custom != null) GhosttyCustomConfig.parse(custom).theme
-                    else GhosttyThemeStore.loadThemeOrDefault(activity, args["theme"] as? String ?: "", dark))
             }
             "terminal.fonts" -> return withContext(Dispatchers.IO) {
                 mapOf("system" to listOf("monospace", "Droid Sans Mono", "Courier New", "Courier"),

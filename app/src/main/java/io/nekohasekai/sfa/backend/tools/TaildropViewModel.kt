@@ -1,6 +1,5 @@
 package io.nekohasekai.sfa.backend.tools
 
-import android.webkit.MimeTypeMap
 import androidx.lifecycle.viewModelScope
 import io.nekohasekai.libbox.TaildropDownloadHandler
 import io.nekohasekai.libbox.TaildropInbox
@@ -43,13 +42,6 @@ object TaildropFiles {
     private const val DIRECTORY_NAME = "Taildrop"
     private const val CACHE_DIRECTORY = "taildrop"
     private const val CACHE_LIFETIME = 24L * 60 * 60 * 1000
-
-    fun mimeType(name: String): String {
-        val extension = name.substringAfterLast('.', "").lowercase()
-        if (extension.isEmpty()) return "application/octet-stream"
-        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
-            ?: "application/octet-stream"
-    }
 
     private fun daemonFile(name: String): File? {
         if (CommandTarget.isRemote) return null

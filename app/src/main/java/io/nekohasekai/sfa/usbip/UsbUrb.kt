@@ -4,7 +4,6 @@ package io.nekohasekai.sfa.usbip
 // translates back to the remote client.
 const val URB_OK = 0
 const val URB_EPIPE = -32 // stalled endpoint
-const val URB_EOVERFLOW = -75 // babble / buffer overrun
 const val URB_EPROTO = -71 // transport or protocol failure
 
 // Standard control requests the importing kernel issues during enumeration. Android

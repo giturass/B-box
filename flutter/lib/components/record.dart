@@ -240,15 +240,6 @@ class DetailRow extends StatelessWidget {
 enum RecordTone { neutral, warning, error }
 
 extension RecordToneExt on RecordTone {
-  Color? accentColor(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return switch (this) {
-      RecordTone.warning => colorScheme.warning,
-      RecordTone.error => colorScheme.error,
-      RecordTone.neutral => null,
-    };
-  }
-
   Color labelColor(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return switch (this) {

@@ -47,6 +47,8 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 | 备份 | [backup.dart](flutter/lib/pages/backup.dart)、[form.dart](flutter/lib/components/form.dart) | 复用本地/远程分区、WebDAV 表单、连通状态、恢复范围及策略，后端使用 `bbox-1` 格式 |
 | 请求调试 | [requests.dart](flutter/lib/pages/requests.dart)、[request_settings.dart](flutter/lib/pages/request_settings.dart)、[mitm_certificate.dart](flutter/lib/pages/mitm_certificate.dart)、[capture_domains.dart](flutter/lib/pages/capture_domains.dart) | 请求列表/详情、本机筛选、独立 MITM 与证书、TCP 流、域名选择及 HAR/cURL 导出；复用共享列表、表单和导航 |
 
+记录组件使用 [record.dart](flutter/lib/components/record.dart) 中 `RecordTone` 的标签前景色和容器色；首页拖动浮层使用 [dashboard_editor.dart](flutter/lib/components/dashboard_editor.dart) 的 `DashboardShadows.e2` 阴影。应用层已移除未调用的强调色和一级阴影辅助实现，适配差异记录在来源清单；像素比较的独立状态参考渲染器继续保留自己使用的阴影实现。
+
 ### 导航与交互约定
 
 - 首次启动直接进入仪表盘，没有免责声明接受门槛。Android 默认显示状态、网络速度、出站模式、配置和代理组五张卡；内存与内网 IP 可选。连接从工具页进入，不提供首页连接卡，旧布局/备份忽略该卡，下一次布局保存清理其键。

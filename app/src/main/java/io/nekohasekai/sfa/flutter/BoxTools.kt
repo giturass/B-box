@@ -1,6 +1,5 @@
 package io.nekohasekai.sfa.flutter
 
-import android.net.Uri
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import io.nekohasekai.libbox.Libbox
@@ -123,7 +122,7 @@ internal class BoxTools(private val activity: BoxActivity, private val emit: (St
     fun setVisible(visible: Boolean) { detailsVisible.value = visible }
     fun setOutboundsVisible(visible: Boolean) { outboundsVisible.value = visible }
 
-    fun snapshot(detailed: Boolean = true): Map<String, Any?> = mapOf(
+    private fun snapshot(detailed: Boolean): Map<String, Any?> = mapOf(
         "tailscale" to tailscale.uiState.value.endpoints.map {
             if (detailed) it.toWire() else mapOf(
                 "endpointTag" to it.endpointTag, "stateText" to it.stateText,
@@ -167,7 +166,6 @@ internal class BoxTools(private val activity: BoxActivity, private val emit: (St
         if (method.startsWith("ssh.")) return ssh.invoke(method, args)
         fun string(key: String): String = args[key] as? String ?: error("Missing argument: " + key)
         when (method) {
-            "tools.snapshot" -> return snapshot()
             "tools.visible" -> setVisible(args["visible"] == true)
             "outbounds.visible" -> setOutboundsVisible(args["visible"] == true)
             "stun.start" -> {

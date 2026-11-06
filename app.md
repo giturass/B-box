@@ -46,6 +46,10 @@ Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/
 
 [BoxTools.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxTools.kt) 按可见消费者订阅 USB/IP 状态和诊断出站列表。Tailscale、OpenConnect、OpenVPN 在前台且当前服务/远程会话可用时继续订阅，保留认证及来件状态；工具详情不可见时只编码 Tailscale 端点状态、认证链接和文件数量，进入详情后补发节点数据。工具事件去重，传输操作与终端生命周期沿用原后端；Flutter 通知范围见 [界面状态约定](flclash.md#导航与交互约定)。
 
+Flutter 从 `ready` 和配置/设置变更事件取得配置列表与设置，工具快照由 EventChannel 同步。Ghostty 预览通过 [BoxTerminalFactory.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxTerminalFactory.kt) 的原生视图使用当前终端配置；这些功能共用现有启动、事件和视图入口。
+
+[PackageQueryManager.kt](app/src/main/java/io/nekohasekai/sfa/vendor/PackageQueryManager.kt) 保留已保存查询策略的状态流。Root 可用性缓存继续供平台桥接使用；Shizuku 死亡监听继续重置实际服务连接，权限检查与申请由 [ShizukuAccess.kt](app/src/main/java/io/nekohasekai/sfa/vendor/ShizukuAccess.kt) 提供。旧原生页面的安装、授权和连接展示状态已移除。
+
 ## 配置、服务应用与备份
 
 [BoxProfiles.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxProfiles.kt) 负责导入、编辑、手动订阅更新、配置切换及局域网代理保存；[ProfileContent.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileContent.kt) 的互斥锁和内容替换流程由前台编辑和后台订阅更新共用。
@@ -134,7 +138,7 @@ CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期�
 ## 已移除能力与兼容入口
 
 - **Xposed/LSPosed：** 删除模块 API、Hook、Provider/AIDL、模块注册、vendored `libxposed-api`、Gradle 子项目/依赖及特权增强页面/设置。普通 VPN、Root/Shizuku 查询、桥接/自动重定向、Shell 和报告继续保留。
-- **Android 5/6：** 删除 `otherLegacy`、`src/minApi21`、`src/otherLegacy`、legacy 核心依赖及 API 21 专用依赖版本。`play` 和 `other` 均使用 API 24+ 实现。Gradle 的 `useLegacyPackaging` 是原生库压缩方式，不代表仍支持旧 Android 分支。
+- **Android 5/6：** 删除 `otherLegacy`、`src/minApi21`、`src/otherLegacy`、legacy 核心依赖及 API 21 专用依赖版本。`play` 和 `other` 均使用 API 24+ 实现；网络监听、通知、WebView、托管扫描和 Termux 环境也已清理低于 API 24 的分支。Android 7/8 的网络回调选择及现有 Go 栈兼容处理继续保留。Gradle 的 `useLegacyPackaging` 是原生库压缩方式，不代表仍支持旧 Android 分支。
 - **旧更新下载/静默安装：** 删除 GitHub/F-Droid/Play 旧更新器、APK 下载和安装工具、对应 Root/Shizuku Binder 方法、Manifest 权限、设置及资源。设置/启动器不再显示旧自动更新询问、弹窗和徽标。
 - **旧任务兼容：** 启动取消 WorkManager 的 `AutoUpdate`；[UpdateWorker.kt](app/src/main/java/io/nekohasekai/sfa/vendor/UpdateWorker.kt) 保留类名并直接成功返回，不下载或安装。配置订阅的 `UpdateProfileWork` 仍正常工作。
 - **Binder/设置兼容：** Root/Shizuku 已退役的安装事务编号 2 不复用；Root 的模块专用编号 3 与采集器编号 10 也保持空缺，其余编号不重排。删除功能的历史设置不再读取，不清空无关设置和数据库。

@@ -56,18 +56,7 @@ data class TailscaleEndpointData(
     val waitingFileCount: Int,
     val receivingFileCount: Int,
     val unreadFileCount: Int,
-) {
-    val taildropFileCount: Int get() = waitingFileCount + receivingFileCount
-
-    val hasExitNodeCandidates: Boolean
-        get() {
-            if (exitNode != null) return true
-            val selfStableID = selfPeer?.stableID
-            return userGroups.any { group ->
-                group.peers.any { it.exitNodeOption && it.stableID != selfStableID }
-            }
-        }
-}
+)
 
 data class TailscaleStatusState(
     val endpoints: List<TailscaleEndpointData> = emptyList(),
@@ -118,26 +107,6 @@ class TailscaleStatusViewModel : BaseViewModel<TailscaleStatusState>() {
     fun cancel() {
         statusSubscription.close()
         updateState { copy(endpoints = emptyList(), isSubscribed = false, hasUpdate = false) }
-    }
-
-    fun setExitNode(endpointTag: String, stableID: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                CommandTarget.standaloneClient().setTailscaleExitNode(endpointTag, stableID)
-            } catch (e: Exception) {
-                sendErrorMessage(e.message ?: "set exit node failed")
-            }
-        }
-    }
-
-    fun logout(endpointTag: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                CommandTarget.standaloneClient().tailscaleLogout(endpointTag)
-            } catch (e: Exception) {
-                sendErrorMessage(e.message ?: "logout failed")
-            }
-        }
     }
 
     fun endpoint(tag: String): TailscaleEndpointData? = currentState.endpoints.firstOrNull { it.endpointTag == tag }

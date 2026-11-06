@@ -138,10 +138,6 @@ object OOMReportManager {
         _unreadCount.value = 0
     }
 
-    fun hasConfigFile(report: OOMReport): Boolean = File(report.directory, CONFIG_FILE_NAME).exists()
-
-    fun hasLogFile(report: OOMReport): Boolean = File(report.directory, GO_LOG_FILE_NAME).exists()
-
     suspend fun createZipArchive(report: OOMReport, includeConfig: Boolean, includeLog: Boolean, useAgeEncryption: Boolean): File = withContext(Dispatchers.IO) {
         val cacheDir = File(Application.application.cacheDir, OOM_REPORTS_DIR_NAME)
         cacheDir.mkdirs()

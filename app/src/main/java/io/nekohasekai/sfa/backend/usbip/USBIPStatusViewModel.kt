@@ -114,8 +114,6 @@ class USBIPStatusViewModel : BaseViewModel<USBIPStatusState>() {
         updateState { copy(servers = emptyList(), isSubscribed = false) }
     }
 
-    fun server(tag: String): UsbipServerData? = currentState.servers.firstOrNull { it.serverTag == tag }
-
     override fun onCleared() {
         cancel()
         super.onCleared()

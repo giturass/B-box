@@ -36,9 +36,6 @@ object RootClient {
     private val _rootAvailable = MutableStateFlow<Boolean?>(null)
     val rootAvailable: StateFlow<Boolean?> = _rootAvailable
 
-    private val _serviceConnected = MutableStateFlow(false)
-    val serviceConnected: StateFlow<Boolean> = _serviceConnected
-
     private var service: IRootService? = null
     private var connection: ServiceConnection? = null
     private val connectionMutex = Mutex()
@@ -68,14 +65,12 @@ object RootClient {
                         val svc = IRootService.Stub.asInterface(binder)
                         service = svc
                         connection = this
-                        _serviceConnected.value = true
                         continuation.resume(svc)
                     }
 
                     override fun onServiceDisconnected(name: ComponentName?) {
                         service = null
                         connection = null
-                        _serviceConnected.value = false
                     }
                 }
 
@@ -117,7 +112,6 @@ object RootClient {
             RootService.unbind(it)
             connection = null
             service = null
-            _serviceConnected.value = false
         }
     }
 

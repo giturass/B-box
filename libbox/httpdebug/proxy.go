@@ -568,11 +568,6 @@ func (c *closeNotifyConn) Close() error {
 	return err
 }
 
-func (e *Engine) skippedFlow(err error) {
-	e.skipped.Add(1)
-	e.reportError(err.Error())
-}
-
 func (e *Engine) reportError(message string) {
 	message = strings.ToValidUTF8(message[:min(len(message), 4096)], "")
 	e.warning.Store(&message)
