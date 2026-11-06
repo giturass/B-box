@@ -210,6 +210,17 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### 死代码清理验证
+
+2026-11-06，验证源码为 `adb57d82be837bbe366dab0779ce0af3d5e2f57c`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42242606570)，所有 job 通过；后续补充验证记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。
+
+- Go 扩展、HTTP/MITM `-race`、原路由、Android 重定向布局及 Root CA 隔离挂载回归通过。
+- Flutter 分析、215 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过。分析的 78 条均为 info，没有 warning/error；忽略行列号后，诊断与清理前源码 `8446b1da3730c4df5c266116fd47146cb47dc975` 的 [验证记录](https://github.com/giturass/B-box/actions/runs/42238301293) 完全一致。
+- Android x86_64 核心 AAR、Flutter debug 库、`play` 编译及模拟器应用/仪器测试 APK 构建通过；读取 `native-unit-tests` 的 12 份 XML，50 项 JVM 测试全部通过，无失败、错误或跳过。
+- API 31 UI smoke 和全部 20 项原生测试通过，包含查询策略持久化、配置/订阅/备份失败恢复及 Keystore MITM。已读取 `android-smoke-api-31` 的 `results.json` 和 `native-tests.txt`，逐项核对成功状态及源码 SHA；设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（`getconf`）。
+
+本机只运行差异、源码约束、调用引用、Go 格式、XML/JSON 和文档链接静态检查，没有在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未触发签名 ARM64 Release/R8 APK 构建，不代替其他 Android 版本、ARM64 实机、16 KiB 页或 Root/Shizuku 等实机验证。
+
 ### Surge HTTP 处理对齐验证
 
 2026-11-05，验证源码为 `75897bd75b15ead454e3fcfeac383f303de15108`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42000793483)，所有 job 通过；后续验证记录的 Markdown 提交不改变应用及测试源码。功能语义、资源加载及保留差异见 [核心说明](libbox.md#json-配置中的-http-改写)。
