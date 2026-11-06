@@ -24,7 +24,7 @@ FlClash 应用层组件位于 [flutter/lib/ui](flutter/lib/ui)，共享控件以
 
 字体归属见 [JetBrainsMono-OFL.txt](flutter/assets/licenses/JetBrainsMono-OFL.txt) 和 [Twemoji-LICENSE.md](flutter/assets/licenses/Twemoji-LICENSE.md)。Twemoji 原始图形来自 Twitter，字体转换由 Mozilla 提供，图形未修改；字体许可同样用于应用内许可证页。
 
-核心正文解码及 jq 使用的许可通过 [main.dart](flutter/lib/main.dart) 注册至应用内许可证页：[brotli-LICENSE](flutter/assets/licenses/brotli-LICENSE)、[klauspost-compress-LICENSE](flutter/assets/licenses/klauspost-compress-LICENSE)、[gojq-LICENSE](flutter/assets/licenses/gojq-LICENSE) 和 [timefmt-go-LICENSE](flutter/assets/licenses/timefmt-go-LICENSE)。依赖版本及执行范围见 [libbox.md](libbox.md#独立脚本与-cron)，不改变 FlClash 参考基线或直接导入文件。
+应用内手工登记的许可由 [main.dart](flutter/lib/main.dart) 统一注册，与 [pubspec.yaml](flutter/pubspec.yaml) 打包的 [许可资源](flutter/assets/licenses) 同步维护，覆盖当前 UI、字体和核心扩展依赖。核心正文解码及 jq 的许可包括 [brotli-LICENSE](flutter/assets/licenses/brotli-LICENSE)、[klauspost-compress-LICENSE](flutter/assets/licenses/klauspost-compress-LICENSE)、[gojq-LICENSE](flutter/assets/licenses/gojq-LICENSE) 和 [timefmt-go-LICENSE](flutter/assets/licenses/timefmt-go-LICENSE)；JavaScript 与 Cron 的许可也由同一入口登记。依赖版本及执行范围见 [libbox.md](libbox.md#独立脚本与-cron)。
 
 应用打包的字体均有实际用途：[JetBrainsMono-Regular.ttf](flutter/assets/fonts/JetBrainsMono-Regular.ttf) 用于代码编辑、请求报文、记录详情及终端预览，[Twemoji.Mozilla.ttf](flutter/assets/fonts/Twemoji.Mozilla.ttf) 用于代理名称等 Emoji 文本。[NotoSansSC-status.ttf](flutter/test/support/fonts/NotoSansSC-status.ttf) 仅供状态卡像素比较测试使用，不进入应用资源。
 
@@ -61,7 +61,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 - 请求详情使用同一点击复制行及反馈，长 URL、头部与 Cookie 分行显示；右上角菜单切换请求、响应和 Cookies，请求与响应 Cookie 分组展示，保留重复 `Set-Cookie`、空值、值中的等号及属性，点击 Cookie 复制该条原文。
 - 抓包设置只提供记录应用、原始目标端口、正文限额和可见域名提取，保存检查本机修订，失败保留草稿。MITM 独立提供配置及证书设置，默认关闭；域名、排除项及协议选项遵循 [MITM 配置](libbox.md#独立-mitm-配置)。证书页显示有效期、公钥 SHA-256、用户/系统信任和私钥可用性，提供 CRT/系统模块导出与 Android 设置入口；打开页面不生成证书，生成是明确操作，重新生成需确认，返回前台可刷新信任。远程会话隔离与平台边界见 [app.md](app.md#请求抓取与-mitm)。
 - 请求菜单提供抓包设置、当前搜索的 HAR 导出和清空请求；只显示请求录制状态，移除“配置中的 HTTP 改写已生效”提示及抓包日志功能。运行错误和脚本 console 输出进入应用现有日志，见 [libbox.md](libbox.md#httphttps-请求调试)。
-- 请求详情保留重复头部、Cookie、正文状态及 trailers，显示原路由/应用、真实 SNI、双方 TLS 版本、ALPN 和上游证书 SHA-256，字段支持复制。已有记录中保存过的 PID/socket 字段仍可读，缺失值保持未知。域名观察与握手失败标为“仅域名”，不能导出 cURL；请求正文/头部不完整、截断或含 trailers 也不能导出 cURL。TLS/TCP 详情分别显示两个方向的原始字节，不显示 HTTP 状态、头部和 Cookies，禁用 cURL；正常完成的流显示“已完成”。页面复用现有共享组件，没有修改 FlClash 直接导入文件。
+- 请求详情保留重复头部、Cookie、正文状态及 trailers，显示原路由/应用、双方 TLS 版本、双方 ALPN 和上游证书 SHA-256，字段支持复制。已有记录中保存过的 PID/socket 字段仍可读，缺失值保持未知。域名观察与握手失败标为“仅域名”，不能导出 cURL；请求正文/头部不完整、截断或含 trailers 也不能导出 cURL。TLS/TCP 详情分别显示两个方向的原始字节，不显示 HTTP 状态、头部和 Cookies，禁用 cURL；正常完成的流显示“已完成”。页面复用现有共享组件，没有修改 FlClash 直接导入文件。
 - 常规服务页使用即时应用的开关，保存和重启期间显示进度并禁用开关，底部没有“应用服务设置”按钮；启动确认及失败恢复见 [app.md](app.md#配置服务应用与备份)。
 - 日志页默认选择“跟随配置”，显示内核上报的日志级别及更严重的记录；菜单同时显示当前级别，仍可手动选择“全部”或单一级别，手动筛选不会被后续状态更新覆盖。搜索、暂停和导出沿用同一筛选结果；默认级别尚未收到时保留已接收记录。日志来源及本地重载同步见 [app.md](app.md#配置服务应用与备份)。
 - 应用始终跟随系统语言并响应运行时变化；旧偏好的兼容处理见 [app.md](app.md#配置服务应用与备份)。

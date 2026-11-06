@@ -1,5 +1,4 @@
 # Unified patches retain context prefixes before Go tabs and blank lines.
 libbox/*.patch -whitespace
-tools/ebpf/*.patch -whitespace
 # Preserve the pinned generated source, including its upstream blank-line spaces.
 flutter/packages/prism_ui/lib/generated/models.freezed.dart whitespace=-blank-at-eol

@@ -332,14 +332,13 @@ void main() {
     await mount(tester);
     extra = (call) async => call.method == 'capture.detail' ? {
       'id': 'socket', 'request': {'url': 'https://api.test/', 'method': 'GET', 'protocol': 'HTTP/2.0'},
-      'metadata': {'captureSource': 'eBPF', 'tlsAdapter': 'Go TLS', 'pid': 42, 'uid': 10001,
+      'metadata': {'pid': 42, 'uid': 10001,
         'source': '[::1]:1234', 'destination': '[::1]:443', 'outbound': '', 'rule': '',
         'socket': {'fd': 0, 'inode': 'abc', 'netns': 1}},
     } : snapshot;
     await open(tester, const RequestDetailPage(id: 'socket'));
     expect(find.text('Connection ID'), findsNothing);
     await showDetailItem(tester, find.text('Socket FD'));
-    expect(find.text('Go TLS'), findsOneWidget);
     await showDetailItem(tester, find.text('[::1]:443'));
     await tester.tap(find.text('[::1]:443')); await tester.pumpAndSettle();
     expect(copied.last, '[::1]:443');

@@ -157,13 +157,9 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
         (detail?['originalUrl'] != null ? 'Original outbound' : 'Outbound'): metadata['outbound'],
         (detail?['originalUrl'] != null ? 'Original rule matched' : 'Rule matched'): metadata['rule'],
         'App': (metadata['packages'] as List? ?? []).join(', '), 'UID': metadata['uid'],
-        if (metadata['captureSource'] != null) 'Capture source': metadata['captureSource'],
         if (metadata['pid'] != null) 'PID': metadata['pid'],
-        if ((metadata['tlsAdapter'] as String? ?? '').isNotEmpty) 'TLS implementation': metadata['tlsAdapter'],
-        if (tls.isNotEmpty) 'TLS server name': tls['serverName'],
         if (tls.isNotEmpty) 'Client TLS': tls['clientVersion'],
         if (tls.isNotEmpty) 'Upstream TLS': tls['upstreamVersion'],
-        if ((tls['upstreamServerName'] as String? ?? '').isNotEmpty) 'Upstream TLS server name': tls['upstreamServerName'],
         if (tls.isNotEmpty) 'ALPN': tls['alpn']?.toString().isNotEmpty == true ? tls['alpn'] : context.tr('Not negotiated'),
         if ((tls['upstreamVersion'] as String? ?? '').isNotEmpty && tls.containsKey('upstreamALPN'))
           'Upstream ALPN': tls['upstreamALPN']?.toString().isNotEmpty == true ? tls['upstreamALPN'] : context.tr('Not negotiated'),
