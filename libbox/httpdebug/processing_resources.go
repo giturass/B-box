@@ -68,16 +68,24 @@ func (s *processingResource) contentType() string {
 }
 
 type processingResourceValue struct {
-	data    []byte
-	program *goja.Program
+	data       []byte
+	program    *goja.Program
+	sourceHash [sha256.Size]byte
 }
 
-func (s *processingResource) validate(data []byte) (processingResourceValue, error) {
+func (s *processingResource) validate(data []byte, state *resourceState) (processingResourceValue, error) {
 	if int64(len(data)) > s.limit {
 		return processingResourceValue{}, errors.New("resource exceeds size limit")
 	}
 	value := processingResourceValue{data: data}
 	if s.script {
+		if !s.debug {
+			value.sourceHash = sha256.Sum256(data)
+			if state.program != nil && state.sourceHash == value.sourceHash {
+				value.program = state.program
+				return value, nil
+			}
+		}
 		program, err := compileScriptSource(s.path, string(data), "", nil)
 		if err != nil {
 			return processingResourceValue{}, err
@@ -93,13 +101,22 @@ type resourceCacheDocument struct {
 }
 
 type resourceState struct {
-	gate         chan struct{}
-	lastAttempt  time.Time
-	next         time.Time
-	localProgram *goja.Program
+	gate        chan struct{}
+	lastAttempt time.Time
+	next        time.Time
+	// Loads hold gate and retain only the last usable program for this resource.
+	program    *goja.Program
+	sourceHash [sha256.Size]byte
 }
 
-// The cache holds source bytes on disk, not one large in-memory body per URL.
+func (s *resourceState) cacheProgram(spec *processingResource, value processingResourceValue) {
+	if spec.script && !spec.debug {
+		s.program = value.program
+		s.sourceHash = value.sourceHash
+	}
+}
+
+// URL bodies are read from disk; each script retains at most one compiled program.
 // Each consumer owns a body reservation until its response/script is released.
 type processingResources struct {
 	ctx              context.Context
@@ -176,22 +193,25 @@ func (r *processingResources) load(parent context.Context, spec *processingResou
 		return processingResourceValue{}, err
 	}
 	if !spec.remote() {
-		if spec.script && !spec.debug && state.localProgram != nil {
-			return processingResourceValue{program: state.localProgram}, nil
+		if spec.script && !spec.debug && state.program != nil {
+			return processingResourceValue{program: state.program}, nil
 		}
 		data, err := r.readLocal(spec, lease)
 		if err != nil {
 			return processingResourceValue{}, err
 		}
-		value, err := spec.validate(data)
-		if err == nil && spec.script && !spec.debug {
-			state.localProgram = value.program
+		value, err := spec.validate(data, state)
+		if err == nil {
+			state.cacheProgram(spec, value)
 		}
 		return value, err
 	}
-	cached, fetched, cacheErr := r.readCache(spec, lease)
-	if cacheErr == nil && !refresh {
-		return cached, nil
+	cached, fetched, cacheErr := r.readCache(spec, state, lease)
+	if cacheErr == nil {
+		state.cacheProgram(spec, cached)
+		if !refresh {
+			return cached, nil
+		}
 	}
 	now := time.Now()
 	if cacheErr == nil && now.Before(fetched.Add(spec.interval)) {
@@ -232,7 +252,7 @@ func (r *processingResources) load(parent context.Context, spec *processingResou
 	}
 	var value processingResourceValue
 	if err == nil {
-		value, err = spec.validate(data)
+		value, err = spec.validate(data, state)
 	}
 	if err == nil {
 		err = r.writeCache(ctx, spec, data)
@@ -244,6 +264,7 @@ func (r *processingResources) load(parent context.Context, spec *processingResou
 		}
 		return processingResourceValue{}, err
 	}
+	state.cacheProgram(spec, value)
 	state.next = time.Now().Add(spec.interval)
 	return value, nil
 }
@@ -288,7 +309,7 @@ func (r *processingResources) cacheRoot(create bool) (*os.Root, error) {
 	return os.OpenRoot(r.directory)
 }
 
-func (r *processingResources) readCache(spec *processingResource, lease *bodyLease) (processingResourceValue, time.Time, error) {
+func (r *processingResources) readCache(spec *processingResource, state *resourceState, lease *bodyLease) (processingResourceValue, time.Time, error) {
 	root, err := r.cacheRoot(false)
 	if err != nil {
 		return processingResourceValue{}, time.Time{}, err
@@ -321,7 +342,7 @@ func (r *processingResources) readCache(spec *processingResource, lease *bodyLea
 	if document.Fetched.IsZero() || document.Fetched.After(time.Now().Add(time.Minute)) {
 		return processingResourceValue{}, time.Time{}, errors.New("invalid resource cache timestamp")
 	}
-	value, err := spec.validate(document.Data)
+	value, err := spec.validate(document.Data, state)
 	return value, document.Fetched, err
 }
 

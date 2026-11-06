@@ -180,6 +180,8 @@ HTTP/1 请求处理错误立即终止后续正文读取并关闭连接，避免�
 
 URL 内容和成功时间原子存入私有 `captures/resource-cache/`，按资源身份哈希命名，磁盘缓存合计最多 64 MiB。更新失败、超限或新脚本编译失败保留上次可用缓存；无缓存时，Map Local 跳过并回到上游，脚本保留报文，均告警。首次命中可能等待下载，加载也计入脚本时限；有缓存则使用缓存并后台刷新。停止/重载取消下载、等待后台退出。清空抓包不删除缓存；目录和备份边界见 [应用生命周期](app.md#配置处理生命周期)。
 
+URL 脚本默认按资源身份及内容 SHA-256 缓存编译结果，命中磁盘或重新下载相同内容时复用；`debug: true` 每次重新编译。每个资源仅保留当前一份编译结果，随服务结束释放，重载后首次读取重新编译。新下载脚本只有编译及磁盘提交均成功才更新编译缓存；各次执行仍使用独立 Goja VM。
+
 ### 独立脚本与 Cron
 
 `experimental.scripts` 定义见 [script_config.go](libbox/httpdebug/script_config.go)，示例见 [examples/scripts.json](examples/scripts.json)。`enabled` 默认 false，HTTP/Cron 共最多 256 条、资源最多 256，JSON 最多 2 MiB。每条规则从 `source`、`resource`、`script_path` 中选一个：内联源码、字典资源引用、文件/URL 路径。源码最多 128 KiB。校验编译内联代码和时间表达式，外部源码按[资源加载](#文件和-url-资源加载)在运行时处理。
@@ -285,6 +287,8 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 [upload_rejection_test.go](libbox/httpdebug/upload_rejection_test.go) 使用真实 TCP 连接，覆盖固定长度/chunked 上传超限后保持连接且停止发送时，HTTP/1 及时返回完整 413、关闭连接并完成记录及预算释放；还覆盖未读取正文就发生的脚本错误返回 502，以及 HTTP/2 超限返回 413 后同一连接仍可处理新请求。由现有 HTTP 调试 `-race` 测试入口运行。
 
 [script_api_test.go](libbox/httpdebug/script_api_test.go) 覆盖两阶段 HTTP 客户端的路由注入、允许 origin/Host/次数/正文限制、重定向、TLS 信任、取消和全局预算；[script_storage_test.go](libbox/httpdebug/script_storage_test.go) 覆盖持久化、命名空间隔离及 HTTP/Cron 共享、字节/键/全局配额、并发写入、原子失败恢复、符号链接和重载/清空记录边界；[script_timers_test.go](libbox/httpdebug/script_timers_test.go) 覆盖顺序、参数、interval 清理、回调异常、上限及 HTTP/Cron 截止时间。新增用例由现有 `httpdebug -race` 入口自动纳入；它们的存在不代表当前源码已运行通过。
+
+[processing_resources_cache_test.go](libbox/httpdebug/processing_resources_cache_test.go) 使用实际磁盘、HTTP 下载和 Goja 编译结果，检查同 URL 并发加载、离线重载、同内容刷新不重复编译、同大小同时间戳内容变更、`debug` 绕过、独立 VM，以及编译/超限/磁盘提交失败后保留旧程序。由同一 `httpdebug -race` 入口运行。
 
 [script_http_encoding_test.go](libbox/httpdebug/script_http_encoding_test.go) 通过真实 HTTP 服务器及 Cron 路由客户端，覆盖显式/未提供 `Accept-Encoding` 时的所有支持编码、重复/多层编码、空压缩正文、压缩前后及中间层限额、损坏/截断/未知编码、UTF-8 校验、解压后的响应头、HEAD/204/304 元数据和预算释放；两阶段 HTTP 脚本也使用 gzip 响应验证共用客户端。由同一 `httpdebug -race` 入口运行。
 
