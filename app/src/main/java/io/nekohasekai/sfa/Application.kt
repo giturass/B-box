@@ -23,6 +23,7 @@ import io.nekohasekai.sfa.backend.tools.TaildropFiles
 import io.nekohasekai.sfa.constant.Bugs
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.AppLifecycleObserver
+import io.nekohasekai.sfa.utils.PrivilegeSettingsClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -61,6 +62,7 @@ class Application : Application() {
         @Suppress("OPT_IN_USAGE")
         GlobalScope.launch(Dispatchers.IO) {
             Settings.dataStore.initialize()
+            PrivilegeSettingsClient.register(this@Application)
             WorkManager.getInstance(this@Application).cancelUniqueWork("AutoUpdate")
             runCatching {
                 setupLibbox()
@@ -69,6 +71,9 @@ class Application : Application() {
             }
             UpdateProfileWork.reconfigureUpdater()
             TaildropFiles.cleanCache()
+            AppLifecycleObserver.isForeground.collect { foreground ->
+                if (foreground) PrivilegeSettingsClient.refresh()
+            }
         }
 
         registerReceiver(

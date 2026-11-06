@@ -60,6 +60,13 @@ class RootServer : RootService() {
             return ParceledListSlice(allPackages)
         }
 
+        override fun exportHookDebugInfo(output: android.os.ParcelFileDescriptor?) {
+            requireNotNull(output) { "Missing diagnostic output" }
+            android.os.ParcelFileDescriptor.AutoCloseOutputStream(output).use { stream ->
+                DebugInfoExporter.export(this@RootServer, stream, io.nekohasekai.sfa.BuildConfig.APPLICATION_ID)
+            }
+        }
+
 
         override fun registerNeighborTableCallback(callback: INeighborTableCallback?) {
             if (callback == null) return

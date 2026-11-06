@@ -131,9 +131,13 @@ class _AccessPageState extends State<AccessPage> {
   Future<void> _querySettings({bool retry = false}) async {
     final box = context.box;
     final previousMode = box.settings['queryMode'];
+    final queryStatus = json(await box.call('apps.queryStatus'));
+    if (!mounted) return;
     var permissionRequested = false;
     Future<void>? pendingMode;
     await openForm(context, BoxPage(title: 'Application query', children: [
+      if (queryStatus['strategy'] == 'LSPOSED') ListItem(title: const Text('LSPosed'),
+        subtitle: Text(context.tr('LSPosed provides the application list while its module is active. The selected method is used as a fallback.'))),
       ListItem.options(title: Text(context.tr('Application query')), options: const ['SHIZUKU', 'ROOT'],
         value: box.settings['queryMode'] as String? ?? 'SHIZUKU', textBuilder: (value) => value == 'ROOT' ? 'Root' : 'Shizuku',
         onChanged: (value) async { await (pendingMode = box.setSetting('queryMode', value, restart: false)); }),

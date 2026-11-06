@@ -149,7 +149,9 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
 
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
-        val value = if (intent.action in listOf(Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) {
+        val value = if (intent.hasCategory("de.robv.android.xposed.category.MODULE_SETTINGS")) {
+            "bbox-settings:privilege"
+        } else if (intent.action in listOf(Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) {
             val token = java.util.UUID.randomUUID().toString()
             shares[token] = Intent(intent)
             "bbox-share:" + token

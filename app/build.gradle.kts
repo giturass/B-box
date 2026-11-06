@@ -207,6 +207,10 @@ dependencies {
     implementation("com.github.topjohnwu.libsu:core:$libsuVersion")
     implementation("com.github.topjohnwu.libsu:service:$libsuVersion")
 
+    // Framework-provided APIs: never package these classes in the application.
+    compileOnly("de.robv.android.xposed:api:82")
+    compileOnly(project(":libxposed-api"))
+
     implementation("androidx.activity:activity-ktx:1.13.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")

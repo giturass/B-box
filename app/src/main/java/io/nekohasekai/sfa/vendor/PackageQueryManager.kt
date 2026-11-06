@@ -7,16 +7,17 @@ import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.bg.RootClient
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.utils.HookStatusClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 object PackageQueryManager {
 
     val strategy: PackageQueryStrategy
-        get() = if (BuildConfig.FLAVOR == "play") {
-            PackageQueryStrategy.UserSelected(queryMode.value)
-        } else {
-            PackageQueryStrategy.Direct
+        get() = when {
+            HookStatusClient.status.value?.compatible == true -> PackageQueryStrategy.Module
+            BuildConfig.FLAVOR == "play" -> PackageQueryStrategy.UserSelected(queryMode.value)
+            else -> PackageQueryStrategy.Direct
         }
 
     private val _queryMode = MutableStateFlow(Settings.perAppProxyPackageQueryMode)
@@ -44,6 +45,18 @@ object PackageQueryManager {
     }
 
     suspend fun getInstalledPackages(flags: Int): List<PackageInfo> = when (val s = strategy) {
+        is PackageQueryStrategy.Module -> {
+            // Ask the injected service before using the saved ordinary query strategy.
+            val packages = try {
+                HookStatusClient.getInstalledPackages(Application.application, flags.toLong(), android.os.Process.myUserHandle().hashCode())
+            } catch (_: Exception) { null }
+            packages ?: run {
+                HookStatusClient.refresh()
+                if (BuildConfig.FLAVOR != "play") getPackagesViaPackageManager(flags)
+                else if (queryMode.value == Settings.PACKAGE_QUERY_MODE_ROOT) RootClient.getInstalledPackages(flags)
+                else ShizukuPackageManager.getInstalledPackages(flags)
+            }
+        }
         is PackageQueryStrategy.UserSelected -> when (s.mode) {
             Settings.PACKAGE_QUERY_MODE_ROOT -> RootClient.getInstalledPackages(flags)
             else -> ShizukuPackageManager.getInstalledPackages(flags)

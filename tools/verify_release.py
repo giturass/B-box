@@ -5,6 +5,7 @@ import re
 import subprocess
 from pathlib import Path
 from zipfile import ZipFile
+from verify_xposed import verify_xposed_apk
 
 
 def main():
@@ -17,6 +18,7 @@ def main():
     expected_name = f"B-box-{properties['VERSION_NAME']}-arm64-v8a.apk"
     if len(apks) != 1 or apks[0].name != expected_name:
         raise SystemExit(f'Expected exactly one {expected_name}, found: {apks}')
+    verify_xposed_apk(apks[0])
     with ZipFile(apks[0]) as apk:
         names = apk.namelist()
         abis = {name.split('/')[1] for name in names

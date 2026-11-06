@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- These hooks execute in LSPosed's system-server process (Android 8.1+),
+         not in the ordinary API 24 app. Version-specific hooks also guard SDKs. -->
+    <issue id="NewApi">
+        <ignore path="src/main/java/io/nekohasekai/sfa/xposed" />
+    </issue>
+</lint>

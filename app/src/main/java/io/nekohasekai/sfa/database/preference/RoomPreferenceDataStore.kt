@@ -47,6 +47,25 @@ open class RoomPreferenceDataStore(createDao: () -> KeyValueEntity.Dao) : Prefer
         completion.await()
     }
 
+    /** Commit a related set in one Room insert transaction and report write failures. */
+    suspend fun putBatchConfirmed(entities: List<KeyValueEntity>) {
+        val values = cache
+        val completion = CompletableDeferred<Unit>()
+        synchronized(writeAccess) {
+            check(pendingWrites.trySend {
+                try {
+                    kvPairDao.putAll(entities)
+                    synchronized(writeAccess) { entities.forEach { values[it.key] = it } }
+                    entities.forEach { fireChangeListener(it.key) }
+                    completion.complete(Unit)
+                } catch (error: Exception) {
+                    completion.completeExceptionally(error)
+                }
+            }.isSuccess)
+        }
+        completion.await()
+    }
+
     private fun put(entity: KeyValueEntity) {
         val values = cache
         synchronized(writeAccess) {

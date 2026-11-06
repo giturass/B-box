@@ -25,6 +25,14 @@ for name in ("MainActivity", "ShareActivity"):
     source = (native / f"compose/{name}.kt").read_text()
     if f"class {name} : BoxActivity()" not in source or "setContent" in source:
         errors.append(f"{name} must enter the Flutter host")
+module_metadata = ROOT / "app/src/main/resources/META-INF/xposed"
+if (module_metadata / "java_init.list").read_text().splitlines() != [
+    "io.nekohasekai.sfa.xposed.XposedInit", "io.nekohasekai.sfa.xposed.XposedInit101",
+]:
+    errors.append("Both LSPosed API 100/101 entry points must remain registered")
+root_aidl = (ROOT / "app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl").read_text()
+if re.search(r"=\s*(?:2|3|10)\s*;", root_aidl):
+    errors.append("Retired Root transactions 2, 3 and 10 must not be reused")
 for path in (ROOT / "app/src").rglob("*.kt"):
     source = path.read_text()
     if re.search(r"(?:androidx\.compose|androidx\.navigation|sfa\.compose\.(?:screen|navigation|component)|sfa\.update)\b", source):

@@ -27,6 +27,8 @@ import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.AppLifecycleObserver
 import io.nekohasekai.sfa.utils.CommandClient
 import io.nekohasekai.sfa.utils.CommandTarget
+import io.nekohasekai.sfa.utils.HookStatusClient
+import io.nekohasekai.sfa.utils.PrivilegeSettingsClient
 import io.nekohasekai.sfa.utils.RemoteControlManager
 import io.nekohasekai.sfa.vendor.PackageQueryManager
 import io.nekohasekai.sfa.vendor.PerAppProxyScanner
@@ -64,7 +66,6 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private val apps = AppListCache {
         val packageManager = activity.packageManager
         PackageQueryManager.getInstalledPackages(android.content.pm.PackageManager.GET_PERMISSIONS).mapNotNull { info ->
-            if (info.packageName == activity.packageName) return@mapNotNull null
             val application = info.applicationInfo ?: return@mapNotNull null
             AppListCache.Entry(
                 packageName = info.packageName,
@@ -76,6 +77,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         }
     }
     private val reports = BoxReports(activity)
+    private val privilege = BoxPrivilege(activity)
     private val profiles = BoxProfiles { recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) } }
     private val capture = BoxCapture(activity)
     private val qrScanner = BoxQrScanner(profiles::decode)
@@ -93,6 +95,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private val initialize = scope.async {
         withContext(Dispatchers.IO) {
             Settings.dataStore.initialize()
+            PrivilegeSettingsClient.register(activity)
             Application.application.setupLibbox()
         }
         val provider = ViewModelProvider(activity)
@@ -211,6 +214,8 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         fun string(key: String): String = args[key] as? String ?: error("Missing argument: " + key)
         fun id(key: String = "id"): Long = (args[key] as? Number)?.toLong() ?: error("Missing argument: " + key)
         return when (call.method) {
+            "privilege.save" -> operations.withLock { privilege.invoke(call.method, args) }
+            "privilege.read", "privilege.logs", "privilege.test", "privilege.export" -> privilege.invoke(call.method, args)
             "updates.check" -> withContext(Dispatchers.IO) { BoxUpdates.check() }
             "dashboard.egress" -> dashboardDetails.egress(string("id"))
             "dashboard.probe.open" -> { dashboardDetails.openProbe(string("id")); null }
@@ -404,18 +409,29 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 patchSettings(values)
                 settings()
             }
-            "apps.list" -> {
+            "apps.list", "privilege.apps" -> {
+                val includeSelf = call.method == "privilege.apps"
+                if (includeSelf) check(!CommandTarget.isRemote) { "LSPosed settings are only available for the local Android device" }
                 val result = withContext(Dispatchers.IO) {
+                    HookStatusClient.refresh()
                     apps.list(
                         key = "${PackageQueryManager.strategy}:${activity.resources.configuration.locales.toLanguageTags()}",
                         refresh = args["refresh"] == true,
                         showSystem = args["system"] == true,
                         showOffline = args["nonInternet"] == true,
-                    )
+                    ).filter { includeSelf || it["package"] != activity.packageName }
                 }
                 // Package broadcasts may have updated managed selections while the page was closed.
                 emit("settings", settings())
                 result
+            }
+            "apps.queryStatus" -> withContext(Dispatchers.IO) {
+                HookStatusClient.refresh()
+                mapOf("strategy" to when (PackageQueryManager.strategy) {
+                    is io.nekohasekai.sfa.vendor.PackageQueryStrategy.Module -> "LSPOSED"
+                    is io.nekohasekai.sfa.vendor.PackageQueryStrategy.Direct -> "DIRECT"
+                    else -> Settings.perAppProxyPackageQueryMode
+                })
             }
             "apps.icon" -> withContext(Dispatchers.IO) {
                 val drawable = activity.packageManager.getApplicationIcon(string("package"))

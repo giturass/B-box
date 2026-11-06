@@ -1,0 +1,12 @@
+libxposed API compatibility stubs and service client restored from
+SagerNet/sing-box-for-android a548a7903e96266a0046018562c73b192edbfc18.
+
+The API combines the upstream libxposed API 100 and 101 entry points used by
+sing-box-for-android. It is compileOnly and must not be bundled into B-box.
+The service client is in app/src/main/java/io/github/libxposed/service and
+app/src/main/aidl/io/github/libxposed/service. Both originate from libxposed
+(https://github.com/libxposed) and are licensed under Apache-2.0; see LICENSE.
+
+B-box changes: Android API 24 minimum, current build SDK, and framework binder
+sender checks in the provider. Application module hooks retain the repository's
+GPL-3.0 license. Runtime hooking is provided by the installed LSPosed framework.

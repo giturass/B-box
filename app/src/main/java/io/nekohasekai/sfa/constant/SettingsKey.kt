@@ -1,6 +1,10 @@
 package io.nekohasekai.sfa.constant
 
 object SettingsKey {
+    const val PRIVILEGE_SETTINGS_ENABLED = "hide_settings_enabled"
+    const val PRIVILEGE_SETTINGS_LIST = "hide_settings_list"
+    const val PRIVILEGE_SETTINGS_INTERFACE_RENAME_ENABLED = "hide_settings_interface_rename_enabled"
+    const val PRIVILEGE_SETTINGS_INTERFACE_PREFIX = "hide_settings_interface_prefix"
     const val SELECTED_PROFILE = "selected_profile"
     const val SERVICE_MODE = "service_mode"
     const val DYNAMIC_NOTIFICATION = "dynamic_notification"

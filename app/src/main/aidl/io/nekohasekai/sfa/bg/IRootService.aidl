@@ -28,4 +28,6 @@ interface IRootService {
     IAutoRedirectSession startAutoRedirect(in byte[] options, IAutoRedirectHandler handler) = 9;
 
     // Transaction 10 (retired eBPF capture) must not be reused.
+
+    void exportHookDebugInfo(in ParcelFileDescriptor output) = 11;
 }

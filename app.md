@@ -138,9 +138,24 @@ CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期�
 
 `httpScriptsUseRoutedClientTimersAndPersistentNamespaces` 使用仅当前路由可解析、也匹配脚本范围的 HTTP 目标，检查异步回调及防递归、定时器、磁盘快照、规则改名/重载/清空记录后保留值、命名空间隔离、默认联网及显式空允许列表禁止联网。Go 回归补充四种前后查找、数字/命名反向引用及 Unicode 位置、jq 失败透传、正文限额、20 并发 HTTP、重定向/Cookie/二进制、资源更新/损坏缓存/关闭取消。新用例以当前源码的 Actions 为准，此前记录不替代本次验收。
 
+## LSPosed 特权增强
+
+[xposed/](app/src/main/java/io/nekohasekai/sfa/xposed/) 的模块入口、VPN 隐藏、HTTP 代理信息隐藏、VPN 应用列表过滤与接口重命名恢复自本文件固定的 Android 上游 `a548a7903e96266a0046018562c73b192edbfc18`，保留该版本的 Connectivity APEX、Android 13+ 应用过滤及 Android 16 QPR2 适配。不改变核心标签、libbox 绑定或 FlClash 参考版本。
+
+入口为“工具 → 特权增强”；LSPosed 的模块设置入口也通过稳定 `compose.MainActivity` 进入同一 Flutter 页面。首次使用需在 LSPosed 中启用 B-box、勾选“系统框架”作用域并重启 Android。应用最低 API 24 不变，模块的实际可用范围由所安装 LSPosed 版本及 ROM 决定；未安装或未激活模块时普通 VPN、Root/Shizuku 等功能继续使用。
+
+- 模块使用 [META-INF/xposed](app/src/main/resources/META-INF/xposed/) 注册 API 100/101 入口，当前模块版本为 `4`。`de.robv.android.xposed:api:82` 与 [libxposed-api](third_party/libxposed-api/) 仅 `compileOnly`；恢复的 libxposed Service Provider/AIDL 使用 `${applicationId}.XposedService`，Provider 限制框架/本进程来源，系统端特权事务按 `BuildConfig.APPLICATION_ID` 校验调用方。来源和 Apache-2.0 声明保留在 [NOTICE](third_party/libxposed-api/NOTICE) 与应用许可页。
+- [HookStatusClient.kt](app/src/main/java/io/nekohasekai/sfa/utils/HookStatusClient.kt) 读取实际系统 Binder 状态；模块缺失、死亡或读取失败不阻断应用启动。版本不匹配时禁止同步，页面提示重启系统，不以本地激活记录或保存设置推断 Hook 成功。Hook 日志可检查具体 ROM 适配错误，状态不等于所有目标应用均无法检测 VPN。
+- [BoxPrivilege.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxPrivilege.kt) 将读取、保存、应用选择、自检、Hook 日志和诊断导出接入 Flutter。隐藏开关只针对所选应用；接口重命名是独立系统能力，影响本机新创建的 VPN 接口，名称前缀限定为 1～13 位 ASCII 字母、数字或下划线，首位不能为数字。netlink 重命名重试失败也尝试恢复原接口的 UP 状态。
+- 设置继续读取历史 `hide_settings_*` 键，不清理无关设置。保存检查修订，通过 Room 的单次批量事务写入并等待真实结果，再同步系统端；系统端原子写文件后发布完整快照。保存或同步失败恢复原设置和模块状态；接口设置变更时，运行中的本地 VPN 通过既有流程重启并等待 Started，失败恢复。恢复失败时不再启动未恢复的服务，并保留原错误及恢复错误。应用启动和返回前台补同步保存的设置；相同系统进程与修订避免重复同步。模块设置为本机专用，未加入 `bbox-1` 备份字段。
+- 应用查询在兼容模块激活时优先使用系统端查询，失败回退到当前 flavor 原有的 PackageManager 或所选 Root/Shizuku 策略，不改写保存的查询方式。特权应用选择包含 B-box 自身，保留被筛选或已卸载的已选包名；进入页面不触发托管应用扫描。自检仅观察 B-box 当前进程，验证隐藏时需先启动 VPN、将 B-box 加入选择并保存，不将自检结果当成其他应用的结果。
+- Root 诊断导出通过系统文件选择器保存 ZIP，包含系统/LSPosed 日志、应用列表和 Android 框架文件，页面在导出前说明内容。新的 `IRootService.exportHookDebugInfo` 使用事务 `11` 和文件描述符，不恢复退役的事务 `3` 或任意 Root 输出路径接口。命令输出限 8 MiB、单命令 15 秒、归档未压缩写入限 512 MiB；取消文件选择不显示成功。不会自动执行 Root 导出或上传文件。
+- 远程会话的页面和原生写入均隔离本机模块能力；迟到的状态结果不能覆盖远程页面。所有页面继续使用 Flutter/Prism，不恢复 Compose 页面或旧更新器。
+
+[PrivilegeSettingsChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/utils/PrivilegeSettingsChangeTest.kt) 覆盖写入、同步、VPN 重启失败及取消恢复；[PrivilegeBridgeTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/PrivilegeBridgeTest.kt) 在无模块模拟器中检查正常启动/拒绝应用、实际 Room 提交失败与 Parcelable 往返。[verify_xposed.py](tools/verify_xposed.py) 在测试 APK 和签名 Release 中读取真实 DEX 定义，检查模块入口、Provider 与 Parcelable 保留，以及框架 API 未打包。Flutter 回归范围见 [flclash.md](flclash.md#验证与升级参考版本)。这些检查不能代替安装 LSPosed 的 Root 实机验收。
+
 ## 已移除能力与兼容入口
 
-- **Xposed/LSPosed：** 删除模块 API、Hook、Provider/AIDL、模块注册、vendored `libxposed-api`、Gradle 子项目/依赖及特权增强页面/设置。普通 VPN、Root/Shizuku 查询、桥接/自动重定向、Shell 和报告继续保留。
 - **Android 5/6：** 删除 `otherLegacy`、`src/minApi21`、`src/otherLegacy`、legacy 核心依赖及 API 21 专用依赖版本。`play` 和 `other` 均使用 API 24+ 实现；网络监听、通知、WebView、托管扫描和 Termux 环境也已清理低于 API 24 的分支。Android 7/8 的网络回调选择及现有 Go 栈兼容处理继续保留。Gradle 的 `useLegacyPackaging` 是原生库压缩方式，不代表仍支持旧 Android 分支。
 - **旧更新下载/静默安装：** 删除 GitHub/F-Droid/Play 旧更新器、APK 下载和安装工具、对应 Root/Shizuku Binder 方法、Manifest 权限、设置及资源。设置/启动器不再显示旧自动更新询问、弹窗和徽标。
 - **旧任务兼容：** 启动取消 WorkManager 的 `AutoUpdate`；[UpdateWorker.kt](app/src/main/java/io/nekohasekai/sfa/vendor/UpdateWorker.kt) 保留类名并直接成功返回，不下载或安装。配置订阅的 `UpdateProfileWork` 仍正常工作。

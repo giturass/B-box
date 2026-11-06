@@ -1,5 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="xposed_description">隐藏 VPN 与特权应用查询，请在 B-box 中配置。</string>
     <!-- App -->
     <string name="app_name" translatable="false">B-box</string>
 

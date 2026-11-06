@@ -25,6 +25,7 @@ class ToolsPage extends StatelessWidget {
         ListItem.open(leading: const GlyphIcon(AppGlyphs.paintbrush), title: Text(context.tr('Appearance')), widget: const AppearancePage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.settings), title: Text(context.tr('General')), widget: const GeneralSettingsPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.appsList), title: Text(context.tr('Access control')), widget: const AccessPage()),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.lockOpen), title: Text(context.tr('Privilege settings')), widget: const PrivilegePage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.cloudSync), title: Text(context.tr('Backup and restore')), widget: const BackupPage()),
       ]),
       generateSection(title: context.tr('Network diagnostics'), items: [
