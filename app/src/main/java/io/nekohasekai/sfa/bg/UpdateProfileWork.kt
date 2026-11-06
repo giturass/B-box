@@ -76,7 +76,7 @@ class UpdateProfileWork {
                         if (current.typed.type != TypedProfile.Type.Remote || !current.typed.autoUpdate) return@withLock
                         val age = (System.currentTimeMillis() - current.typed.lastUpdated.time) / 1000L
                         if (age < current.typed.autoUpdateInterval * 60) return@withLock
-                        val content = HTTPClient().use { it.getString(current.typed.remoteURL) }
+                        val content = HTTPClient.getString(current.typed.remoteURL)
                         val service = BackgroundProfileService(context)
                         try {
                             ProfileContent.replaceLocked(current, content, updatedAt = Date(), applySelected = service::apply)

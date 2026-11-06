@@ -206,8 +206,13 @@ internal class BoxBackups(
                 restored.size
             } catch (error: Exception) {
                 withContext(NonCancellable) {
+                    var restored = true
                     suspend fun attempt(task: suspend () -> Unit) {
-                        try { task() } catch (rollback: Exception) { cleanup = false; error.addSuppressed(rollback) }
+                        try { task() } catch (rollback: Exception) {
+                            restored = false
+                            cleanup = false
+                            error.addSuppressed(rollback)
+                        }
                     }
                     attempt {
                         ProfileManager.transaction {
@@ -227,16 +232,17 @@ internal class BoxBackups(
                     for ((file, original) in originals) attempt {
                         if (original == null) { if (file.exists()) check(file.delete()) } else restoreFile(file, original)
                     }
-                    Settings.selectedProfile = oldSelection
+                    attempt { Settings.selectedProfile = oldSelection }
                     if (scope == "all") {
                         attempt { writeSettings(oldSettings) }
                         attempt { terminal.restoreState(oldTerminal) }
                         attempt { webdav.save(oldWebDAV) }
                         attempt { check(preferences.edit().putString("value", oldPreferences).commit()) }
                     }
-                    newFont?.delete()
+                    attempt { newFont?.let { check(!it.exists() || it.delete()) { "Unable to remove restored font" } } }
                     attempt { Settings.dataStore.flush() }
-                    if (wasRunning) attempt { applySelected(true, true) }
+                    // Never start a mixture of restored and unrestored data.
+                    if (wasRunning && restored) attempt { applySelected(true, true) }
                     attempt { publish(); emit("preferences", readPreferences()) }
                 }
                 throw error

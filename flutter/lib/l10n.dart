@@ -166,6 +166,8 @@ const _zh = <String, String>{
   'Proxy groups': '代理组', 'Memory': '内存', 'Goroutines': '协程',
   'Current profile': '当前配置', 'No profile': '未选择配置', 'Add profile': '添加配置',
   'Profile': '配置', 'Switch profile': '切换配置', 'Profile no longer exists': '配置已被删除',
+  'Select another profile before deleting this one': '请先切换到其他配置，再删除此配置',
+  'Subscription exceeds 16 MiB': '订阅内容超过 16 MiB',
   'Groups': '组', 'Outbounds': '出站', 'Inbounds': '入站', 'Routing rules': '路由规则',
   'Advanced configuration': '高级配置', 'Resources': '资源', 'Rule sets': '规则集',
   'DNS servers': 'DNS 服务器', 'DNS rules': 'DNS 规则', 'Default DNS server': '默认 DNS 服务器',

@@ -61,6 +61,8 @@ Flutter 从 `ready` 和配置/设置变更事件取得配置列表与设置，�
 - [BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 的启动/重载错误和主动停止共用主线程上的停止入口，由唯一的清理任务等待启动结束、释放核心与命令服务器，再报告 Stopped。失败 RPC 返回后触发的恢复不能另起一条错误清理路径，避免迟到的清理注销恢复后实例的接收器、遗留核心及缓存文件锁。错误和运行配置发布检查启动代次，旧请求不能停止或覆盖新实例；已进入停止阶段的请求不能再启动核心。
 - 原始/高级 JSON 编辑、手动/自动订阅更新和配置切换共用 [ProfileChange.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileChange.kt) 的失败恢复流程。订阅保存或应用失败恢复旧内容和更新时间；切换失败恢复原选择及服务模式。恢复在不可取消的协程上下文完成，保留原错误及恢复错误；持久数据恢复失败时不启动未恢复的配置。
 - 配置切换在配置互斥区内、修改选中配置前读取最新服务状态；启动中或停止中拒绝切换，避免界面状态延迟导致启动配置与保存的选择不一致。界面禁用行为见 [flclash.md](flclash.md#配置页与内核差异)。
+- 删除配置在同一互斥区内检查最新选择，禁止删除当前选中的配置，停服时也需先切换到其他配置。拒绝操作不改文件、数据库、选择或服务；不再通过删除操作自动选择其他配置。
+- URL 导入、手动及后台订阅更新共用 [HTTPClient.kt](app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt) 和有界核心下载接口，在内容跨越 gomobile 前限制总时限与解压后的大小，具体限额见 [HTTP 与 WebDAV](libbox.md#http-与-webdav)。下载失败不进入保存或服务应用，下载完成后再次检查协程取消。
 - [UpdateProfileWork.kt](app/src/main/java/io/nekohasekai/sfa/bg/UpdateProfileWork.kt) 在同一互斥区内完成每个订阅的保存、应用和恢复，应用失败请求重试。[BackgroundProfileService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BackgroundProfileService.kt) 通过本机服务连接确认状态，模式相同重载，模式变化及失败恢复时等待停止和 Started 回调；后台重启所需 VPN/通知权限未授予时更新失败并回滚。更新未选中配置或停服时不启动服务，远程会话不接收本机订阅的重载。
 - 常规服务页的 VPN 绕过、自动重定向和动态通知开关保存后，运行中的本地服务自动停止并重新走权限/启动流程，确认 Started 后完成操作。[ServiceSettingsChange.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ServiceSettingsChange.kt) 在保存或重启失败时恢复原设置，重启失败时再尝试恢复原服务；停止状态只保存设置，远程会话不触发本机或远端重启。
 - Root 自动重定向的系统 BPF map 兼容范围和核心补丁见 [libbox.md](libbox.md#android-自动重定向兼容)。Android 桥接继续沿用上游的启动、错误传递及 Root 服务死亡清理流程。
@@ -68,7 +70,7 @@ Flutter 从 `ready` 和配置/设置变更事件取得配置列表与设置，�
 - [DashboardConfigCache.kt](app/src/main/java/io/nekohasekai/sfa/flutter/DashboardConfigCache.kt) 仅缓存选中配置和已启动配置的内容、修订及最近一组接口地址的 LAN 解析结果，相同内容共用缓存。刷新时以配置 ID、路径、文件时间/大小及写入代次检查保存配置；未变化时不重读内容、计算哈希或调用 LAN 解析。地址变化复用内容和修订，重新调用 LAN 解析；运行配置按成功启动快照更新。普通写入及备份恢复/回滚共用 `ProfileContent.write` 推进代次，避免同大小、同时间戳的修改漏刷。解析错误也缓存，配置/地址变化或手动刷新时重试，取消不缓存。
 - 二进制 `.bpf` 导入保留订阅 URL、更新间隔、自动更新及时间戳。动态 QRS 通过 [BoxQrScanner.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxQrScanner.kt) 按相机会话收集有界帧、校验 CRC，并支持原压缩文件封装。
 
-[BoxBackups.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxBackups.kt) 提供 `bbox-1` 格式，包含稳定配置身份、界面/应用设置、终端设置与导入字体，以及可选 WebDAV 设置。仅恢复配置时不改其他设置。恢复先暂存文件，再使用 Room 事务；应用失败回滚文件、数据库和设置。兼容策略保留其他配置，覆盖策略在用户确认后删除备份中不存在的配置。
+[BoxBackups.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxBackups.kt) 提供 `bbox-1` 格式，包含稳定配置身份、界面/应用设置、终端设置与导入字体，以及可选 WebDAV 设置。仅恢复配置时不改其他设置。恢复先暂存文件，再使用 Room 事务；应用失败回滚文件、数据库和设置。任一步回滚失败仍继续其他回滚，但不再请求启动服务，保留暂存原件以及原始错误和回滚错误。兼容策略保留其他配置，覆盖策略在用户确认后删除备份中不存在的配置。
 
 界面偏好的读取、保存及备份恢复共用 [BoxPreferences.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxPreferences.kt) 校验，卡片布局接受 `System HTTP proxy` 键。旧设置及备份中的 `locale`、`fontFamily`、`fontScale`、`customFontScale` 被忽略，下次保存界面偏好时清理这些键，保留其余偏好；终端设置使用独立数据，不受此清理影响。外观及首页卡片交互见 [flclash.md](flclash.md#导航与交互约定)。
 
@@ -180,6 +182,8 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 | [build-release.yml](.github/workflows/build-release.yml) | 仅手动触发；独立并行准备核心/Flutter Release 库，构建签名 ARM64 APK、校验安装身份/产物及可选发布，不运行测试 |
 
 JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界和 QRS；[ServiceSettingsChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ServiceSettingsChangeTest.kt) 覆盖服务开关保存后的启动确认、失败/超时/取消恢复及恢复错误保留；[ProfileChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/database/ProfileChangeTest.kt) 覆盖配置持久化失败、应用超时/取消、恢复确认及恢复错误保留。[ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/手动与自动订阅/完整备份恢复失败，以及停服和未选中配置更新的服务状态。Flutter 视觉验证见 [flclash.md](flclash.md)。
+
+该原生套件还覆盖超限订阅在 URL 导入、手动及自动更新时保留原数据和服务；备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、慢速响应与限额边界由 [核心订阅测试](libbox/ui_profile_test.go) 覆盖。
 
 模拟器统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、远程 JSON 导入、VPN 授权、启停、实际内核分组及进程重启后配置保留；原生组运行全部仪器测试并拒绝零测试结果。`build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
 

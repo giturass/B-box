@@ -55,6 +55,14 @@ class _ProfilesPageState extends State<ProfilesPage> {
       await box.call('share.text', {'content': content});
     } catch (error) { box.report(error); }
   }
+  Future<void> _delete(Json profile) async {
+    final box = context.box;
+    final id = profile['id'];
+    if (box.remote || id == box.selectedProfileId) return;
+    if (!await confirm(context, 'Delete this profile?', message: 'This cannot be undone.')) return;
+    if (!mounted || box.remote || id == box.selectedProfileId) return;
+    await box.act('profiles.delete', {'id': id});
+  }
   List<PopupMenuItem> _menu(Json profile) => [
     PopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => openForm(context, ProfileDetailsPage(profile: profile))),
     if (profile['remote'] == true)
@@ -70,10 +78,8 @@ class _ProfilesPageState extends State<ProfilesPage> {
     ],
     PopupMenuItem(glyph: AppGlyphs.upload, label: context.tr('Share'), onPressed: () => _share(profile)),
     PopupMenuItem(glyph: AppGlyphs.export, label: context.tr('Export'), onPressed: () => _export(profile)),
-    PopupMenuItem(danger: true, glyph: AppGlyphs.delete, label: context.tr('Delete'), onPressed: () async {
-      final box = context.box;
-      if (await confirm(context, 'Delete this profile?', message: 'This cannot be undone.')) await box.act('profiles.delete', {'id': profile['id']});
-    }),
+    PopupMenuItem(danger: true, glyph: AppGlyphs.delete, label: context.tr('Delete'),
+      onPressed: profile['id'] == context.box.selectedProfileId ? null : () => _delete(profile)),
   ];
 
   @override Widget build(BuildContext context) {

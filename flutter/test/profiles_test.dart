@@ -99,6 +99,8 @@ void main() {
     expect(remote.menuItems.map((item) => item.label), ['Edit', 'Update', 'Copy link', 'QR code', 'Share', 'Export', 'Delete']);
     expect(local.menuItems.map((item) => item.label), ['Edit', 'Share', 'Export', 'Delete']);
     expect(remote.menuItems.last.danger, isTrue);
+    expect(remote.menuItems.last.onPressed, isNull);
+    expect(local.menuItems.last.onPressed, isNotNull);
     remote.menuItems.singleWhere((item) => item.label == 'Copy link').onPressed!();
     await tester.pump();
     expect(copied, _remote['url']);
@@ -170,6 +172,56 @@ void main() {
   });
 
   for (final picker in [false, true]) {
+    testWidgets('selected profiles cannot be deleted, including stale menus and confirmations (picker: $picker)', (tester) async {
+      final events = StreamController<dynamic>.broadcast();
+      final deletions = <dynamic>[];
+      await _mount(tester, eventController: events, handler: (call) async {
+        if (call.method == 'profiles.delete') deletions.add(json(call.arguments)['id']);
+        return null;
+      });
+      if (picker) {
+        openForm(tester.element(find.byType(HomePage)), const ProfilesPage(picker: true));
+        await tester.pumpAndSettle();
+      } else {
+        await _profiles(tester);
+      }
+      ProfileCard card(int id) => tester.widget<ProfileCard>(
+        find.byWidgetPredicate((w) => w is ProfileCard && w.profile['id'] == id).hitTestable());
+      final staleDelete = card(2).menuItems.last.onPressed!;
+      expect(card(1).menuItems.last.onPressed, isNull);
+      for (final status in ['Starting', 'Started', 'Stopping', 'Stopped']) {
+        events.add({'type': 'dashboard', 'value': {'status': status, 'selectedProfileId': 2}});
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(card(2).menuItems.last.onPressed, isNull);
+        expect(card(1).menuItems.last.onPressed, isNotNull);
+        staleDelete();
+        await tester.pump();
+        expect(find.text('Delete this profile?'), findsNothing);
+        expect(deletions, isEmpty);
+      }
+
+      events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 1}});
+      await tester.pumpAndSettle();
+      card(2).menuItems.last.onPressed!();
+      await tester.pumpAndSettle();
+      expect(find.text('Delete this profile?'), findsOneWidget);
+      events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 2}});
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(deletions, isEmpty);
+
+      events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 1}});
+      await tester.pumpAndSettle();
+      card(2).menuItems.last.onPressed!();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(deletions, [2]);
+      expect(tester.takeException(), isNull);
+    });
+
     for (final (blockedStatus, resumedStatus) in [('Starting', 'Started'), ('Starting', 'Stopped'), ('Stopping', 'Stopped')]) {
       testWidgets('profile selection waits for stable service state (picker: $picker, $blockedStatus to $resumedStatus)', (tester) async {
         final events = StreamController<dynamic>.broadcast();

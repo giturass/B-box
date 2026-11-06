@@ -104,7 +104,7 @@ internal class BoxProfiles(private val applySelected: suspend (recover: Boolean)
         val interval = (args["interval"] as? Number)?.toInt() ?: 60
         require(interval >= 15) { "Update interval must be at least 15 minutes" }
         val incomingContent = args["content"] as? String ?: if (id == 0L && url.isNotEmpty()) {
-            HTTPClient().use { it.getString(url) }
+            HTTPClient.getString(url)
         } else if (id != 0L) {
             File(profile.typed.path).readText()
         } else {
@@ -148,19 +148,15 @@ internal class BoxProfiles(private val applySelected: suspend (recover: Boolean)
     suspend fun update(id: Long) = mutex.withLock {
         val profile = get(id)
         require(profile.typed.type == TypedProfile.Type.Remote) { "Only remote profiles can be updated" }
-        val content = HTTPClient().use { it.getString(validateUrl(profile.typed.remoteURL)) }
+        val content = HTTPClient.getString(validateUrl(profile.typed.remoteURL))
         ProfileContent.replaceLocked(profile, content, updatedAt = Date(), applySelected = applySelected)
     }
 
     suspend fun delete(id: Long) = mutex.withLock {
+        require(id != Settings.selectedProfile) { "Select another profile before deleting this one" }
         val profile = get(id)
         ProfileManager.delete(profile)
         File(profile.typed.path).delete()
-        if (Settings.selectedProfile == id) {
-            Settings.selectedProfile = ProfileManager.list().firstOrNull()?.id ?: -1L
-            Settings.dataStore.flush()
-            applySelected(false)
-        }
         UpdateProfileWork.reconfigureUpdater()
     }
 

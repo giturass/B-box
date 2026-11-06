@@ -14,6 +14,7 @@
 | Android 自动重定向兼容 | [sing-tun-android-ingress.patch](libbox/sing-tun-android-ingress.patch) | 兼容 ingress discard BPF map 的 4/8 字节 value，保留接口归属检查和原值恢复 |
 | 运行时内存绑定 | [ui_dashboard.go](libbox/ui_dashboard.go) | 读取 Go 运行时内存和 goroutine 数，提供释放内存操作 |
 | HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码和有大小上限的响应，供备份及 Release 元数据使用 |
+| 订阅下载绑定 | [ui_profile.go](libbox/ui_profile.go) | 限制订阅下载的总时限及解压后的内容大小，失败响应不读取正文 |
 | 出口探测绑定 | [ui_egress.go](libbox/ui_egress.go) | 可取消的设备网络/运行中路由探测、出口 IP 多源查询与质量请求传输 |
 | 局域网代理配置绑定 | [ui_lan.go](libbox/ui_lan.go) | 读取 mixed/http/socks 监听端点、修改 listen 或显式新增 mixed 入站 |
 | HTTP/HTTPS 请求抓取 | [httpdebug.patch](libbox/httpdebug.patch)、[httpdebug/](libbox/httpdebug/)、[route/](libbox/route/)、[ui_capture.go](libbox/ui_capture.go) | HTTP 录制、HTTPS MITM、平台签名、域名提取、记录及导出绑定 |
@@ -32,6 +33,9 @@
 - `UIWebDAVRequest` 支持 GET、PUT、OPTIONS、MKCOL，使用上游 HTTP 客户端的证书库和 Modern TLS；请求/响应内容上限 64 MiB，超时 30 秒。
 - WebDAV 不跨源转发凭据和正文，不接受 HTTPS 降级；会改变请求方法的重定向交回调用方判断，防止把失败写入报告为成功。
 - `UIHTTPGet` 用于匿名 Release 元数据 GET，上限 2 MiB，超时 15 秒。允许访问重定向后的资产地址，剥离凭据头且禁止 HTTPS 降级。
+- `UIProfileGet` 用于 sing-box JSON 订阅，沿用 Android 的 16 MiB 配置上限，总超时 30 秒覆盖连接、重定向、响应头及正文读取；不以持续收到少量数据延长截止时间。提前检查 `Content-Length`，同时对实际读取及 gzip 解压后的正文限额，超限或超时不返回部分内容。保留 SFA User-Agent、URL 认证、上游重定向规则、证书库及 Modern TLS；非 HTTP 200 只报告状态并关闭正文，避免错误页面占满内存或拖住下载。
+
+[ui_profile_test.go](libbox/ui_profile_test.go) 覆盖订阅认证/重定向、声明长度/分块/gzip 正文的上限及超限、等待响应头/正文/持续慢速发送的总超时、错误响应不读正文，以及非法地址和重定向循环；通过统一测试工作流的 `TestUI` 入口运行。
 
 这些接口不使用下述 `UIEgressProbe` 路由注入。需要查询当前 sing-box 出口时必须走探测接口，不能用一般 HTTP 请求替代。
 

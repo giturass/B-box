@@ -21,7 +21,9 @@ import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.preference.KeyValueDatabase
 import io.nekohasekai.sfa.vendor.PackageQueryManager
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -36,6 +38,7 @@ import org.json.JSONObject
 import java.io.Closeable
 import java.io.DataInputStream
 import java.io.File
+import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -545,9 +548,9 @@ class ProfileRecoveryTest {
             profiles.writeContent(id, """{"log":{"level":"warn"}}""", BoxProfiles.revision("{}"))
             assertEquals(binary.lastUpdated, profiles.get(id).typed.lastUpdated.time)
         } finally {
-            profiles.delete(id)
             Settings.selectedProfile = oldSelection
             Settings.dataStore.flush()
+            profiles.delete(id)
         }
     }
 
@@ -585,9 +588,9 @@ class ProfileRecoveryTest {
             assertEquals(beforeFailure.typed.lastUpdated.time, profiles.get(id).typed.lastUpdated.time)
         } finally {
             failApply = false
-            profiles.delete(id)
             Settings.selectedProfile = oldSelection
             Settings.dataStore.flush()
+            profiles.delete(id)
         }
     }
 
@@ -727,6 +730,89 @@ class ProfileRecoveryTest {
         }
     }
 
+    @Test fun oversizedSubscriptionsPreserveDataAndService() {
+        SubscriptionServer("{}".padEnd(16 * 1024 * 1024 + 1)).use { server ->
+            withRunningProfile(server.url) { activity, profiles, id ->
+                val before = profiles.get(id).typed.lastUpdated.time
+                val running = BoxService.dashboardServer
+                val failure = runCatching { profiles.update(id) }.exceptionOrNull()
+                assertTrue(failure?.message.orEmpty().contains("Subscription exceeds 16 MiB"))
+                assertEquals("{}", profiles.read(id))
+                assertEquals(before, profiles.get(id).typed.lastUpdated.time)
+
+                val profile = profiles.get(id)
+                profile.typed.autoUpdate = true
+                profile.typed.lastUpdated = Date(0)
+                ProfileManager.update(profile)
+                assertFalse(UpdateProfileWork.updateProfiles(activity.applicationContext))
+                assertEquals("{}", profiles.read(id))
+                assertEquals(0L, profiles.get(id).typed.lastUpdated.time)
+
+                val ids = ProfileManager.list().map { it.id }
+                val importFailure = runCatching {
+                    profiles.save(mapOf("name" to "Oversized subscription", "url" to server.url))
+                }.exceptionOrNull()
+                assertTrue(importFailure?.message.orEmpty().contains("Subscription exceeds 16 MiB"))
+                assertEquals(ids, ProfileManager.list().map { it.id })
+                assertEquals(id, Settings.selectedProfile)
+                assertEquals(Status.Started, activity.serviceStatus.value)
+                assertSame(running, BoxService.dashboardServer)
+                assertEquals(3, server.requests.get())
+            }
+        }
+    }
+
+    @Test fun selectedProfilesCannotBeDeletedWhileRunningOrStopped() = withRunningProfile { activity, profiles, id ->
+        val file = File(profiles.get(id).typed.path)
+        val running = BoxService.dashboardServer
+        val failure = runCatching { profiles.delete(id) }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+        assertEquals("{}", file.readText())
+        assertNotNull(ProfileManager.get(id))
+        assertEquals(id, Settings.selectedProfile)
+        assertEquals(Status.Started, activity.serviceStatus.value)
+        assertSame(running, BoxService.dashboardServer)
+
+        val other = profiles.save(mapOf("name" to "Unused profile", "content" to "{}"))
+        val otherFile = File(profiles.get(other).typed.path)
+        profiles.delete(other)
+        assertNull(ProfileManager.get(other))
+        assertFalse(otherFile.exists())
+        assertEquals(id, Settings.selectedProfile)
+        assertSame(running, BoxService.dashboardServer)
+
+        withContext(Dispatchers.Main) { activity.stopService() }
+        withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+        assertTrue(runCatching { profiles.delete(id) }.exceptionOrNull() is IllegalArgumentException)
+        assertEquals("{}", file.readText())
+        assertNotNull(ProfileManager.get(id))
+        assertEquals(id, Settings.selectedProfile)
+        assertEquals(Status.Stopped, activity.serviceStatus.value)
+    }
+
+    @Test fun deletionRechecksSelectionAfterWaitingForProfileChanges() = runBlocking(Dispatchers.IO) {
+        Application.application.setupLibbox()
+        Settings.dataStore.initialize()
+        val oldSelection = Settings.selectedProfile
+        val profiles = BoxProfiles {}
+        val id = profiles.save(mapOf("name" to "Deletion race fixture", "content" to "{}"))
+        try {
+            Settings.selectedProfile = oldSelection
+            val deletion = ProfileContent.mutex.withLock {
+                val pending = async(start = CoroutineStart.UNDISPATCHED) { runCatching { profiles.delete(id) } }
+                Settings.selectedProfile = id
+                pending
+            }
+            assertTrue(deletion.await().exceptionOrNull() is IllegalArgumentException)
+            assertEquals("{}", profiles.read(id))
+            assertEquals(id, Settings.selectedProfile)
+        } finally {
+            Settings.selectedProfile = oldSelection
+            Settings.dataStore.flush()
+            profiles.delete(id)
+        }
+    }
+
     @Test fun failedAutomaticUpdateRestoresDataAndRequestsRetry() {
         ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { occupied ->
             SubscriptionServer(occupiedPortConfig(occupied.localPort)).use { server ->
@@ -789,6 +875,8 @@ class ProfileRecoveryTest {
                     assertEquals(other, Settings.selectedProfile)
                     assertEquals(Status.Stopped, activity.serviceStatus.value)
                 } finally {
+                    Settings.selectedProfile = id
+                    Settings.dataStore.flush()
                     profiles.delete(other)
                 }
             }
@@ -931,6 +1019,67 @@ class ProfileRecoveryTest {
                     Settings.dataStore.flush()
                 }
             }
+        }
+    }
+
+    @Test fun failedBackupFileRollbackDoesNotRestartService() = checkBackupRollbackFailure(failFileRestore = true)
+
+    @Test fun failedBackupSettingsRollbackDoesNotRestartService() = checkBackupRollbackFailure(failFileRestore = false)
+
+    private fun checkBackupRollbackFailure(failFileRestore: Boolean) = withRunningProfile { activity, profiles, id ->
+        val file = File(profiles.get(id).typed.path)
+        val previous = file.readText()
+        val previousName = profiles.get(id).name
+        val preferences = activity.getSharedPreferences("flclash_ui", 0)
+        val previousPreferences = preferences.getString("value", "{}")
+        val blocker = File(file.path + ".new")
+        fun stages() = activity.cacheDir.listFiles().orEmpty().filter { it.isDirectory && it.name.startsWith("restore-") }.toSet()
+        val previousStages = stages()
+        val original = IllegalStateException("Restored service failed")
+        val rollback = IOException("Settings rollback failed")
+        val applications = mutableListOf<Boolean>()
+        var settingsWrites = 0
+        val backups = BoxBackups(activity, { emptyMap() }, {
+            settingsWrites++
+            if (!failFileRestore && settingsWrites == 2) throw rollback
+        }, { restart, recover ->
+            applications.add(recover)
+            if (recover) {
+                withContext(Dispatchers.Main) { activity.applyProfile(restart, recover) }
+            } else {
+                withContext(Dispatchers.Main) { activity.stopService() }
+                withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+                if (failFileRestore) check(blocker.mkdir())
+                throw original
+            }
+        }, {}, { _, _ -> }, BoxWebDAV(activity))
+        try {
+            val backup = backups.create()
+            @Suppress("UNCHECKED_CAST")
+            val entries = (backup["profiles"] as List<Map<String, Any?>>).map {
+                if ((it["id"] as Number).toLong() == id) it + mapOf("name" to "Changed backup name", "content" to """{"log":{"level":"warn"}}""") else it
+            }
+            val failure = runCatching {
+                backups.restore(backup + mapOf("profiles" to entries, "preferences" to mapOf("theme" to "dark")), "all", "Override")
+            }.exceptionOrNull()!!
+            assertSame(original, failure)
+            assertEquals(1, failure.suppressed.size)
+            if (failFileRestore) assertTrue(failure.suppressed.single() is IOException) else assertSame(rollback, failure.suppressed.single())
+            assertEquals(listOf(false), applications)
+            assertEquals(Status.Stopped, activity.serviceStatus.value)
+            assertNull(BoxService.dashboardServer)
+            assertEquals(id, Settings.selectedProfile)
+            assertEquals(previousName, profiles.get(id).name)
+            assertEquals(previousPreferences, preferences.getString("value", "{}"))
+            assertEquals(2, settingsWrites)
+            if (!failFileRestore) assertEquals(previous, profiles.read(id))
+            val retained = stages() - previousStages
+            assertEquals(1, retained.size)
+            assertTrue(retained.single().listFiles().orEmpty().any { it.isFile && it.readText() == previous })
+        } finally {
+            blocker.delete()
+            ProfileContent.mutex.withLock { ProfileContent.write(file, previous) }
+            (stages() - previousStages).forEach { it.deleteRecursively() }
         }
     }
 }
