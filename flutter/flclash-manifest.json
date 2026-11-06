@@ -408,7 +408,7 @@
           "localPaths": [
             "flutter/lib/pages/requests.dart"
           ],
-          "changes": "Reference for per-message navigation. B-box uses its record menu and copyable rows with route/TLS metadata and trailers; raw TLS/TCP streams have two body directions without HTTP header/cookie menus or cURL export."
+          "changes": "Reference for per-message navigation. B-box uses its record menu and copyable rows with route/application metadata, observed endpoints and trailers; raw TLS/TCP streams have two body directions without HTTP header/cookie menus or cURL export."
         },
         {
           "source": "lib/common/constant.dart",

@@ -129,12 +129,12 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
         children: [
           if (store.error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: SelectableText(store.error!, style: TextStyle(color: context.colorScheme.error))),
           generateSection(items: [
+            ListItem.open(leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Logs')), widget: LogConfigPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.key), title: Text(context.tr('Network')), widget: NetworkConfigPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.dns), title: const Text('DNS'), widget: DnsConfigPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.rules), title: Text(context.tr('Routing rules')), widget: RouteConfigPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Rule sets')),
               widget: ConfigListPage(store: store, title: 'Rule sets', path: const ['route', 'rule_set'], initial: const {'type': 'inline', 'tag': 'new-rules', 'rules': []})),
-            ListItem.open(leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Log settings')), widget: LogConfigPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.lock), title: const Text('MITM'), widget: MitmPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('HTTP rewriting')), widget: HttpRewriteConfigPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Scripts')), widget: ScriptsConfigPage(store: store)),
@@ -416,7 +416,7 @@ class NetworkConfigPage extends StatelessWidget {
 class LogConfigPage extends StatelessWidget {
   const LogConfigPage({super.key, required this.store});
   final ProfileConfigStore store;
-  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) => BoxPage(title: 'Log settings', loading: store.saving, children: [
+  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) => BoxPage(title: 'Logs', loading: store.saving, children: [
     generateSection(items: [
       ListItem.toggle(title: Text(context.tr('Enable logging')), value: store.value(const ['log', 'disabled']) != true,
         onChanged: (value) => store.set(const ['log', 'disabled'], !value)),

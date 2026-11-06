@@ -143,7 +143,6 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
     return CapturePoll(method: 'capture.detail', arguments: {'id': widget.id}, untilComplete: true, builder: (context, detail, error, refresh) {
       final metadata = json(detail?['metadata']), request = json(detail?['request']);
       final socket = json(metadata['socket']);
-      final tls = json(metadata['tls']);
       final response = _part == 'Response';
       final message = json(detail?[response ? 'response' : 'request']);
       final preview = json(detail?[response ? 'responsePreview' : 'requestPreview']);
@@ -158,16 +157,9 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
         (detail?['originalUrl'] != null ? 'Original rule matched' : 'Rule matched'): metadata['rule'],
         'App': (metadata['packages'] as List? ?? []).join(', '), 'UID': metadata['uid'],
         if (metadata['pid'] != null) 'PID': metadata['pid'],
-        if (tls.isNotEmpty) 'Client TLS': tls['clientVersion'],
-        if (tls.isNotEmpty) 'Upstream TLS': tls['upstreamVersion'],
-        if (tls.isNotEmpty) 'ALPN': tls['alpn']?.toString().isNotEmpty == true ? tls['alpn'] : context.tr('Not negotiated'),
-        if ((tls['upstreamVersion'] as String? ?? '').isNotEmpty && tls.containsKey('upstreamALPN'))
-          'Upstream ALPN': tls['upstreamALPN']?.toString().isNotEmpty == true ? tls['upstreamALPN'] : context.tr('Not negotiated'),
-        if (tls.isNotEmpty) 'Upstream certificate SHA-256': tls['upstreamCertificate'],
         if (socket.isNotEmpty) 'Socket FD': socket['fd'],
         if (socket.isNotEmpty) 'Socket inode': socket['inode'],
         'Source': metadata['source'], 'Destination': metadata['destination'],
-        if (metadata['originalDestination'] != null) 'Original destination': metadata['originalDestination'],
         if ((detail?['error'] as String? ?? '').isNotEmpty) 'Error': detail?['error'],
         if ((detail?['note'] as String? ?? '').isNotEmpty) 'Note': detail?['note'],
       };
@@ -187,7 +179,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
         if (detail == null && error == null) const Center(child: ActivityIndicator()),
         if (detail != null) ...[
           generateGroup([for (final value in values.entries) DetailRow.text(title: context.tr(value.key),
-            value: value.value?.toString() ?? '—', stacked: const ['URL', 'Original URL', 'Connection ID', 'App', 'Error', 'Note', 'Upstream certificate SHA-256'].contains(value.key))]),
+            value: value.value?.toString() ?? '—', stacked: const ['URL', 'Original URL', 'Connection ID', 'App', 'Error', 'Note'].contains(value.key))]),
           if (_part == 'Cookies') ...[
             _cookies(request, false),
             _cookies(json(detail['response']), true),
