@@ -215,6 +215,17 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### 订阅下载、备份回滚与配置删除修复验证
+
+2026-11-07，验证源码为 `9eda9945d23ca6916844f2c294cfd314c1185cb0`；后续补充验证记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。
+
+- [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42300191496) 全部 job 通过：Root CA 回归、Go `TestUI`（包含订阅限额、超时、错误响应及重定向）、sing-tun、HTTP/MITM race 和路由回归均通过。
+- Flutter 分析、217 项交互/布局测试及 ARM64 Debug/Release AAR 构建通过；分析仍有 78 条 info。配置页和切换弹层均通过选中配置禁删、旧菜单回调和确认期间选择变化的检查。
+- 50 项 JVM 测试、`play` Kotlin 编译、模拟器 APK 构建、API 31 UI smoke 和全部 25 项原生测试通过。已核对 `native-tests.txt` 中新增的超限订阅、文件/设置回滚失败和删除保护/互斥竞争测试均返回成功；`results.json` 的源码 SHA 一致，设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（`getconf`）。
+- [ARM64 Release 构建](https://github.com/giturass/B-box/actions/runs/42300615184) 在同一源码 SHA 上通过，独立生成核心及 Flutter Release AAR、R8 签名 APK，并通过安装身份、API、架构和签名校验。`publish_release=false`，APK 已上传 Actions Artifact，发布步骤跳过。
+
+本机仅完成差异、源码约束、Go 格式和文档链接静态检查，未在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未覆盖其他 Android 版本、ARM64 实机运行或 16 KiB 页；没有新增视觉验收结论。
+
 ### 死代码清理验证
 
 2026-11-06，验证源码为 `adb57d82be837bbe366dab0779ce0af3d5e2f57c`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42242606570)，所有 job 通过；后续补充验证记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。
