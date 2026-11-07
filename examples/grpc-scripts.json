@@ -1,0 +1,39 @@
+{
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "local",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "experimental": {
+    "mitm": {
+      "enabled": true,
+      "h2": true,
+      "hosts": ["grpc.example.test"]
+    },
+    "scripts": {
+      "enabled": true,
+      "http": [
+        {
+          "name": "Unary gRPC message",
+          "disabled": true,
+          "pattern": "^https://grpc\\.example\\.test/example\\.Service/Unary$",
+          "phase": "response",
+          "requires_body": true,
+          "binary_body": true,
+          "grpc_mode": "unary",
+          "max_body_bytes": 1048576,
+          "source": "const frame=$response.body; const message=frame[0] ? $utils.ungzip(frame.subarray(5)) : frame.subarray(5); if(!message) throw Error('Cannot decode gzip message'); const output=new Uint8Array(message.length+5); new DataView(output.buffer).setUint32(1,message.length); output.set(message,5); $done({body:output});"
+        }
+      ]
+    }
+  }
+}

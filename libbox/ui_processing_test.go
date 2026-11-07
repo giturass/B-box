@@ -71,6 +71,35 @@ func TestUIHTTPRewriteRetiredOptionsDoNotActivateNewRules(t *testing.T) {
 	}
 }
 
+func TestUIUnaryGRPCAndRejectActionsRoundTrip(t *testing.T) {
+	content := `{"experimental":{"mitm":{"enabled":true,"h2":true,"hosts":["grpc.example.test"]},"scripts":{"enabled":true,"http":[{"pattern":"/service/Unary$","phase":"response","requires_body":true,"binary_body":true,"grpc_mode":"unary","source":"$done();"}]},"http_rewrite":{"enabled":true,"url_rewrite":[{"pattern":"/empty$","action":"reject-200"},{"pattern":"/json$","action":"reject-dict"}]}}}`
+	if err := CheckConfig(content); err != nil {
+		t.Fatal(err)
+	}
+	formatted, err := FormatConfig(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"grpc_mode": "unary"`, `"binary_body": true`, `"reject-200"`, `"reject-dict"`} {
+		if !strings.Contains(formatted.Value, field) {
+			t.Fatalf("format discarded %s: %s", field, formatted.Value)
+		}
+	}
+	if err := CheckConfig(formatted.Value); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := GenerateConfigSchema()
+	if err != nil || !strings.Contains(schema.Value, `"grpc_mode"`) {
+		t.Fatal("gRPC mode missing from schema", err)
+	}
+	for _, mode := range []string{`"grpc_mode":"stream"`, `"grpc_mode":"unary","requires_body":false`, `"grpc_mode":"unary","binary_body":false`} {
+		invalid := `{"experimental":{"scripts":{"http":[{"pattern":".","phase":"response","source":"$done();",` + mode + `}]}}}`
+		if err := CheckConfig(invalid); err == nil {
+			t.Fatal("invalid gRPC mode bypassed profile validation", invalid)
+		}
+	}
+}
+
 func TestUIProcessingMigrationPreservesScopeAndDisablesOldExclusions(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		for _, excluded := range []bool{false, true} {

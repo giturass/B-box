@@ -221,9 +221,9 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 			if err = validateRewriteURLTemplate(rule.Replacement, rule.Action); err != nil {
 				return nil, fmt.Errorf("%s: %w", item.label, err)
 			}
-		case "reject":
+		case "reject", "reject-200", "reject-dict":
 		default:
-			return nil, fmt.Errorf("%s: action must be header, 302, 307 or reject", item.label)
+			return nil, fmt.Errorf("%s: action must be header, 302, 307, reject, reject-200 or reject-dict", item.label)
 		}
 		if !rule.Disable {
 			p.urls = append(p.urls, item)

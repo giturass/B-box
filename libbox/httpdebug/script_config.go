@@ -36,6 +36,7 @@ type HTTPScript struct {
 	Debug                bool               `json:"debug,omitempty"`
 	RequiresBody         bool               `json:"requires_body,omitempty"`
 	BinaryBody           bool               `json:"binary_body,omitempty"`
+	GRPCMode             string             `json:"grpc_mode,omitempty"`
 	FullHeaders          bool               `json:"full_headers,omitempty"`
 	MaxBodyBytes         int64              `json:"max_body_bytes,omitempty"`
 	TimeoutMS            int                `json:"timeout_ms,omitempty"`
@@ -170,6 +171,9 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 		}
 		if !rewritePhase(rule.Phase) {
 			return nil, fmt.Errorf("%s: phase must be request or response", item.label)
+		}
+		if rule.GRPCMode != "" && (rule.GRPCMode != "unary" || !rule.RequiresBody || !rule.BinaryBody) {
+			return nil, fmt.Errorf("%s: grpc_mode must be unary and requires requires_body=true and binary_body=true", item.label)
 		}
 		if rule.TimeoutMS == 0 {
 			item.options.TimeoutMS = 5000

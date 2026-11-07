@@ -384,6 +384,9 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 			}
 			if err != nil {
 				e.store.setError(id, err)
+				if errors.Is(err, errScriptAbort) {
+					panic(http.ErrAbortHandler)
+				}
 				e.reportError("HTTP request rewrite: " + err.Error())
 				status := http.StatusBadGateway
 				if errors.Is(err, errRewriteSize) {
@@ -452,6 +455,9 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 			ErrorLog:      log.New(io.Discard, "", 0),
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 				e.store.setError(id, err)
+				if errors.Is(err, errScriptAbort) {
+					panic(http.ErrAbortHandler)
+				}
 				e.reportError("Upstream HTTP " + metadata.Host + ": " + err.Error())
 				http.Error(w, "B-box: upstream connection failed; see HTTP debugging details", http.StatusBadGateway)
 			},

@@ -134,8 +134,13 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 	if err != nil {
 		return nil, err
 	}
+	grpc := unaryGRPCScript(request.Header, script)
+	if bodyRules && grpcFormat(request.Header) != grpcNone {
+		note("Body rewrite skipped for gRPC; use a binary unary script for framed messages")
+		bodyRules = false
+	}
 	needsBody := bodyRules || script != nil && script.options.RequiresBody
-	eligible := !needsBody || bodyEligible(request.Header, note)
+	eligible := !needsBody || bodyEligible(request.Header, note, grpc != nil)
 	encoding := contentEncoding(request.Header)
 	if err := p.rewriteHeader("request", address, request.Header, &request.Host, note); err != nil {
 		return nil, err
@@ -149,8 +154,13 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 			continue
 		}
 		note(rule.label)
-		if rule.options.Action == "reject" {
+		switch rule.options.Action {
+		case "reject":
 			return localRewriteResponse(request, http.StatusForbidden, make(http.Header), []byte("Request rejected by B-box rewrite\n")), nil
+		case "reject-200":
+			return localRewriteResponse(request, http.StatusOK, http.Header{"Content-Type": {"text/plain; charset=utf-8"}}, nil), nil
+		case "reject-dict":
+			return localRewriteResponse(request, http.StatusOK, http.Header{"Content-Type": {"application/json"}}, []byte("{}")), nil
 		}
 		replacement := rule.options.Replacement
 		if rule.options.Action != "header" && strings.Contains(replacement, gatewayPlaceholder) {
@@ -240,7 +250,13 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 		if err != nil {
 			return nil, err
 		}
-		if available {
+		if available && grpc != nil {
+			data, available, err = grpc.prepare(data, false, note)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if available && bodyRules {
 			var changed bool
 			data, changed, err = p.rewriteBody("request", address, data, note)
 			if err != nil {
@@ -265,7 +281,13 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 				result = scriptResult{}
 			}
 			if result.abort {
-				return nil, errors.New("request aborted by rewrite script")
+				return nil, errScriptAbort
+			}
+			if grpc != nil {
+				result, err = grpc.result(result, request.Header)
+				if err != nil {
+					return nil, fmt.Errorf("invalid gRPC script result: %w", err)
+				}
 			}
 			if result.headers != nil {
 				request.Header = result.headers
@@ -283,7 +305,11 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 				request.Method = result.method
 			}
 			if result.bodySet {
-				replaceRequestBody(request, result.body)
+				if grpc != nil {
+					replaceGRPCRequestBody(request, result.body)
+				} else {
+					replaceRequestBody(request, result.body)
+				}
 			}
 			if result.response != nil {
 				scriptedResponse = true
@@ -365,6 +391,11 @@ func (p *httpProgram) response(request *http.Request, response *http.Response, i
 	if err != nil {
 		return err
 	}
+	grpc := unaryGRPCScript(response.Header, script)
+	if bodyRules && grpcFormat(response.Header) != grpcNone {
+		note("Body rewrite skipped for gRPC; use a binary unary script for framed messages")
+		bodyRules = false
+	}
 	needsBody := bodyRules || script != nil && script.options.RequiresBody
 	eligible := true
 	if needsBody {
@@ -372,7 +403,7 @@ func (p *httpProgram) response(request *http.Request, response *http.Response, i
 			note("Body processing skipped for HEAD, partial content or protocol upgrade")
 			eligible = false
 		} else {
-			eligible = bodyEligible(response.Header, note)
+			eligible = bodyEligible(response.Header, note, grpc != nil)
 		}
 	}
 	encoding := contentEncoding(response.Header)
@@ -399,7 +430,13 @@ func (p *httpProgram) response(request *http.Request, response *http.Response, i
 			if err != nil {
 				return err
 			}
-			if available {
+			if available && grpc != nil {
+				data, available, err = grpc.prepare(data, true, note)
+				if err != nil {
+					return err
+				}
+			}
+			if available && bodyRules {
 				var changed bool
 				data, changed, err = p.rewriteBody("response", address, data, note)
 				if err != nil {
@@ -427,7 +464,13 @@ func (p *httpProgram) response(request *http.Request, response *http.Response, i
 				result = scriptResult{}
 			}
 			if result.abort {
-				return errors.New("response aborted by rewrite script")
+				return errScriptAbort
+			}
+			if grpc != nil {
+				result, err = grpc.result(result, response.Header)
+				if err != nil {
+					return fmt.Errorf("invalid gRPC script result: %w", err)
+				}
 			}
 			if result.status != 0 {
 				if response.StatusCode == http.StatusSwitchingProtocols {
@@ -440,7 +483,11 @@ func (p *httpProgram) response(request *http.Request, response *http.Response, i
 				response.Header = result.headers
 			}
 			if result.bodySet {
-				replaceResponseBody(response, result.body)
+				if grpc != nil {
+					replaceGRPCResponseBody(response, result.body)
+				} else {
+					replaceResponseBody(response, result.body)
+				}
 			}
 		}
 	}

@@ -83,14 +83,14 @@ func TestCronHTTPCallbackCompletionLimitsAndTLSVerification(t *testing.T) {
 		if !trusted {
 			expectError = "true"
 		}
-		source := `if (typeof $request !== 'undefined' || $script.type !== 'cron' || $cronexp !== '0 2 * * *') throw Error('wrong context');
+		source := `if (typeof $request !== 'undefined' || typeof $trigger !== 'undefined' || $script.name !== 'scheduled-name' || !$script.sessionID || typeof $utils.ungzip !== 'function' || $script.type !== 'cron' || $cronexp !== '0 2 * * *') throw Error('wrong context');
             $httpClient.get($argument, function(error,response,data) {
                 if (!!error !== ` + expectError + `) throw Error('wrong trust result');
                 if (!error && (response.status !== 200 || data !== 'cron-response')) throw Error('wrong HTTP result');
                 $done();
                 throw Error('executed after done');
             });`
-		content, _ := json.Marshal(map[string]any{"cron": []any{map[string]any{"cron": "0 2 * * *", "source": source, "argument": origin.URL}}})
+		content, _ := json.Marshal(map[string]any{"cron": []any{map[string]any{"name": "scheduled-name", "cron": "0 2 * * *", "source": source, "argument": origin.URL}}})
 		program := scriptProgram(t, string(content))
 		var dials atomic.Int32
 		runner := &cronRunner{ctx: context.Background(), program: program, roots: roots, dial: func(ctx context.Context, address string) (net.Conn, error) {
