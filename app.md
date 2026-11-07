@@ -233,6 +233,16 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### 脚本修复合并验证
+
+2026-11-07，将解除脚本源码大小上限的 `ce7333f4ee5ef6707f7537451d98b3520f551892` 与一元 gRPC/脚本 API 修复的 `3f583b602fbde98814f90c5bbc0e4a1d41131890` 合入 `newui`。合并后的验证源码为 `23fab54581bcbdfa06fd74fd3ca674c141386285`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42357641137)。后续仅更新验证记录的 Markdown 提交不改变应用或测试源码。
+
+- `core` 与 `root-ca` job 通过，包含 Go 扩展配置、HTTP/MITM `-race`、原路由、Android 重定向布局及 Root CA 隔离挂载回归。
+- `flutter` 与 `android` job 通过，包含 Flutter 分析和 226 项测试、Flutter Android 库、核心 AAR、`play` 编译及模拟器应用/仪器测试 APK 构建。Flutter 分析仍有 86 条 info，无 warning/error。
+- 已读取本次 `native-unit-tests` 的 14 份 XML，61 项 JVM 测试全部通过，无失败、错误或跳过。
+
+API 31 smoke 在执行模拟器阶段被取消，工作流总体结果为 `cancelled`，本次合并没有完整 smoke 通过结论。本机只进行差异、源码约束和文档链接等静态检查，未编译或运行 Go/Flutter/Android 测试。
+
 ### 一元 gRPC 与脚本 API 对齐验证
 
 2026-11-07，验证源码为 `3f583b602fbde98814f90c5bbc0e4a1d41131890`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42355749078)，全部 job 通过。该提交在 `d5fcd85a6d7c2b3913872198c16d427479df5990` 上仅包含本次修复，未纳入开始任务前已有的脚本资源大小限制暂存改动；原暂存内容保持不变，工作树合并状态不在此次 CI 结论内。后续记录结果的 Markdown 更新不改变应用或测试源码。
