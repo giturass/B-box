@@ -256,7 +256,7 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 				return nil, err
 			}
 		}
-		if available {
+		if available && bodyRules {
 			var changed bool
 			data, changed, err = p.rewriteBody("request", address, data, note)
 			if err != nil {
@@ -436,7 +436,7 @@ func (p *httpProgram) response(request *http.Request, response *http.Response, i
 					return err
 				}
 			}
-			if available {
+			if available && bodyRules {
 				var changed bool
 				data, changed, err = p.rewriteBody("response", address, data, note)
 				if err != nil {
