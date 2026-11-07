@@ -231,6 +231,18 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### LinkProperties Hook 兼容修复验证
+
+2026-11-07，修复源码为 `9a1a0f9bea2118c8dfdac302b581b65b7c6ad70c`。定位时只读解析本机 Android 15 / API 35 的 `/apex/com.android.tethering/javalib/service-connectivity.jar`，SHA-256 为 `3bb596d30288d63e3e7607798751d9d5d2250388ea8b718944bb4c7ab62f1273`。其 DEX 已无旧方法，包含 `sanitizeLinkPropertiesForCallerAndUid` 的三/四参数重载；三参数方法将 `callerUid` 同时作为后两个 UID 传给四参数方法，网络回调则分别传入 `NetworkRequestInfo.mUid` 和 `mAsUid`。四参数方法用前者检查权限、后者查询代理。此记录是系统文件静态检查，不是 Hook 注入或运行验收。
+
+[统一测试工作流](https://github.com/giturass/B-box/actions/runs/42317329785) 的全部 job 通过：
+
+- 已读取 `native-unit-tests` 的 14 份 XML，61 项 JVM 测试全部通过，无失败、错误或跳过；新增的 5 项 `LinkPropertiesHookMethodTest` 均实际执行。`play` Kotlin 编译、模拟器应用/仪器测试 APK 构建及 LSPosed DEX/元数据检查通过。
+- API 31 UI smoke 与全部 28 项原生测试通过。已读取 `android-smoke-api-31` 的 `results.json` 和 `native-tests.txt`，源码 SHA 与上述提交一致；设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（`getconf`）。
+- Root CA、Go 扩展、HTTP/MITM race、原路由及重定向布局回归通过；Flutter 分析、交互/布局测试和 ARM64 Debug/Release AAR 构建通过。此次没有新增视觉验收结论。
+
+本机完成 `git diff --check`、`python3 tools/verify_newui.py` 与文档链接/旧引用静态检查，未在本机编译、运行 JVM/设备测试或重启系统。本轮未构建签名 ARM64 Release/R8 APK 或发布 GitHub Release，未验收真实 LSPosed 注入与目标应用的网络回调；安装含本次修复的 APK 后需重启 Android，加载模块版本 `5`。
+
 ### LSPosed 恢复验证
 
 2026-11-07，验证源码为 `0a3c0fa28df1ce776c5b0187eec14243c451117a`；后续补充验证记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。
