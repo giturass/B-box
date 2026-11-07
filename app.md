@@ -233,6 +233,17 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### 一元 gRPC 与脚本 API 对齐验证
+
+2026-11-07，验证源码为 `3f583b602fbde98814f90c5bbc0e4a1d41131890`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42355749078)，全部 job 通过。该提交在 `d5fcd85a6d7c2b3913872198c16d427479df5990` 上仅包含本次修复，未纳入开始任务前已有的脚本资源大小限制暂存改动；原暂存内容保持不变，工作树合并状态不在此次 CI 结论内。后续记录结果的 Markdown 更新不改变应用或测试源码。
+
+- Go 扩展配置校验/格式化、HTTP/MITM `-race`、原路由及 Android 重定向布局回归通过，包含一元 gRPC 双向消息改写、压缩与 trailers 保留、普通正文规则跳过 gRPC、脚本 API 和 HTTP/1、HTTP/2 abort。Root CA 隔离挂载及启动补查回归通过。
+- Flutter 分析（`--no-fatal-infos`）和 226 项测试通过；分析仍有 86 条 info，无 warning/error。Flutter Android 库、x86_64 核心 AAR、`play` 编译及模拟器应用/仪器测试 APK 构建与打包检查通过。
+- 已读取 `native-unit-tests` 的 14 份 XML，61 项 JVM 测试全部通过，无失败、错误或跳过。
+- 已读取 `android-smoke-api-31` 的 `results.json` 和 `native-tests.txt`，源码 SHA 与上述提交一致，UI smoke 与全部 28 项原生测试通过。设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（`getconf`）。
+
+本机仅完成 Go 格式、差异/源码约束、示例 JSON 和文档链接等静态检查，未在本机编译或运行 Go/Flutter/Android 测试。新增 gRPC 协议行为由 Go HTTP/2 MITM 回归覆盖；没有完成哔哩哔哩、YouTube、高德等第三方 App、ARM64 实机或证书固定的验证，也未触发签名 Release 或发布 APK。支持范围与配置方式见 [一元 gRPC 正文脚本](libbox.md#一元-grpc-正文脚本)。
+
 ### LinkProperties Hook 兼容修复验证
 
 2026-11-07，修复源码为 `9a1a0f9bea2118c8dfdac302b581b65b7c6ad70c`。定位时只读解析本机 Android 15 / API 35 的 `/apex/com.android.tethering/javalib/service-connectivity.jar`，SHA-256 为 `3bb596d30288d63e3e7607798751d9d5d2250388ea8b718944bb4c7ab62f1273`。其 DEX 已无旧方法，包含 `sanitizeLinkPropertiesForCallerAndUid` 的三/四参数重载；三参数方法将 `callerUid` 同时作为后两个 UID 传给四参数方法，网络回调则分别传入 `NetworkRequestInfo.mUid` 和 `mAsUid`。四参数方法用前者检查权限、后者查询代理。此记录是系统文件静态检查，不是 Hook 注入或运行验收。
