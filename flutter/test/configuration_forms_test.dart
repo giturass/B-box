@@ -204,8 +204,9 @@ void main() {
     final toggle = find.byKey(const ValueKey('config-field-tls.reality.enabled'));
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pumpAndSettle();
-    await tester.ensureVisible(toggle);
+    await Scrollable.ensureVisible(tester.element(toggle), alignment: .5);
     await tester.pumpAndSettle();
+    expect(toggle.hitTestable(), findsOneWidget);
     await tester.tap(toggle);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('config-field-tls.reality.public_key')), findsNothing);
