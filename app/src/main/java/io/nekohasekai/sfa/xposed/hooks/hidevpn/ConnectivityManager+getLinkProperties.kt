@@ -4,6 +4,7 @@ import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.os.Binder
+import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import io.nekohasekai.sfa.xposed.HookErrorStore
 import io.nekohasekai.sfa.xposed.VpnSanitizer
@@ -37,14 +38,13 @@ class HookConnectivityManagerGetLinkProperties(private val helper: ConnectivityS
     }
 
     private fun hookLinkPropertiesRestricted() {
-        XposedHelpers.findAndHookMethod(
-            helper.cls,
-            "linkPropertiesRestrictedForCallerPermissions",
-            LinkProperties::class.java,
-            Int::class.javaPrimitiveType,
-            Int::class.javaPrimitiveType,
+        val method = LinkPropertiesHookMethod.find(helper.cls)
+        XposedBridge.hookMethod(
+            method,
             object : SafeMethodHook(SOURCE) {
                 override fun afterHook(param: MethodHookParam) {
+                    // Both names use (lp, callerPid, callerUid). The optional fourth
+                    // argument is the UID for proxy lookup, not the callback recipient.
                     val callerUid = param.args[2] as Int
                     val lp = param.result as? LinkProperties ?: return
                     if (!VpnSanitizer.hasVpnInterface(lp)) return
@@ -54,6 +54,7 @@ class HookConnectivityManagerGetLinkProperties(private val helper: ConnectivityS
                 }
             },
         )
+        HookErrorStore.i(SOURCE, "Hooked $method")
     }
 
     private fun hookGetLinkProperties() {
