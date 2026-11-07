@@ -233,6 +233,17 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### 配置表单与高级设置验证
+
+2026-11-07，验证源码为 `472b8df5ccb26fcbff4c756742a079bab643b7ce`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42381985374)，全部 job 通过。首次模拟器任务在安装 Android Emulator 时遇到压缩包解压错误，应用测试尚未启动；同一源码仅重试失败任务后通过，第 2 次尝试为最终结果。后续补充记录的 Markdown 提交不改变应用或测试源码。
+
+- Go 扩展配置、HTTP/MITM `-race`、原路由、Android 重定向布局及 Root CA 隔离挂载回归通过。新建配置表单提交的共享样例通过真实核心的校验、格式化及再次校验，样例范围见 [核心验证](libbox.md#构建同步和验证)。
+- Flutter 分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过，实际测试数量和表单截图见 [UI 验证记录](flclash.md#配置表单与高级设置验证)。
+- 已读取 `native-unit-tests` 的 14 份 XML，61 项 JVM 测试全部通过，无失败、错误或跳过。x86_64 核心/Flutter AAR、`play` Kotlin 编译、模拟器应用/仪器测试 APK 构建及 LSPosed 打包检查通过。
+- 已读取 `android-smoke-api-31` 的 `results.json` 和 `native-tests.txt`，源码 SHA 与上述提交一致；UI smoke 和全部 28 项原生测试通过。设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（`getconf`），覆盖订阅导入、VPN 授权、启停、真实内核分组及进程重启后的配置保留。
+
+本机只完成差异、源码约束、JSON、文档链接及翻译键等静态检查，未编译或运行 Go/Flutter/Android 测试。新建配置的实际提交内容由 Flutter 交互测试比较，模板合法性由核心测试检查；没有完成服务商节点连接、全协议表单或 ARM64 实机验收，也未触发签名 Release 或发布 APK。
+
 ### 脚本修复合并验证
 
 2026-11-07，将解除脚本源码大小上限的 `ce7333f4ee5ef6707f7537451d98b3520f551892` 与一元 gRPC/脚本 API 修复的 `3f583b602fbde98814f90c5bbc0e4a1d41131890` 合入 `newui`。合并后的验证源码为 `23fab54581bcbdfa06fd74fd3ca674c141386285`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42357641137)。后续仅更新验证记录的 Markdown 提交不改变应用或测试源码。

@@ -39,7 +39,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 | 首页与状态 | [dashboard.dart](flutter/lib/pages/dashboard.dart)、[status_panel.dart](flutter/lib/components/status_panel.dart)、[start_toggle.dart](flutter/lib/components/start_toggle.dart) | 复用状态布局、国家徽章、服务按钮形变及网络速率展示；启停调用原生服务流程 |
 | 配置卡与分组概览 | [profile_panel.dart](flutter/lib/components/profile_panel.dart)、[proxy_groups_panel.dart](flutter/lib/components/proxy_groups_panel.dart) | 使用真实配置元数据和内核分组；配置卡的代理组、出站、路由规则数字及加载占位与对应标签逐列居中对齐，远端未知数量保持未知 |
 | 代理 | [proxies.dart](flutter/lib/pages/proxies.dart)、[proxy_card.dart](flutter/lib/components/proxy_card.dart)、[proxy_list.dart](flutter/lib/components/proxy_list.dart) | 卡片与列表都使用 libbox 分组；只有可选择的组显示选择操作 |
-| 配置管理 | [profiles.dart](flutter/lib/pages/profiles.dart)、[profile_card.dart](flutter/lib/components/profile_card.dart)、[profile_details.dart](flutter/lib/pages/profile_details.dart) | 复用行高、选中态、相对更新时间、添加菜单、分组表单及排序样式，编辑和导入 sing-box JSON |
+| 配置管理 | [profiles.dart](flutter/lib/pages/profiles.dart)、[profile_card.dart](flutter/lib/components/profile_card.dart)、[profile_details.dart](flutter/lib/pages/profile_details.dart) | 复用行高、选中态、相对更新时间、添加菜单、分组表单及排序样式，提供 sing-box 订阅导入、常用配置表单及高级 JSON 编辑 |
 | 首页编辑 | [dashboard_editor.dart](flutter/lib/components/dashboard_editor.dart) | 原地编辑卡片、摇摆、长按排序、移除徽章及添加列表 |
 | 内存与局域网 | [memory_panel.dart](flutter/lib/components/memory_panel.dart)、[intranet_panel.dart](flutter/lib/components/intranet_panel.dart) | 分别使用 Go/进程内存和 sing-box 监听配置，不虚构 Mihomo 内存或全局代理端口 |
 | 系统 HTTP 代理 | [system_proxy_panel.dart](flutter/lib/components/system_proxy_panel.dart) | 采用参考版 VPN 卡片的布局、状态徽章和紧凑开关，使用 B-box 自有的大陆轮廓地球字形；开关接入内核上报状态及既有 Android 桥接 |
@@ -115,7 +115,7 @@ MITM 一级页直接编辑 HTTPS、域名及排除项、HTTP/2、服务器证书
 
 所有修改通过 ProfileConfigStore.set 保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。长表单校验或保存失败时取消输入焦点并滚动至工具栏下方的错误提示，避免错误留在视口之外。可选功能关闭后，其已清空的隐藏字段不再产生表单必填错误，完整配置仍交给原生校验。普通表单和原始编辑器均在远程会话期间停止本机编辑。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
 
-[configuration_forms_test.dart](flutter/test/configuration_forms_test.dart) 覆盖普通/高级入口、端口检查、嵌套字段保留、失败草稿、DNS 和路由表单、修订冲突、远程隔离及新建配置实际提交内容；320 宽大字号与 800 宽场景输出 `configuration-forms/` 截图。源码约束检查和测试代码的存在不代表这些场景已经运行或通过实机验收，实际结果须绑定源码 SHA 和 Actions。
+[configuration_forms_test.dart](flutter/test/configuration_forms_test.dart) 覆盖普通/高级入口、端口检查和错误可见性、嵌套字段保留、可选项关闭后的校验、失败草稿、DNS 和路由表单、修订冲突、远程隔离及新建配置实际提交内容；320 宽大字号与 800 宽场景输出 `configuration-forms/` 截图。源码约束检查和测试代码的存在不代表通过实机验收，实际结果见 [配置表单验证](#配置表单与高级设置验证)。
 
 [configuration_test.dart](flutter/test/configuration_test.dart) 验证三种配置及 Cron 草稿通过独立路径保存，HTTP/2、证书校验及 QUIC 显式关闭选项正确保存，关闭改写保留 MITM/脚本，校验失败保留内容；[requests_test.dart](flutter/test/requests_test.dart) 覆盖空域名、有序域名/排除项选择、旧记录设置清理、无改写横幅/抓包日志入口及 TCP 详情。生成的独立配置截图为 requests/independent-mitm-config.png、requests/independent-scripts-cron.png；结果按实际源码 SHA 记录。
 
@@ -196,6 +196,20 @@ MITM 一级页直接编辑 HTTPS、域名及排除项、HTTP/2、服务器证书
 同次 `android-smoke-api-31` 产物中实际查看了 `03-vpn-running.png`、`04-core-proxies.png` 和 `05-restored-profile.png`：应用显示运行状态、真实 `Smoke selector` 分组及 `direct` 节点，停止并重启进程后保留导入配置。模拟器报告与上述源码 SHA 一致。
 
 以上是抽样视觉检查及已声明情景的像素回归；没有进行全应用逐像素验收、ARM64 实机性能测量、完整系统证书设置或 Root 管理器交互验收。模拟器运行范围见 [应用验证记录](app.md#prism-ui-升级验证)，此前视觉记录通过本文 Git 历史查询。
+
+### 配置表单与高级设置验证
+
+2026-11-07，验证源码为 `472b8df5ccb26fcbff4c756742a079bab643b7ce`，对应 [Actions 42381985374](https://github.com/giturass/B-box/actions/runs/42381985374)。Flutter 分析、235 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 121 条 info、0 条 warning/error。后续仅补充记录的 Markdown 提交不改变应用或测试源码。
+
+新增回归实际通过普通/高级入口、节点端口校验、隐藏选项及嵌套字段保留、保存失败草稿、DNS/路由表单、可选功能关闭、修订冲突、远程隔离和新建配置提交内容检查。已查看同一源码 `newui-validation` 产物中以下文件，路径相对于 `build/screenshots/configuration-forms/`：
+
+| 情景 | 实际查看的截图 | 检查结果 |
+| --- | --- | --- |
+| 320 宽、1.4 倍字号、深色 | `320-dns-1.4.png`、`320-rewrite-1.4.png` | DNS 地址及端口、改写目标和高级入口可读；表单支持滚动，长选项按现有组件省略，顶部保存/关闭操作可用 |
+| 800 宽、浅色 | `800-dns-1.0.png`、`800-rewrite-1.0.png` | 表单居中，字段标签、启用开关、取消/保存按钮可见 |
+| 长节点表单校验失败 | `node-validation-error.png` | 端口错误显示在工具栏下方，编辑草稿保留，可修正后重试 |
+
+这些截图使用英语和桥接替身，不代表全语言、全协议或 ARM64 实机验收，也不证明服务商节点可连接。核心样例校验、JVM 与 Android 模拟器结果见 [配置表单验证](app.md#配置表单与高级设置验证)。
 
 ### LSPosed 新 UI 验证
 
