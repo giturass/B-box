@@ -161,7 +161,7 @@ List<ConfigFieldSpec> configFields(ConfigKind kind, Json data, {List<String> out
       if (type == 'socks') fields.add(select('version', 'SOCKS version', ['4', '4a', '5'], fallback: '5'));
       if (['socks', 'http'].contains(type)) fields.add(const ConfigFieldSpec('username', 'Username'));
       if (['socks', 'http', 'shadowsocks', 'trojan', 'hysteria2', 'tuic'].contains(type)) {
-        fields.add(ConfigFieldSpec('password', 'Password', input: secret, required: ['shadowsocks', 'trojan'].contains(type)));
+        fields.add(ConfigFieldSpec('password', 'Password', input: secret, required: type == 'trojan' || type == 'shadowsocks' && data['method'] != 'none'));
       }
       if (['vmess', 'vless', 'tuic'].contains(type)) fields.add(const ConfigFieldSpec('uuid', 'UUID', required: true));
       if (type == 'shadowsocks') fields.add(select('method', 'Encryption', [

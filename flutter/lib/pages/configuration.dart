@@ -221,7 +221,7 @@ class HttpRewriteConfigPage extends StatelessWidget {
       ]),
       generateSection(items: [
         for (final (title, key, initial) in sections)
-          ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(title), subtitle: Text('${store.entries([...path, key]).length}'),
+          ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr(title)), subtitle: Text('${store.entries([...path, key]).length}'),
             widget: ConfigListPage(store: store, title: title, path: [...path, key], initial: {'pattern': pattern, 'disabled': true, ...initial})),
       ], footer: context.tr('New rules start disabled. Configure them, then turn on Enabled.')),
       generateSection(items: [
@@ -667,7 +667,9 @@ class _ConfigValueEditorState extends State<ConfigValueEditor> {
   @override void initState() { super.initState(); _text.addListener(_changed); }
   void _changed() { if (mounted) setState(() {}); }
   @override void dispose() { _text.dispose(); super.dispose(); }
-  @override Widget build(BuildContext context) => BoxEditGuard(dirty: _text.text != _original, busy: _saving,
+  @override Widget build(BuildContext context) => context.box.remote
+    ? const BoxPage(title: 'Advanced settings', children: [EmptyState('Disconnect remote session to edit local profiles')])
+    : BoxEditGuard(dirty: _text.text != _original, busy: _saving,
     child: BoxPage(title: widget.title, loading: _saving,
     confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'), onPressed: _saving ? null : () async {
       dynamic value;

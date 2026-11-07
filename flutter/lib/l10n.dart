@@ -4,6 +4,8 @@ import 'package:prism_ui/l10n.dart';
 
 const _zh = <String, String>{
   'Subscription': '订阅', 'Subscription URL': '订阅链接',
+  'URL Rewrite': '网址改写', 'Header Rewrite': '请求头与响应头改写', 'Body Rewrite': '正文改写',
+  'Map Local / API Mock': '本地响应与接口模拟', 'Map Remote': '远程映射',
   "Profile settings": "配置设置",
   "Advanced settings": "高级设置",
   "Nodes, DNS and routing": "节点、DNS 和分流",

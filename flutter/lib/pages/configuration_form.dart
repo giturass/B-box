@@ -26,12 +26,24 @@ class _ConfigEntryFormState extends State<ConfigEntryForm> {
   final _fieldSpecs = <String, ConfigFieldSpec>{};
   final _changed = <String>{};
   final _variantDrafts = <String, Json>{};
+  late final _scroll = sheetScrollController(context);
   bool _saving = false, _dirty = false;
   String? _error;
   List<ConfigFieldSpec> get _fields => configFields(widget.kind, _draft,
     outbounds: widget.outbounds.where((tag) => tag != _draft['tag']).toList(), servers: widget.servers, ruleSets: widget.ruleSets);
 
-  @override void dispose() { for (final controller in _controllers.values) { controller.dispose(); } super.dispose(); }
+  @override void dispose() { _scroll.dispose(); for (final controller in _controllers.values) { controller.dispose(); } super.dispose(); }
+
+  void _showError(Object error) {
+    if (!mounted) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _error = _formError(context, error));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scroll.hasClients) {
+        _scroll.animateTo(_scroll.position.minScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+      }
+    });
+  }
 
   TextEditingController _controller(ConfigFieldSpec field) => _controllers.putIfAbsent(field.key, () {
     _fieldSpecs[field.key] = field;
@@ -135,7 +147,7 @@ class _ConfigEntryFormState extends State<ConfigEntryForm> {
   Future<void> _save() async {
     if (_saving || context.box.remote) return;
     Json value;
-    try { value = _collect(); } catch (error) { setState(() => _error = _formError(context, error)); return; }
+    try { value = _collect(); } catch (error) { _showError(error); return; }
     setState(() { _saving = true; _error = null; });
     try {
       final saved = await widget.onSave(value);
@@ -143,7 +155,7 @@ class _ConfigEntryFormState extends State<ConfigEntryForm> {
         setState(() { _dirty = false; _saving = false; });
         context.safeNestedPop();
       }
-    } catch (error) { if (mounted) setState(() => _error = _formError(context, error)); }
+    } catch (error) { _showError(error); }
     finally { if (mounted) setState(() => _saving = false); }
   }
 
@@ -189,7 +201,7 @@ class _ConfigEntryFormState extends State<ConfigEntryForm> {
     if (context.box.remote) return const BoxPage(title: 'Profile settings', children: [EmptyState('Disconnect remote session to edit local profiles')]);
     final types = widget.allowedTypes ?? configTypes(widget.kind), type = _draft['type']?.toString() ?? '';
     return BoxEditGuard(dirty: _dirty, busy: _saving, child: FormPage(
-      title: widget.isNew ? 'Add' : 'Edit', saving: _saving, error: _error, onSave: _save, children: [
+      title: widget.isNew ? 'Add' : 'Edit', saving: _saving, error: _error, onSave: _save, controller: _scroll, children: [
         if (types.isNotEmpty) generateSection(items: [
           if (widget.isNew) ListItem<String>.options(key: const ValueKey('config-type'), title: Text(context.tr('Type')),
             options: {...types, if (type.isNotEmpty) type}.toList(), value: type,
@@ -246,7 +258,9 @@ class ConfigEntryAdvancedPage extends StatefulWidget {
 }
 class _ConfigEntryAdvancedPageState extends State<ConfigEntryAdvancedPage> {
   late Json _value = copyConfig(widget.value);
-  @override Widget build(BuildContext context) => BoxPage(title: 'Advanced settings', children: [
+  @override Widget build(BuildContext context) => context.box.remote
+    ? const BoxPage(title: 'Advanced settings', children: [EmptyState('Disconnect remote session to edit local profiles')])
+    : BoxPage(title: 'Advanced settings', children: [
     ListFooter(text: context.tr('Edit all fields as JSON. Changes are applied when you save the form.')),
     generateSection(items: [ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit JSON')),
       widget: ConfigValueEditor(title: 'Edit JSON', initial: _value, onSave: (value) async {

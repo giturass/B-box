@@ -25,7 +25,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
   @override void dispose() { _text.dispose(); _undo.dispose(); _find.dispose(); super.dispose(); }
 
   Future<void> _load({bool confirmDiscard = false}) async {
-    if (_saving || _checking || _loading) return;
+    if (_saving || _checking || _loading || context.box.remote) return;
     if (confirmDiscard && _dirty && !await confirm(context, 'Discard changes?', action: 'Discard')) return;
     if (!mounted) return;
     setState(() { _error = null; _loading = true; });
@@ -40,7 +40,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
   }
 
   Future<void> _save() async {
-    if (_saving || _checking || _loading || _revision == null) return;
+    if (_saving || _checking || _loading || _revision == null || context.box.remote) return;
     final box = context.box;
     setState(() { _saving = true; _error = null; });
     try {
@@ -54,7 +54,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
   }
 
   Future<void> _check({bool format = false}) async {
-    if (_checking || _saving || _loading) return;
+    if (_checking || _saving || _loading || context.box.remote) return;
     final box = context.box;
     setState(() { _checking = true; _error = null; });
     try {
@@ -76,7 +76,9 @@ class _ProfileEditorState extends State<ProfileEditor> {
     _text.selection = TextSelection(baseOffset: index, extentOffset: index + query.length);
   }
 
-  @override Widget build(BuildContext context) => BoxEditGuard(dirty: _dirty, busy: _saving || _checking || _loading,
+  @override Widget build(BuildContext context) => context.box.remote
+    ? const BoxPage(title: 'Advanced settings', children: [EmptyState('Disconnect remote session to edit local profiles')])
+    : BoxEditGuard(dirty: _dirty, busy: _saving || _checking || _loading,
     child: Scaffold(
       title: widget.profile['name'].toString() + (_dirty ? ' •' : ''),
       isLoading: _saving || _checking || _loading || (_original == null && _error == null),

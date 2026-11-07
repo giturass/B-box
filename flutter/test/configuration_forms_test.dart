@@ -50,7 +50,7 @@ class _Fixture {
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(channel, (call) async {
       if (call.method == 'ready') return {'version': 'test', 'coreVersion': 'test', 'profiles': [_profile],
-        'preferences': {'themeMode': dark ? 'dark' : 'light'}, 'dashboard': {'status': 'Stopped', 'selectedProfileId': 7}};
+        'preferences': {'theme': dark ? 'dark' : 'light'}, 'dashboard': {'status': 'Stopped', 'selectedProfileId': 7}};
       if (call.method == 'profiles.config') return wire();
       if (call.method == 'profiles.stats') return {'outbounds': 1, 'groups': 0, 'rules': 0};
       if (call.method == 'profiles.write') {
@@ -100,12 +100,18 @@ class _Fixture {
 Future<void> _enter(WidgetTester tester, String key, String value) async {
   final field = find.byKey(ValueKey('config-field-$key'));
   await tester.ensureVisible(field);
+  await tester.pumpAndSettle();
   await tester.enterText(field, value);
   await tester.pumpAndSettle();
 }
 
+Finder _saveButton() {
+  final toolbar = find.byTooltip('Save').hitTestable();
+  return toolbar.evaluate().isNotEmpty ? toolbar.last : find.text('Save').hitTestable().last;
+}
+
 Future<void> _save(WidgetTester tester) async {
-  await tester.tap(find.byTooltip('Save').last);
+  await tester.tap(_saveButton());
   await tester.pumpAndSettle();
 }
 
@@ -155,6 +161,7 @@ void main() {
     await _save(tester);
     expect(f.writes, isEmpty);
     expect(find.text('Port: 1–65535'), findsOneWidget);
+    expect(find.text('Port: 1–65535').hitTestable(), findsOneWidget);
     await _enter(tester, 'server_port', '8443');
     f.reject = true;
     await _save(tester);
@@ -194,7 +201,10 @@ void main() {
       onSave: (value) async { saved = value; return true; }), form: true);
     await _enter(tester, 'domain_suffix', 'one.example\ntwo.example');
     final action = find.byKey(const ValueKey('config-field-action'));
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
     await tester.ensureVisible(action);
+    await tester.pumpAndSettle();
     await tester.tap(action);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Block').last);
@@ -221,6 +231,8 @@ void main() {
     expect(find.byKey(const ValueKey('config-field-server')), findsNothing);
     await expectLater(f.store.set(['outbounds'], [], rethrowFailure: true), throwsStateError);
     expect(f.writes, isEmpty);
+    await f.open(tester, const ProfileEditor(profile: _profile));
+    expect(find.byType(TextField), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -257,9 +269,11 @@ void main() {
       await f.open(tester, ConfigEntryForm(kind: ConfigKind.dnsServer,
         initial: const {'type': 'https', 'tag': 'Secure DNS', 'server': '1.1.1.1', 'server_port': 443},
         onSave: (_) async => true), form: true);
-      expect(find.byTooltip('Save').last.hitTestable(), findsOneWidget);
+      expect(_saveButton(), findsOneWidget);
+      expect(Theme.of(tester.element(find.byType(ConfigEntryForm))).brightness, dark ? Brightness.dark : Brightness.light);
       await f.capture(tester, '${size.width.toInt()}-dns-$scale');
-      await tester.tap(find.text('Cancel').last);
+      final cancel = find.text('Cancel').hitTestable();
+      await tester.tap(cancel.evaluate().isNotEmpty ? cancel.last : find.byTooltip('Close').hitTestable().last);
       await tester.pumpAndSettle();
       await f.open(tester, ConfigEntryForm(kind: ConfigKind.urlRewrite,
         initial: const {'name': 'Example redirect', 'pattern': r'^https://example\.com/(.*)', 'action': '302',
@@ -269,7 +283,7 @@ void main() {
       await tester.pumpAndSettle();
       await f.capture(tester, '${size.width.toInt()}-rewrite-$scale');
       expect(replacement.hitTestable(), findsOneWidget);
-      expect(find.byTooltip('Save').last.hitTestable(), findsOneWidget);
+      expect(_saveButton(), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
