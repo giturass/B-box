@@ -81,11 +81,14 @@ class _ConfigEntryFormState extends State<ConfigEntryForm> {
 
   Json _collect({bool validate = true}) {
     final result = copyConfig(_draft);
+    final fields = _fields;
+    final activeKeys = fields.map((field) => field.key).toSet();
     for (final key in _changed) {
       final field = _fieldSpecs[key]!;
-      setConfigValue(result, key, _parse(field, _controllers[key]!.text, validate: validate));
+      // Keep hidden drafts, but do not require a value for a disabled option.
+      setConfigValue(result, key, _parse(field, _controllers[key]!.text, validate: validate && activeKeys.contains(key)));
     }
-    for (final field in _fields) {
+    for (final field in fields) {
       final value = configValue(result, field.key) ?? field.fallback;
       if (validate && field.required && (widget.isNew || _changed.contains(field.key)) &&
           (value == null || value == '' || value is List && value.isEmpty)) {

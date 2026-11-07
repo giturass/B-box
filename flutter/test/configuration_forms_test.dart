@@ -193,6 +193,28 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('disabling an optional feature does not require its cleared hidden fields', (tester) async {
+    final f = _Fixture();
+    await f.mount(tester);
+    Json? saved;
+    await f.open(tester, ConfigEntryForm(kind: ConfigKind.outbound,
+      initial: {..._node, 'tls': {...json(_node['tls']), 'reality': {'enabled': true, 'public_key': 'old-key'}}},
+      onSave: (value) async { saved = value; return true; }), form: true);
+    await _enter(tester, 'tls.reality.public_key', '');
+    final toggle = find.byKey(const ValueKey('config-field-tls.reality.enabled'));
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(toggle);
+    await tester.pumpAndSettle();
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('config-field-tls.reality.public_key')), findsNothing);
+    await _save(tester);
+    expect(saved, {..._node, 'tls': {...json(_node['tls']), 'reality': {'enabled': false}}});
+    expect(find.byType(ConfigEntryForm), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('routing edits preserve custom matches and selecting block removes the old destination', (tester) async {
     final f = _Fixture();
     await f.mount(tester);
