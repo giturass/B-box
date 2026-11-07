@@ -72,11 +72,11 @@ func TestSurgeFileResourcesAreValidatedWithoutLoading(t *testing.T) {
 		t.Fatal("configuration validation downloaded a resource")
 	}
 	for _, path := range []string{"../outside", "/absolute/file", "file:///etc/passwd", "https://user:secret@example.test/x"} {
-		if _, err := compileProcessingResource(path, MaxScriptBytes, true, 0, false); err == nil {
+		if _, err := compileProcessingResource(path, 0, true, 0, false); err == nil {
 			t.Fatalf("accepted invalid resource path: %s", path)
 		}
 	}
-	if _, err := compileProcessingResource("not-created.js", MaxScriptBytes, true, 0, false); err != nil {
+	if _, err := compileProcessingResource("not-created.js", 0, true, 0, false); err != nil {
 		t.Fatal("validation tried to read a local file", err)
 	}
 }
@@ -320,7 +320,7 @@ func TestSurgeResourceRefreshStopsWithService(t *testing.T) {
 		stopped <- struct{}{}
 	}))
 	defer origin.Close()
-	spec, err := compileProcessingResource("http://resource.test/slow.js", MaxScriptBytes, true, 1, false)
+	spec, err := compileProcessingResource("http://resource.test/slow.js", 0, true, 1, false)
 	if err != nil {
 		t.Fatal(err)
 	}

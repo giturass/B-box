@@ -418,12 +418,20 @@ func performScriptHTTPRequest(ctx context.Context, client *http.Client, options 
 	if err != nil {
 		return response, nil, fmt.Errorf("script HTTP response: %w", err)
 	}
-	for _, encoding := range encodings {
-		if encoding != "identity" && !lease.growWork(limit) {
-			return response, nil, errors.New("script HTTP decompression: global body budget exhausted")
+	if limit > 0 {
+		for _, encoding := range encodings {
+			if encoding != "identity" && !lease.growWork(limit) {
+				return response, nil, errors.New("script HTTP decompression: global body budget exhausted")
+			}
 		}
+		body, err = decodeContent(body, encodings, limit)
+	} else {
+		// Script resources have no source-size cap. Reserve each decoded layer
+		// as it grows, including intermediate compressed representations.
+		body, err = decodeContentWithReader(body, encodings, func(reader io.Reader) ([]byte, error) {
+			return readScriptHTTPBody(reader, 0, lease, int64(len(body)))
+		})
 	}
-	body, err = decodeContent(body, encodings, limit)
 	if errors.Is(err, errRewriteSize) {
 		return response, nil, errors.New("script HTTP decoded response exceeds max_body_bytes")
 	}
@@ -444,13 +452,18 @@ func performScriptHTTPRequest(ctx context.Context, client *http.Client, options 
 	return response, body, nil
 }
 
+// A zero limit removes only the per-body cap, never the shared work budget.
 func readScriptHTTPBody(reader io.Reader, limit int64, lease *bodyLease, inputSize int64) ([]byte, error) {
 	var body bytes.Buffer
 	buffer := make([]byte, 4096)
 	for {
-		n, err := reader.Read(buffer[:min(int64(len(buffer)), limit+1-int64(body.Len()))])
+		readSize := int64(len(buffer))
+		if limit > 0 {
+			readSize = min(readSize, limit+1-int64(body.Len()))
+		}
+		n, err := reader.Read(buffer[:readSize])
 		if n > 0 {
-			if int64(body.Len()+n) > limit {
+			if limit > 0 && int64(body.Len()+n) > limit {
 				return nil, errors.New("script HTTP response exceeds max_body_bytes")
 			}
 			if !lease.growWork(max(inputSize, int64(body.Len()+n))) {

@@ -26,7 +26,7 @@ const maxProcessingCacheBytes = 64 * 1024 * 1024
 
 type processingResource struct {
 	path     string
-	limit    int64
+	limit    int64 // Zero means no per-resource cap; reads still reserve body work.
 	script   bool
 	interval time.Duration
 	debug    bool
@@ -74,7 +74,7 @@ type processingResourceValue struct {
 }
 
 func (s *processingResource) validate(data []byte, state *resourceState) (processingResourceValue, error) {
-	if int64(len(data)) > s.limit {
+	if s.limit > 0 && int64(len(data)) > s.limit {
 		return processingResourceValue{}, errors.New("resource exceeds size limit")
 	}
 	value := processingResourceValue{data: data}
@@ -146,7 +146,13 @@ func (r *processingResources) key(spec *processingResource) string {
 	if !spec.remote() {
 		identity = filepath.Join(r.profileDirectory, spec.path)
 	}
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%t:%d:%s", spec.script, spec.limit, identity)))
+	identityLimit := spec.limit
+	if spec.script {
+		// Preserve existing disk cache and default storage keys. This value is
+		// only part of the persisted identity, not a script source size limit.
+		identityLimit = 128 * 1024
+	}
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%t:%d:%s", spec.script, identityLimit, identity)))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -287,7 +293,7 @@ func (r *processingResources) readLocal(spec *processingResource, lease *bodyLea
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > spec.limit {
+	if !info.Mode().IsRegular() || spec.limit > 0 && info.Size() > spec.limit {
 		return nil, errors.New("local resource must be a regular file within the size limit")
 	}
 	return readScriptHTTPBody(file, spec.limit, lease, 0)
@@ -321,7 +327,10 @@ func (r *processingResources) readCache(spec *processingResource, state *resourc
 	}
 	defer file.Close()
 	info, err := file.Stat()
-	maximum := spec.limit*2 + 4096
+	maximum := int64(maxProcessingCacheBytes)
+	if spec.limit > 0 {
+		maximum = min(maximum, spec.limit*2+4096)
+	}
 	if err != nil {
 		return processingResourceValue{}, time.Time{}, err
 	}
@@ -482,7 +491,7 @@ func compileScriptResource(label, source, path, reference string, resources map[
 				interval = resource.UpdateInterval
 			}
 		} else {
-			data, err := decodeRewriteData(resource.DataType, resource.Data, MaxScriptBytes)
+			data, err := decodeRewriteData(resource.DataType, resource.Data, 0)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -490,7 +499,7 @@ func compileScriptResource(label, source, path, reference string, resources map[
 		}
 	}
 	if path != "" {
-		spec, err := compileProcessingResource(path, MaxScriptBytes, true, interval, debug)
+		spec, err := compileProcessingResource(path, 0, true, interval, debug)
 		return nil, spec, err
 	}
 	program, err := compileScriptSource(label, source, "", nil)

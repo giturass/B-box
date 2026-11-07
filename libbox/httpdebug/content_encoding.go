@@ -66,10 +66,24 @@ func readBodyPrefix(reader io.Reader, limit int64) ([]byte, error) {
 	return data[:n], nil
 }
 
-// Content-Encoding lists encoders in application order, so decode backwards.
-// Each intermediate representation has the same limit as the final body. A
-// partial intermediate layer must never be presented as decoded plaintext.
+// Each intermediate representation has the same limit as the final body.
 func decodeContent(body []byte, encodings []string, limit int64) ([]byte, error) {
+	data, err := decodeContentWithReader(body, encodings, func(reader io.Reader) ([]byte, error) {
+		data, err := readBodyPrefix(reader, limit)
+		if int64(len(data)) > limit {
+			err = errRewriteSize
+		}
+		return data, err
+	})
+	if err == nil && int64(len(data)) > limit {
+		err = errRewriteSize
+	}
+	return data, err
+}
+
+// Content-Encoding lists encoders in application order, so decode backwards.
+// A partial intermediate layer must never be presented as decoded plaintext.
+func decodeContentWithReader(body []byte, encodings []string, read func(io.Reader) ([]byte, error)) ([]byte, error) {
 	data := body
 	for i := len(encodings) - 1; i >= 0; i-- {
 		var reader io.Reader
@@ -105,20 +119,14 @@ func decodeContent(body []byte, encodings []string, limit int64) ([]byte, error)
 		if err != nil {
 			return nil, err
 		}
-		data, err = readBodyPrefix(reader, limit)
+		data, err = read(reader)
 		closeReader()
-		if int64(len(data)) > limit {
-			err = errRewriteSize
-		}
 		if err != nil {
 			if i != 0 {
 				return nil, err
 			}
 			return data, err
 		}
-	}
-	if int64(len(data)) > limit {
-		return data, errRewriteSize
 	}
 	return data, nil
 }

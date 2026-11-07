@@ -114,8 +114,8 @@ func compileScriptSource(label, source, resource string, resources map[string][]
 		}
 		source = string(data)
 	}
-	if source == "" || len(source) > MaxScriptBytes {
-		return nil, fmt.Errorf("%s: script source must contain 1 to 131072 bytes", label)
+	if source == "" {
+		return nil, fmt.Errorf("%s: script source must not be empty", label)
 	}
 	ast, err := parser.ParseFile(nil, label+".js", source, 0, parser.WithDisableSourceMaps)
 	if err != nil {
@@ -155,9 +155,9 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 		}
 		var err error
 		if resource.DataType == "file" {
-			_, err = compileProcessingResource(resource.Data, MaxScriptBytes, true, resource.UpdateInterval, false)
+			_, err = compileProcessingResource(resource.Data, 0, true, resource.UpdateInterval, false)
 		} else {
-			_, err = decodeRewriteData(resource.DataType, resource.Data, MaxScriptBytes)
+			_, err = decodeRewriteData(resource.DataType, resource.Data, 0)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("resource %q: %w", name, err)

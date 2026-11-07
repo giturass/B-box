@@ -17,7 +17,6 @@ import (
 const (
 	MaxRewriteConfigBytes  = 2 * 1024 * 1024
 	MaxRewriteRules        = 256
-	MaxScriptBytes         = 128 * 1024
 	MaxRewriteRequestBody  = 32 * 1024 * 1024
 	MaxRewriteResponseBody = 10 * 1024 * 1024
 	MaxLocalResourceBytes  = 15 * 1024 * 1024
@@ -363,6 +362,7 @@ func rewriteHeaders(values []Header) (http.Header, error) {
 	return headers, nil
 }
 
+// A zero limit leaves embedded script sizes to the enclosing configuration limit.
 func decodeRewriteData(kind, value string, limit int64) ([]byte, error) {
 	var data []byte
 	var err error
@@ -379,7 +379,7 @@ func decodeRewriteData(kind, value string, limit int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(data)) > limit {
+	if limit > 0 && int64(len(data)) > limit {
 		return nil, errors.New("embedded data exceeds resource size limit")
 	}
 	return data, nil

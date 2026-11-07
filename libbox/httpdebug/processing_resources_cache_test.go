@@ -2,6 +2,8 @@ package httpdebug
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -56,7 +58,7 @@ func TestURLScriptProgramCacheConcurrentLoadsAndOfflineReload(t *testing.T) {
 		_, _ = io.WriteString(w, source)
 	}))
 	defer origin.Close()
-	spec, err := compileProcessingResource("http://resource.test/script.js", MaxScriptBytes, true, 0, false)
+	spec, err := compileProcessingResource("http://resource.test/script.js", 0, true, 0, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +124,7 @@ func TestURLScriptProgramCacheConcurrentLoadsAndOfflineReload(t *testing.T) {
 }
 
 func TestURLScriptProgramCacheUsesContentHashAndHonorsDebug(t *testing.T) {
-	spec, err := compileProcessingResource("http://resource.test/script.js", MaxScriptBytes, true, 0, false)
+	spec, err := compileProcessingResource("http://resource.test/script.js", 0, true, 0, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +163,7 @@ func TestURLScriptProgramCacheUsesContentHashAndHonorsDebug(t *testing.T) {
 
 func TestURLScriptProgramCacheRefreshKeepsLastUsableProgram(t *testing.T) {
 	const firstSource = `"first"`
-	const nextSource = `"second"`
+	nextSource := strings.Repeat(" ", 256*1024) + `"second"`
 	var source atomic.Value
 	source.Store(firstSource)
 	var requests atomic.Int32
@@ -170,7 +172,7 @@ func TestURLScriptProgramCacheRefreshKeepsLastUsableProgram(t *testing.T) {
 		_, _ = io.WriteString(w, source.Load().(string))
 	}))
 	defer origin.Close()
-	spec, err := compileProcessingResource("http://resource.test/script.js", MaxScriptBytes, true, 1, false)
+	spec, err := compileProcessingResource("http://resource.test/script.js", 0, true, 1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,9 +184,9 @@ func TestURLScriptProgramCacheRefreshKeepsLastUsableProgram(t *testing.T) {
 	}{
 		{"unchanged download", firstSource, firstSource, false},
 		{"invalid script", "function { invalid", firstSource, false},
-		{"oversized script", strings.Repeat("x", MaxScriptBytes+1), firstSource, false},
+		{"empty script", "", firstSource, false},
 		{"disk commit failure", nextSource, firstSource, true},
-		{"changed download", nextSource, nextSource, false},
+		{"large changed download", nextSource, nextSource, false},
 		{"unchanged updated download", nextSource, nextSource, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -238,5 +240,33 @@ func TestURLScriptProgramCacheRefreshKeepsLastUsableProgram(t *testing.T) {
 	}
 	if processingBodies.used.Load() != 0 {
 		t.Fatal("script refresh retained body reservations")
+	}
+}
+
+func TestURLScriptLoadsCacheWrittenBeforeSourceLimitRemoval(t *testing.T) {
+	const path = "http://resource.test/script.js"
+	const source = `"offline legacy cache"`
+	resources := testProcessingResources(t, t.TempDir(), t.TempDir(), scriptEnvironment{}, nil)
+	if err := os.MkdirAll(resources.directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(resourceCacheDocument{Fetched: time.Now(), Data: []byte(source)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Use the persisted identity from releases that enforced 128 KiB.
+	identity := sha256.Sum256([]byte("true:131072:" + path))
+	cachePath := filepath.Join(resources.directory, hex.EncodeToString(identity[:])+".json")
+	if err := os.WriteFile(cachePath, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := compileProcessingResource(path, 0, true, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := loadTestScriptResource(t, resources, spec)
+	result, err := goja.New().RunProgram(value.program)
+	if err != nil || result.String() != "offline legacy cache" {
+		t.Fatalf("existing offline script cache was lost: %v, %v", result, err)
 	}
 }

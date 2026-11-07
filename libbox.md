@@ -178,7 +178,7 @@ HTTP/1 请求处理错误立即终止后续正文读取并关闭连接，避免�
 
 ### 文件和 URL 资源加载
 
-[processing_resources.go](libbox/httpdebug/processing_resources.go) 供 Map Local 和脚本共用。`data_type: "file"` 的 `data` 为相对实际配置文件目录的路径或 HTTP(S) URL；Map Local 文件最多 15 MiB，脚本最多 128 KiB。拒绝绝对本地路径、目录逃逸及非普通文件。校验、编辑、格式化、导入及备份不读这些文件、不下载或执行代码，缺失资源在运行时处理。配置导出仅携带引用，不打包实际文件或下载缓存。
+[processing_resources.go](libbox/httpdebug/processing_resources.go) 供 Map Local 和脚本共用。`data_type: "file"` 的 `data` 为相对实际配置文件目录的路径或 HTTP(S) URL；Map Local 文件最多 15 MiB，脚本源码不设单独的大小上限。文件读取、下载及每层解压随实际大小预留[共享正文工作预算](#json-配置中的-http-改写)，URL 缓存仍受下述磁盘总额约束。拒绝绝对本地路径、目录逃逸及非普通文件。校验、编辑、格式化、导入及备份不读这些文件、不下载或执行代码，缺失资源在运行时处理。配置导出仅携带引用，不打包实际文件或下载缓存。
 
 本地 Map Local 每次命中重新读，按后缀推断 MIME，显式 Content-Type 优先；内嵌资源引用继承其 data_type。本地脚本编译结果默认缓存到服务结束，`debug: true` 每次重新读/编译。URL 资源在服务成功激活后经当前核心路由自动下载、后台刷新，默认 86400 秒，资源 `update_interval` 或脚本 `script_update_interval` 可设 1～31536000 秒。下载最多 15 秒、10 次重定向，同资源合并并发下载，不递归改写/脚本。
 
@@ -188,7 +188,7 @@ URL 脚本默认按资源身份及内容 SHA-256 缓存编译结果，命中磁�
 
 ### 独立脚本与 Cron
 
-`experimental.scripts` 定义见 [script_config.go](libbox/httpdebug/script_config.go)，示例见 [examples/scripts.json](examples/scripts.json)。`enabled` 默认 false，HTTP/Cron 共最多 256 条、资源最多 256，JSON 最多 2 MiB。每条规则从 `source`、`resource`、`script_path` 中选一个：内联源码、字典资源引用、文件/URL 路径。源码最多 128 KiB。校验编译内联代码和时间表达式，外部源码按[资源加载](#文件和-url-资源加载)在运行时处理。
+`experimental.scripts` 定义见 [script_config.go](libbox/httpdebug/script_config.go)，示例见 [examples/scripts.json](examples/scripts.json)。`enabled` 默认 false，HTTP/Cron 共最多 256 条、资源最多 256，JSON 最多 2 MiB。每条规则从 `source`、`resource`、`script_path` 中选一个：内联源码、字典资源引用、文件/URL 路径。源码须非空，不设单脚本大小上限；内联源码和内嵌资源计入配置 JSON 总额。校验编译内联代码和时间表达式，外部源码按[资源加载](#文件和-url-资源加载)在运行时处理。
 
 `ports`/`packages` 只限制被处理的 HTTP 流，默认端口同改写，不限制脚本主动请求。被拦截正文及脚本输出 `max_body_bytes` 默认 1 MiB，可设 1～33554432；`-1` 在 B-box 表示 32 MiB 硬上限，HTTP 规则可覆盖。主动 HTTP 客户端另有独立限额。
 
@@ -292,7 +292,9 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 
 [script_api_test.go](libbox/httpdebug/script_api_test.go) 覆盖两阶段 HTTP 客户端的路由注入、允许 origin/Host/次数/正文限制、重定向、TLS 信任、取消和全局预算；[script_storage_test.go](libbox/httpdebug/script_storage_test.go) 覆盖持久化、命名空间隔离及 HTTP/Cron 共享、字节/键/全局配额、并发写入、原子失败恢复、符号链接和重载/清空记录边界；[script_timers_test.go](libbox/httpdebug/script_timers_test.go) 覆盖顺序、参数、interval 清理、回调异常、上限及 HTTP/Cron 截止时间。新增用例由现有 `httpdebug -race` 入口自动纳入；它们的存在不代表当前源码已运行通过。
 
-[processing_resources_cache_test.go](libbox/httpdebug/processing_resources_cache_test.go) 使用实际磁盘、HTTP 下载和 Goja 编译结果，检查同 URL 并发加载、离线重载、同内容刷新不重复编译、同大小同时间戳内容变更、`debug` 绕过、独立 VM，以及编译/超限/磁盘提交失败后保留旧程序。由同一 `httpdebug -race` 入口运行。
+[processing_resources_cache_test.go](libbox/httpdebug/processing_resources_cache_test.go) 使用实际磁盘、HTTP 下载和 Goja 编译结果，检查同 URL 并发加载、离线重载、同内容刷新不重复编译、同大小同时间戳内容变更、`debug` 绕过、独立 VM、大脚本更新，以及空源码/编译/磁盘提交失败后保留旧程序；另验证取消源码限额后仍可离线加载既有版本写入的缓存。由同一 `httpdebug -race` 入口运行。
+
+[script_source_test.go](libbox/httpdebug/script_source_test.go) 执行含 256 KiB 字符串的请求、响应及 Cron 脚本，覆盖内联、text/base64 资源、相对文件、URL、资源引用、gzip/deflate/br/zstd 及多层下载、离线缓存；另验证文件、下载、解压及中间层耗尽共享正文工作预算时拒绝加载并释放预留。由同一 `httpdebug -race` 入口运行。
 
 [script_http_encoding_test.go](libbox/httpdebug/script_http_encoding_test.go) 通过真实 HTTP 服务器及 Cron 路由客户端，覆盖显式/未提供 `Accept-Encoding` 时的所有支持编码、重复/多层编码、空压缩正文、压缩前后及中间层限额、损坏/截断/未知编码、UTF-8 校验、解压后的响应头、HEAD/204/304 元数据和预算释放；两阶段 HTTP 脚本也使用 gzip 响应验证共用客户端。由同一 `httpdebug -race` 入口运行。
 
