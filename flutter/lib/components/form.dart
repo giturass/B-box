@@ -19,7 +19,7 @@ class FormPage extends StatelessWidget {
     confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'),
       isLoading: saving, onPressed: saving ? null : onSave),
     body: AbsorbPointer(absorbing: saving, child: ListView(shrinkWrap: true, controller: controller,
-      padding: EdgeInsets.fromLTRB(16, context.sectionsTopPadding, 16, 20 + context.bottomInset),
+      padding: EdgeInsets.fromLTRB(16, error == null ? context.sectionsTopPadding : context.contentTopPadding, 16, 20 + context.bottomInset),
       children: [
         // Keep form children at stable indices when the validation message changes.
         if (error != null) Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),

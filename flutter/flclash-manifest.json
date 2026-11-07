@@ -183,7 +183,7 @@
     "lib/components/form.dart": {
       "source": "lib/features/form/form_row.dart",
       "sourceSHA256": "573523cde6588821f2e77a04e062f9a0ef78746443c2e8cec10a8cf816c031c2",
-      "changes": "Grouped rows and end-aligned text/secret fields retained. Uses the inherited B-box measurement scope and local error handling. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Grouped rows and end-aligned text/secret fields retained. Uses the inherited B-box measurement scope and local error handling, keeping validation messages below the toolbar and form children at stable indices. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/pages/backup.dart": {
       "source": "lib/views/backup_and_restore.dart",

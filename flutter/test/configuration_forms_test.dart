@@ -80,7 +80,7 @@ class _Fixture {
   }
 
   Future<void> open(WidgetTester tester, Widget page, {bool form = false}) async {
-    final context = tester.element(find.byType(HomePage));
+    final context = tester.element(find.byType(HomePage, skipOffstage: false));
     if (form) openForm(context, page); else openPage(context, page);
     await tester.pumpAndSettle();
   }
@@ -161,6 +161,7 @@ void main() {
     await _save(tester);
     expect(f.writes, isEmpty);
     expect(find.text('Port: 1–65535'), findsOneWidget);
+    await f.capture(tester, 'node-validation-error');
     expect(find.text('Port: 1–65535').hitTestable(), findsOneWidget);
     await _enter(tester, 'server_port', '8443');
     f.reject = true;
@@ -233,6 +234,10 @@ void main() {
     expect(f.writes, isEmpty);
     await f.open(tester, const ProfileEditor(profile: _profile));
     expect(find.byType(TextField), findsNothing);
+    await f.open(tester, ConfigEntryForm(kind: ConfigKind.outbound, initial: _node, onSave: (_) async => true), form: true);
+    expect(find.byKey(const ValueKey('config-field-server')), findsNothing);
+    await tester.tap(find.byTooltip('Close').hitTestable().last);
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 

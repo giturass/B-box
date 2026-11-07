@@ -26,21 +26,23 @@ class _ConfigEntryFormState extends State<ConfigEntryForm> {
   final _fieldSpecs = <String, ConfigFieldSpec>{};
   final _changed = <String>{};
   final _variantDrafts = <String, Json>{};
-  late final _scroll = sheetScrollController(context);
+  ScrollController? _scroll;
   bool _saving = false, _dirty = false;
   String? _error;
   List<ConfigFieldSpec> get _fields => configFields(widget.kind, _draft,
     outbounds: widget.outbounds.where((tag) => tag != _draft['tag']).toList(), servers: widget.servers, ruleSets: widget.ruleSets);
 
-  @override void dispose() { _scroll.dispose(); for (final controller in _controllers.values) { controller.dispose(); } super.dispose(); }
+  @override void didChangeDependencies() { super.didChangeDependencies(); _scroll ??= sheetScrollController(context); }
+  @override void dispose() { _scroll?.dispose(); for (final controller in _controllers.values) { controller.dispose(); } super.dispose(); }
 
   void _showError(Object error) {
     if (!mounted) return;
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() => _error = _formError(context, error));
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _scroll.hasClients) {
-        _scroll.animateTo(_scroll.position.minScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+      final scroll = _scroll;
+      if (mounted && scroll != null && scroll.hasClients) {
+        scroll.animateTo(scroll.position.minScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
       }
     });
   }
