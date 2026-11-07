@@ -131,8 +131,8 @@ func streamingContent(header http.Header) bool {
 		strings.HasPrefix(mediaType, "application/grpc+") || strings.HasPrefix(mediaType, "application/grpc-web")
 }
 
-func bodyEligible(header http.Header, note func(string)) bool {
-	if streamingContent(header) || header.Get("Upgrade") != "" {
+func bodyEligible(header http.Header, note func(string), unaryGRPC bool) bool {
+	if streamingContent(header) && !unaryGRPC || header.Get("Upgrade") != "" {
 		note("Body processing skipped: streaming content or protocol upgrade; original stream preserved")
 		return false
 	}

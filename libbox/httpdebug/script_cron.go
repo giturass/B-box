@@ -137,14 +137,13 @@ func (r *cronRunner) run(job compiledCron) error {
 	err := executeScript(ctx, program, job.label, "cron", job.options.TimeoutMS, job.options.Argument, false,
 		func(vm *goja.Runtime, ctx context.Context) {
 			_ = vm.Set("$cronexp", job.options.Cron)
-			_ = vm.Set("$trigger", "cron")
 			cleanup = installScriptHTTP(vm, ctx, r.dial, r.roots, r.program.limit, job.client)
 			key := job.storageKey
 			if job.source != nil {
 				key = "script." + r.program.resources.key(job.source)
 			}
 			installScriptStorage(vm, ctx, r.program.storage, job.options.StorageNamespace, job.label, key)
-		}, func(*goja.Runtime, goja.Value) error { return nil })
+		}, func(*goja.Runtime, goja.Value) error { return nil }, scriptRunInfo{name: job.options.Name})
 	if err != nil {
 		writeLog("error", job.label+": cron failed: "+err.Error())
 	} else {

@@ -159,16 +159,16 @@ HTTPS MITM 需准备并安装 CA，入口见 [高级配置](flclash.md#配置页
 | 能力 / 字段 | 规则内容及行为 |
 | --- | --- |
 | Header Rewrite / `header_rewrite` | `phase`: request/response；`operation`: add、delete、replace、replace_regex；指定 `header`，普通操作用 `value`，正则用 `regex`/`replacement`。add 保留重复字段；replace 仅替换已存在字段，新增或覆盖可依次 delete/add。请求 Host 仅允许 replace/replace_regex |
-| URL Rewrite / `url_rewrite` | `action`: header 透明改写并更新 Host，302/307 返回重定向，reject 返回 403；`replacement` 为绝对 HTTP(S) URL 模板，header 另支持 `ws://`，保留原 Upgrade 头并使用 HTTP 传输。302/307 支持 `{{{GATEWAY_ADDRESS}}}`，取运行中核心默认接口的真实网关，IPv6 加方括号，无网关时跳过。首条命中处理，展开后非法目标丢弃并保留当前目标 |
+| URL Rewrite / `url_rewrite` | `action`: header 透明改写并更新 Host，302/307 返回重定向，reject 返回 403；`reject-200` 返回 200 空正文，`reject-dict` 返回 200 和 `{}`（application/json），用于迁移模块时保留空响应语义，不改变已有 reject。`replacement` 为绝对 HTTP(S) URL 模板，header 另支持 `ws://`，保留原 Upgrade 头并使用 HTTP 传输。302/307 支持 `{{{GATEWAY_ADDRESS}}}`，取运行中核心默认接口的真实网关，IPv6 加方括号，无网关时跳过。首条命中处理，展开后非法目标丢弃并保留当前目标 |
 | Map Remote / `map_remote` | `replacement` 为绝对 HTTP(S) URL，默认更新 Host，`preserve_host: true` 保留 Host；首条命中生效。与 URL header 同时匹配时决定最终目标 |
 | Body Rewrite / `body_rewrite` | `phase`、URL `pattern`，使用正文 `regex`/`replacement` 或 `jq`，二者互斥；匹配规则依次执行 |
 | Map Local / `map_local` | 首条匹配返回本地响应，`status` 默认 200，接受 200～999；`headers` 为 `{name,value}` 数组；`data_type` 支持 text、base64、tiny-gif、file，`data` 为内容或路径/URL；可用 `resource` 引用资源，与 data/data_type 互斥。为兼容已有 B-box JSON，省略类型仍按 text 处理 |
 
 [jq](libbox/httpdebug/rewrite_json.go) 支持请求和响应的完整 JSON 值、保留大整数，多个输出值以换行连接。非法 JSON/表达式、执行失败、超时或输出超限跳过该规则并告警；无输出（如 `empty`）保持原文。整个请求/响应累计 jq 预算 500 毫秒，表达式最多 4096 字节、最多 8192 个输出值、256 层输出嵌套；无外部模块、文件、输入和环境变量加载器。gojq 与原版 jq 并非逐项完全等价。
 
-顺序为请求 Header → URL → Map Remote → Body（含 jq）→ 请求脚本 → Map Local → 上游 → 响应 Header → Body（含 jq）→ 响应脚本。重定向、拒绝或脚本 Mock 提前结束请求路径，响应仍经过响应阶段。脚本未捕获异常、超时或源码加载失败时，本次脚本不生效，保留前序改写后的报文并继续，记录告警；不尝试后续匹配脚本。非法 `$done` 结果、分帧错误、正则处理错误和上游失败返回 502，超限请求正文返回 413。
+顺序为请求 Header → URL → Map Remote → Body（含 jq）→ 请求脚本 → Map Local → 上游 → 响应 Header → Body（含 jq）→ 响应脚本。重定向、拒绝或脚本 Mock 提前结束请求路径，响应仍经过响应阶段。脚本未捕获异常、超时或源码加载失败时，本次脚本不生效，保留前序改写后的报文并继续，记录告警；不尝试后续匹配脚本。`$done({abort:true})` 终止当前 HTTP 交换：HTTP/1 关闭连接，HTTP/2 只重置当前流，不返回合成错误页。非法 `$done` 结果、分帧错误、正则处理错误和上游失败返回 502，超限请求正文返回 413。
 
-HTTP/1 请求处理错误立即终止后续正文读取并关闭连接，避免半上传阻塞错误响应；HTTP/2 只关闭本次请求正文。只缓冲需要正文的匹配规则，编码及分层限制见 [HTTP 调试](#httphttps-请求调试)。压缩前后检查限额；不支持/无效编码和非 UTF-8 文本保留原文。响应超限回放已读前缀继续转发；SSE、gRPC/grpc-web、NDJSON、JSON sequence、multipart/x-mixed-replace、协议升级、HEAD 和 206 响应跳过正文处理，无需正文的规则仍可执行。改写后移除旧压缩、摘要、ETag、范围及 trailer，重算 Content-Length；禁止手动改变分帧/升级头或 101 状态。HEAD/204/205/304 不发送不允许的正文。B-box 保留 chunked 和 Expect 上传处理，不完全复制 Surge 的跳过条件。
+HTTP/1 请求处理错误立即终止后续正文读取并关闭连接，避免半上传阻塞错误响应；HTTP/2 只关闭本次请求正文。只缓冲需要正文的匹配规则，编码及分层限制见 [HTTP 调试](#httphttps-请求调试)。压缩前后检查限额；不支持/无效编码和非 UTF-8 文本保留原文。响应超限回放已读前缀继续转发；SSE、未显式选择[一元处理](#一元-grpc-正文脚本)的 gRPC/grpc-web、NDJSON、JSON sequence、multipart/x-mixed-replace、协议升级、HEAD 和 206 响应跳过正文处理，无需正文的规则仍可执行。普通 HTTP 改写后移除旧压缩、摘要、ETag、范围及 trailer，重算 Content-Length；gRPC 改写保留协议 trailers。禁止手动改变分帧/升级头或 101 状态。HEAD/204/205/304 不发送不允许的正文。B-box 保留 chunked 和 Expect 上传处理，不完全复制 Surge 的跳过条件。
 
 [body_budget.go](libbox/httpdebug/body_budget.go) 为正文处理、预览/HAR 解码、资源下载与脚本共用 384 MiB 工作预留预算。被拦截正文按 `8 × max(4096, limit + 1)` 预留 wire、解码、改写和脚本副本余量；独立 HTTP/资源随读取长度增长预留。结果及响应回放持有预留直到正文关闭。预算不足跳过未开始的正文处理及相应脚本、保留原流并记原因；请求脚本即使不读正文也可能 Mock，仍须预留。它限制正文工作准入，不是 Goja/gojq 任意分配或进程 RSS 的硬隔离，也不是实机压测容量。zstd 另有 8 MiB 解码窗口/内存及单解码器并发限制。
 
@@ -194,18 +194,34 @@ URL 脚本默认按资源身份及内容 SHA-256 缓存编译结果，命中磁�
 
 HTTP 规则指定 `pattern`、`phase`（request/response）、可选 `name`/`disabled`，每个方向只执行首条匹配脚本，失败不尝试下一条。HTTPS 必须另启 MITM 并匹配域名。[script.go](libbox/httpdebug/script.go) 提供：
 
-- `$request` 有 url/method/headers/id；请求阶段 `requires_body: true` 时有 body，响应阶段 request 不带正文；URL 是前序规则处理后的值。
-- `$response` 有 status/headers，`requires_body: true` 时有 body，包含前序正文规则和 jq 的结果。
-- `$done()`/`$done({})` 保持当前报文并结束执行；请求可返回 url/headers/body/response/abort，以及 B-box 的 method；响应可返回 status/headers/body/abort。Mock response 支持 status/headers/body，状态码 200～999。`abort` 当前通过 502 结束处理。
+- `$request` 有 url/method/headers/id；请求阶段 `requires_body: true` 且正文非空时有 body，响应阶段 request 不带正文；URL 是前序规则处理后的值。
+- `$response` 有 status/headers，`requires_body: true` 且正文非空时有 body，包含前序正文规则和 jq 的结果。空正文不注入 body 属性。
+- `$done()`/`$done({})` 保持当前报文并结束执行；请求可返回 url/headers/body/response/abort，以及 B-box 的 method；响应可返回 status/headers/body/abort。Mock response 支持 status/headers/body，状态码 200～999。`abort: true` 终止当前 HTTP/1 连接或 HTTP/2 流。
 - body 默认 UTF-8，`binary_body: true` 用 Uint8Array。替换当前 body 要求 requires_body，Mock response.body 不要求读取请求正文。
 - `full_headers: true` 以 `{field,value}` 数组保留重复头，返回值接受数组/对象，普通输入对象每字段只取首值。
-- `argument` 通过 `$argument` 提供；`$script` 有 name/type/binaryBodyMode/startTime，startTime 为 Unix 秒数。console.log/info/warn/error/debug 进入服务日志，每次最多 10 条、正文最多 2 KiB。
+- 非空 `argument` 通过 `$argument` 提供；未配置或为空时不注入该全局，避免脚本把缺省参数当成空 JSON。`$script` 有 name/type/binaryBodyMode/startTime/sessionID，name 优先取配置名称，startTime 为 Unix 秒数，sessionID 每次执行独立生成。console.log/info/warn/error/debug 进入服务日志，对象按 JSON 输出，每次最多 10 条、正文最多 2 KiB；HTTP 脚本 `debug: true` 还将同一内容附到请求备注。
 
 HTTP/Cron `timeout_ms` 均默认 5000，范围 1～86400000；资源加载、等待解释器、网络、定时器和执行共享期限。每次独立 Goja VM，HTTP 最多 4 个解释器，Cron 独立 2 个；等待名额计入时限并记录原因。调用栈最多 256 层，JS 原生正则另设 200 毫秒匹配时限。Goja 并非 WebView 或进程级内存隔离。
 
-Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`timeout_ms` 和源码字段。支持五段“分 时 日 月 周”或六段“秒 分 时 日 月 周”，范围、列表、步长及月份/星期名称；IANA 时区未指定时用服务启动时的 Android 时区，包含 tzdata。`$cronexp` 是原表达式，`$trigger`/`$script.type` 为 cron，无 `$request`/`$response`。
+Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`timeout_ms` 和源码字段。支持五段“分 时 日 月 周”或六段“秒 分 时 日 月 周”，范围、列表、步长及月份/星期名称；IANA 时区未指定时用服务启动时的 Android 时区，包含 tzdata。`$cronexp` 是原表达式，`$script.type` 为 cron，无 `$request`/`$response`。常规 HTTP 和 Cron 执行均不注入 `$trigger`。
 
 [调度器](libbox/httpdebug/script_cron.go) 只在本地服务启动成功后运行；重载/停止取消运行任务、丢弃队列、等待 worker 退出，抓包启停不重置调度。到期任务按配置顺序进入有界 FIFO，由 2 个 worker 处理；同任务已排队或运行时跳过重复到期并记日志，队列和运行数不超过启用任务数。排队不创建 VM、不预留正文预算、不消耗执行时限，出队才计时；预算不足跳过该次任务。设备休眠错过周期不补跑、不申请系统唤醒；必须调用 `$done`，异常及超时进入日志。
+
+#### 一元 gRPC 正文脚本
+
+[grpc_body.go](libbox/httpdebug/grpc_body.go) 为 HTTP 脚本增加 B-box 的 `grpc_mode: "unary"`，同时要求 `requires_body: true` 和 `binary_body: true`。仅给已知的一元 RPC 方法配置此选项；HTTP Content-Type 不包含一元/流式调用信息，不能据此自动判断。默认继续透传 gRPC，普通 Body Rewrite/jq 不直接修改其分帧。示例见 [grpc-scripts.json](examples/grpc-scripts.json)。
+
+支持 `application/grpc`、`application/grpc+*`、二进制 `application/grpc-web[+*]` 和 `application/grpc-web-text[+*]`。原生 gRPC 脚本接收完整的单个消息帧，与 Surge 二进制正文一致：第一个字节为压缩标记，后四字节为大端消息长度，其后才是 Protobuf 或其他消息内容。gRPC-Web 将尾部状态帧留在传输层；text 形式在进入脚本前解码 Base64，支持消息内部的独立填充块。脚本接收/返回相同的单消息帧格式，传输层随后追加原有状态帧并恢复 Base64。
+
+校验输入和输出的消息数、标记和长度；压缩消息支持 `grpc-encoding: gzip/deflate`，同时检查压缩前后限额。脚本自己解析消息；`$utils.ungzip` 可处理 gzip，其他消息解码器由脚本提供。替换消息时必须更新四字节长度及压缩标记，返回未压缩消息应使用标记 0。HTTP 的 `Content-Encoding` 与消息的 `grpc-encoding` 分别处理。替换后保留 HTTP trailers（包括真实 `grpc-status`、`grpc-message` 和状态详情）及 gRPC-Web 尾帧；无需伪造成功状态。有 HTTP trailers 时去掉固定 Content-Length，由传输层正确结束消息。
+
+无消息、多个消息、损坏分帧、不支持的压缩或响应超限均跳过脚本、记录原因并保留原文；请求正文及解压消息超限仍返回 413。非法输出拒绝转发。`$done()`、异常等未提供替换正文时保留原有压缩和传输字节。读取沿用 15 秒正文期限及共享预算；误将长时间不结束的流式 RPC 声明为 unary 会触发读取超时，不能将此模式作为流式处理。SSE 和持续流式 RPC 的正文改写不在本次支持范围。
+
+协议依据为 gRPC 官方 [HTTP/2 协议](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md) 和 [gRPC-Web 协议](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-WEB.md)。Surge 脚本行为对照官方 [HTTP 请求](https://manual.nssurge.com/scripting/http-request.html)、[HTTP 响应](https://manual.nssurge.com/scripting/http-response.html)及 [JavaScript API](https://manual.nssurge.com/scripting/api.html)。B-box 继续使用 sing-box JSON，不直接导入 `.sgmodule`，也不提供 WebView/Node、通知或完整 Surge 控制 API；`reject-200`/`reject-dict` 是迁移快捷动作，不将它们记为 Surge 官方 URL Rewrite 类型。
+
+#### 脚本解压工具
+
+[script_utils.go](libbox/httpdebug/script_utils.go) 向 HTTP/Cron 提供 `$utils.ungzip(Uint8Array)`，支持 TypedArray 子视图，成功返回 Uint8Array，参数无效、gzip 损坏、超限、预算不足或取消返回 null。解压输出最多 16 MiB，对齐 Surge iOS 的该接口限额；读取计入共享正文工作预算，成功结果的预留持有至当前 VM 结束，失败立即释放。它不增加任意文件或设备控制能力。
 
 #### 脚本 HTTP 客户端
 
@@ -287,6 +303,8 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 [tls_selection_test.go](libbox/httpdebug/tls_selection_test.go) 在已有 48 条连接时执行真实 ClientHello 探测、TLS 握手及 HTTP Mock，检查仍接管请求，并验证探测取消、未交接关闭及正式接管后的服务回收。[recording_test.go](libbox/httpdebug/recording_test.go) 在同一 HTTP/1.1、HTTP/2 连接反复启停记录，检查处理不中断、连接 ID 不变；结合既有 SSE、WebSocket 和 TCP 测试验证停止后继续传输及记录冻结。[diagnostics_test.go](libbox/httpdebug/diagnostics_test.go) 检查无 HTTP 请求的 TLS 结束提示、错误页及迟到更新隔离。
 
 [body_processing_test.go](libbox/httpdebug/body_processing_test.go) 覆盖新编码/多层/重复头在改写、预览与 HAR 中一致，压缩膨胀、响应回放、上传截断、预算不足时零读取和正文关闭后释放；[streaming_processing_test.go](libbox/httpdebug/streaming_processing_test.go) 覆盖 HTTP/2 gRPC 在上传结束前响应、trailers、Expect: 100-continue 及慢上传取消。[script_resources_test.go](libbox/httpdebug/script_resources_test.go) 用实际等待中的 Cron HTTP 请求占满 Cron 池，验证 HTTP 脚本仍执行以及取消释放资源。这些是工作流配置的回归范围，实际通过结果以 [验证记录](app.md#验证与历史记录) 为准。
+
+[grpc_body_test.go](libbox/httpdebug/grpc_body_test.go) 通过真实 HTTP/2 MITM 检查一元 RPC 双向压缩消息改写、长度更新及请求/响应 trailers；补充 gRPC-Web 二进制/Base64 填充、损坏及多消息跳过、无操作原字节保留、输出校验和取消释放。[surge_compatibility_test.go](libbox/httpdebug/surge_compatibility_test.go) 覆盖空正文与参数缺省、会话信息、`$utils.ungzip` 的子视图/限额/预算、调试备注、空响应快捷动作，以及 HTTP/1 和 HTTP/2 的脚本 abort；HTTP/2 中核对后续请求仍复用连接。新增用例由同一 `httpdebug -race` 入口执行，存在这些用例不代表已完成真实 App 验收。
 
 [upload_rejection_test.go](libbox/httpdebug/upload_rejection_test.go) 使用真实 TCP 连接，覆盖固定长度/chunked 上传超限后保持连接且停止发送时，HTTP/1 及时返回完整 413、关闭连接并完成记录及预算释放；还覆盖未读取正文就发生的脚本错误返回 502，以及 HTTP/2 超限返回 413 后同一连接仍可处理新请求。由现有 HTTP 调试 `-race` 测试入口运行。
 
