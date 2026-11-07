@@ -3,7 +3,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../widgets.dart';
 import '../components/form.dart';
 import '../components/profile_card.dart';
-import 'profile_editor.dart';
+import 'configuration_form.dart';
 import 'profile_details.dart';
 
 // libbox remote_profile.go stores the display name in the URL fragment.
@@ -100,7 +100,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
         isEmpty: profiles.isEmpty,
         nullStatus: NullStatus(
           label: context.tr('No profiles yet'), illustration: NullStatusIllustration.profile,
-          description: context.tr('Import a sing-box JSON configuration to get started.'),
+          description: context.tr('Add a subscription link, scan a QR code, or enter your node details.'),
           action: AddProfileMenu(builder: (open) => TonalButton(size: TonalButtonSize.bar, glyph: AppGlyphs.addCircle,
             label: context.tr('Add profile'), onPressed: open)),
         ),
@@ -205,13 +205,13 @@ class _AddProfileMenuState extends State<AddProfileMenu> {
   @override Widget build(BuildContext context) => AbsorbPointer(absorbing: _busy, child: PopupAnchor(
     targetBuilder: widget.builder,
     popupBuilder: (_) => PopupMenu(items: [
-      PopupMenuItem(glyph: AppGlyphs.qrCode, label: context.tr('Scan QR code'), onPressed: () => _import('Scan QR code')),
-      PopupMenuItem(glyph: AppGlyphs.importFile, label: context.tr('File'), onPressed: () => _import('File')),
       PopupMenuItem(glyph: AppGlyphs.cloudDownload, label: context.tr('Import from URL'),
         onPressed: () => openForm(context, const ProfileForm(initial: {'url': '', 'remote': true}))),
+      PopupMenuItem(glyph: AppGlyphs.qrCode, label: context.tr('Scan QR code'), onPressed: () => _import('Scan QR code')),
       PopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Clipboard'), onPressed: () => _import('Clipboard')),
+      PopupMenuItem(glyph: AppGlyphs.importFile, label: context.tr('File'), onPressed: () => _import('File')),
       PopupMenuItem(section: const PopupMenuSection(), glyph: AppGlyphs.customize,
-        label: context.tr('New profile'), onPressed: () => openForm(context, const ProfileForm(initial: {'content': '{}'}))),
+        label: context.tr('New profile'), onPressed: () => openForm(context, const NewProfilePage())),
     ]),
   ));
 }
@@ -237,8 +237,8 @@ class _AddProfilePageState extends State<AddProfilePage> {
         for (final item in [('File', AppGlyphs.profiles), ('Clipboard', AppGlyphs.copy), ('Scan QR code', AppGlyphs.qrCode)])
           ListItem(leading: GlyphIcon(item.$2), title: Text(context.tr(item.$1)), onTap: _loading ? null : () => _import(item.$1)),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.add), title: Text(context.tr('New profile')),
-          widget: const ProfileForm(initial: {'content': '{}'}), forceFull: false),
-      ], footer: context.tr('This URL must serve a sing-box JSON configuration.')),
+          widget: const NewProfilePage(), forceFull: false),
+      ], footer: context.tr('Use a sing-box subscription from your provider. Clash subscriptions are not supported.')),
     ],
   );
 }
@@ -269,7 +269,7 @@ class _ProfileFormState extends State<ProfileForm> {
     if (!_remote) return null;
     final uri = Uri.tryParse(_url.text.trim());
     if (uri == null || !['http', 'https'].contains(uri.scheme) || uri.host.isEmpty) {
-      return (field: 'url', message: context.tr('sing-box JSON URL'));
+      return (field: 'url', message: context.tr('Enter a valid subscription URL'));
     }
     if (_auto && (int.tryParse(_interval.text) ?? 0) < 15) {
       return (field: 'interval', message: context.tr('At least 15 minutes'));
@@ -306,13 +306,13 @@ class _ProfileFormState extends State<ProfileForm> {
           FormRow(title: context.tr('Name'), invalid: issue?.field == 'name',
             trailing: FormRowTextField(controller: _name, hintText: context.tr('Required'),
               textInputAction: TextInputAction.next, onChanged: _changed)),
-          FormRow(title: context.tr('Remote'), onPressed: () => setState(() => _remote = !_remote),
+          FormRow(title: context.tr('Subscription'), onPressed: () => setState(() => _remote = !_remote),
             trailing: Switch(value: _remote, onChanged: (value) => setState(() => _remote = value))),
-          if (_remote) FormRow(title: context.tr('URL'), invalid: issue?.field == 'url',
+          if (_remote) FormRow(title: context.tr('Subscription URL'), invalid: issue?.field == 'url',
             trailing: FormRowTextField(controller: _url, hintText: context.tr('Required'),
               keyboardType: TextInputType.url, textInputAction: TextInputAction.next,
               autocorrect: false, enableSuggestions: false, onChanged: _changed)),
-        ], footer: _remote ? context.tr('This URL must serve a sing-box JSON configuration.') : null),
+        ], footer: _remote ? context.tr('Use a sing-box subscription from your provider. Clash subscriptions are not supported.') : null),
         if (_remote) generateSection(items: [
           FormRow(title: context.tr('Auto update'), onPressed: () => setState(() => _auto = !_auto),
             trailing: Switch(value: _auto, onChanged: (value) => setState(() => _auto = value))),
@@ -325,8 +325,6 @@ class _ProfileFormState extends State<ProfileForm> {
             ])),
         ], footer: _auto ? context.tr('At least 15 minutes') : null),
         if (widget.initial['id'] != null) generateSection(items: [
-          ListItem.open(title: Text(context.tr('Open configuration')), leading: const GlyphIcon(AppGlyphs.code),
-            widget: ProfileEditor(profile: widget.initial)),
           ListItem(title: Text(context.tr('Last updated')), subtitle: Text(
             (widget.initial['updatedAt'] as num? ?? 0) <= 0 ? context.tr('Unknown') : localDate(widget.initial['updatedAt']))),
         ]),

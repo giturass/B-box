@@ -31,7 +31,7 @@
     "lib/pages/profile_details.dart": {
       "source": "lib/views/dashboard/widgets/profile_detail.dart",
       "sourceSHA256": "279a4e5336b34c593b79813b99d1432ce1fd2d950a37b05a2bed33df7ff024e8",
-      "changes": "Profile summary and configuration editing page labeled Edit, with count presentation adapted to live Room metadata and unknown update times explicitly labeled. Metadata editing and advanced/raw sing-box configuration entries are retained. Clash subscription counters are not invented. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Profile summary and configuration editing page labeled Edit, with count presentation adapted to live Room metadata and unknown update times explicitly labeled. Profile settings precede metadata; raw sing-box editing is grouped under Advanced settings. Clash subscription counters are not invented. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/proxy_groups_panel.dart": {
       "source": "lib/views/dashboard/widgets/proxy_groups.dart",
@@ -72,7 +72,7 @@
     "lib/pages/profiles.dart": {
       "source": "lib/views/profiles/profiles.dart",
       "sourceSHA256": "e0fa8370288a6729611df86a4ac117c5e464354658c6af3a9edbeed7aa451a49",
-      "changes": "Anchored add menu with a New profile entry, grouped metadata form, selected-item reveal, adaptive grid, flat profile actions and decorated reorder sheet. Edit opens the configuration editing page with raw content access; copy link, QR code, share and export are direct menu actions. Imports and edits retain sing-box JSON, binary/QRS metadata and Room operations; preserve local/remote type conversion, clipboard import, a 15-minute Android update minimum and serialized native updates. No Mihomo custom generator, providers, overrides, age key or runtime-preview claim. Disable configuration selection in both the page and picker during native service start/stop transitions, and recheck current state when a press callback runs. Disable deletion of the selected profile and recheck selection before and after confirmation in both views. Migrated to the v0.9.3 prism_ui types and presentation.",
+      "changes": "Anchored add menu prioritizes subscription URLs, QR codes and clipboard; file import is retained and New profile opens a node form that prepares a native sing-box VPN/DNS profile. Grouped metadata form, selected-item reveal, adaptive grid, flat profile actions and decorated reorder sheet are retained. Metadata editing has no direct raw-content entry; raw editing lives under Advanced settings. Copy link, QR code, share and export remain direct menu actions. Imports and edits retain sing-box JSON, binary/QRS metadata and Room operations; preserve local/remote type conversion, a 15-minute Android update minimum and serialized native updates. No Mihomo generator, providers, overrides, age key or runtime-preview claim. Disable configuration selection in both the page and picker during native service start/stop transitions, and recheck current state when a press callback runs. Disable deletion of the selected profile and recheck selection before and after confirmation in both views. Migrated to the v0.9.3 prism_ui types and presentation.",
       "supportingSources": [
         {
           "source": "lib/views/profiles/add.dart",
@@ -153,7 +153,7 @@
     "lib/pages/tools.dart": {
       "source": "lib/views/tools.dart",
       "sourceSHA256": "aa81cb38649ba5f4c7f48c5a29ad4993fac0362ad1857e937af77f4093d572f9",
-      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools. Uses tool-specific state notifications and shares a visibility-controlled native detail subscription with endpoint pages. Migrated to the v0.9.3 prism_ui types and presentation. Adds the B-box LSPosed privilege settings destination, implemented with shared Flutter controls."
+      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools. Profile settings directly expose node, DNS and routing forms for the selected local profile. Uses tool-specific state notifications and shares a visibility-controlled native detail subscription with endpoint pages. Migrated to the v0.9.3 prism_ui types and presentation. Adds the B-box LSPosed privilege settings destination, implemented with shared Flutter controls."
     },
     "lib/pages/about.dart": {
       "source": "lib/views/about.dart",
@@ -390,7 +390,7 @@
             "flutter/lib/pages/configuration.dart",
             "flutter/lib/pages/mitm_certificate.dart"
           ],
-          "changes": "Reference for explicit CA operations and certificate setup. B-box uses independent profile MITM with an ordered allowlist (empty decrypts nothing), exclusions and optional TLS/TCP streams. Decryption controls and one certificate entry share the MITM page; certificate access does not require a loaded profile. JSON editing covers additional ports/packages settings. HTTP rewriting and HTTP/cron scripts are separate B-box extensions. Certificate rotation is blocked during capture or active MITM. Shared form/navigation components are reused; no Mihomo configuration."
+          "changes": "Reference for explicit CA operations and certificate setup. B-box uses independent profile MITM with an ordered allowlist (empty decrypts nothing), exclusions and optional TLS/TCP streams. Decryption controls and one certificate entry share the MITM page; certificate access does not require a loaded profile. Port/package filters use a form and application picker. Raw editing is grouped under Advanced settings. HTTP rewriting and HTTP/cron scripts are separate B-box extensions with field forms and resource management. Certificate rotation is blocked during capture or active MITM. Shared form/navigation components are reused; no Mihomo configuration."
         },
         {
           "source": "lib/features/connection/mitm_exchanges.dart",

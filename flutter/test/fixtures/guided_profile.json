@@ -1,0 +1,13 @@
+{
+  "log": { "level": "info" },
+  "dns": { "servers": [{ "type": "local", "tag": "device-dns" }], "final": "device-dns" },
+  "inbounds": [{ "type": "tun", "tag": "vpn-in", "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"], "auto_route": true }],
+  "outbounds": [
+    { "type": "selector", "tag": "proxy-group", "outbounds": ["proxy"] },
+    { "type": "socks", "tag": "proxy", "version": "5", "server": "127.0.0.1", "server_port": 1080 }
+  ],
+  "route": {
+    "rules": [{ "action": "sniff" }, { "protocol": ["dns"], "action": "hijack-dns" }],
+    "final": "proxy-group", "default_domain_resolver": "device-dns", "auto_detect_interface": true
+  }
+}

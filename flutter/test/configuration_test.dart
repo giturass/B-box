@@ -144,9 +144,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Add').last);
     await tester.pumpAndSettle();
-    final cronDraft = json(jsonDecode(tester.widget<TextField>(find.byType(TextField).last).controller!.text));
-    expect(cronDraft['disabled'], isTrue);
-    expect(cronDraft['cron'], '0 2 * * *');
+    expect(find.byType(ConfigValueEditor), findsNothing);
+    final schedule = find.byKey(const ValueKey('config-field-cron'));
+    await tester.ensureVisible(schedule);
+    await tester.enterText(schedule, '30 7 * * *');
+    const cronDraft = {'name': 'Scheduled task', 'disabled': true, 'cron': '30 7 * * *',
+      'timeout_ms': 5000, 'source': r'console.log($cronexp); $done();'};
     await tester.tap(find.text('Save').last);
     await tester.pumpAndSettle();
     expect(store.entries([...ScriptsConfigPage.path, 'cron']).single, cronDraft);

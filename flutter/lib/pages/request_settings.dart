@@ -78,8 +78,10 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
 }
 
 class CaptureAppsPage extends StatefulWidget {
-  const CaptureAppsPage({super.key, required this.selected});
+  const CaptureAppsPage({super.key, required this.selected, this.title = 'Capture applications',
+    this.description = 'An empty selection captures all applications routed through the local service. Unknown owners do not match a selected application. Applications sharing a UID share the same filter.'});
   final List<String> selected;
+  final String title, description;
   @override State<CaptureAppsPage> createState() => _CaptureAppsPageState();
 }
 
@@ -91,7 +93,7 @@ class _CaptureAppsPageState extends State<CaptureAppsPage> {
     super.didChangeDependencies();
     _apps ??= context.box.call('apps.list', {'system': true, 'refresh': true}).then(rows);
   }
-  @override Widget build(BuildContext context) => Scaffold(title: context.tr('Capture applications'),
+  @override Widget build(BuildContext context) => Scaffold(title: context.tr(widget.title),
     searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query.toLowerCase())),
     confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Done'), onPressed: () => Navigator.pop(context, _selected.toList()..sort())),
     iconActions: [IconButtonData(glyph: AppGlyphs.clearAll, tooltip: context.tr('All applications'), onPressed: () => setState(_selected.clear))],
@@ -103,7 +105,7 @@ class _CaptureAppsPageState extends State<CaptureAppsPage> {
       return ListView.builder(padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 24 + context.bottomInset),
         itemCount: visible.length + 1, itemBuilder: (context, index) {
           if (index == 0) return Column(children: [
-            Padding(padding: const EdgeInsets.all(12), child: Text(context.tr('An empty selection captures all applications routed through the local service. Unknown owners do not match a selected application. Applications sharing a UID share the same filter.'))),
+            Padding(padding: const EdgeInsets.all(12), child: Text(context.tr(widget.description))),
             if (snapshot.hasError) ErrorState(snapshot.error!, retry: () => setState(() => _apps = context.box.call('apps.list', {'system': true, 'refresh': true}).then(rows))),
             if (!snapshot.hasData && !snapshot.hasError) const Center(child: ActivityIndicator()),
           ]);

@@ -54,7 +54,7 @@ Flutter 从 `ready` 和配置/设置变更事件取得配置列表与设置，�
 
 [BoxProfiles.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxProfiles.kt) 负责导入、编辑、手动订阅更新、配置切换及局域网代理保存；[ProfileContent.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileContent.kt) 的互斥锁和内容替换流程由前台编辑和后台订阅更新共用。
 
-- 保存前检查内容修订和完整 `Libbox.checkConfig`，以原子写入替换内容。高级配置编辑原生 DNS、路由、规则集、入站、出站、端点和日志；原始 JSON 编辑保留配置元数据及订阅 URL。
+- 保存前检查内容修订和完整 `Libbox.checkConfig`，以原子写入替换内容。普通设置表单和高级 JSON 编辑共用现有配置写入通道，保留配置元数据及订阅 URL；新建节点表单通过 `profiles.save` 创建普通 sing-box 配置，不绕过验证或自动启动服务。表单范围和入口由 [配置页说明](flclash.md#配置页与内核差异) 维护。
 - 本地配置创建时在 Room 记录时间，原始/高级编辑及局域网入站变更成功保存内容时更新 `lastUpdated`；无内容变化和仅编辑名称等元数据不刷新时间。保存或应用失败与内容一起恢复旧时间。远程配置的该字段仍表示订阅更新时间，手动 JSON 编辑不覆盖它；没有时间记录的旧配置保持未知。界面展示见 [flclash.md](flclash.md#配置页与内核差异)。
 - 运行中修改选中配置需应用到服务：模式相同时重载，模式变化时停止并重新走权限/启动流程。需要重启时通过 [ServiceStartResult.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ServiceStartResult.kt) 等待 Started 回调；失败或超时恢复旧文件/设置并尝试恢复原服务。停服时普通保存不会自动启动 VPN。
 - [Settings.kt](app/src/main/java/io/nekohasekai/sfa/database/Settings.kt) 的 `detectServiceMode()` 在 `Dispatchers.IO` 内查询选中配置、读取文件并调用 libbox 判断 TUN 入站，避免主线程应用配置时阻塞界面。读取或解析失败沿用普通服务模式回退，协程取消继续向调用方传播。

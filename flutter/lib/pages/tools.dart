@@ -8,6 +8,7 @@ import 'diagnostics.dart';
 import 'endpoints.dart';
 import 'reports.dart';
 import 'terminal.dart';
+import 'configuration.dart';
 
 class ToolsPage extends StatelessWidget {
   const ToolsPage({super.key});
@@ -22,6 +23,8 @@ class ToolsPage extends StatelessWidget {
         ListItem.open(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(context.tr('Remote control')), widget: const RemotePage()),
       ]),
       generateSection(title: context.tr('Settings'), items: [
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.customize), title: Text(context.tr('Profile settings')),
+          subtitle: Text(context.tr('Nodes, DNS and routing')), widget: const ProfileConfigurationPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.paintbrush), title: Text(context.tr('Appearance')), widget: const AppearancePage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.settings), title: Text(context.tr('General')), widget: const GeneralSettingsPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.appsList), title: Text(context.tr('Access control')), widget: const AccessPage()),

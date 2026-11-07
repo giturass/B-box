@@ -5,6 +5,8 @@ import 'profile_editor.dart';
 import 'mitm_certificate.dart';
 import 'capture_domains.dart';
 import '../components/form.dart';
+import '../common/config_form.dart';
+import 'configuration_form.dart';
 
 const configEncoder = JsonEncoder.withIndent('  ');
 
@@ -26,14 +28,14 @@ class ProfileConfigStore extends ChangeNotifier {
   }
 
   Future<void> load() async {
-    if (_disposed || saving) return;
+    if (_disposed || saving || box.remote) return;
     final generation = ++_generation;
     loading = true;
     error = null;
     notifyListeners();
     try {
       final data = json(await box.call('profiles.config', {'id': profile['id']}));
-      if (!_disposed && generation == _generation) _receive(data);
+      if (!_disposed && generation == _generation && !box.remote) _receive(data);
     } catch (failure) {
       if (!_disposed && generation == _generation) error = BoxController.describe(failure);
     } finally {
@@ -51,10 +53,16 @@ class ProfileConfigStore extends ChangeNotifier {
   }
 
   List<Json> entries(List<String> path) => rows(value(path));
-  List<String> tags(List<String> path) => entries(path).map((entry) => entry['tag']).whereType<String>().toList();
+  List<String> tags(List<String> path) => entries(path).expand((entry) => configStrings(entry['tag'])).toList();
 
   Future<bool> set(List<String> path, dynamic value, {bool remove = false, String? expectedRevision, bool rethrowFailure = false}) async {
     if (_disposed || !ready || saving || loading) return false;
+    if (box.remote) {
+      final failure = StateError('Disconnect remote session to edit local profiles');
+      if (rethrowFailure) throw failure;
+      box.report(failure);
+      return false;
+    }
     if (expectedRevision != null && expectedRevision != revision) {
       final failure = StateError('Configuration changed; reload it before saving');
       error = BoxController.describe(failure);
@@ -113,7 +121,8 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
     final store = context.box.remote ? null : _store;
     // Certificate access is independent of profile loading.
     if (widget.section == 'mitm') return MitmConfigPage(store: store);
-    final title = widget.section == 'scripts' ? 'Scripts' : widget.resources ? 'Resources' : 'Advanced configuration';
+    final title = widget.section == 'scripts' ? 'Scripts' : widget.resources ? 'Resources'
+      : widget.section == 'advanced' ? 'Advanced settings' : 'Profile settings';
     if (store == null) return Scaffold(title: context.tr(title),
       body: NullStatus(label: context.tr(context.box.remote ? 'Disconnect remote session to edit local profiles' : 'No profile'),
         illustration: NullStatusIllustration.profile, action: context.box.remote ? null : TonalButton(size: TonalButtonSize.bar,
@@ -122,31 +131,63 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
       if (!store.ready) return Scaffold(title: context.tr(title),
         body: store.error == null ? const Center(child: ActivityIndicator.page()) : ErrorState(store.error!, retry: store.load));
       if (widget.section == 'scripts') return ScriptsConfigPage(store: store);
+      if (widget.section == 'advanced') return AdvancedConfigPage(store: store);
       if (widget.resources) return ConfigListPage(store: store, title: 'Rule sets', path: const ['route', 'rule_set'],
-        initial: const {'type': 'inline', 'tag': 'new-rules', 'rules': []});
-      return BoxPage(title: 'Advanced configuration', loading: store.saving,
+        initial: const {'type': 'remote', 'tag': 'new-rules', 'format': 'binary'});
+      return BoxPage(title: 'Profile settings', loading: store.saving,
         actions: [IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Reload'), onPressed: store.saving ? null : store.load)],
         children: [
+          if (store.profile['remote'] == true) ListFooter(text: context.tr('Configuration changes will replace the remote content until its next update.')),
           if (store.error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: SelectableText(store.error!, style: TextStyle(color: context.colorScheme.error))),
           generateSection(items: [
-            ListItem.open(leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Logs')), widget: LogConfigPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.key), title: Text(context.tr('Network')), widget: NetworkConfigPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.dns), title: const Text('DNS'), widget: DnsConfigPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.rules), title: Text(context.tr('Routing rules')), widget: RouteConfigPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Rule sets')),
-              widget: ConfigListPage(store: store, title: 'Rule sets', path: const ['route', 'rule_set'], initial: const {'type': 'inline', 'tag': 'new-rules', 'rules': []})),
+              widget: ConfigListPage(store: store, title: 'Rule sets', path: const ['route', 'rule_set'], initial: const {'type': 'remote', 'tag': 'new-rules', 'format': 'binary'})),
+            ListItem.open(leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Logs')), widget: LogConfigPage(store: store)),
+          ], footer: store.profile['name'].toString()),
+          generateSection(title: context.tr('Traffic processing'), items: [
             ListItem.open(leading: const GlyphIcon(AppGlyphs.lock), title: const Text('MITM'), widget: MitmPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('HTTP rewriting')), widget: HttpRewriteConfigPage(store: store)),
             ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Scripts')), widget: ScriptsConfigPage(store: store)),
-          ], footer: store.profile['name'].toString()),
-          generateSection(items: [ListItem(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Open configuration')),
-            trailing: const GlyphIcon(AppGlyphs.chevronForward), onTap: () async {
-              await openPage(context, ProfileEditor(profile: store.profile));
-              await store.load();
-            })]),
+          ]),
+          generateSection(items: [ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Advanced settings')),
+            subtitle: Text(context.tr('Raw JSON and all configuration fields')), widget: AdvancedConfigPage(store: store))]),
         ]);
     });
   }
+}
+
+class AdvancedConfigPage extends StatelessWidget {
+  const AdvancedConfigPage({super.key, required this.store, this.sections});
+  final ProfileConfigStore store;
+  final List<(String, List<String>, dynamic)>? sections;
+  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) {
+    if (context.box.remote) return const BoxPage(title: 'Advanced settings', children: [EmptyState('Disconnect remote session to edit local profiles')]);
+    final revision = store.revision;
+    final entries = sections ?? [
+      ('DNS', ['dns'], <String, dynamic>{}), ('Routing rules', ['route'], <String, dynamic>{}),
+      ('Inbounds', ['inbounds'], <dynamic>[]), ('Outbounds', ['outbounds'], <dynamic>[]), ('Endpoints', ['endpoints'], <dynamic>[]),
+      ('MITM', MitmConfigPage.path, <String, dynamic>{}), ('HTTP rewriting', HttpRewriteConfigPage.path, <String, dynamic>{}),
+      ('Scripts', ScriptsConfigPage.path, <String, dynamic>{}), ('Logs', ['log'], <String, dynamic>{}),
+    ];
+    return BoxPage(title: 'Advanced settings', loading: store.saving, children: [
+      ListFooter(text: context.tr('Raw JSON and all configuration fields')),
+      if (store.profile['remote'] == true) ListFooter(text: context.tr('Configuration changes will replace the remote content until its next update.')),
+      generateSection(items: [
+        if (sections == null) ListItem(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit full JSON')),
+          trailing: const GlyphIcon(AppGlyphs.chevronForward), onTap: () async {
+            await openPage(context, ProfileEditor(profile: store.profile));
+            await store.load();
+          }),
+        for (final (title, path, initial) in entries) ListItem.open(title: Text(context.tr(title)),
+          subtitle: Text(context.tr('Edit JSON')), leading: const GlyphIcon(AppGlyphs.code),
+          widget: ConfigValueEditor(title: title, initial: store.value(path) ?? initial,
+            onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
+      ]),
+    ]);
+  });
 }
 
 class HttpRewriteConfigPage extends StatelessWidget {
@@ -155,7 +196,7 @@ class HttpRewriteConfigPage extends StatelessWidget {
   static const path = ['experimental', 'http_rewrite'];
 
   @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) {
-    final revision = store.revision;
+    if (context.box.remote) return const BoxPage(title: 'HTTP rewriting', children: [EmptyState('Disconnect remote session to edit local profiles')]);
     const pattern = r'^https?://example\.com/(.*)';
     final sections = <(String, String, Json)>[
       ('URL Rewrite', 'url_rewrite', {'action': 'header', 'replacement': r'https://example.com/$1'}),
@@ -171,7 +212,7 @@ class HttpRewriteConfigPage extends StatelessWidget {
       body: Padding(padding: EdgeInsets.only(top: inset), child: ListView(
         padding: EdgeInsets.fromLTRB(16, contentGap > 0 ? contentGap : 0, 16, 24 + context.bottomInset),
         children: [
-      ListFooter(text: context.tr('Rules belong to this JSON profile and run with the local service. Request recording is controlled separately.')),
+      ListFooter(text: context.tr('Rules run with this profile. Request recording is controlled separately.')),
       if (store.error != null) SelectableText(store.error!, style: TextStyle(color: context.colorScheme.error)),
       generateSection(items: [
         ListItem.toggle(key: const ValueKey('http-rewrite-enabled'), title: Text(context.tr('Enable HTTP rewriting')),
@@ -182,14 +223,13 @@ class HttpRewriteConfigPage extends StatelessWidget {
         for (final (title, key, initial) in sections)
           ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(title), subtitle: Text('${store.entries([...path, key]).length}'),
             widget: ConfigListPage(store: store, title: title, path: [...path, key], initial: {'pattern': pattern, 'disabled': true, ...initial})),
-      ], footer: context.tr('New example rules are disabled. Edit their pattern and content, then set disabled to false.')),
+      ], footer: context.tr('New rules start disabled. Configure them, then turn on Enabled.')),
       generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Embedded rewrite resources')),
-          widget: ConfigValueEditor(title: 'Embedded rewrite resources', initial: store.value([...path, 'resources']) ?? const {},
-            onSave: (value) => store.set([...path, 'resources'], value, expectedRevision: revision, rethrowFailure: true))),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit HTTP rewrite options')),
-          widget: ConfigValueEditor(title: 'HTTP rewriting', initial: store.value(path) ?? const {'enabled': false},
-            onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
+          widget: ConfigResourcesPage(store: store, path: [...path, 'resources'])),
+        processingScopeItem(context, store, path),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Advanced settings')),
+          widget: AdvancedConfigPage(store: store, sections: [('HTTP rewriting', path, const {'enabled': false})])),
       ]),
     ])));
   });
@@ -213,7 +253,6 @@ class MitmConfigPage extends StatelessWidget {
   }
 
   Widget _build(BuildContext context, ProfileConfigStore? store) {
-    final revision = store?.revision;
     if (context.box.remote) return const BoxPage(title: 'MITM', children: [EmptyState('Disconnect remote session to edit local profiles')]);
     final hosts = (store?.value([...path, 'hosts']) as List? ?? []).cast<String>();
     return ProcessingConfigScaffold(title: 'MITM', store: store, children: [
@@ -246,9 +285,9 @@ class MitmConfigPage extends StatelessWidget {
       ]),
       generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.key), title: Text(context.tr('MITM certificate')), widget: const MitmCertificatePage()),
-        if (store != null && store.ready) ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit MITM options')),
-          widget: ConfigValueEditor(title: 'MITM configuration', initial: store.value(path) ?? const {'enabled': false, 'hosts': [], 'tcp': false, 'h2': false, 'skip_server_cert_verify': false, 'block_quic': true},
-            onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
+        if (store != null && store.ready) processingScopeItem(context, store, path),
+        if (store != null && store.ready) ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Advanced settings')),
+          widget: AdvancedConfigPage(store: store, sections: [('MITM', path, const {'enabled': false, 'hosts': []})])),
       ]),
     ]);
   }
@@ -295,7 +334,6 @@ class ScriptsConfigPage extends StatelessWidget {
   final ProfileConfigStore store;
   static const path = ['experimental', 'scripts'];
   @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) {
-    final revision = store.revision;
     if (context.box.remote) return const BoxPage(title: 'Scripts', children: [EmptyState('Disconnect remote session to edit local profiles')]);
     return ProcessingConfigScaffold(title: 'Scripts', store: store, children: [
       ListFooter(text: context.tr('HTTP scripts and cron tasks run independently of HTTP rewriting. HTTPS scripts use the MITM domain settings.')),
@@ -319,15 +357,22 @@ class ScriptsConfigPage extends StatelessWidget {
       ListFooter(text: context.tr('Cron runs while the local service is running. Missed intervals are not replayed.')),
       generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Embedded script resources')),
-          widget: ConfigValueEditor(title: 'Embedded script resources', initial: store.value([...path, 'resources']) ?? const {},
-            onSave: (value) => store.set([...path, 'resources'], value, expectedRevision: revision, rethrowFailure: true))),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit script options')),
-          widget: ConfigValueEditor(title: 'Scripts', initial: store.value(path) ?? const {'enabled': false},
-            onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
-      ], footer: context.tr('New example rules are disabled. Edit their pattern and content, then set disabled to false.')),
+          widget: ConfigResourcesPage(store: store, path: [...path, 'resources'])),
+        processingScopeItem(context, store, path),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Advanced settings')),
+          widget: AdvancedConfigPage(store: store, sections: [('Scripts', path, const {'enabled': false})])),
+      ], footer: context.tr('New rules start disabled. Configure them, then turn on Enabled.')),
     ]);
   });
 }
+
+Widget processingScopeItem(BuildContext context, ProfileConfigStore store, List<String> path) => ListItem(
+  leading: const GlyphIcon(AppGlyphs.filter), title: Text(context.tr('Ports and applications')),
+  trailing: const GlyphIcon(AppGlyphs.chevronForward), onTap: store.saving ? null : () {
+    final revision = store.revision;
+    openForm(context, ConfigEntryForm(kind: ConfigKind.processingScope, initial: json(store.value(path)),
+      onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true)));
+  });
 
 class ProcessingConfigScaffold extends StatelessWidget {
   const ProcessingConfigScaffold({super.key, required this.title, required this.store, required this.children});
@@ -343,6 +388,7 @@ class ProcessingConfigScaffold extends StatelessWidget {
       body: Padding(padding: EdgeInsets.only(top: inset), child: ListView(
         padding: EdgeInsets.fromLTRB(16, gap > 0 ? gap : 0, 16, 24 + context.bottomInset), children: [
           if (profile != null) ListFooter(text: profile['name']?.toString() ?? ''),
+          if (profile?['remote'] == true) ListFooter(text: context.tr('Configuration changes will replace the remote content until its next update.')),
           if (error != null) SelectableText(error, style: TextStyle(color: context.colorScheme.error)),
           ...children,
         ],
@@ -353,7 +399,7 @@ class ProcessingConfigScaffold extends StatelessWidget {
 class DnsConfigPage extends StatelessWidget {
   const DnsConfigPage({super.key, required this.store});
   final ProfileConfigStore store;
-  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) => BoxPage(title: 'DNS', loading: store.saving, children: [
+  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) => ConfigSectionPage(title: 'DNS', store: store, children: [
     generateSection(items: [
       ListItem.open(leading: const GlyphIcon(AppGlyphs.dns), title: Text(context.tr('DNS servers')),
         subtitle: Text('${store.entries(const ['dns', 'servers']).length}'), widget: ConfigListPage(store: store, title: 'DNS servers', path: const ['dns', 'servers'], initial: const {'type': 'local', 'tag': 'new-dns'})),
@@ -364,10 +410,10 @@ class DnsConfigPage extends StatelessWidget {
         onChanged: (value) => store.set(const ['dns', 'final'], value, remove: value.isEmpty)),
       ListItem.toggle(title: Text(context.tr('Reverse mapping')), value: store.value(const ['dns', 'reverse_mapping']) == true,
         onChanged: (value) => store.set(const ['dns', 'reverse_mapping'], value)),
-      ListItem.toggle(title: Text(context.tr('Disable DNS cache')), value: store.value(const ['dns', 'disable_cache']) == true,
-        onChanged: (value) => store.set(const ['dns', 'disable_cache'], value)),
-      ListItem.toggle(title: Text(context.tr('Disable DNS cache expiration')), value: store.value(const ['dns', 'disable_expire']) == true,
-        onChanged: (value) => store.set(const ['dns', 'disable_expire'], value)),
+      ListItem.toggle(title: Text(context.tr('Cache DNS results')), value: store.value(const ['dns', 'disable_cache']) != true,
+        onChanged: (value) => store.set(const ['dns', 'disable_cache'], !value)),
+      ListItem.toggle(title: Text(context.tr('Refresh expired DNS records')), value: store.value(const ['dns', 'disable_expire']) != true,
+        onChanged: (value) => store.set(const ['dns', 'disable_expire'], !value)),
       ListItem.input(title: Text(context.tr('DNS cache capacity')), dialogTitle: context.tr('DNS cache capacity'),
         value: '${store.value(const ['dns', 'cache_capacity']) ?? 0}', keyboardType: TextInputType.number,
         validator: (value) { final number = int.tryParse(value ?? ''); return number != null && number >= 0 && number <= 0xffffffff ? null : context.tr('Invalid value'); },
@@ -380,8 +426,7 @@ class RouteConfigPage extends StatelessWidget {
   const RouteConfigPage({super.key, required this.store});
   final ProfileConfigStore store;
   @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) {
-    final revision = store.revision;
-    return BoxPage(title: 'Routing rules', loading: store.saving, children: [
+    return ConfigSectionPage(title: 'Routing rules', store: store, children: [
     generateSection(items: [
       ListItem.open(leading: const GlyphIcon(AppGlyphs.rules), title: Text(context.tr('Routing rules')),
         subtitle: Text('${store.entries(const ['route', 'rules']).length}'), widget: ConfigListPage(store: store, title: 'Routing rules', path: const ['route', 'rules'], initial: const {})),
@@ -391,9 +436,8 @@ class RouteConfigPage extends StatelessWidget {
       ListItem.toggle(title: Text(context.tr('Find process')), value: store.value(const ['route', 'find_process']) == true,
         onChanged: (value) => store.set(const ['route', 'find_process'], value)),
     ]),
-    generateSection(items: [ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit route options')),
-      widget: ConfigValueEditor(title: 'Routing rules', initial: store.value(const ['route']) ?? {},
-        onSave: (value) => store.set(const ['route'], value, expectedRevision: revision, rethrowFailure: true)))]),
+    generateSection(items: [ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Advanced settings')),
+      widget: AdvancedConfigPage(store: store, sections: [('Routing rules', const ['route'], const {})]))]),
     ]);
   });
 }
@@ -401,13 +445,13 @@ class RouteConfigPage extends StatelessWidget {
 class NetworkConfigPage extends StatelessWidget {
   const NetworkConfigPage({super.key, required this.store});
   final ProfileConfigStore store;
-  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) => BoxPage(title: 'Network', loading: store.saving, children: [
+  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) => ConfigSectionPage(title: 'Network', store: store, children: [
     generateSection(items: [
-      ListItem.open(leading: const GlyphIcon(AppGlyphs.devices), title: Text(context.tr('Inbounds')),
-        widget: ConfigListPage(store: store, title: 'Inbounds', path: const ['inbounds'], initial: const {'type': 'socks', 'tag': 'new-socks', 'listen': '127.0.0.1', 'listen_port': 2080})),
-      ListItem.open(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(context.tr('Outbounds')),
-        widget: ConfigListPage(store: store, title: 'Outbounds', path: const ['outbounds'], initial: const {'type': 'direct', 'tag': 'new-direct'})),
-      ListItem.open(leading: const GlyphIcon(AppGlyphs.devices), title: Text(context.tr('Endpoints')),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(context.tr('Proxy nodes and groups')),
+        widget: ConfigListPage(store: store, title: 'Proxy nodes and groups', path: const ['outbounds'], initial: const {})),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.devices), title: Text(context.tr('VPN and local proxy ports')),
+        widget: ConfigListPage(store: store, title: 'VPN and local proxy ports', path: const ['inbounds'], initial: const {})),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.devices), title: Text(context.tr('Tailscale and other networks')),
         widget: ConfigListPage(store: store, title: 'Endpoints', path: const ['endpoints'], initial: const {})),
     ]),
   ]));
@@ -416,7 +460,7 @@ class NetworkConfigPage extends StatelessWidget {
 class LogConfigPage extends StatelessWidget {
   const LogConfigPage({super.key, required this.store});
   final ProfileConfigStore store;
-  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) => BoxPage(title: 'Logs', loading: store.saving, children: [
+  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) => ConfigSectionPage(title: 'Logs', store: store, children: [
     generateSection(items: [
       ListItem.toggle(title: Text(context.tr('Enable logging')), value: store.value(const ['log', 'disabled']) != true,
         onChanged: (value) => store.set(const ['log', 'disabled'], !value)),
@@ -429,6 +473,21 @@ class LogConfigPage extends StatelessWidget {
   ]));
 }
 
+class ConfigSectionPage extends StatelessWidget {
+  const ConfigSectionPage({super.key, required this.title, required this.store, required this.children});
+  final String title;
+  final ProfileConfigStore store;
+  final List<Widget> children;
+  @override Widget build(BuildContext context) {
+    if (context.box.remote) return BoxPage(title: title, children: const [EmptyState('Disconnect remote session to edit local profiles')]);
+    return BoxEditGuard(dirty: false, busy: store.saving, child: AbsorbPointer(absorbing: store.saving || store.loading,
+      child: BoxPage(title: title, loading: store.saving || store.loading, children: [
+        if (store.error != null) ErrorState(store.error!),
+        ...children,
+      ])));
+  }
+}
+
 class ConfigListPage extends StatelessWidget {
   const ConfigListPage({super.key, required this.store, required this.title, required this.path, required this.initial});
   final ProfileConfigStore store;
@@ -436,24 +495,46 @@ class ConfigListPage extends StatelessWidget {
   final List<String> path;
   final Json initial;
 
+  ConfigKind get kind => switch (path.join('.')) {
+    'dns.servers' => ConfigKind.dnsServer, 'dns.rules' => ConfigKind.dnsRule,
+    'route.rules' => ConfigKind.routeRule, 'route.rule_set' => ConfigKind.ruleSet,
+    'inbounds' => ConfigKind.inbound, 'outbounds' => ConfigKind.outbound, 'endpoints' => ConfigKind.endpoint,
+    'experimental.http_rewrite.url_rewrite' => ConfigKind.urlRewrite,
+    'experimental.http_rewrite.header_rewrite' => ConfigKind.headerRewrite,
+    'experimental.http_rewrite.body_rewrite' => ConfigKind.bodyRewrite,
+    'experimental.http_rewrite.map_local' => ConfigKind.mapLocal,
+    'experimental.http_rewrite.map_remote' => ConfigKind.mapRemote,
+    'experimental.scripts.http' => ConfigKind.httpScript, 'experimental.scripts.cron' => ConfigKind.cronScript,
+    _ => throw StateError('Unsupported configuration list: ${path.join('.')}'),
+  };
+  List<String> get usedTags => [
+    ...store.tags(path),
+    if (kind == ConfigKind.outbound) ...store.tags(const ['endpoints']),
+    if (kind == ConfigKind.endpoint) ...store.tags(const ['outbounds']),
+  ];
+
   Future<void> _edit(BuildContext context, [int? index]) async {
+    if (store.saving || store.loading || context.box.remote) return;
     final entries = List<Json>.of(store.entries(path));
     final revision = store.revision;
-    final value = index == null ? Map<String, dynamic>.of(initial) : entries[index];
+    final value = index == null ? initial.isEmpty ? newConfigEntry(kind) : copyConfig(initial) : entries[index];
     if (index == null && value['tag'] is String) {
-      final base = value['tag'] as String, tags = store.tags(path).toSet();
+      final base = value['tag'] as String, tags = usedTags.toSet();
       var suffix = 2;
       while (tags.contains(value['tag'])) { value['tag'] = '$base-${suffix++}'; }
     }
-    await openForm(context, ConfigValueEditor(title: index == null ? 'Add' : 'Edit', initial: value, onSave: (value) async {
-      if (value is! Map) throw const FormatException('JSON object required');
+    await openForm(context, ConfigEntryForm(kind: kind, isNew: index == null, initial: value,
+      outbounds: [...store.tags(const ['outbounds']), ...store.tags(const ['endpoints'])],
+      servers: store.tags(const ['dns', 'servers']), ruleSets: store.tags(const ['route', 'rule_set']), usedTags: usedTags,
+      onSave: (value) async {
       final next = List<Json>.of(entries);
-      if (index == null) next.add(json(value)); else next[index] = json(value);
+      if (index == null) next.add(value); else next[index] = value;
       return store.set(path, next, expectedRevision: revision, rethrowFailure: true);
     }));
   }
 
   @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) {
+    if (context.box.remote) return BoxPage(title: title, children: const [EmptyState('Disconnect remote session to edit local profiles')]);
     final entries = store.entries(path);
     return Scaffold(title: context.tr(title), isLoading: store.saving,
       primaryAction: IconButtonData(glyph: AppGlyphs.add, tooltip: context.tr('Add'), onPressed: store.saving ? null : () => _edit(context)),
@@ -469,7 +550,9 @@ class ConfigListPage extends StatelessWidget {
             itemBuilder: (context, index) {
               final entry = entries[index];
               final revision = store.revision;
-              final label = entry['name'] ?? entry['tag'] ?? entry['action'] ?? entry['type'] ?? '${context.tr(title)} ${index + 1}';
+              final label = entry['name'] ?? (entry['tag'] == null ? null : configStrings(entry['tag']).join(', '))
+                ?? (entry['action'] == null ? null : configOptionLabel(context, 'action', entry['action'].toString()))
+                ?? '${context.tr(title)} ${index + 1}';
               final menu = [
                 PopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => _edit(context, index)),
                 PopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Delete'), danger: true, onPressed: () async {
@@ -481,12 +564,48 @@ class ConfigListPage extends StatelessWidget {
               ];
               return ContextMenuRegion(menuItems: menu, child: Card(radius: AppCorner.xl, onPressed: () => _edit(context, index), child: ListItem(
                 leading: const GlyphIcon(AppGlyphs.profiles), title: Text(label.toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: Text(entry['url']?.toString() ?? entry['path']?.toString() ?? entry['server']?.toString() ?? jsonEncode(entry), maxLines: 2, overflow: TextOverflow.ellipsis),
+                subtitle: Text(configEntrySummary(entry, context.tr), maxLines: 2, overflow: TextOverflow.ellipsis),
                 trailing: BoxMenu(items: menu),
               )));
             },
           ),
     );
+  });
+}
+
+class ConfigResourcesPage extends StatelessWidget {
+  const ConfigResourcesPage({super.key, required this.store, required this.path});
+  final ProfileConfigStore store;
+  final List<String> path;
+  Future<void> _edit(BuildContext context, [String? name]) async {
+    if (store.saving || store.loading || context.box.remote) return;
+    final resources = copyConfig(json(store.value(path))), revision = store.revision;
+    await openForm(context, ConfigEntryForm(kind: ConfigKind.resource, isNew: name == null,
+      initial: {...(name == null ? newConfigEntry(ConfigKind.resource) : json(resources[name])), 'name': name ?? ''},
+      onSave: (value) async {
+        final nextName = value['name'] as String;
+        if (nextName != name && resources.containsKey(nextName)) throw const FormatException('This name is already in use');
+        final next = copyConfig(resources);
+        if (name != null) next.remove(name);
+        next[nextName] = copyConfig(value)..remove('name');
+        return store.set(path, next, expectedRevision: revision, rethrowFailure: true);
+      }));
+  }
+  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) {
+    if (context.box.remote) return const BoxPage(title: 'Resources', children: [EmptyState('Disconnect remote session to edit local profiles')]);
+    final resources = json(store.value(path)), revision = store.revision;
+    return BoxPage(title: 'Resources', loading: store.saving,
+      primaryAction: IconButtonData(glyph: AppGlyphs.add, tooltip: context.tr('Add'), onPressed: store.saving ? null : () => _edit(context)), children: [
+        for (final name in resources.keys) ListItem(title: Text(name),
+          subtitle: Text(configOptionLabel(context, 'data_type', json(resources[name])['data_type']?.toString() ?? 'text')),
+          onTap: () => _edit(context, name), trailing: IconButton(tooltip: context.tr('Delete'), icon: const GlyphIcon(AppGlyphs.delete),
+            onPressed: store.saving ? null : () async {
+              if (await confirm(context, 'Delete', message: name)) {
+                await store.set(path, copyConfig(resources)..remove(name), expectedRevision: revision);
+              }
+            })),
+        if (resources.isEmpty) const EmptyState('No resources yet'),
+      ]);
   });
 }
 

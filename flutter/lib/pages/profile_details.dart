@@ -2,7 +2,6 @@ import 'package:flutter/services.dart';
 import '../widgets.dart';
 import '../components/profile_panel.dart';
 import 'profiles.dart';
-import 'profile_editor.dart';
 import 'configuration.dart';
 
 class ProfileDetailsPage extends StatelessWidget {
@@ -25,6 +24,10 @@ class ProfileDetailsPage extends StatelessWidget {
         ProfileStats(profile: p),
       ])),
       generateSection(items: [
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.customize), title: Text(context.tr('Profile settings')),
+          subtitle: Text(context.tr('Nodes, DNS and routing')), widget: ProfileConfigurationPage(profile: p)),
+      ]),
+      generateSection(items: [
         if (p['remote'] == true) ListItem(title: Text(context.tr('URL')), subtitle: SelectableText(p['url'].toString()),
           trailing: IconButton(icon: const GlyphIcon(AppGlyphs.copy), tooltip: context.tr('Copy'), onPressed: () => Clipboard.setData(ClipboardData(text: p['url'].toString())))),
         ListItem(title: Text(context.tr('Last updated')), subtitle: Text(
@@ -35,8 +38,8 @@ class ProfileDetailsPage extends StatelessWidget {
         ],
       ]),
       generateSection(items: [
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.customize), title: Text(context.tr('Advanced configuration')), widget: ProfileConfigurationPage(profile: p)),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Open configuration')), widget: ProfileEditor(profile: p)),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Advanced settings')),
+          widget: ProfileConfigurationPage(profile: p, section: 'advanced')),
       ]),
     ]);
   }

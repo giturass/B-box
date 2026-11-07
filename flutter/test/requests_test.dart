@@ -183,7 +183,7 @@ void main() {
     expect(tester.getTopLeft(list).dy, greaterThanOrEqualTo(tester.getBottomLeft(title).dy));
     await capture(tester, 'profile-rewriting-config');
     final scrollable = find.descendant(of: find.byType(HttpRewriteConfigPage), matching: find.byType(Scrollable)).first;
-    await tester.scrollUntilVisible(find.text('Edit HTTP rewrite options'), 260, scrollable: scrollable);
+    await tester.scrollUntilVisible(find.text('Advanced settings'), 260, scrollable: scrollable);
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(list).dy, greaterThanOrEqualTo(tester.getBottomLeft(title).dy));
     await capture(tester, 'profile-rewriting-config-resources');
