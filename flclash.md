@@ -146,6 +146,8 @@ MITM 页面直接编辑 HTTPS、域名及排除项、HTTP/2、服务器证书校
 
 [navigation_test.dart](flutter/test/navigation_test.dart) 另检查固定导航在 320 宽、底部安全区、浅色/深色/纯黑及大字号下的高度、底色、页面边界、标签切换和选中语义，并输出固定栏截图。宽屏通过侧栏实际按钮切页，并在截图前核对当前页；外观与 MITM 页直接检查工具栏操作区域像素，防止隐藏首页的按钮残留。复制反馈和保存失败回归另检查顶部按钮仍可点击。[licenses_test.dart](flutter/test/licenses_test.dart) 检查异步加载、共享许可按包分组、搜索及完整可选中正文。
 
+[about_test.dart](flutter/test/about_test.dart) 覆盖版本检查完整/未完成与可升级/不可升级的四种组合，检查等待时禁止重复请求、未完成提示、APK 下载条件和发布页面入口。实际运行结果见 [持久化、配置恢复与后台检查优化验证](app.md#持久化配置恢复与后台检查优化验证)。
+
 [appearance_test.dart](flutter/test/appearance_test.dart) 检查主题选择与重开页面后的偏好，以及旧字体偏好不覆盖默认字体、系统字号运行时变化和既有缩放上下限。导航、状态、内网 IP、出站模式及请求页面的字号场景通过系统缩放模拟，不依赖已退役的应用偏好。
 
 [profiles_test.dart](flutter/test/profiles_test.dart) 覆盖新建与二进制导入的内容/元数据、添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、自动更新校验、选中配置定位、列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、排序冲突及远程会话隔离。[navigation_test.dart](flutter/test/navigation_test.dart) 另输出配置编辑与排序弹层在窄屏、大字号和宽屏下的截图；这些是布局回归产物，配置页尚未声明与上游逐像素一致。

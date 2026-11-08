@@ -207,13 +207,13 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 [PreferencePersistenceTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/database/preference/PreferencePersistenceTest.kt) 使用实际 Room 检查普通设置重新读取、提交失败后的缓存恢复、后续排队值保留、取消与回滚顺序，以及 UTF-8 字符串集合。`ProfileRecoveryTest` 另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。[ReleaseCheckerTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ReleaseCheckerTest.kt) 用虚拟时间检查总时限、并发上限、失败候选保留、缓存失效及取消后重试。
 
-模拟器镜像名称依据 [Google SDK 系统镜像清单](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml)；16 KiB 测试方式见 [Android 官方文档](https://developer.android.com/guide/practices/page-sizes#test)。smoke 读取设备实际页大小，普通镜像要求 4096、`ps16k` 要求 16384，不能仅凭镜像名称记录通过。所有矩阵均为临时 x86_64 模拟器，不代表 ARM64 实机、真实 LSPosed 注入或系统 CA 模块安装已验收。
+模拟器镜像名称依据 [Google SDK 系统镜像清单](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml)；16 KiB 测试方式见 [Android 官方文档](https://developer.android.com/guide/practices/page-sizes)。smoke 读取设备实际页大小，普通镜像要求 4096、`ps16k` 要求 16384，不能仅凭镜像名称记录通过。所有矩阵均为临时 x86_64 模拟器，不代表 ARM64 实机、真实 LSPosed 注入或系统 CA 模块安装已验收。
 
 该原生套件还覆盖超限订阅在 URL 导入、手动及自动更新时保留原数据和服务；备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、慢速响应与限额边界由 [核心订阅测试](libbox/ui_profile_test.go) 覆盖。
 
 模拟器统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、远程 JSON 导入、VPN 授权、启停、实际内核分组及进程重启后配置保留；原生组运行全部仪器测试并拒绝零测试结果。`build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
 
-当前 smoke 仅使用 `system-images;android-31;google_apis;x86_64`，其他系统版本不在自动 smoke 范围内。实际运行结果仍须附对应 SHA；自有 CA 客户端测试不等于第三方信任库、CT/ECH 或 Root 模块的兼容性验收。
+实际 smoke 运行结果须附对应 SHA；自有 CA 客户端测试不等于第三方信任库、CT/ECH 或 Root 模块的兼容性验收。
 
 导入 smoke 等待弹层保存按钮在连续两次窗口观察中位置稳定后点击，记录实际点击边界；保存后须返回带“启动”按钮及导入配置名的仪表盘，不能以表单内的预填名称作为导入成功依据。
 
@@ -240,6 +240,29 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 [ConnectionStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ConnectionStreamTest.kt) 检查增量计数、最终关闭计数、历史淘汰、DNS 过滤、快照隔离及 3000 条记录经过状态合并和恢复订阅后的消息内容。[NetworkRefreshTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/NetworkRefreshTest.kt) 用虚拟时间覆盖网络通知、十秒/六十秒补查、前后台/熄屏取消和突发通知合并。两者纳入现有 JVM 测试，不代替真实 Wi-Fi/蜂窝切换、热点及性能验收。
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
+
+### 持久化、配置恢复与后台检查优化验证
+
+2026-11-08，最终测试源码为 `3ea124a980b0c8bdd205cc8ebdf79633a991210b`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42477676213)，全部 job 通过。后续补充验证记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。
+
+- 核心扩展、HTTP/MITM race、路由与 Root CA 回归通过，包含新增的 HTTP 请求剩余时限检查。
+- Flutter 分析、228 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 85 条 info，0 条 warning/error。关于页新增场景见 [Flutter 验证范围](flclash.md#验证与升级参考版本)。
+- 已读取 `native-unit-tests` 的 15 份 XML，67 项 JVM 测试全部通过，无失败、错误或跳过，包含 5 项版本检查并发、时限及缓存回归。`play` 编译、模拟器应用/仪器测试 APK 构建与打包检查通过。
+
+已逐项核对以下 Artifact 的 `results.json` 和 `native-tests.txt`：源码 SHA 均与上述提交一致，每个环境的 UI smoke 与全部 40 项原生测试通过。所有设备均为 x86_64 模拟器，页大小为实际读取值。
+
+| 环境与结果产物 | 实际页大小 | 采集来源 |
+| --- | --- | --- |
+| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/42477676213/artifacts/13615909545) | 4096 字节 | `/proc/self/smaps` |
+| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/42477676213/artifacts/13616164111) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/42477676213/artifacts/13616737350) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/42477676213/artifacts/13615829585) | 16384 字节 | `getconf` |
+
+[首轮测试](https://github.com/giturass/B-box/actions/runs/42476182525) 暴露了 API 24 备份回滚测试夹具未制造预期写入失败的问题；最终测试提交按不同版本 AtomicFile 的写入路径修正故障注入，保留全部回滚断言。最终运行的第一次尝试分别遇到 Gradle 下载 HTTP 504 和 API 24 的 `Messenger has stopped` 系统弹窗；在相同 SHA 上重试两个失败 job 后均通过。
+
+[ARM64 Release 构建](https://github.com/giturass/B-box/actions/runs/42476210954) 在实现提交 `82ffed86f57891f68fd055d707124a1b1714ba14` 上通过，独立构建核心/Flutter Release AAR 和使用既有密钥签名的 R8 APK，并通过安装身份、API 24、ARM64、签名及 LSPosed 入口/框架 API 排除检查。最终测试提交相较此提交仅修改 Android 测试夹具，应用、核心、Flutter 和构建源码一致。`publish_release=false`，未发布 GitHub Release；[签名 APK Artifact](https://github.com/giturass/B-box/actions/runs/42476210954/artifacts/13615846557) 可供下载。
+
+本机仅完成源码约束、Go 格式、Python 语法及差异/文档链接静态检查，未在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未验收 ARM64 实机、真实 LSPosed 注入、系统 CA 模块安装或第三方应用信任，也没有新增人工视觉或实机性能验收结论。
 
 ### 脚本修复合并验证
 
@@ -372,7 +395,7 @@ API 31 smoke 在执行模拟器阶段被取消，工作流总体结果为 `cance
 
 ### MITM 连接与正文处理优化验证
 
-2026-11-04，验证源码为 `aa734faab8ae5edf76dba56b88aa5e8986fa47dc`，包含取消固定连接总数上限、记录启停保留连接、正文处理预算/编码/流式转发及 HTTP/Cron 脚本资源隔离，具体行为见 [核心请求调试](libbox.md#httphttps-请求调试)。自动 Android smoke 按当前范围仅保留 API 31；后续记录结果的 Markdown 提交不改变应用源码。
+2026-11-04，验证源码为 `aa734faab8ae5edf76dba56b88aa5e8986fa47dc`，包含取消固定连接总数上限、记录启停保留连接、正文处理预算/编码/流式转发及 HTTP/Cron 脚本资源隔离，具体行为见 [核心请求调试](libbox.md#httphttps-请求调试)。当次自动 Android smoke 仅运行 API 31；后续记录结果的 Markdown 提交不改变应用源码。
 
 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/41833768526) 由代码 push 自动触发，全部成功：
 
@@ -383,7 +406,7 @@ API 31 smoke 在执行模拟器阶段被取消，工作流总体结果为 `cance
 
 已读取本次 `native-unit-tests` 的 12 份 JVM XML，以及 `android-smoke-api-31` 的 `results.json`、`native-tests.txt` 和 `mitm-origin.json`。设备报告为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（来源 `getconf`），结果中的源码 SHA 与上述提交一致；HTTPS/TCP 测试服务器分别收到 `/probe?raw=1;2` 和 `/tcp-stream`，Host 保留原始测试目标。
 
-验证期间修正了旧镜像缺少 `getconf`、模拟器安装/宿主空间不足，以及服务取消 Cron 请求后测试服务器的 `Broken pipe`；前序失败见 [41818907770](https://github.com/giturass/B-box/actions/runs/41818907770) 和 [41820772969](https://github.com/giturass/B-box/actions/runs/41820772969)。当前最终 smoke 结果仅覆盖 API 31，不将已移除的其他镜像计为本轮通过。
+验证期间修正了旧镜像缺少 `getconf`、模拟器安装/宿主空间不足，以及服务取消 Cron 请求后测试服务器的 `Broken pipe`；前序失败见 [41818907770](https://github.com/giturass/B-box/actions/runs/41818907770) 和 [41820772969](https://github.com/giturass/B-box/actions/runs/41820772969)。当次最终 smoke 结果仅覆盖 API 31，不将当时已移除的其他镜像计为通过。
 
 本机完成差异、Go 格式、Python 语法、`python3 tools/verify_newui.py`、文档链接/旧引用及 Actions 结构/表达式检查（`actionlint -shellcheck='' -pyflakes=''`），未在本机编译或运行 Go/Flutter/JVM/设备测试。截图检查范围见 [flclash.md](flclash.md#验证与升级参考版本)。本轮未触发签名 ARM64 Release/R8 构建或发布 APK，未覆盖其他 Android 版本、16 KiB 页运行、ARM64 实机性能、真实 Root CA 模块安装或第三方应用信任；Root CA 模块当前的 namespace 覆盖和限制见 [请求抓取与 MITM](#请求抓取与-mitm)。
 
