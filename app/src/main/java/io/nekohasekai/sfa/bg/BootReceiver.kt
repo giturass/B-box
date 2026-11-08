@@ -3,6 +3,7 @@ package io.nekohasekai.sfa.bg
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import io.nekohasekai.sfa.database.Settings
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
@@ -33,8 +34,13 @@ class BootReceiver : BroadcastReceiver() {
                     }
                 }
             } finally {
-                Settings.dataStore.flush()
-                pendingResult.finish()
+                try {
+                    Settings.dataStore.flush()
+                } catch (error: Exception) {
+                    Log.e("BootReceiver", "Unable to persist service state", error)
+                } finally {
+                    pendingResult.finish()
+                }
             }
         }
     }

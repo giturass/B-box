@@ -5,31 +5,38 @@ import androidx.preference.PreferenceDataStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.ConcurrentHashMap
 
 @Suppress("MemberVisibilityCanBePrivate", "unused")
 open class RoomPreferenceDataStore(createDao: () -> KeyValueEntity.Dao) : PreferenceDataStore() {
     private val kvPairDao by lazy(createDao)
     private val writeAccess = Any()
     private val pendingWrites = Channel<() -> Unit>(Channel.UNLIMITED)
-    private val cache: MutableMap<String, KeyValueEntity> by lazy {
-        ConcurrentHashMap<String, KeyValueEntity>().apply {
-            kvPairDao.all().forEach { put(it.key, it) }
+    private class Mutation(val values: Map<String, KeyValueEntity?>, val reset: Boolean, val optimistic: Boolean) {
+        fun applyTo(target: MutableMap<String, KeyValueEntity>) {
+            if (reset) target.clear()
+            values.forEach { (key, value) -> if (value == null) target.remove(key) else target[key] = value }
         }
     }
+    private class State(val committed: MutableMap<String, KeyValueEntity>) {
+        val pending = mutableListOf<Mutation>()
+        @Volatile var visible: Map<String, KeyValueEntity> = committed.toMap()
+    }
+    private val state by lazy {
+        State(kvPairDao.all().associateByTo(mutableMapOf()) { it.key })
+    }
+    private val cache get() = state.visible
+    // Only the serial writer accesses this; each flush reports failures since the last flush.
+    private var writeError: Exception? = null
 
     init {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             for (write in pendingWrites) {
-                try {
-                    write()
-                } catch (exception: Exception) {
-                    Log.e("RoomPreferenceDataStore", "write preferences", exception)
-                }
+                write()
             }
         }
     }
@@ -42,37 +49,71 @@ open class RoomPreferenceDataStore(createDao: () -> KeyValueEntity.Dao) : Prefer
     suspend fun flush() {
         val completion = CompletableDeferred<Unit>()
         synchronized(writeAccess) {
-            check(pendingWrites.trySend { completion.complete(Unit) }.isSuccess)
+            check(pendingWrites.trySend {
+                val error = writeError
+                writeError = null
+                if (error == null) completion.complete(Unit) else completion.completeExceptionally(error)
+            }.isSuccess)
         }
         completion.await()
     }
 
     /** Commit a related set in one Room insert transaction and report write failures. */
     suspend fun putBatchConfirmed(entities: List<KeyValueEntity>) {
-        val values = cache
-        val completion = CompletableDeferred<Unit>()
-        synchronized(writeAccess) {
-            check(pendingWrites.trySend {
-                try {
-                    kvPairDao.putAll(entities)
-                    synchronized(writeAccess) { entities.forEach { values[it.key] = it } }
-                    entities.forEach { fireChangeListener(it.key) }
-                    completion.complete(Unit)
-                } catch (error: Exception) {
-                    completion.completeExceptionally(error)
-                }
-            }.isSuccess)
+        initialize()
+        val copies = entities.map { entity ->
+            KeyValueEntity(entity.key).apply { valueType = entity.valueType; value = entity.value.copyOf() }
         }
-        completion.await()
+        val completion = CompletableDeferred<Unit>()
+        enqueue(Mutation(copies.associateBy { it.key }, reset = false, optimistic = false), completion) {
+            kvPairDao.putAll(copies)
+        }
+        // A caller rolling back after cancellation must not race an unobserved queued commit.
+        withContext(NonCancellable) { completion.await() }
     }
 
     private fun put(entity: KeyValueEntity) {
-        val values = cache
+        enqueue(Mutation(mapOf(entity.key to entity), reset = false, optimistic = true)) { kvPairDao.put(entity) }
+    }
+
+    private fun enqueue(mutation: Mutation, completion: CompletableDeferred<Unit>? = null, write: () -> Unit) {
+        val current = state
+        val changed: Set<String>
         synchronized(writeAccess) {
-            values[entity.key] = entity
-            check(pendingWrites.trySend { kvPairDao.put(entity) }.isSuccess)
+            current.pending.add(mutation)
+            changed = publish(current)
+            check(pendingWrites.trySend {
+                val error = runCatching(write).exceptionOrNull()
+                val committedChanges = synchronized(writeAccess) {
+                    if (error == null) mutation.applyTo(current.committed)
+                    current.pending.remove(mutation)
+                    publish(current)
+                }
+                committedChanges.forEach(::fireChangeListener)
+                if (error == null) completion?.complete(Unit)
+                else if (completion != null) completion.completeExceptionally(error)
+                else {
+                    val failure = error as? Exception ?: IllegalStateException("Unable to save preferences", error)
+                    if (writeError == null) writeError = failure
+                    else if (writeError !== failure && writeError!!.suppressed.size < 16) writeError!!.addSuppressed(failure)
+                    Log.e("RoomPreferenceDataStore", "write preferences", error)
+                }
+            }.isSuccess)
         }
-        fireChangeListener(entity.key)
+        changed.forEach(::fireChangeListener)
+    }
+
+    /** Rebuild from durable values so a failed/confirmed write cannot erase newer optimistic writes. */
+    private fun publish(current: State): Set<String> {
+        val visible = current.committed.toMutableMap()
+        current.pending.filter { it.optimistic }.forEach { it.applyTo(visible) }
+        val changed = (current.visible.keys + visible.keys).filterTo(mutableSetOf()) { key ->
+            val before = current.visible[key]
+            val after = visible[key]
+            before?.valueType != after?.valueType || (before != null && after != null && !before.value.contentEquals(after.value))
+        }
+        current.visible = visible
+        return changed
     }
 
     fun getBoolean(key: String) = cache[key]?.boolean
@@ -88,11 +129,7 @@ open class RoomPreferenceDataStore(createDao: () -> KeyValueEntity.Dao) : Prefer
     fun getStringSet(key: String) = cache[key]?.stringSet
 
     fun reset() {
-        val values = cache
-        synchronized(writeAccess) {
-            values.clear()
-            check(pendingWrites.trySend { kvPairDao.reset() }.isSuccess)
-        }
+        enqueue(Mutation(emptyMap(), reset = true, optimistic = true)) { kvPairDao.reset() }
     }
 
     override fun getBoolean(key: String, defValue: Boolean) = getBoolean(key) ?: defValue
@@ -136,12 +173,7 @@ open class RoomPreferenceDataStore(createDao: () -> KeyValueEntity.Dao) : Prefer
     }
 
     fun remove(key: String) {
-        val values = cache
-        synchronized(writeAccess) {
-            values.remove(key)
-            check(pendingWrites.trySend { kvPairDao.delete(key) }.isSuccess)
-        }
-        fireChangeListener(key)
+        enqueue(Mutation(mapOf(key to null), reset = false, optimistic = true)) { kvPairDao.delete(key) }
     }
 
     private val listeners = HashSet<OnPreferenceDataStoreChangeListener>()
@@ -151,7 +183,13 @@ open class RoomPreferenceDataStore(createDao: () -> KeyValueEntity.Dao) : Prefer
             synchronized(listeners) {
                 listeners.toList()
             }
-        listeners.forEach { it.onPreferenceDataStoreChanged(this, key) }
+        listeners.forEach { listener ->
+            try {
+                listener.onPreferenceDataStoreChanged(this, key)
+            } catch (error: Exception) {
+                Log.e("RoomPreferenceDataStore", "preference listener", error)
+            }
+        }
     }
 
     fun registerChangeListener(listener: OnPreferenceDataStoreChangeListener) {

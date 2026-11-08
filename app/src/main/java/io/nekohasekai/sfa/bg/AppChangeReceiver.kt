@@ -32,7 +32,6 @@ class AppChangeReceiver : BroadcastReceiver() {
                     return@launch
                 }
                 rescanAllApps()
-                Settings.dataStore.flush()
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to rescan apps", e)
                 withContext(Dispatchers.Main) {
@@ -47,7 +46,7 @@ class AppChangeReceiver : BroadcastReceiver() {
     private suspend fun rescanAllApps() {
         Log.d(TAG, "rescanning all apps")
         val chinaApps = PerAppProxyScanner.scanAllChinaApps()
-        Settings.perAppProxyManagedList = chinaApps
+        Settings.saveManagedApps(chinaApps)
         Log.d(TAG, "rescan complete, found ${chinaApps.size} china apps")
     }
 }

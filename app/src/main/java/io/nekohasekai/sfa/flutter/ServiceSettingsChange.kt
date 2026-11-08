@@ -18,8 +18,9 @@ internal object ServiceSettingsChange {
             restart(false)
         } catch (error: Exception) {
             withContext(NonCancellable) {
-                runCatching { save(previous) }.exceptionOrNull()?.let(error::addSuppressed)
-                if (restartAttempted) {
+                val restoreError = runCatching { save(previous) }.exceptionOrNull()
+                restoreError?.let(error::addSuppressed)
+                if (restartAttempted && restoreError == null) {
                     runCatching { restart(true) }.exceptionOrNull()?.let(error::addSuppressed)
                 }
             }

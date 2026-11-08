@@ -127,13 +127,23 @@ jobs:
   smoke:
     needs: android
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
         include:
+          - api: '24'
+            target: google_apis
+            page-size: 4096
           - api: '31'
             target: google_apis
+            page-size: 4096
+          - api: '36'
+            target: google_apis
+            page-size: 4096
+          - api: '36'
+            target: google_apis_ps16k
+            page-size: 16384
     steps:
       - uses: actions/checkout@v5
       - name: Make room for emulator data
@@ -154,17 +164,19 @@ jobs:
       - uses: reactivecircus/android-emulator-runner@v2
         env:
           BBOX_SMOKE_SYSTEM_IMAGE: system-images;android-${{ matrix.api }};${{ matrix.target }};x86_64
+          BBOX_SMOKE_PAGE_SIZE: ${{ matrix.page-size }}
         with:
           api-level: ${{ matrix.api }}
           target: ${{ matrix.target }}
           arch: x86_64
           profile: pixel_2
           disk-size: 4096M
+          emulator-boot-timeout: 600
           disable-animations: true
           script: python3 tools/android_smoke.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: android-smoke-api-${{ matrix.api }}
+          name: android-smoke-api-${{ matrix.api }}-${{ matrix.target }}
           path: build/android-smoke/
           retention-days: 7

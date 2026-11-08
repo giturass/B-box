@@ -158,10 +158,34 @@ func TestUIHTTPGetMetadataSizeAndRedirectLimit(t *testing.T) {
 		http.Redirect(w, r, "/loop", http.StatusFound)
 	}))
 	defer server.Close()
-	if _, err := UIHTTPGet(server.URL+"/large"); err == nil {
+	if _, err := UIHTTPGet(server.URL + "/large"); err == nil {
 		t.Fatal("oversized release metadata accepted")
 	}
-	if _, err := UIHTTPGet(server.URL+"/loop"); err == nil {
+	if _, err := UIHTTPGet(server.URL + "/loop"); err == nil {
 		t.Fatal("unbounded release redirect loop")
+	}
+}
+
+func TestUIHTTPGetSharedDeadline(t *testing.T) {
+	cancelled := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+		close(cancelled)
+	}))
+	defer server.Close()
+	if _, err := UIHTTPGetWithTimeout(server.URL, 100); err == nil {
+		t.Fatal("metadata timeout must cancel a pending response body")
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed-out metadata request still owns its connection")
+	}
+	for _, timeout := range []int64{0, -1, 15001} {
+		if _, err := UIHTTPGetWithTimeout(server.URL, timeout); err == nil {
+			t.Fatalf("accepted invalid timeout %d", timeout)
+		}
 	}
 }

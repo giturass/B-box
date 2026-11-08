@@ -116,6 +116,23 @@ class ServiceSettingsChangeTest {
         assertEquals(listOf("Recovery failed"), failure.suppressed.map { it.message })
     }
 
+    @Test fun failedSettingsRollbackDoesNotRestartUnrestoredSettings() = runTest {
+        val startup = IllegalStateException("Startup failed")
+        val rollback = IllegalStateException("Settings rollback failed")
+        val restarts = mutableListOf<Boolean>()
+        val failure = runCatching {
+            ServiceSettingsChange.apply(previous, values, {
+                if (it == previous) throw rollback
+            }) { recover ->
+                restarts.add(recover)
+                throw startup
+            }
+        }.exceptionOrNull()!!
+        assertSame(startup, failure)
+        assertEquals(listOf(rollback), failure.suppressed.toList())
+        assertEquals(listOf(false), restarts)
+    }
+
     @Test fun cancellationStillRestoresTheSettingAndRecovers() = runTest {
         var saved: Map<String, Any?> = previous
         var recovered = false

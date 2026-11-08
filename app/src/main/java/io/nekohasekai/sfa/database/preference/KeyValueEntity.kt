@@ -119,9 +119,10 @@ class KeyValueEntity() : Parcelable {
         val stream = ByteArrayOutputStream()
         val intBuffer = ByteBuffer.allocate(4)
         for (v in value) {
+            val bytes = v.toByteArray()
             intBuffer.rewind()
-            stream.write(intBuffer.putInt(v.length).array())
-            stream.write(v.toByteArray())
+            stream.write(intBuffer.putInt(bytes.size).array())
+            stream.write(bytes)
         }
         this.value = stream.toByteArray()
         return this

@@ -7,6 +7,16 @@ import io.nekohasekai.sfa.database.RemoteServer
 object CommandTarget {
     private val access = Any()
     private var activeRemoteServer: RemoteServer? = null
+    private var generation = 0L
+
+    fun localSession(): Long = synchronized(access) {
+        check(activeRemoteServer == null) { "Local profiles cannot modify a remote sing-box session" }
+        generation
+    }
+
+    fun requireLocalSession(expected: Long) = synchronized(access) {
+        check(activeRemoteServer == null && generation == expected) { "Session changed; retry the local profile operation" }
+    }
 
     // One gRPC channel per remote session: standalone calls reuse it instead of
     // paying a TCP+TLS handshake (and leaking the connection) on every action.
@@ -24,6 +34,7 @@ object CommandTarget {
             previousClient = sharedRemoteClient
             sharedRemoteClient = null
             activeRemoteServer = server
+            generation++
         }
         previousClient?.apply {
             runCatching {

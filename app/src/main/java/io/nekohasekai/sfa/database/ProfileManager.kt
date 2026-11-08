@@ -42,11 +42,8 @@ object ProfileManager {
 
     suspend fun get(id: Long): Profile? = instance.profileDao().get(id)
 
-    suspend fun create(profile: Profile, andSelect: Boolean = false): Profile {
+    suspend fun create(profile: Profile): Profile {
         profile.id = instance.profileDao().insert(profile)
-        if (andSelect) {
-            Settings.selectedProfile = profile.id
-        }
         for (callback in callbacks.toList()) {
             callback()
         }

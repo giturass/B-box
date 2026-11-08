@@ -11,6 +11,7 @@ import androidx.work.WorkerParameters
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
+import io.nekohasekai.sfa.database.ProfileSubscription
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.HTTPClient
 import kotlinx.coroutines.CancellationException
@@ -71,15 +72,19 @@ class UpdateProfileWork {
                     continue
                 }
                 try {
-                    ProfileContent.mutex.withLock {
-                        val current = ProfileManager.get(profile.id) ?: return@withLock
-                        if (current.typed.type != TypedProfile.Type.Remote || !current.typed.autoUpdate) return@withLock
+                    val snapshot = ProfileContent.mutex.withLock {
+                        val current = ProfileManager.get(profile.id) ?: return@withLock null
+                        if (current.typed.type != TypedProfile.Type.Remote || !current.typed.autoUpdate) return@withLock null
                         val age = (System.currentTimeMillis() - current.typed.lastUpdated.time) / 1000L
-                        if (age < current.typed.autoUpdateInterval * 60) return@withLock
-                        val content = HTTPClient.getString(current.typed.remoteURL)
+                        if (age < current.typed.autoUpdateInterval * 60) return@withLock null
+                        ProfileSubscription.captureLocked(current)
+                    } ?: continue
+                    val content = HTTPClient.getString(snapshot.url)
+                    ProfileContent.mutex.withLock {
+                        val current = snapshot.currentLocked()
                         val service = BackgroundProfileService(context)
                         try {
-                            ProfileContent.replaceLocked(current, content, updatedAt = Date(), applySelected = service::apply)
+                            ProfileContent.replaceLocked(current, content, updatedAt = Date(), beforeSave = service::prepare, applySelected = service::apply)
                         } finally {
                             service.close()
                         }

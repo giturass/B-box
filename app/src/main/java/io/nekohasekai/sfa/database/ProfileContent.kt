@@ -2,7 +2,10 @@ package io.nekohasekai.sfa.database
 
 import android.util.AtomicFile
 import io.nekohasekai.libbox.Libbox
+import io.nekohasekai.sfa.bg.BoxService
+import io.nekohasekai.sfa.constant.Status
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.io.OutputStream
 import java.security.MessageDigest
@@ -12,6 +15,8 @@ import java.util.concurrent.atomic.AtomicLong
 /** Serializes foreground edits with the background subscription updater. */
 internal object ProfileContent {
     val mutex = Mutex()
+    // Protect only persistence and startup reads. Never hold this while waiting for a restart.
+    val snapshotMutex = Mutex()
     private val writeGeneration = AtomicLong()
     // File timestamps/length alone can miss equal-size writes and recovery within one clock tick.
     val generation: Long get() = writeGeneration.get()
@@ -24,12 +29,20 @@ internal object ProfileContent {
         Libbox.checkConfig(content)
     }
 
+    fun requireStableService(status: Status = BoxService.currentStatus) {
+        require(status in setOf(Status.Stopped, Status.Started) &&
+            BoxService.currentStatus in setOf(Status.Stopped, Status.Started)) {
+            "Wait for the service to finish starting or stopping"
+        }
+    }
+
     /** Caller holds [mutex] until the save, service application and any recovery finish. */
     suspend fun replaceLocked(
         profile: Profile,
         content: String,
         expectedRevision: String? = null,
         updatedAt: Date? = null,
+        beforeSave: suspend () -> Unit = { requireStableService() },
         applySelected: suspend (recover: Boolean) -> Unit,
     ) {
         val file = File(profile.typed.path)
@@ -44,6 +57,7 @@ internal object ProfileContent {
         val savedAt = updatedAt ?: if (changed && profile.typed.type == TypedProfile.Type.Local) Date() else null
 
         val apply = changed && profile.id == Settings.selectedProfile
+        if (apply) beforeSave()
         val previousUpdatedAt = Date(profile.typed.lastUpdated.time)
         val previousMode = Settings.serviceMode
         val restore = mutableListOf<suspend () -> Unit>()
@@ -56,18 +70,21 @@ internal object ProfileContent {
             check(ProfileManager.update(profile) == 1) { "Profile no longer exists" }
         }
         if (apply) restore.add {
-            if (Settings.serviceMode != previousMode) Settings.serviceMode = previousMode
-            Settings.dataStore.flush()
+            if (Settings.serviceMode != previousMode) Settings.saveServiceMode(previousMode)
         }
         ProfileChange.apply(
             save = {
-                if (changed) write(file, cleaned)
-                if (savedAt != null) {
-                    profile.typed.lastUpdated = savedAt
-                    check(ProfileManager.update(profile) == 1) { "Profile no longer exists" }
+                snapshotMutex.withLock {
+                    if (apply) beforeSave()
+                    if (changed) write(file, cleaned)
+                    if (savedAt != null) {
+                        profile.typed.lastUpdated = savedAt
+                        check(ProfileManager.update(profile) == 1) { "Profile no longer exists" }
+                    }
                 }
             },
             restore = restore,
+            restoreBarrier = { work -> snapshotMutex.withLock { work() } },
             applyService = { recover -> if (apply) applySelected(recover) },
         )
     }

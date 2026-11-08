@@ -24,6 +24,7 @@ import io.nekohasekai.sfa.vendor.PackageQueryManager
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -49,6 +50,8 @@ import java.security.cert.X509Certificate
 import java.util.Date
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLSocket
@@ -833,6 +836,132 @@ class ProfileRecoveryTest {
         }
     }
 
+    @Test fun contentAndBackupWritesRejectServiceTransitionsBeforeChangingData() = withRunningProfile { activity, profiles, id ->
+        val before = profiles.get(id)
+        val running = BoxService.dashboardServer
+        val backups = BoxBackups(activity, { emptyMap() }, {}, { _, _ -> fail("A rejected restore must not restart") }, {}, { _, _ -> }, BoxWebDAV(activity))
+        val backup = backups.create()
+        val generation = ProfileContent.generation
+        try {
+            for (status in listOf(Status.Starting, Status.Stopping)) {
+                withContext(Dispatchers.Main) { activity.serviceStatus.value = status }
+                assertTrue(runCatching { profiles.writeContent(id, """{"log":{"level":"debug"}}""", BoxProfiles.revision("{}")) }.exceptionOrNull() is IllegalArgumentException)
+                assertTrue(runCatching { profiles.save(mapOf("id" to id, "name" to "Rejected edit", "content" to """{"log":{"level":"debug"}}""", "revision" to BoxProfiles.revision("{}"))) }.exceptionOrNull() is IllegalArgumentException)
+                assertTrue(runCatching { backups.restore(backup, "all", "Compatible") }.exceptionOrNull() is IllegalArgumentException)
+                assertEquals("{}", profiles.read(id))
+                assertEquals(before.name, profiles.get(id).name)
+                assertEquals(before.typed.lastUpdated.time, profiles.get(id).typed.lastUpdated.time)
+                assertEquals(generation, ProfileContent.generation)
+                assertSame(running, BoxService.dashboardServer)
+            }
+        } finally { withContext(Dispatchers.Main) { activity.serviceStatus.value = Status.Started } }
+    }
+
+    @Test fun reloadWithoutLocationPermissionRollsBackAndRecovers() = withRunningProfile { activity, profiles, id ->
+        val permission = if (Build.VERSION.SDK_INT < 29) android.Manifest.permission.ACCESS_FINE_LOCATION else android.Manifest.permission.ACCESS_BACKGROUND_LOCATION
+        assertEquals(android.content.pm.PackageManager.PERMISSION_DENIED, activity.checkSelfPermission(permission))
+        val before = profiles.get(id).typed.lastUpdated.time
+        val config = """{"outbounds":[{"type":"direct","tag":"direct"}],"route":{"rules":[{"wifi_ssid":["B-box test network"],"action":"route","outbound":"direct"}]}}"""
+        Libbox.checkConfig(config)
+        val failure = runCatching { profiles.writeContent(id, config, BoxProfiles.revision("{}")) }.exceptionOrNull()
+        assertNotNull("Missing location permission must fail a reload", failure)
+        assertTrue(failure!!.message.orEmpty().contains("Location permission"))
+        assertEquals("{}", profiles.read(id))
+        assertEquals(before, profiles.get(id).typed.lastUpdated.time)
+        assertEquals(Status.Started, activity.serviceStatus.value)
+        assertEquals("{}", BoxService.dashboardConfig.value?.content)
+        assertEquals(0, failure.suppressed.size)
+    }
+
+    @Test fun failedProfileFormSaveRestoresBothMetadataAndContent() = withRunningProfile { activity, profiles, id ->
+        val before = profiles.get(id)
+        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { occupied ->
+            val failure = runCatching { profiles.save(mapOf("id" to id, "name" to "Failed edit",
+                "content" to occupiedPortConfig(occupied.localPort), "revision" to BoxProfiles.revision("{}"))) }.exceptionOrNull()
+            assertNotNull(failure)
+            assertEquals(before.name, profiles.get(id).name)
+            assertEquals(before.typed.lastUpdated.time, profiles.get(id).typed.lastUpdated.time)
+            assertEquals("{}", profiles.read(id))
+            assertEquals(Status.Started, activity.serviceStatus.value)
+        }
+    }
+
+    @Test fun pendingSubscriptionDownloadAllowsEditingAndRejectsItsStaleResult() {
+        val release = CountDownLatch(1)
+        SubscriptionServer("""{"log":{"level":"debug"}}""", release).use { server ->
+            withRunningProfile(server.url) { activity, profiles, id -> coroutineScope {
+                val update = async { runCatching { profiles.update(id) } }
+                val edited = """{"log":{"level":"warn"}}"""
+                try {
+                    withTimeout(10_000) { while (server.requests.get() == 0) delay(10) }
+                    withTimeout(10_000) {
+                        assertEquals("{}", profiles.read(id))
+                        profiles.writeContent(id, edited, BoxProfiles.revision("{}"))
+                    }
+                    assertFalse(update.isCompleted)
+                } finally { release.countDown() }
+                assertTrue(update.await().exceptionOrNull()?.message.orEmpty().contains("changed during download"))
+                assertEquals(edited, profiles.read(id))
+                assertEquals(0L, profiles.get(id).typed.lastUpdated.time)
+                assertEquals(Status.Started, activity.serviceStatus.value)
+            } }
+        }
+    }
+
+    @Test fun pendingAutomaticDownloadDoesNotBlockDisablingTheSubscription() {
+        val release = CountDownLatch(1)
+        SubscriptionServer("""{"log":{"level":"debug"}}""", release).use { server ->
+            withRunningProfile(server.url) { activity, profiles, id -> coroutineScope {
+                val profile = profiles.get(id)
+                profile.typed.autoUpdate = true
+                ProfileManager.update(profile)
+                val update = async { UpdateProfileWork.updateProfiles(activity.applicationContext) }
+                try {
+                    withTimeout(10_000) { while (server.requests.get() == 0) delay(10) }
+                    withTimeout(10_000) { profiles.save(mapOf("id" to id, "name" to "Disabled update", "url" to server.url, "autoUpdate" to false)) }
+                    assertFalse(update.isCompleted)
+                } finally { release.countDown() }
+                assertFalse(update.await())
+                assertEquals("{}", profiles.read(id))
+                assertFalse(profiles.get(id).typed.autoUpdate)
+                assertEquals(0L, profiles.get(id).typed.lastUpdated.time)
+            } }
+        }
+    }
+
+    @Test fun urlImportDownloadsWithoutHoldingTheConfigurationLock() {
+        val release = CountDownLatch(1)
+        SubscriptionServer("{}", release).use { server ->
+            withRunningProfile { _, profiles, id -> coroutineScope {
+                val imported = async { profiles.save(mapOf("name" to "Pending import", "url" to server.url)) }
+                try {
+                    withTimeout(10_000) { while (server.requests.get() == 0) delay(10) }
+                    withTimeout(10_000) { profiles.save(mapOf("id" to id, "name" to "Edited during import")) }
+                    assertFalse(imported.isCompleted)
+                } finally { release.countDown() }
+                val importedId = imported.await()
+                try {
+                    assertEquals("Edited during import", profiles.get(id).name)
+                    assertEquals(id, Settings.selectedProfile)
+                    assertEquals("{}", profiles.read(importedId))
+                } finally { profiles.delete(importedId) }
+            } }
+        }
+    }
+
+    @Test fun subscriptionCommitRechecksUrlDeletionAndSessionIdentity() = withRunningProfile { _, profiles, _ ->
+        val id = profiles.save(mapOf("name" to "Unselected download", "url" to "https://example.test/old", "content" to "{}"))
+        val snapshot = profiles.prepareUpdate(id)
+        profiles.save(mapOf("id" to id, "name" to "Changed URL", "url" to "https://example.test/new"))
+        assertTrue(runCatching { profiles.commitUpdate(snapshot, "{}") }.isFailure)
+        assertEquals("https://example.test/new", profiles.get(id).typed.remoteURL)
+        profiles.delete(id)
+        assertTrue(runCatching { profiles.commitUpdate(snapshot, "{}") }.isFailure)
+        val session = io.nekohasekai.sfa.utils.CommandTarget.localSession()
+        io.nekohasekai.sfa.utils.CommandTarget.setRemoteServer(null)
+        assertTrue(runCatching { io.nekohasekai.sfa.utils.CommandTarget.requireLocalSession(session) }.isFailure)
+    }
+
     @Test fun stoppedAndUnselectedUpdatesPreserveServiceState() {
         SubscriptionServer("""{"log":{"disabled":true}}""").use { server ->
             withRunningProfile(server.url) { activity, profiles, id ->
@@ -900,7 +1029,9 @@ class ProfileRecoveryTest {
                 Settings.dataStore.initialize()
                 val oldSelection = Settings.selectedProfile
                 val oldMode = Settings.serviceMode
-                val profiles = BoxProfiles { recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) } }
+                val profiles = BoxProfiles(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) {
+                    recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
+                }
                 val id = profiles.save(mapOf("name" to "Subscription recovery fixture", "content" to "{}", "url" to url, "updatedAt" to 0L))
                 try {
                     Settings.selectedProfile = id
@@ -926,7 +1057,7 @@ class ProfileRecoveryTest {
 
     private fun rows(value: Any?): List<Map<*, *>> = (value as List<*>).map { it as Map<*, *> }
 
-    private class SubscriptionServer(@Volatile var content: String) : Closeable {
+    private class SubscriptionServer(@Volatile var content: String, private val responseGate: CountDownLatch? = null) : Closeable {
         private val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val url = "http://127.0.0.1:${server.localPort}/profile.json"
         val requests = AtomicInteger()
@@ -940,6 +1071,7 @@ class ProfileRecoveryTest {
                             while (!reader.readLine().isNullOrEmpty()) { }
                             val bytes = content.toByteArray(Charsets.UTF_8)
                             requests.incrementAndGet()
+                            check(responseGate?.await(30, TimeUnit.SECONDS) != false) { "Subscription test response was not released" }
                             val output = socket.getOutputStream()
                             output.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray())
                             output.write(bytes)
@@ -956,6 +1088,7 @@ class ProfileRecoveryTest {
             }
         }
         override fun close() {
+            responseGate?.countDown()
             server.close()
             worker.join(5_000)
         }

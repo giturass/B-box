@@ -27,9 +27,17 @@ func UIWebDAVRequest(method, link, username, password string, content []byte) (*
 
 // UIHTTPGet bounds release metadata reads separately from backup files.
 func UIHTTPGet(link string) (*UIHTTPResponse, error) {
+	return UIHTTPGetWithTimeout(link, 15000)
+}
+
+// UIHTTPGetWithTimeout lets a multi-request lookup share one overall deadline.
+func UIHTTPGetWithTimeout(link string, timeoutMillis int64) (*UIHTTPResponse, error) {
+	if timeoutMillis <= 0 || timeoutMillis > 15000 {
+		return nil, fmt.Errorf("metadata timeout must be between 1 and 15000 milliseconds")
+	}
 	// GitHub release assets redirect to a separate HTTPS asset origin. This
 	// anonymous GET carries neither a backup body nor account credentials.
-	return uiHTTPRequest(http.MethodGet, link, "", "", nil, 2*1024*1024, 15*time.Second, true)
+	return uiHTTPRequest(http.MethodGet, link, "", "", nil, 2*1024*1024, time.Duration(timeoutMillis)*time.Millisecond, true)
 }
 
 func uiHTTPRequest(method, link, username, password string, content []byte, limit int64, timeout time.Duration, anonymousRedirects bool) (*UIHTTPResponse, error) {

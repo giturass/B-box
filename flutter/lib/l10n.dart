@@ -318,6 +318,8 @@ const _zh = <String, String>{
   'About': '关于', 'Source code': '源代码', 'Open-source licenses': '开源许可',
   'Other': '其他', 'General': '常规', 'Check for updates': '检查更新', 'Update available': '有可用更新',
   'You are up to date': '已是最新版本', 'No release metadata available': '暂无可验证的版本信息', 'Releases': '发布版本',
+  'Update check incomplete': '版本检查未完成',
+  'Some releases could not be checked. Please try again.': '部分版本暂时无法检查，请稍后重试。',
   'A sing-box client with the FlClash Android interface.': '采用 FlClash Android 界面的 sing-box 客户端。',
   'FlClash interface': 'FlClash 界面', 'Version': '版本', 'Network diagnostics': '网络诊断',
   'Network quality': '网络质量', 'STUN test': 'STUN 测试',

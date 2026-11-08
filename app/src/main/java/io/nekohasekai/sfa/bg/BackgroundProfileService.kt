@@ -10,6 +10,7 @@ import io.nekohasekai.sfa.constant.Alert
 import io.nekohasekai.sfa.constant.ServiceMode
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.flutter.ServiceStartResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -28,13 +29,20 @@ internal class BackgroundProfileService(private val context: Context) : ServiceC
     private var connecting = false
     private var recoveryRequired = false
 
-    suspend fun apply(recover: Boolean) = withContext(Dispatchers.Main) {
-        if (recover && !recoveryRequired) return@withContext
-        if (!recover) recoveryRequired = false
+    suspend fun prepare() = withContext(Dispatchers.Main) {
         if (!connecting) {
             connecting = true
             connection.connect()
             withTimeout(15_000) { connected.await() }
+        }
+        ProfileContent.requireStableService(connection.status)
+    }
+
+    suspend fun apply(recover: Boolean) = withContext(Dispatchers.Main) {
+        if (recover && !recoveryRequired) return@withContext
+        if (!recover) {
+            recoveryRequired = false
+            prepare()
         }
         if (!recover) {
             val current = connection.status
@@ -58,7 +66,6 @@ internal class BackgroundProfileService(private val context: Context) : ServiceC
             try {
                 withContext(Dispatchers.IO) {
                     Settings.rebuildServiceMode()
-                    Settings.dataStore.flush()
                 }
                 startResult.awaitStarted {
                     ContextCompat.startForegroundService(context, Intent(context, Settings.serviceClass()))

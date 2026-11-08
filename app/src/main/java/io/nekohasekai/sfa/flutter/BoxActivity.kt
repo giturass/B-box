@@ -265,6 +265,11 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
     }
 
     suspend fun applyProfile(restart: Boolean = false, recover: Boolean = false) {
+        if (!recover && serviceStatus.value in setOf(Status.Starting, Status.Stopping)) {
+            // A start/stop may have been requested after the save preflight. Startup
+            // reads wait for persistence; wait for its result before deciding how to apply.
+            withTimeout(15000) { serviceStatus.first { it == Status.Started || it == Status.Stopped } }
+        }
         if (serviceStatus.value != Status.Started && !recover) return
         if (Settings.selectedProfile == -1L) {
             stopService()
@@ -273,6 +278,9 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
         }
         if (!restart && !recover && serviceStatus.value == Status.Started && Settings.detectServiceMode() == Settings.serviceMode) {
             withContext(Dispatchers.IO) { Libbox.newStandaloneCommandClient().serviceReload() }
+            check(connection.status == Status.Started && BoxService.currentStatus == Status.Started) {
+                "The local service stopped while applying the configuration"
+            }
         } else {
             stopService()
             withTimeout(15000) { serviceStatus.first { it == Status.Stopped } }

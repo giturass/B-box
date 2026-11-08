@@ -8,6 +8,7 @@ import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileChange
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
+import io.nekohasekai.sfa.database.ProfileSubscription
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.CommandTarget
@@ -19,7 +20,11 @@ import java.net.URI
 import java.util.Date
 import java.util.UUID
 
-internal class BoxProfiles(private val applySelected: suspend (recover: Boolean) -> Unit) {
+internal class BoxProfiles(
+    private val beforeApply: suspend () -> Unit = { ProfileContent.requireStableService() },
+    private val download: suspend (String) -> String = HTTPClient::getString,
+    private val applySelected: suspend (recover: Boolean) -> Unit,
+) {
     private val mutex = ProfileContent.mutex
 
     suspend fun get(id: Long): Profile = ProfileManager.get(id) ?: error("Profile no longer exists")
@@ -69,87 +74,127 @@ internal class BoxProfiles(private val applySelected: suspend (recover: Boolean)
     }
 
     private suspend fun writeContentLocked(id: Long, content: String, expectedRevision: String): Map<String, Any?> {
-        ProfileContent.replaceLocked(get(id), content, expectedRevision = expectedRevision, applySelected = applySelected)
+        ProfileContent.replaceLocked(get(id), content, expectedRevision = expectedRevision, beforeSave = beforeApply, applySelected = applySelected)
         return configLocked(id)
     }
 
     suspend fun select(id: Long, serviceStatus: () -> Status) = mutex.withLock {
         get(id)
-        require(serviceStatus() in setOf(Status.Stopped, Status.Started)) {
-            "Wait for the service to finish starting or stopping"
-        }
+        ProfileContent.requireStableService(serviceStatus())
         val previous = Settings.selectedProfile
         val previousMode = Settings.serviceMode
         ProfileChange.apply(
             save = {
-                Settings.selectedProfile = id
-                Settings.dataStore.flush()
+                ProfileContent.snapshotMutex.withLock {
+                    ProfileContent.requireStableService(serviceStatus())
+                    Settings.saveProfileSelection(id)
+                }
             },
             restore = listOf<suspend () -> Unit>({
-                Settings.selectedProfile = previous
-                if (Settings.serviceMode != previousMode) Settings.serviceMode = previousMode
-                Settings.dataStore.flush()
+                Settings.saveProfileSelection(previous, previousMode)
             }),
+            restoreBarrier = { work -> ProfileContent.snapshotMutex.withLock { work() } },
             applyService = applySelected,
         )
     }
 
-    suspend fun save(args: Map<String, Any?>): Long = mutex.withLock {
+    internal data class PreparedSave(
+        val id: Long, val name: String, val url: String, val interval: Int, val autoUpdate: Boolean,
+        val content: String?, val updatedAt: Long?, val expectedRevision: String?,
+    )
+
+    /** URL imports download before entering either the bridge or configuration operation lock. */
+    suspend fun prepareSave(args: Map<String, Any?>): PreparedSave {
         val id = (args["id"] as? Number)?.toLong() ?: 0L
-        val profile = if (id == 0L) Profile() else get(id)
+        require(id >= 0L) { "Invalid profile ID" }
         val name = (args["name"] as? String)?.trim().orEmpty()
         require(name.isNotEmpty()) { "A profile name is required" }
         val url = (args["url"] as? String)?.trim().orEmpty()
         if (url.isNotEmpty()) validateUrl(url)
         val interval = (args["interval"] as? Number)?.toInt() ?: 60
         require(interval >= 15) { "Update interval must be at least 15 minutes" }
-        val incomingContent = args["content"] as? String ?: if (id == 0L && url.isNotEmpty()) {
-            HTTPClient.getString(url)
-        } else if (id != 0L) {
-            File(profile.typed.path).readText()
-        } else {
-            "{}"
-        }
-        val content = Libbox.removeUIRetiredCaptureOptions(incomingContent)
-        validate(content)
-        val file = if (id == 0L) {
-            File(Application.application.filesDir, "configs/${UUID.randomUUID()}.json").also { it.parentFile!!.mkdirs() }
-        } else {
-            File(profile.typed.path)
-        }
+        val content = args["content"] as? String ?: if (id == 0L) {
+            if (url.isNotEmpty()) download(url) else "{}"
+        } else null
+        content?.let { validate(Libbox.removeUIRetiredCaptureOptions(it)) }
+        return PreparedSave(id, name, url, interval, url.isNotEmpty() && args["autoUpdate"] == true,
+            content, (args["updatedAt"] as? Number)?.toLong()?.takeIf { it >= 0L && args["content"] is String },
+            args["revision"] as? String)
+    }
+
+    suspend fun save(args: Map<String, Any?>): Long = savePrepared(prepareSave(args))
+
+    suspend fun savePrepared(request: PreparedSave, beforeCommit: () -> Unit = {}): Long = mutex.withLock {
+        beforeCommit()
+        val id = request.id
+        val previousProfile = if (id == 0L) null else get(id)
+        val file = if (id == 0L) File(Application.application.filesDir, "configs/${UUID.randomUUID()}.json")
+            else File(previousProfile!!.typed.path)
         val oldContent = if (file.exists()) file.readText() else null
-        write(file, content)
-        profile.name = name
-        profile.typed.path = file.path
-        profile.typed.type = if (url.isEmpty()) TypedProfile.Type.Local else TypedProfile.Type.Remote
-        profile.typed.remoteURL = url
-        profile.typed.autoUpdate = url.isNotEmpty() && args["autoUpdate"] == true
-        profile.typed.autoUpdateInterval = interval
-        if (id == 0L) {
-            val importedAt = (args["updatedAt"] as? Number)?.toLong()?.takeIf { it >= 0L }
-            profile.typed.lastUpdated = if (url.isNotEmpty() && args["content"] is String && importedAt != null) Date(importedAt) else Date()
+        val content = Libbox.removeUIRetiredCaptureOptions(request.content ?: oldContent ?: error("Profile file is missing"))
+        validate(content)
+        val changed = content != oldContent
+        if (id != 0L && request.content != null && changed) {
+            require(oldContent != null && request.expectedRevision == revision(oldContent)) { "Configuration changed; reload it before saving" }
         }
-        try {
-            if (id == 0L) {
-                profile.userOrder = ProfileManager.nextOrder()
-                ProfileManager.create(profile, andSelect = Settings.selectedProfile == -1L)
-            } else {
-                ProfileManager.update(profile)
-            }
-        } catch (e: Exception) {
-            if (oldContent != null) write(file, oldContent) else file.delete()
-            throw e
-        }
+        val oldSelection = Settings.selectedProfile
+        val oldMode = Settings.serviceMode
+        val select = id == 0L && oldSelection == -1L
+        val apply = changed && (id == oldSelection || select)
+        if (apply) beforeApply()
+        val profile = Profile(id, previousProfile?.userOrder ?: ProfileManager.nextOrder(), request.name, previousProfile?.icon,
+            TypedProfile().apply {
+                path = file.path
+                type = if (request.url.isEmpty()) TypedProfile.Type.Local else TypedProfile.Type.Remote
+                remoteURL = request.url
+                autoUpdate = request.autoUpdate
+                autoUpdateInterval = request.interval
+                lastUpdated = when {
+                    id == 0L -> Date(if (request.url.isNotEmpty()) request.updatedAt ?: System.currentTimeMillis() else System.currentTimeMillis())
+                    changed && type == TypedProfile.Type.Local -> Date()
+                    else -> Date(previousProfile!!.typed.lastUpdated.time)
+                }
+            })
+        val restore = listOf<suspend () -> Unit>(
+            { if (oldContent != null) write(file, oldContent) else check(!file.exists() || file.delete()) { "Unable to remove profile file" } },
+            { if (previousProfile != null) check(ProfileManager.update(previousProfile) == 1) else if (profile.id != 0L) ProfileManager.delete(profile) },
+            { if (apply) Settings.saveProfileSelection(oldSelection, oldMode) },
+        )
+        ProfileChange.apply(
+            save = {
+                ProfileContent.snapshotMutex.withLock {
+                    beforeCommit()
+                    if (apply) beforeApply()
+                    check(file.parentFile!!.isDirectory || file.parentFile!!.mkdirs()) { "Unable to create configuration directory" }
+                    if (changed) write(file, content)
+                    if (id == 0L) ProfileManager.create(profile) else check(ProfileManager.update(profile) == 1) { "Profile no longer exists" }
+                    if (select) Settings.saveProfileSelection(profile.id)
+                }
+            },
+            restore = restore,
+            restoreBarrier = { work -> ProfileContent.snapshotMutex.withLock { work() } },
+            applyService = { recover -> if (apply) applySelected(recover) },
+        )
         UpdateProfileWork.reconfigureUpdater()
-        if (profile.id == Settings.selectedProfile && content != oldContent) applySelected(false)
         profile.id
     }
 
-    suspend fun update(id: Long) = mutex.withLock {
-        val profile = get(id)
-        require(profile.typed.type == TypedProfile.Type.Remote) { "Only remote profiles can be updated" }
-        val content = HTTPClient.getString(validateUrl(profile.typed.remoteURL))
-        ProfileContent.replaceLocked(profile, content, updatedAt = Date(), applySelected = applySelected)
+    suspend fun prepareUpdate(id: Long): ProfileSubscription = mutex.withLock {
+        ProfileSubscription.captureLocked(get(id)).also { validateUrl(it.url) }
+    }
+
+    suspend fun downloadUpdate(snapshot: ProfileSubscription): String = download(snapshot.url)
+
+    suspend fun commitUpdate(snapshot: ProfileSubscription, content: String, beforeCommit: () -> Unit = {}) = mutex.withLock {
+        beforeCommit()
+        val profile = snapshot.currentLocked()
+        ProfileContent.replaceLocked(profile, content, updatedAt = Date(), beforeSave = { beforeCommit(); beforeApply() }, applySelected = applySelected)
+    }
+
+    suspend fun update(id: Long) {
+        val snapshot = prepareUpdate(id)
+        val content = downloadUpdate(snapshot)
+        commitUpdate(snapshot, content)
     }
 
     suspend fun delete(id: Long) = mutex.withLock {

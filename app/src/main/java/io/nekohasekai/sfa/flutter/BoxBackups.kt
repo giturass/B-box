@@ -119,10 +119,12 @@ internal class BoxBackups(
         require(strategy in setOf("Compatible", "Override")) { "Invalid restore strategy" }
         val entries = validate(backup, scope)
         val count = ProfileContent.mutex.withLock {
+            ProfileContent.requireStableService(activity.serviceStatus.value)
             val wasRunning = activity.serviceStatus.value == io.nekohasekai.sfa.constant.Status.Started
             val oldProfiles = ProfileManager.list()
             val oldServers = RemoteServerManager.list()
             val oldSelection = Settings.selectedProfile
+            val oldMode = Settings.serviceMode
             val oldPreferences = preferences.getString("value", "{}")!!
             val oldSettings = editableSettings()
             val oldTerminal = terminal.snapshot()
@@ -141,63 +143,67 @@ internal class BoxBackups(
                 val restored = mutableListOf<Profile>()
                 val byKey = oldProfiles.associateBy { profileKey(it, origin()) }
                 var nextOrder = (oldProfiles.maxOfOrNull { it.userOrder } ?: -1L) + 1
-                ProfileManager.transaction {
-                    entries.forEachIndexed { index, entry ->
-                        val key = entry["key"] as? String
-                        val existing = key?.let(byKey::get) ?: if (backup["origin"] == origin()) oldProfiles.firstOrNull { it.id == (entry["id"] as? Number)?.toLong() } else null
-                        val profile = existing?.let(::copyProfile) ?: Profile()
-                        val file = existing?.let { File(it.typed.path) } ?: File(File(activity.filesDir, "configs").apply { mkdirs() }, "${key ?: UUID.randomUUID()}.json")
-                        keepOriginal(file)
-                        ProfileContent.write(file, entry["content"] as String)
-                        profile.name = (entry["name"] as String).trim()
-                        profile.typed.path = file.path
-                        profile.typed.remoteURL = entry["url"] as? String ?: ""
-                        profile.typed.type = if (profile.typed.remoteURL.isEmpty()) TypedProfile.Type.Local else TypedProfile.Type.Remote
-                        profile.typed.autoUpdate = profile.typed.remoteURL.isNotEmpty() && entry["autoUpdate"] == true
-                        profile.typed.autoUpdateInterval = (entry["interval"] as? Number)?.toInt() ?: 60
-                        profile.typed.lastUpdated = Date((entry["updatedAt"] as? Number)?.toLong() ?: 0L)
-                        profile.userOrder = if (strategy == "Override") index.toLong() else existing?.userOrder ?: nextOrder++
-                        if (existing == null) ProfileManager.create(profile) else ProfileManager.update(profile)
-                        restored.add(profile)
-                        (entry["id"] as? Number)?.toLong()?.let { mapping[it] = profile.id }
-                    }
-                    if (strategy == "Override") ProfileManager.delete(oldProfiles.filter { old -> restored.none { it.id == old.id } })
-                    if (scope == "all") {
-                        val keptServers = mutableSetOf<Long>()
-                        for ((index, entry) in rows(backup["servers"]).withIndex()) {
-                            val url = RemoteServer.validateURL(entry["url"] as String)!!
-                            val existing = oldServers.firstOrNull { RemoteServer.normalizeURL(it.url) == url && it.name == entry["name"] }
-                            val server = RemoteServer(existing?.id ?: 0L, existing?.userOrder ?: 0L,
-                                entry["name"] as String, url, entry["secret"] as? String ?: "")
-                            if (existing == null) RemoteServerManager.create(server) else RemoteServerManager.update(server)
-                            if (strategy == "Override") {
-                                server.userOrder = index.toLong()
-                                RemoteServerManager.update(server)
-                            }
-                            keptServers.add(server.id)
+                val current = ProfileContent.snapshotMutex.withLock {
+                    ProfileContent.requireStableService(activity.serviceStatus.value)
+                    ProfileManager.transaction {
+                        entries.forEachIndexed { index, entry ->
+                            val key = entry["key"] as? String
+                            val existing = key?.let(byKey::get) ?: if (backup["origin"] == origin()) oldProfiles.firstOrNull { it.id == (entry["id"] as? Number)?.toLong() } else null
+                            val profile = existing?.let(::copyProfile) ?: Profile()
+                            val file = existing?.let { File(it.typed.path) } ?: File(File(activity.filesDir, "configs").apply { mkdirs() }, "${key ?: UUID.randomUUID()}.json")
+                            keepOriginal(file)
+                            ProfileContent.write(file, entry["content"] as String)
+                            profile.name = (entry["name"] as String).trim()
+                            profile.typed.path = file.path
+                            profile.typed.remoteURL = entry["url"] as? String ?: ""
+                            profile.typed.type = if (profile.typed.remoteURL.isEmpty()) TypedProfile.Type.Local else TypedProfile.Type.Remote
+                            profile.typed.autoUpdate = profile.typed.remoteURL.isNotEmpty() && entry["autoUpdate"] == true
+                            profile.typed.autoUpdateInterval = (entry["interval"] as? Number)?.toInt() ?: 60
+                            profile.typed.lastUpdated = Date((entry["updatedAt"] as? Number)?.toLong() ?: 0L)
+                            profile.userOrder = if (strategy == "Override") index.toLong() else existing?.userOrder ?: nextOrder++
+                            if (existing == null) ProfileManager.create(profile) else ProfileManager.update(profile)
+                            restored.add(profile)
+                            (entry["id"] as? Number)?.toLong()?.let { mapping[it] = profile.id }
                         }
-                        if (strategy == "Override") oldServers.filter { it.id !in keptServers }.forEach { RemoteServerManager.delete(it) }
+                        if (strategy == "Override") ProfileManager.delete(oldProfiles.filter { old -> restored.none { it.id == old.id } })
+                        if (scope == "all") {
+                            val keptServers = mutableSetOf<Long>()
+                            for ((index, entry) in rows(backup["servers"]).withIndex()) {
+                                val url = RemoteServer.validateURL(entry["url"] as String)!!
+                                val existing = oldServers.firstOrNull { RemoteServer.normalizeURL(it.url) == url && it.name == entry["name"] }
+                                val server = RemoteServer(existing?.id ?: 0L, existing?.userOrder ?: 0L,
+                                    entry["name"] as String, url, entry["secret"] as? String ?: "")
+                                if (existing == null) RemoteServerManager.create(server) else RemoteServerManager.update(server)
+                                if (strategy == "Override") {
+                                    server.userOrder = index.toLong()
+                                    RemoteServerManager.update(server)
+                                }
+                                keptServers.add(server.id)
+                            }
+                            if (strategy == "Override") oldServers.filter { it.id !in keptServers }.forEach { RemoteServerManager.delete(it) }
+                        }
                     }
-                }
-                val current = ProfileManager.list()
-                val backupSelection = (backup["selectedProfile"] as? Number)?.toLong()
-                Settings.selectedProfile = if (scope == "all" && backupSelection == -1L) -1L else
-                    (if (scope == "all") mapping[backupSelection] else null)
-                        ?: oldSelection.takeIf { selection -> current.any { it.id == selection } }
-                        ?: restored.firstOrNull()?.id ?: -1L
-                if (scope == "all") {
-                    writeSettings(backup["settings"] as? Map<String, Any?> ?: emptyMap())
-                    (backup["terminal"] as? Map<String, Any?>)?.let { newFont = terminal.restoreBackup(it) }
-                    if (backup.containsKey("webdav")) webdav.save(objectValue(backup, "webdav"))
-                    val restoredPreferences = BoxPreferences.validate(backup["preferences"] as? Map<String, Any?> ?: emptyMap()).toMutableMap()
-                    val folds = restoredPreferences["proxyUnfolded"] as? Map<String, Any?>
-                    if (folds != null) restoredPreferences["proxyUnfolded"] = folds.entries.associate { (key, value) ->
-                        val id = key.removePrefix("local:").toLongOrNull()
-                        (if (key.startsWith("local:") && id != null && mapping.containsKey(id)) "local:${mapping[id]}" else key) to value
+                    val current = ProfileManager.list()
+                    val backupSelection = (backup["selectedProfile"] as? Number)?.toLong()
+                    val selection = if (scope == "all" && backupSelection == -1L) -1L else
+                        (if (scope == "all") mapping[backupSelection] else null)
+                            ?: oldSelection.takeIf { selection -> current.any { it.id == selection } }
+                            ?: restored.firstOrNull()?.id ?: -1L
+                    Settings.saveProfileSelection(selection)
+                    if (scope == "all") {
+                        writeSettings(backup["settings"] as? Map<String, Any?> ?: emptyMap())
+                        (backup["terminal"] as? Map<String, Any?>)?.let { newFont = terminal.restoreBackup(it) }
+                        if (backup.containsKey("webdav")) webdav.save(objectValue(backup, "webdav"))
+                        val restoredPreferences = BoxPreferences.validate(backup["preferences"] as? Map<String, Any?> ?: emptyMap()).toMutableMap()
+                        val folds = restoredPreferences["proxyUnfolded"] as? Map<String, Any?>
+                        if (folds != null) restoredPreferences["proxyUnfolded"] = folds.entries.associate { (key, value) ->
+                            val id = key.removePrefix("local:").toLongOrNull()
+                            (if (key.startsWith("local:") && id != null && mapping.containsKey(id)) "local:${mapping[id]}" else key) to value
+                        }
+                        check(preferences.edit().putString("value", JSONObject(restoredPreferences).toString()).commit()) { "Unable to restore preferences" }
                     }
-                    check(preferences.edit().putString("value", JSONObject(restoredPreferences).toString()).commit()) { "Unable to restore preferences" }
+                    current
                 }
-                Settings.dataStore.flush()
                 applySelected(scope == "all", false)
                 val keptPaths = current.map { it.typed.path }.toSet()
                 publish()
@@ -214,33 +220,34 @@ internal class BoxBackups(
                             error.addSuppressed(rollback)
                         }
                     }
-                    attempt {
-                        ProfileManager.transaction {
-                            ProfileManager.delete(ProfileManager.list().filter { now -> oldProfiles.none { it.id == now.id } })
-                            for (profile in oldProfiles) if (ProfileManager.get(profile.id) == null) ProfileManager.create(profile) else ProfileManager.update(profile)
-                            if (scope == "all") {
-                                RemoteServerManager.list().filter { now -> oldServers.none { it.id == now.id } }.forEach { RemoteServerManager.delete(it) }
-                                for (server in oldServers) if (RemoteServerManager.get(server.id) == null) {
-                                    val copy = RemoteServer(server.id, server.userOrder, server.name, server.url, server.secret)
-                                    RemoteServerManager.create(copy)
-                                    copy.userOrder = server.userOrder
-                                    RemoteServerManager.update(copy)
-                                } else RemoteServerManager.update(server)
+                    ProfileContent.snapshotMutex.withLock {
+                        attempt {
+                            ProfileManager.transaction {
+                                ProfileManager.delete(ProfileManager.list().filter { now -> oldProfiles.none { it.id == now.id } })
+                                for (profile in oldProfiles) if (ProfileManager.get(profile.id) == null) ProfileManager.create(profile) else ProfileManager.update(profile)
+                                if (scope == "all") {
+                                    RemoteServerManager.list().filter { now -> oldServers.none { it.id == now.id } }.forEach { RemoteServerManager.delete(it) }
+                                    for (server in oldServers) if (RemoteServerManager.get(server.id) == null) {
+                                        val copy = RemoteServer(server.id, server.userOrder, server.name, server.url, server.secret)
+                                        RemoteServerManager.create(copy)
+                                        copy.userOrder = server.userOrder
+                                        RemoteServerManager.update(copy)
+                                    } else RemoteServerManager.update(server)
+                                }
                             }
                         }
+                        for ((file, original) in originals) attempt {
+                            if (original == null) { if (file.exists()) check(file.delete()) } else restoreFile(file, original)
+                        }
+                        attempt { Settings.saveProfileSelection(oldSelection, oldMode) }
+                        if (scope == "all") {
+                            attempt { writeSettings(oldSettings) }
+                            attempt { terminal.restoreState(oldTerminal) }
+                            attempt { webdav.save(oldWebDAV) }
+                            attempt { check(preferences.edit().putString("value", oldPreferences).commit()) }
+                        }
+                        attempt { newFont?.let { check(!it.exists() || it.delete()) { "Unable to remove restored font" } } }
                     }
-                    for ((file, original) in originals) attempt {
-                        if (original == null) { if (file.exists()) check(file.delete()) } else restoreFile(file, original)
-                    }
-                    attempt { Settings.selectedProfile = oldSelection }
-                    if (scope == "all") {
-                        attempt { writeSettings(oldSettings) }
-                        attempt { terminal.restoreState(oldTerminal) }
-                        attempt { webdav.save(oldWebDAV) }
-                        attempt { check(preferences.edit().putString("value", oldPreferences).commit()) }
-                    }
-                    attempt { newFont?.let { check(!it.exists() || it.delete()) { "Unable to remove restored font" } } }
-                    attempt { Settings.dataStore.flush() }
                     // Never start a mixture of restored and unrestored data.
                     if (wasRunning && restored) attempt { applySelected(true, true) }
                     attempt { publish(); emit("preferences", readPreferences()) }

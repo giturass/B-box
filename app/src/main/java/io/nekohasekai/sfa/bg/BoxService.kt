@@ -30,6 +30,7 @@ import io.nekohasekai.sfa.compose.MainActivity
 import io.nekohasekai.sfa.constant.Action
 import io.nekohasekai.sfa.constant.Alert
 import io.nekohasekai.sfa.constant.Status
+import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.flutter.MitmCertificate
@@ -46,6 +47,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.TimeZone
@@ -54,6 +56,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     internal data class DashboardConfig(val server: CommandServer, val profileId: Long, val content: String)
 
     companion object {
+        @Volatile private var activeService: BoxService? = null
+        internal val currentStatus: Status get() = activeService?.lastStatus ?: Status.Stopped
         @Volatile internal var dashboardServer: CommandServer? = null
             private set
         private val _dashboardConfig = MutableStateFlow<DashboardConfig?>(null)
@@ -82,6 +86,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     var fileDescriptor: ParcelFileDescriptor? = null
 
     private val status = MutableLiveData(Status.Stopped)
+    @Volatile private var lastStatus = Status.Stopped
+    private fun updateStatus(value: Status) { lastStatus = value; status.value = value }
     private val binder = ServiceBinder(status)
     private val notification = ServiceNotification(status, service)
     private lateinit var commandServer: CommandServer
@@ -130,25 +136,21 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     @Volatile private var stopRequested = false
     @Volatile private var serviceGeneration = 0L
 
+    private suspend fun readProfile() = ProfileContent.snapshotMutex.withLock {
+        val profile = ProfileManager.get(Settings.selectedProfile) ?: return@withLock null
+        val content = File(profile.typed.path).readText()
+        if (content.isBlank()) return@withLock null
+        profile to content
+    }
+
     private suspend fun startService(generation: Long) {
         try {
-            val selectedProfileId = Settings.selectedProfile
-            if (selectedProfileId == -1L) {
+            val snapshot = readProfile()
+            if (snapshot == null) {
                 stopAndAlert(generation, Alert.EmptyConfiguration)
                 return
             }
-
-            val profile = ProfileManager.get(selectedProfileId)
-            if (profile == null) {
-                stopAndAlert(generation, Alert.EmptyConfiguration)
-                return
-            }
-
-            val content = File(profile.typed.path).readText()
-            if (content.isBlank()) {
-                stopAndAlert(generation, Alert.EmptyConfiguration)
-                return
-            }
+            val (profile, content) = snapshot
 
             lastProfileName = profile.name
             withContext(Dispatchers.Main) {
@@ -164,7 +166,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 return
             }
 
-            publishDashboardConfig(generation, selectedProfileId, content)
             if (commandServer.needWIFIState()) {
                 val wifiPermission =
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -177,12 +178,13 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     return
                 }
             }
+            publishDashboardConfig(generation, profile.id, content)
 
             withContext(Dispatchers.Main) {
                 if (stopRequested || generation != serviceGeneration) return@withContext
                 notification.show(lastProfileName, R.string.status_started)
                 notification.start()
-                if (!stopRequested) status.value = Status.Started
+                if (!stopRequested) updateStatus(Status.Started)
             }
         } catch (e: Exception) {
             stopAndAlert(generation, Alert.StartService, e.message)
@@ -192,6 +194,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     override fun serviceStop() {
         notification.close()
+        lastStatus = Status.Starting
         status.postValue(Status.Starting)
         val pfd = fileDescriptor
         if (pfd != null) {
@@ -209,23 +212,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     suspend fun serviceReload0() {
         val generation = serviceGeneration
-        val selectedProfileId = Settings.selectedProfile
-        if (selectedProfileId == -1L) {
+        val snapshot = readProfile()
+        if (snapshot == null) {
             stopAndAlert(generation, Alert.EmptyConfiguration)
-            return
+            error("Selected configuration is missing or empty")
         }
-
-        val profile = ProfileManager.get(selectedProfileId)
-        if (profile == null) {
-            stopAndAlert(generation, Alert.EmptyConfiguration)
-            return
-        }
-
-        val content = File(profile.typed.path).readText()
-        if (content.isBlank()) {
-            stopAndAlert(generation, Alert.EmptyConfiguration)
-            return
-        }
+        val (profile, content) = snapshot
         lastProfileName = profile.name
         try {
             startOrReloadCore(content, generation, File(profile.typed.path).parent.orEmpty())
@@ -236,7 +228,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             throw e
         }
 
-        publishDashboardConfig(generation, selectedProfileId, content)
         if (commandServer.needWIFIState()) {
             val wifiPermission =
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -245,10 +236,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                     android.Manifest.permission.ACCESS_BACKGROUND_LOCATION
                 }
             if (!service.hasPermission(wifiPermission)) {
-                stopAndAlert(generation, Alert.RequestLocationPermission)
-                return
+                // Reload belongs to a save transaction. Report failure so it can restore
+                // the previous config; a delayed permission callback must not start it again.
+                val error = IllegalStateException("Location permission is required for Wi-Fi rules; grant it before applying this configuration")
+                stopAndAlert(generation, Alert.CreateService, error.message)
+                throw error
             }
         }
+        publishDashboardConfig(generation, profile.id, content)
     }
 
     private suspend fun publishDashboardConfig(generation: Long, profileId: Long, content: String) = withContext(Dispatchers.Main) {
@@ -311,7 +306,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         if (stopRequested) return
         if (status.value != Status.Started && status.value != Status.Starting) return
         stopRequested = true
-        status.value = Status.Stopping
+        updateStatus(Status.Stopping)
         if (receiverRegistered) {
             service.unregisterReceiver(receiver)
             receiverRegistered = false
@@ -332,12 +327,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             Libbox.discardPowerReportDraft()
             PowerReportManager.refresh()
             Settings.startedByUser = false
-            Settings.dataStore.flush()
+            runCatching { Settings.dataStore.flush() }.onFailure { Log.e(TAG, "Unable to persist stopped state", it) }
             withContext(Dispatchers.Main) {
                 alert?.let { (type, message) ->
                     binder.broadcast { callback -> callback.onServiceAlert(type.ordinal, message) }
                 }
-                status.value = Status.Stopped
+                updateStatus(Status.Stopped)
                 service.stopSelf()
             }
         }
@@ -367,7 +362,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         if (status.value != Status.Stopped) return Service.START_NOT_STICKY
         val generation = ++serviceGeneration
         stopRequested = false
-        status.value = Status.Starting
+        activeService = this
+        updateStatus(Status.Starting)
         notification.show(lastProfileName, R.string.status_starting)
 
         if (!receiverRegistered) {
@@ -400,6 +396,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     internal fun onBind(): IBinder = binder
 
     internal fun onDestroy() {
+        if (activeService === this) activeService = null
         if (::commandServer.isInitialized && dashboardConfig.value?.server === commandServer) _dashboardConfig.value = null
         if (::commandServer.isInitialized && dashboardServer === commandServer) dashboardServer = null
         idleModeUpdates.cancel()

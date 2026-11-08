@@ -21,6 +21,7 @@ import io.nekohasekai.sfa.backend.dashboard.groups.GroupsViewModel
 import io.nekohasekai.sfa.backend.log.LogViewModel
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
+import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.RemoteServer
 import io.nekohasekai.sfa.database.RemoteServerManager
 import io.nekohasekai.sfa.database.Settings
@@ -78,7 +79,9 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     }
     private val reports = BoxReports(activity)
     private val privilege = BoxPrivilege(activity)
-    private val profiles = BoxProfiles { recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) } }
+    private val profiles = BoxProfiles(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) {
+        recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
+    }
     private val capture = BoxCapture(activity)
     private val qrScanner = BoxQrScanner(profiles::decode)
     private val preferences = activity.getSharedPreferences("flclash_ui", 0)
@@ -292,15 +295,24 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 publishProfiles()
                 null
             }
-            "profiles.save" -> localProfiles {
-                val saved = profiles.save(args)
-                publishProfiles()
-                saved
+            "profiles.save" -> {
+                val session = CommandTarget.localSession()
+                val prepared = withContext(Dispatchers.IO) { profiles.prepareSave(args) }
+                localProfiles(session) {
+                    val saved = profiles.savePrepared(prepared) { CommandTarget.requireLocalSession(session) }
+                    publishProfiles()
+                    saved
+                }
             }
-            "profiles.update" -> localProfiles {
-                profiles.update(id())
-                publishProfiles()
-                null
+            "profiles.update" -> {
+                val session = CommandTarget.localSession()
+                val snapshot = localProfiles(session) { profiles.prepareUpdate(id()) }
+                val content = withContext(Dispatchers.IO) { profiles.downloadUpdate(snapshot) }
+                localProfiles(session) {
+                    profiles.commitUpdate(snapshot, content) { CommandTarget.requireLocalSession(session) }
+                    publishProfiles()
+                    null
+                }
             }
             "profiles.delete" -> localProfiles {
                 profiles.delete(id())
@@ -449,8 +461,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             "apps.permission" -> { PackageQueryManager.requestShizukuPermission(); null }
             "apps.rescan" -> operations.withLock {
                 if (Settings.perAppProxyManagedMode) {
-                    Settings.perAppProxyManagedList = PerAppProxyScanner.scanAllChinaApps()
-                    withContext(Dispatchers.IO) { Settings.dataStore.flush() }
+                    Settings.saveManagedApps(PerAppProxyScanner.scanAllChinaApps())
                     emit("settings", settings())
                 }
                 settings()
@@ -480,12 +491,12 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 RemoteServerManager.get(id())?.let { RemoteServerManager.delete(it) }
                 null
             }
-            "remote.connect" -> {
+            "remote.connect" -> operations.withLock {
                 val server = withContext(Dispatchers.IO) { RemoteServerManager.get(id()) } ?: error("Server no longer exists")
                 RemoteControlManager.enterRemoteControl(server)
                 null
             }
-            "remote.disconnect" -> { RemoteControlManager.exitRemoteControl(); null }
+            "remote.disconnect" -> operations.withLock { RemoteControlManager.exitRemoteControl(); null }
             "backup.create" -> operations.withLock { withContext(Dispatchers.IO) { backups.create() } }
             "backup.read" -> {
                 val uri = activity.pickDocument() ?: return null
@@ -521,9 +532,11 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         }
     }
 
-    private suspend fun <T> localProfiles(block: suspend () -> T): T {
-        require(!CommandTarget.isRemote) { "Local profiles cannot modify a remote sing-box session" }
-        return operations.withLock { withContext(Dispatchers.IO) { block() } }
+    private suspend fun <T> localProfiles(session: Long = CommandTarget.localSession(), block: suspend () -> T): T {
+        return operations.withLock { withContext(Dispatchers.IO) {
+            CommandTarget.requireLocalSession(session)
+            block()
+        } }
     }
 
     private suspend fun publishProfiles() {
@@ -575,51 +588,14 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         BoxSettings.validate(values)
         val managed = values["perAppManaged"] as? Boolean ?: Settings.perAppProxyManagedMode
         val enabled = values["perAppEnabled"] as? Boolean ?: Settings.perAppProxyEnabled
-        val oldQueryMode = Settings.perAppProxyPackageQueryMode
-        val managedApps = try {
-            (values["queryMode"] as? String)?.let(PackageQueryManager::setQueryMode)
-            if (managed && enabled && values.keys.any { it in setOf("perAppManaged", "perAppEnabled", "queryMode") }) {
-                PerAppProxyScanner.scanAllChinaApps()
-            } else null
-        } catch (error: Exception) {
-            PackageQueryManager.setQueryMode(oldQueryMode)
-            throw error
-        }
-        // Do not enable managed mode until its first scan has succeeded.
-        if (managedApps != null) Settings.perAppProxyManagedList = managedApps
-        for ((key, item) in values) {
-        val args = mapOf("value" to item)
-        when (key) {
-            "perAppEnabled" -> Settings.perAppProxyEnabled = args["value"] == true
-            "perAppMode" -> {
-                val value = (args["value"] as Number).toInt()
-                require(value == Settings.PER_APP_PROXY_INCLUDE || value == Settings.PER_APP_PROXY_EXCLUDE)
-                Settings.perAppProxyMode = value
-            }
-            "perAppList" -> Settings.perAppProxyList = (args["value"] as List<*>).map { it as String }.toSet()
-            "perAppManaged" -> Settings.perAppProxyManagedMode = args["value"] == true
-            "allowBypass" -> Settings.allowBypass = args["value"] == true
-            "autoRedirect" -> Settings.autoRedirect = args["value"] == true
-            "dynamicNotification" -> Settings.dynamicNotification = args["value"] == true
-            "disableDeprecatedWarnings" -> Settings.disableDeprecatedWarnings = args["value"] == true
-            "oomKillerEnabled" -> Settings.oomKillerEnabled = args["value"] == true
-            "oomKillerDisabled" -> Settings.oomKillerDisabled = args["value"] == true
-            "oomMemoryLimitMB" -> {
-                val value = (args["value"] as Number).toInt()
-                require(value in 10..4096) { "Memory limit must be 10–4096 MiB" }
-                Settings.oomMemoryLimitMB = value
-            }
-            "powerReportEnabled" -> Settings.powerReportEnabled = args["value"] == true
-            "queryMode" -> {
-                val value = args["value"] as String
-                require(value in listOf(Settings.PACKAGE_QUERY_MODE_ROOT, Settings.PACKAGE_QUERY_MODE_SHIZUKU))
-                PackageQueryManager.setQueryMode(value)
-            }
-            else -> error("Unknown setting: " + key)
-        }
-        }
+        val queryMode = values["queryMode"] as? String ?: Settings.perAppProxyPackageQueryMode
+        val managedApps = if (managed && enabled && values.keys.any { it in setOf("perAppManaged", "perAppEnabled", "queryMode") }) {
+            PerAppProxyScanner.scanAllChinaApps(queryMode)
+        } else null
+        // Scan using the requested strategy, then publish all settings together after Room commits.
+        Settings.dataStore.putBatchConfirmed(BoxSettings.entities(values, managedApps))
+        PackageQueryManager.refreshQueryMode()
         withContext(Dispatchers.IO) {
-            Settings.dataStore.flush()
             Application.application.reloadSetupOptions()
         }
         emit("settings", settings())

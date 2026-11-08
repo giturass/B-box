@@ -9,6 +9,7 @@ import io.nekohasekai.sfa.constant.Path
 import io.nekohasekai.sfa.constant.ServiceMode
 import io.nekohasekai.sfa.constant.SettingsKey
 import io.nekohasekai.sfa.database.preference.KeyValueDatabase
+import io.nekohasekai.sfa.database.preference.KeyValueEntity
 import io.nekohasekai.sfa.database.preference.RoomPreferenceDataStore
 import io.nekohasekai.sfa.ktx.boolean
 import io.nekohasekai.sfa.ktx.int
@@ -21,6 +22,7 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -107,23 +109,42 @@ object Settings {
         else -> ProxyService::class.java
     }
 
-    suspend fun rebuildServiceMode() {
-        val newMode = detectServiceMode()
-        if (serviceMode != newMode) {
-            serviceMode = newMode
+    suspend fun rebuildServiceMode() = withContext(Dispatchers.IO) {
+        ProfileContent.snapshotMutex.withLock {
+            val newMode = detectServiceModeLocked()
+            if (serviceMode != newMode) saveServiceMode(newMode)
         }
     }
 
+    suspend fun saveServiceMode(mode: String) {
+        dataStore.putBatchConfirmed(listOf(KeyValueEntity(SettingsKey.SERVICE_MODE).put(mode)))
+    }
+
+    suspend fun saveProfileSelection(id: Long, mode: String? = null) {
+        dataStore.putBatchConfirmed(buildList {
+            add(KeyValueEntity(SettingsKey.SELECTED_PROFILE).put(id))
+            if (mode != null) add(KeyValueEntity(SettingsKey.SERVICE_MODE).put(mode))
+        })
+    }
+
+    suspend fun saveManagedApps(apps: Set<String>) {
+        dataStore.putBatchConfirmed(listOf(KeyValueEntity(SettingsKey.PER_APP_PROXY_MANAGED_LIST).put(apps)))
+    }
+
     suspend fun detectServiceMode(): String = withContext(Dispatchers.IO) {
+        ProfileContent.snapshotMutex.withLock { detectServiceModeLocked() }
+    }
+
+    private suspend fun detectServiceModeLocked(): String {
         try {
             if (needVPNService()) {
-                return@withContext ServiceMode.VPN
+                return ServiceMode.VPN
             }
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {
         }
-        ServiceMode.NORMAL
+        return ServiceMode.NORMAL
     }
 
     private suspend fun needVPNService(): Boolean {

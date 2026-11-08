@@ -6,6 +6,7 @@ import android.os.Build
 import android.util.Log
 import com.android.tools.smali.dexlib2.dexbacked.DexBackedDexFile
 import io.nekohasekai.sfa.Application
+import io.nekohasekai.sfa.database.Settings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -72,8 +73,8 @@ object PerAppProxyScanner {
         ("(" + chinaAppPrefixList.joinToString("|").replace(".", "\\.") + ").*").toRegex()
     }
 
-    suspend fun scanAllChinaApps(): Set<String> = withContext(Dispatchers.Default) {
-        val installedPackages = PackageQueryManager.getInstalledPackages(PackageManager.MATCH_UNINSTALLED_PACKAGES)
+    suspend fun scanAllChinaApps(queryMode: String = Settings.perAppProxyPackageQueryMode): Set<String> = withContext(Dispatchers.Default) {
+        val installedPackages = PackageQueryManager.getInstalledPackages(PackageManager.MATCH_UNINSTALLED_PACKAGES, queryMode)
         val chinaApps = mutableSetOf<String>()
         installedPackages.map { packageInfo ->
             async {

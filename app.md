@@ -55,16 +55,18 @@ Flutter 从 `ready` 和配置/设置变更事件取得配置列表与设置，�
 [BoxProfiles.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxProfiles.kt) 负责导入、编辑、手动订阅更新、配置切换及局域网代理保存；[ProfileContent.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileContent.kt) 的互斥锁和内容替换流程由前台编辑和后台订阅更新共用。
 
 - 保存前检查内容修订和完整 `Libbox.checkConfig`，以原子写入替换内容。分项配置编辑原生 DNS、路由、规则集、入站、出站、端点和日志；原始 JSON 编辑保留配置元数据及订阅 URL。
+- 普通应用设置、查询策略/托管扫描结果、终端设置、配置选择及服务模式通过 [RoomPreferenceDataStore.kt](app/src/main/java/io/nekohasekai/sfa/database/preference/RoomPreferenceDataStore.kt) 的确认事务保存；只有 Room 提交成功才发布缓存并向调用方返回成功。查询策略先用于扫描，成功后与其他设置一起提交。保留的同步属性写入在失败时恢复缓存，`flush()` 报告此前尚未报告的错误，较早写入的完成或失败不能覆盖后续排队的值；服务清理与广播结束不因刷盘失败中断。字符串集合按 UTF-8 字节长度编码，支持中文及 emoji。
 - 本地配置创建时在 Room 记录时间，原始 JSON 编辑、分项配置编辑及局域网入站变更成功保存内容时更新 `lastUpdated`；无内容变化和仅编辑名称等元数据不刷新时间。保存或应用失败与内容一起恢复旧时间。远程配置的该字段仍表示订阅更新时间，手动 JSON 编辑不覆盖它；没有时间记录的旧配置保持未知。界面展示见 [flclash.md](flclash.md#配置页与内核差异)。
 - 运行中修改选中配置需应用到服务：模式相同时重载，模式变化时停止并重新走权限/启动流程。需要重启时通过 [ServiceStartResult.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ServiceStartResult.kt) 等待 Started 回调；失败或超时恢复旧文件/设置并尝试恢复原服务。停服时普通保存不会自动启动 VPN。
 - [Settings.kt](app/src/main/java/io/nekohasekai/sfa/database/Settings.kt) 的 `detectServiceMode()` 在 `Dispatchers.IO` 内查询选中配置、读取文件并调用 libbox 判断 TUN 入站，避免主线程应用配置时阻塞界面。读取或解析失败沿用普通服务模式回退，协程取消继续向调用方传播。
 - [BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 的启动/重载错误和主动停止共用主线程上的停止入口，由唯一的清理任务等待启动结束、释放核心与命令服务器，再报告 Stopped。失败 RPC 返回后触发的恢复不能另起一条错误清理路径，避免迟到的清理注销恢复后实例的接收器、遗留核心及缓存文件锁。错误和运行配置发布检查启动代次，旧请求不能停止或覆盖新实例；已进入停止阶段的请求不能再启动核心。
 - 原始 JSON 编辑、分项配置编辑、手动/自动订阅更新和配置切换共用 [ProfileChange.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileChange.kt) 的失败恢复流程。订阅保存或应用失败恢复旧内容和更新时间；切换失败恢复原选择及服务模式。恢复在不可取消的协程上下文完成，保留原错误及恢复错误；持久数据恢复失败时不启动未恢复的配置。
-- 配置切换在配置互斥区内、修改选中配置前读取最新服务状态；启动中或停止中拒绝切换，避免界面状态延迟导致启动配置与保存的选择不一致。界面禁用行为见 [flclash.md](flclash.md#配置页与内核差异)。
+- 配置切换、选中配置的内容写入及备份恢复在持久化前检查宿主与本机服务状态，启动中或停止中拒绝修改。配置事务另用短期互斥区保护文件、选择及元数据写入，启动/重载读取同一快照；等待服务重启前释放该锁，避免启动读旧内容或与配置操作互相等待。保存预检后才发生的启停请求等待最终状态再决定是否应用。界面禁用行为见 [flclash.md](flclash.md#配置页与内核差异)。
+- 运行中重载缺少 Wi-Fi 规则所需定位权限时，RPC 返回失败并回滚旧配置，确认原服务恢复后结束操作；不会发送可能在回滚后再次启动服务的定位授权回调。初次启动仍保留系统定位授权流程，停服保存后再启动也沿用该流程。运行配置快照在权限检查成功后发布。
 - 删除配置在同一互斥区内检查最新选择，禁止删除当前选中的配置，停服时也需先切换到其他配置。拒绝操作不改文件、数据库、选择或服务；不再通过删除操作自动选择其他配置。
-- URL 导入、手动及后台订阅更新共用 [HTTPClient.kt](app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt) 和有界核心下载接口，在内容跨越 gomobile 前限制总时限与解压后的大小，具体限额见 [HTTP 与 WebDAV](libbox.md#http-与-webdav)。下载失败不进入保存或服务应用，下载完成后再次检查协程取消。
+- URL 导入、手动及后台订阅更新共用 [HTTPClient.kt](app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt) 和有界核心下载接口，在内容跨越 gomobile 前限制总时限与解压后的大小，具体限额见 [HTTP 与 WebDAV](libbox.md#http-与-webdav)。网络下载在配置及桥接操作锁外执行，下载失败不进入保存或服务应用。更新提交时通过 [ProfileSubscription.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileSubscription.kt) 复核配置存在、URL、类型、路径、修订、更新时间和自动更新计划；编辑、删除或另一轮更新后的旧结果不能覆盖当前数据。桥接提交另检查本地会话身份，切换会话后的迟到下载需要重试。
 - [UpdateProfileWork.kt](app/src/main/java/io/nekohasekai/sfa/bg/UpdateProfileWork.kt) 在同一互斥区内完成每个订阅的保存、应用和恢复，应用失败请求重试。[BackgroundProfileService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BackgroundProfileService.kt) 通过本机服务连接确认状态，模式相同重载，模式变化及失败恢复时等待停止和 Started 回调；后台重启所需 VPN/通知权限未授予时更新失败并回滚。更新未选中配置或停服时不启动服务，远程会话不接收本机订阅的重载。
-- 常规服务页的 VPN 绕过、自动重定向和动态通知开关保存后，运行中的本地服务自动停止并重新走权限/启动流程，确认 Started 后完成操作。[ServiceSettingsChange.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ServiceSettingsChange.kt) 在保存或重启失败时恢复原设置，重启失败时再尝试恢复原服务；停止状态只保存设置，远程会话不触发本机或远端重启。
+- 常规服务页的 VPN 绕过、自动重定向和动态通知开关保存后，运行中的本地服务自动停止并重新走权限/启动流程，确认 Started 后完成操作。[ServiceSettingsChange.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ServiceSettingsChange.kt) 在保存或重启失败时恢复原设置，仅在设置恢复成功后尝试恢复原服务；恢复失败保留原错误与恢复错误，不启动未恢复的设置。停止状态只保存设置，远程会话不触发本机或远端重启。
 - Root 自动重定向的系统 BPF map 兼容范围和核心补丁见 [libbox.md](libbox.md#android-自动重定向兼容)。Android 桥接继续沿用上游的启动、错误传递及 Root 服务死亡清理流程。
 - 局域网代理使用 libbox 原生入站变换，不引入全局 Clash 端口设置。运行时端点来自已成功启动的配置快照，避免将保存失败或未应用的配置显示为正在监听。
 - [DashboardConfigCache.kt](app/src/main/java/io/nekohasekai/sfa/flutter/DashboardConfigCache.kt) 仅缓存选中配置和已启动配置的内容、修订及最近一组接口地址的 LAN 解析结果，相同内容共用缓存。刷新时以配置 ID、路径、文件时间/大小及写入代次检查保存配置；未变化时不重读内容、计算哈希或调用 LAN 解析。地址变化复用内容和修订，重新调用 LAN 解析；运行配置按成功启动快照更新。普通写入及备份恢复/回滚共用 `ProfileContent.write` 推进代次，避免同大小、同时间戳的修改漏刷。解析错误也缓存，配置/地址变化或手动刷新时重试，取消不缓存。
@@ -166,6 +168,8 @@ CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期�
 
 关于页仍提供独立 [BoxUpdates.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxUpdates.kt) 检查：读取 B-box Releases（含预发布），以 `B-box-version-metadata.json` 的 `application_id`、`version_code`、`version_name` 核对安装身份和版本，再匹配设备 ABI 的 `B-box-<版本>-<ABI>.apk`。没有匹配 APK 时不提供下载资产。它不恢复原更新器的后台下载/静默安装链路。
 
+[ReleaseChecker.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ReleaseChecker.kt) 将最近 20 条发布的元数据检查限制为最多 3 个并发请求、每次请求最多 8 秒、整轮最多 20 秒，并将剩余时限传入核心 HTTP 请求。完整结果缓存 1 分钟；成功元数据按资产 URL、ID、更新时间和大小缓存 15 分钟，资产变化后重新读取。单项失败保留已确认的最高版本候选，列表失败可返回先前确认的候选，但明确标记检查未完成；没有完整检查结果时不显示“已是最新版本”。界面行为见 [flclash.md](flclash.md#导航与交互约定)。
+
 ## 构建与发布
 
 [app/build.gradle.kts](app/build.gradle.kts) 从本地 `app/libs/libbox.aar` 和 Flutter 生成的 Maven 仓库消费依赖。核心必须包含 [libbox.md](libbox.md) 的当前扩展。[setup-flutter](.github/actions/setup-flutter/action.yml) 统一固定 Flutter 3.47.6，并以 `--enforce-lockfile` 读取已提交的依赖锁文件；该 SDK 满足 prism_ui 0.1.2 的 Flutter 3.47 最低要求，界面来源和本地依赖见 [flclash.md](flclash.md#参考版本与来源清单)。Flutter 验证在 Gradle 启动前显式安装该 SDK 使用的 NDK 28.2.13676358，避免 AAR 配置阶段触发隐式安装；它与 libbox 使用的 NDK 独立。CI 先构建 AAR 到 `flutter/build/host/outputs/repo`，再构建 Android；应用使用 AAR 时不需要再安装 Flutter SDK。
@@ -196,10 +200,14 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 | 入口 | 配置的验证范围 |
 | --- | --- |
 | [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入、Android 入口、旧 UI/更新依赖及退役抓包实现残留的静态检查 |
-| [newui.yml](.github/workflows/newui.yml) | 各分支代码 push 自动触发，也支持目标为 `dev` / `newui` 的 PR 及手动触发；仅 Markdown 的 push/PR 跳过。统一运行 Root CA 挂载/补查、Go 扩展/HTTP/MITM/重定向布局、Flutter 分析/交互/布局、JVM、`play` 编译及 API 31 smoke；同时构建验证所需的 AAR 和模拟器 APK |
+| [newui.yml](.github/workflows/newui.yml) | 各分支代码 push 自动触发，也支持目标为 `dev` / `newui` 的 PR 及手动触发；仅 Markdown 的 push/PR 跳过。统一运行 Root CA 挂载/补查、Go 扩展/HTTP/MITM/重定向布局、Flutter 分析/交互/布局、JVM、`play` 编译及 API 24/31/36 smoke，API 36 另运行 `google_apis_ps16k`；同时构建验证所需的 AAR 和 x86_64 模拟器 APK |
 | [build-release.yml](.github/workflows/build-release.yml) | 仅手动触发；独立并行准备核心/Flutter Release 库，构建签名 ARM64 APK、校验安装身份/产物及可选发布，不运行测试 |
 
 JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界和 QRS；[ServiceSettingsChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ServiceSettingsChangeTest.kt) 覆盖服务开关保存后的启动确认、失败/超时/取消恢复及恢复错误保留；[ProfileChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/database/ProfileChangeTest.kt) 覆盖配置持久化失败、应用超时/取消、恢复确认及恢复错误保留。[ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/手动与自动订阅/完整备份恢复失败，以及停服和未选中配置更新的服务状态。Flutter 视觉验证见 [flclash.md](flclash.md)。
+
+[PreferencePersistenceTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/database/preference/PreferencePersistenceTest.kt) 使用实际 Room 检查普通设置重新读取、提交失败后的缓存恢复、后续排队值保留、取消与回滚顺序，以及 UTF-8 字符串集合。`ProfileRecoveryTest` 另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。[ReleaseCheckerTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ReleaseCheckerTest.kt) 用虚拟时间检查总时限、并发上限、失败候选保留、缓存失效及取消后重试。
+
+模拟器镜像名称依据 [Google SDK 系统镜像清单](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml)；16 KiB 测试方式见 [Android 官方文档](https://developer.android.com/guide/practices/page-sizes#test)。smoke 读取设备实际页大小，普通镜像要求 4096、`ps16k` 要求 16384，不能仅凭镜像名称记录通过。所有矩阵均为临时 x86_64 模拟器，不代表 ARM64 实机、真实 LSPosed 注入或系统 CA 模块安装已验收。
 
 该原生套件还覆盖超限订阅在 URL 导入、手动及自动更新时保留原数据和服务；备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、慢速响应与限额边界由 [核心订阅测试](libbox/ui_profile_test.go) 覆盖。
 

@@ -16,22 +16,25 @@ class _AboutPageState extends State<AboutPage> {
     setState(() => _checking = true);
     try {
       final result = json(await box.call('updates.check'));
+      final incomplete = result['complete'] == false;
+      final available = result['available'] == true;
       if (!mounted) return;
       setState(() => _checking = false);
       await showBoxDialog<void>(context: context, builder: (context) => AlertDialog(
         title: context.tr(result['available'] == true ? 'Update available' : 'Check for updates'),
         child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: SingleChildScrollView(child: Column(
           mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, spacing: 12, children: [
-            Text(result['available'] == true ? 'B-box ${result['version']}' : context.tr(result['hasMetadata'] == false ? 'No release metadata available' : 'You are up to date')),
+            Text(available ? 'B-box ${result['version']}' : context.tr(incomplete ? 'Update check incomplete' : result['hasMetadata'] == false ? 'No release metadata available' : 'You are up to date')),
+            if (incomplete) Text(context.tr('Some releases could not be checked. Please try again.')),
             if (result['available'] == true && result['notes'] is String && (result['notes'] as String).isNotEmpty) SelectableText(result['notes'] as String),
           ],
         ))),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: Text(context.tr('Close'))),
-          if (result['available'] == true || result['hasMetadata'] == false) TextButton(onPressed: () {
+          if (available || result['hasMetadata'] == false || incomplete) TextButton(onPressed: () {
             Navigator.pop(context);
-            box.act('url.open', {'url': result['downloadUrl'] ?? result['url'] ?? 'https://github.com/giturass/B-box/releases'});
-          }, child: Text(context.tr(result['downloadUrl'] == null ? 'Releases' : 'Download'))),
+            box.act('url.open', {'url': available ? result['downloadUrl'] ?? result['url'] ?? 'https://github.com/giturass/B-box/releases' : 'https://github.com/giturass/B-box/releases'});
+          }, child: Text(context.tr(!available || result['downloadUrl'] == null ? 'Releases' : 'Download'))),
         ],
       ));
     } catch (error) { box.report(error); }

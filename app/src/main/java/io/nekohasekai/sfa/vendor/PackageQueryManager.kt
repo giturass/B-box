@@ -6,7 +6,9 @@ import android.os.Build
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.BuildConfig
 import io.nekohasekai.sfa.bg.RootClient
+import io.nekohasekai.sfa.constant.SettingsKey
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.database.preference.KeyValueEntity
 import io.nekohasekai.sfa.utils.HookStatusClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,11 +16,13 @@ import kotlinx.coroutines.flow.StateFlow
 object PackageQueryManager {
 
     val strategy: PackageQueryStrategy
-        get() = when {
-            HookStatusClient.status.value?.compatible == true -> PackageQueryStrategy.Module
-            BuildConfig.FLAVOR == "play" -> PackageQueryStrategy.UserSelected(queryMode.value)
-            else -> PackageQueryStrategy.Direct
-        }
+        get() = strategy(queryMode.value)
+
+    private fun strategy(mode: String): PackageQueryStrategy = when {
+        HookStatusClient.status.value?.compatible == true -> PackageQueryStrategy.Module
+        BuildConfig.FLAVOR == "play" -> PackageQueryStrategy.UserSelected(mode)
+        else -> PackageQueryStrategy.Direct
+    }
 
     private val _queryMode = MutableStateFlow(Settings.perAppProxyPackageQueryMode)
     val queryMode: StateFlow<String> = _queryMode
@@ -38,13 +42,15 @@ object PackageQueryManager {
 
     suspend fun checkRootAvailable(): Boolean = RootClient.checkRootAvailable()
 
-    fun setQueryMode(mode: String) {
+    suspend fun setQueryMode(mode: String) {
         require(mode in setOf(Settings.PACKAGE_QUERY_MODE_ROOT, Settings.PACKAGE_QUERY_MODE_SHIZUKU))
-        Settings.perAppProxyPackageQueryMode = mode
-        _queryMode.value = mode
+        Settings.dataStore.putBatchConfirmed(listOf(KeyValueEntity(SettingsKey.PER_APP_PROXY_PACKAGE_QUERY_MODE).put(mode)))
+        refreshQueryMode()
     }
 
-    suspend fun getInstalledPackages(flags: Int): List<PackageInfo> = when (val s = strategy) {
+    fun refreshQueryMode() { _queryMode.value = Settings.perAppProxyPackageQueryMode }
+
+    suspend fun getInstalledPackages(flags: Int, mode: String = queryMode.value): List<PackageInfo> = when (val s = strategy(mode)) {
         is PackageQueryStrategy.Module -> {
             // Ask the injected service before using the saved ordinary query strategy.
             val packages = try {
@@ -53,7 +59,7 @@ object PackageQueryManager {
             packages ?: run {
                 HookStatusClient.refresh()
                 if (BuildConfig.FLAVOR != "play") getPackagesViaPackageManager(flags)
-                else if (queryMode.value == Settings.PACKAGE_QUERY_MODE_ROOT) RootClient.getInstalledPackages(flags)
+                else if (mode == Settings.PACKAGE_QUERY_MODE_ROOT) RootClient.getInstalledPackages(flags)
                 else ShizukuPackageManager.getInstalledPackages(flags)
             }
         }

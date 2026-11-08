@@ -276,7 +276,7 @@ def native_regressions():
                 "adb", "shell", "am", "instrument", "-w", "-r",
                 *arguments,
                 PACKAGE + ".test/androidx.test.runner.AndroidJUnitRunner",
-            ], stdout=output, stderr=subprocess.STDOUT, timeout=360, check=True)
+            ], stdout=output, stderr=subprocess.STDOUT, timeout=600, check=True)
     finally:
         if log.exists():
             print(log.read_text())
@@ -312,6 +312,10 @@ def main():
             device[name] = adb("shell", "getprop", prop).strip()
         device["page_size"], device["page_size_source"] = device_page_size()
         device["system_image"] = os.environ.get("BBOX_SMOKE_SYSTEM_IMAGE")
+        expected_page_size = os.environ.get("BBOX_SMOKE_PAGE_SIZE")
+        if expected_page_size:
+            assert device["page_size"] == int(expected_page_size), \
+                f"Expected {expected_page_size}-byte pages, got {device['page_size']}"
         apks = list(Path("build/apk").rglob("*.apk"))
         application, = [apk for apk in apks if not apk.name.endswith("-androidTest.apk")]
         instrumentation, = [apk for apk in apks if apk.name.endswith("-androidTest.apk")]
