@@ -1165,7 +1165,7 @@ class ProfileRecoveryTest {
         val previousName = profiles.get(id).name
         val preferences = activity.getSharedPreferences("flclash_ui", 0)
         val previousPreferences = preferences.getString("value", "{}")
-        val blocker = File(file.path + ".new")
+        val blockers = listOf(file, File(file.path + ".new"), File(file.path + ".bak"))
         fun stages() = activity.cacheDir.listFiles().orEmpty().filter { it.isDirectory && it.name.startsWith("restore-") }.toSet()
         val previousStages = stages()
         val original = IllegalStateException("Restored service failed")
@@ -1182,7 +1182,16 @@ class ProfileRecoveryTest {
             } else {
                 withContext(Dispatchers.Main) { activity.stopService() }
                 withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
-                if (failFileRestore) check(blocker.mkdir())
+                if (failFileRestore) {
+                    // API 24 writes the base file after a .bak rename; newer
+                    // AtomicFile writes .new. Nonempty directories force a real
+                    // I/O failure in both implementations without losing staging.
+                    check(file.delete())
+                    blockers.forEach { blocker ->
+                        check(blocker.mkdir())
+                        File(blocker, "occupied").writeText("rollback failure fixture")
+                    }
+                }
                 throw original
             }
         }, {}, { _, _ -> }, BoxWebDAV(activity))
@@ -1210,7 +1219,7 @@ class ProfileRecoveryTest {
             assertEquals(1, retained.size)
             assertTrue(retained.single().listFiles().orEmpty().any { it.isFile && it.readText() == previous })
         } finally {
-            blocker.delete()
+            if (failFileRestore) blockers.forEach { if (it.isDirectory) check(it.deleteRecursively()) }
             ProfileContent.mutex.withLock { ProfileContent.write(file, previous) }
             (stages() - previousStages).forEach { it.deleteRecursively() }
         }
