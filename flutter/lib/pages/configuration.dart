@@ -1,6 +1,7 @@
 import 'dart:convert';
 import '../widgets.dart';
 import 'profiles.dart';
+import 'profile_editor.dart' show JsonEditorController;
 import 'mitm_certificate.dart';
 import 'capture_domains.dart';
 import '../components/form.dart';
