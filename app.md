@@ -54,12 +54,12 @@ Flutter 从 `ready` 和配置/设置变更事件取得配置列表与设置，�
 
 [BoxProfiles.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxProfiles.kt) 负责导入、编辑、手动订阅更新、配置切换及局域网代理保存；[ProfileContent.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileContent.kt) 的互斥锁和内容替换流程由前台编辑和后台订阅更新共用。
 
-- 保存前检查内容修订和完整 `Libbox.checkConfig`，以原子写入替换内容。高级配置编辑原生 DNS、路由、规则集、入站、出站、端点和日志；原始 JSON 编辑保留配置元数据及订阅 URL。
-- 本地配置创建时在 Room 记录时间，原始/高级编辑及局域网入站变更成功保存内容时更新 `lastUpdated`；无内容变化和仅编辑名称等元数据不刷新时间。保存或应用失败与内容一起恢复旧时间。远程配置的该字段仍表示订阅更新时间，手动 JSON 编辑不覆盖它；没有时间记录的旧配置保持未知。界面展示见 [flclash.md](flclash.md#配置页与内核差异)。
+- 保存前检查内容修订和完整 `Libbox.checkConfig`，以原子写入替换内容。分项配置编辑原生 DNS、路由、规则集、入站、出站、端点和日志；原始 JSON 编辑保留配置元数据及订阅 URL。
+- 本地配置创建时在 Room 记录时间，原始 JSON 编辑、分项配置编辑及局域网入站变更成功保存内容时更新 `lastUpdated`；无内容变化和仅编辑名称等元数据不刷新时间。保存或应用失败与内容一起恢复旧时间。远程配置的该字段仍表示订阅更新时间，手动 JSON 编辑不覆盖它；没有时间记录的旧配置保持未知。界面展示见 [flclash.md](flclash.md#配置页与内核差异)。
 - 运行中修改选中配置需应用到服务：模式相同时重载，模式变化时停止并重新走权限/启动流程。需要重启时通过 [ServiceStartResult.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ServiceStartResult.kt) 等待 Started 回调；失败或超时恢复旧文件/设置并尝试恢复原服务。停服时普通保存不会自动启动 VPN。
 - [Settings.kt](app/src/main/java/io/nekohasekai/sfa/database/Settings.kt) 的 `detectServiceMode()` 在 `Dispatchers.IO` 内查询选中配置、读取文件并调用 libbox 判断 TUN 入站，避免主线程应用配置时阻塞界面。读取或解析失败沿用普通服务模式回退，协程取消继续向调用方传播。
 - [BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 的启动/重载错误和主动停止共用主线程上的停止入口，由唯一的清理任务等待启动结束、释放核心与命令服务器，再报告 Stopped。失败 RPC 返回后触发的恢复不能另起一条错误清理路径，避免迟到的清理注销恢复后实例的接收器、遗留核心及缓存文件锁。错误和运行配置发布检查启动代次，旧请求不能停止或覆盖新实例；已进入停止阶段的请求不能再启动核心。
-- 原始/高级 JSON 编辑、手动/自动订阅更新和配置切换共用 [ProfileChange.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileChange.kt) 的失败恢复流程。订阅保存或应用失败恢复旧内容和更新时间；切换失败恢复原选择及服务模式。恢复在不可取消的协程上下文完成，保留原错误及恢复错误；持久数据恢复失败时不启动未恢复的配置。
+- 原始 JSON 编辑、分项配置编辑、手动/自动订阅更新和配置切换共用 [ProfileChange.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileChange.kt) 的失败恢复流程。订阅保存或应用失败恢复旧内容和更新时间；切换失败恢复原选择及服务模式。恢复在不可取消的协程上下文完成，保留原错误及恢复错误；持久数据恢复失败时不启动未恢复的配置。
 - 配置切换在配置互斥区内、修改选中配置前读取最新服务状态；启动中或停止中拒绝切换，避免界面状态延迟导致启动配置与保存的选择不一致。界面禁用行为见 [flclash.md](flclash.md#配置页与内核差异)。
 - 删除配置在同一互斥区内检查最新选择，禁止删除当前选中的配置，停服时也需先切换到其他配置。拒绝操作不改文件、数据库、选择或服务；不再通过删除操作自动选择其他配置。
 - URL 导入、手动及后台订阅更新共用 [HTTPClient.kt](app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt) 和有界核心下载接口，在内容跨越 gomobile 前限制总时限与解压后的大小，具体限额见 [HTTP 与 WebDAV](libbox.md#http-与-webdav)。下载失败不进入保存或服务应用，下载完成后再次检查协程取消。
@@ -94,7 +94,7 @@ Flutter 从 `ready` 和配置/设置变更事件取得配置列表与设置，�
 
 ## 请求抓取与 MITM
 
-MITM 配置、证书设置及 HTTP 脚本/Cron 的入口见 [高级配置](flclash.md#配置页与内核差异)。先准备并安装 CA，再在选中配置的 MITM 中开启 HTTPS，按顺序填写域名及排除项，并按需开启 TCP 解密。空域名列表不解密。配置随本地服务生效；“工具 → 请求”只控制记录，从新请求/流边界开始，未被接管的旧连接需要目标应用重新建立。HTTP 明文记录不需要 CA，协议选项、默认值及匹配规则见 [libbox.md](libbox.md#独立-mitm-配置)。
+MITM 配置、证书设置及 HTTP 脚本/Cron 的入口见 [配置编辑](flclash.md#配置页与内核差异)。先准备并安装 CA，再在选中配置的 MITM 中开启 HTTPS，按顺序填写域名及排除项，并按需开启 TCP 解密。空域名列表不解密。配置随本地服务生效；“工具 → 请求”只控制记录，从新请求/流边界开始，未被接管的旧连接需要目标应用重新建立。HTTP 明文记录不需要 CA，协议选项、默认值及匹配规则见 [libbox.md](libbox.md#独立-mitm-配置)。
 
 [BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 提供本地请求启停、筛选、列表/详情、域名、HAR/cURL 导出以及 CA 管理。开始抓包需本地服务已 Started；记录设置准备完成后，在配置互斥区复核服务实例、运行配置和当前选择，再调用该服务的抓包绑定；解密设置与证书来自已启动配置。启动失败、返回期间取消或状态确认失败会回收本次已启动会话。切换远程会话停止本地抓包，远程会话拒绝读取或操作本机记录与证书。核心协议、路由、限额和停止行为见 [libbox.md](libbox.md#httphttps-请求调试)。
 
@@ -120,7 +120,7 @@ HAR/cURL、域名、CRT 和模块导出使用 Android 文档选择器，取消�
 
 ### 配置处理生命周期
 
-`experimental.mitm`、`experimental.scripts` 和 `experimental.http_rewrite` 相互独立；字段、迁移及执行范围由 [libbox.md](libbox.md#独立-mitm-配置) 维护。规则与资源随原始/高级编辑、分享、订阅更新及配置备份保存，本机记录设置、CA 与记录继续留在设备私有目录。
+`experimental.mitm`、`experimental.scripts` 和 `experimental.http_rewrite` 相互独立；字段、迁移及执行范围由 [libbox.md](libbox.md#独立-mitm-配置) 维护。规则与资源随原始 JSON 编辑、分项配置编辑、分享、订阅更新及配置备份保存，本机记录设置、CA 与记录继续留在设备私有目录。
 
 [BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 启动/重载时调用 `NeedsUIMITMCA`，只有启用且非空的 MITM 域名配置要求 CA。OverrideOptions 的 ProcessingDirectory/MitmCertificate/MitmSigner 传入私有路径、公钥证书及 Keystore 回调，ScriptTimezone 传入设备时区，ProcessingProfileDirectory 传入当前实际配置文件的父目录，供相对文件资源解析。缺少所需 CA 时明确失败，不自动生成或安装。
 

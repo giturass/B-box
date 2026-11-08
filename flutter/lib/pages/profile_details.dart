@@ -35,7 +35,11 @@ class ProfileDetailsPage extends StatelessWidget {
         ],
       ]),
       generateSection(items: [
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.customize), title: Text(context.tr('Advanced configuration')), widget: ProfileConfigurationPage(profile: p)),
+        for (final section in ProfileConfigSection.values)
+          ListItem.open(leading: GlyphIcon(section.glyph), title: Text(context.tr(section.title)),
+            widget: ProfileConfigurationPage(profile: p, section: section)),
+      ]),
+      generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Open configuration')), widget: ProfileEditor(profile: p)),
       ]),
     ]);

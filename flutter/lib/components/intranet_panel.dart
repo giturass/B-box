@@ -3,7 +3,7 @@ import 'package:flutter/rendering.dart' show OverflowBoxFit;
 import 'package:flutter/services.dart';
 import 'package:prism_ui/shapes/shapes.dart';
 import '../widgets.dart';
-import '../pages/configuration.dart';
+import '../pages/profile_details.dart';
 import 'shape_badge.dart';
 import 'data_subscription.dart';
 
@@ -147,8 +147,8 @@ class IntranetDetails extends StatelessWidget {
           if (bindings.isEmpty) ListItem(title: Text(context.tr('No local proxy listener'))),
         ]),
         if (box.selectedProfile != null) generateSection(items: [
-          ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Open configuration')),
-            widget: ProfileConfigurationPage(profile: box.selectedProfile)),
+          ListItem.open(leading: const GlyphIcon(AppGlyphs.edit), title: Text(context.tr('Edit')),
+            widget: ProfileDetailsPage(profile: box.selectedProfile)),
         ]),
       ],
     ]));

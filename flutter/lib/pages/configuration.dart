@@ -1,7 +1,6 @@
 import 'dart:convert';
 import '../widgets.dart';
 import 'profiles.dart';
-import 'profile_editor.dart';
 import 'mitm_certificate.dart';
 import 'capture_domains.dart';
 import '../components/form.dart';
@@ -90,11 +89,25 @@ class ProfileConfigStore extends ChangeNotifier {
   @override void dispose() { _disposed = true; super.dispose(); }
 }
 
+enum ProfileConfigSection {
+  logs('Logs', AppGlyphs.logs),
+  network('Network', AppGlyphs.key),
+  dns('DNS', AppGlyphs.dns),
+  routing('Routing rules', AppGlyphs.rules),
+  ruleSets('Rule sets', AppGlyphs.resources),
+  mitm('MITM', AppGlyphs.lock),
+  httpRewrite('HTTP rewriting', AppGlyphs.code),
+  scripts('Scripts', AppGlyphs.code);
+
+  const ProfileConfigSection(this.title, this.glyph);
+  final String title;
+  final Glyph glyph;
+}
+
 class ProfileConfigurationPage extends StatefulWidget {
-  const ProfileConfigurationPage({super.key, this.profile, this.resources = false, this.section});
+  const ProfileConfigurationPage({super.key, this.profile, required this.section});
   final Json? profile;
-  final bool resources;
-  final String? section;
+  final ProfileConfigSection section;
   @override State<ProfileConfigurationPage> createState() => _ProfileConfigurationPageState();
 }
 
@@ -112,8 +125,8 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
   @override Widget build(BuildContext context) {
     final store = context.box.remote ? null : _store;
     // Certificate access is independent of profile loading.
-    if (widget.section == 'mitm') return MitmConfigPage(store: store);
-    final title = widget.section == 'scripts' ? 'Scripts' : widget.resources ? 'Resources' : 'Advanced configuration';
+    if (widget.section == ProfileConfigSection.mitm) return MitmConfigPage(store: store);
+    final title = widget.section.title;
     if (store == null) return Scaffold(title: context.tr(title),
       body: NullStatus(label: context.tr(context.box.remote ? 'Disconnect remote session to edit local profiles' : 'No profile'),
         illustration: NullStatusIllustration.profile, action: context.box.remote ? null : TonalButton(size: TonalButtonSize.bar,
@@ -121,30 +134,17 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
     return ListenableBuilder(listenable: store, builder: (context, _) {
       if (!store.ready) return Scaffold(title: context.tr(title),
         body: store.error == null ? const Center(child: ActivityIndicator.page()) : ErrorState(store.error!, retry: store.load));
-      if (widget.section == 'scripts') return ScriptsConfigPage(store: store);
-      if (widget.resources) return ConfigListPage(store: store, title: 'Rule sets', path: const ['route', 'rule_set'],
-        initial: const {'type': 'inline', 'tag': 'new-rules', 'rules': []});
-      return BoxPage(title: 'Advanced configuration', loading: store.saving,
-        actions: [IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Reload'), onPressed: store.saving ? null : store.load)],
-        children: [
-          if (store.error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: SelectableText(store.error!, style: TextStyle(color: context.colorScheme.error))),
-          generateSection(items: [
-            ListItem.open(leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Logs')), widget: LogConfigPage(store: store)),
-            ListItem.open(leading: const GlyphIcon(AppGlyphs.key), title: Text(context.tr('Network')), widget: NetworkConfigPage(store: store)),
-            ListItem.open(leading: const GlyphIcon(AppGlyphs.dns), title: const Text('DNS'), widget: DnsConfigPage(store: store)),
-            ListItem.open(leading: const GlyphIcon(AppGlyphs.rules), title: Text(context.tr('Routing rules')), widget: RouteConfigPage(store: store)),
-            ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Rule sets')),
-              widget: ConfigListPage(store: store, title: 'Rule sets', path: const ['route', 'rule_set'], initial: const {'type': 'inline', 'tag': 'new-rules', 'rules': []})),
-            ListItem.open(leading: const GlyphIcon(AppGlyphs.lock), title: const Text('MITM'), widget: MitmPage(store: store)),
-            ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('HTTP rewriting')), widget: HttpRewriteConfigPage(store: store)),
-            ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Scripts')), widget: ScriptsConfigPage(store: store)),
-          ], footer: store.profile['name'].toString()),
-          generateSection(items: [ListItem(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Open configuration')),
-            trailing: const GlyphIcon(AppGlyphs.chevronForward), onTap: () async {
-              await openPage(context, ProfileEditor(profile: store.profile));
-              await store.load();
-            })]),
-        ]);
+      return switch (widget.section) {
+        ProfileConfigSection.logs => LogConfigPage(store: store),
+        ProfileConfigSection.network => NetworkConfigPage(store: store),
+        ProfileConfigSection.dns => DnsConfigPage(store: store),
+        ProfileConfigSection.routing => RouteConfigPage(store: store),
+        ProfileConfigSection.ruleSets => ConfigListPage(store: store, title: 'Rule sets', path: const ['route', 'rule_set'],
+          initial: const {'type': 'inline', 'tag': 'new-rules', 'rules': []}),
+        ProfileConfigSection.mitm => MitmConfigPage(store: store),
+        ProfileConfigSection.httpRewrite => HttpRewriteConfigPage(store: store),
+        ProfileConfigSection.scripts => ScriptsConfigPage(store: store),
+      };
     });
   }
 }
@@ -199,7 +199,7 @@ class MitmPage extends StatelessWidget {
   const MitmPage({super.key, this.store});
   final ProfileConfigStore? store;
   @override Widget build(BuildContext context) => store == null
-    ? const ProfileConfigurationPage(section: 'mitm') : MitmConfigPage(store: store);
+    ? const ProfileConfigurationPage(section: ProfileConfigSection.mitm) : MitmConfigPage(store: store);
 }
 
 class MitmConfigPage extends StatelessWidget {

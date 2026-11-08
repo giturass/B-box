@@ -3,7 +3,6 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../widgets.dart';
 import '../components/form.dart';
 import '../components/profile_card.dart';
-import 'profile_editor.dart';
 import 'profile_details.dart';
 
 // libbox remote_profile.go stores the display name in the URL fragment.
@@ -325,8 +324,6 @@ class _ProfileFormState extends State<ProfileForm> {
             ])),
         ], footer: _auto ? context.tr('At least 15 minutes') : null),
         if (widget.initial['id'] != null) generateSection(items: [
-          ListItem.open(title: Text(context.tr('Open configuration')), leading: const GlyphIcon(AppGlyphs.code),
-            widget: ProfileEditor(profile: widget.initial)),
           ListItem(title: Text(context.tr('Last updated')), subtitle: Text(
             (widget.initial['updatedAt'] as num? ?? 0) <= 0 ? context.tr('Unknown') : localDate(widget.initial['updatedAt']))),
         ]),

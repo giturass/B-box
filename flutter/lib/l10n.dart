@@ -212,7 +212,7 @@ const _zh = <String, String>{
   'Select another profile before deleting this one': '请先切换到其他配置，再删除此配置',
   'Subscription exceeds 16 MiB': '订阅内容超过 16 MiB',
   'Groups': '组', 'Outbounds': '出站', 'Inbounds': '入站', 'Routing rules': '路由规则',
-  'Advanced configuration': '高级配置', 'Resources': '资源', 'Rule sets': '规则集',
+  'Resources': '资源', 'Rule sets': '规则集',
   'DNS servers': 'DNS 服务器', 'DNS rules': 'DNS 规则', 'Default DNS server': '默认 DNS 服务器',
   'Reverse mapping': '反向映射', 'Disable DNS cache': '禁用 DNS 缓存', 'Disable DNS cache expiration': '禁用 DNS 缓存过期',
   'DNS cache capacity': 'DNS 缓存容量', 'Invalid value': '值无效', 'Default outbound': '默认出站',

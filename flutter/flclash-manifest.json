@@ -31,7 +31,7 @@
     "lib/pages/profile_details.dart": {
       "source": "lib/views/dashboard/widgets/profile_detail.dart",
       "sourceSHA256": "279a4e5336b34c593b79813b99d1432ce1fd2d950a37b05a2bed33df7ff024e8",
-      "changes": "Profile summary and configuration editing page labeled Edit, with count presentation adapted to live Room metadata and unknown update times explicitly labeled. Metadata editing and advanced/raw sing-box configuration entries are retained. Clash subscription counters are not invented. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Profile summary and configuration editing page labeled Edit, with count presentation adapted to live Room metadata and unknown update times explicitly labeled. Metadata editing is retained. Log, network, DNS, routing, rule-set, MITM, HTTP rewrite and script sections open directly from this page, which owns the single raw sing-box JSON entry. Clash subscription counters are not invented. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/proxy_groups_panel.dart": {
       "source": "lib/views/dashboard/widgets/proxy_groups.dart",
@@ -72,7 +72,7 @@
     "lib/pages/profiles.dart": {
       "source": "lib/views/profiles/profiles.dart",
       "sourceSHA256": "e0fa8370288a6729611df86a4ac117c5e464354658c6af3a9edbeed7aa451a49",
-      "changes": "Anchored add menu with a New profile entry, grouped metadata form, selected-item reveal, adaptive grid, flat profile actions and decorated reorder sheet. Edit opens the configuration editing page with raw content access; copy link, QR code, share and export are direct menu actions. Imports and edits retain sing-box JSON, binary/QRS metadata and Room operations; preserve local/remote type conversion, clipboard import, a 15-minute Android update minimum and serialized native updates. No Mihomo custom generator, providers, overrides, age key or runtime-preview claim. Disable configuration selection in both the page and picker during native service start/stop transitions, and recheck current state when a press callback runs. Disable deletion of the selected profile and recheck selection before and after confirmation in both views. Migrated to the v0.9.3 prism_ui types and presentation.",
+      "changes": "Anchored add menu with a New profile entry, grouped metadata form, selected-item reveal, adaptive grid, flat profile actions and decorated reorder sheet. Edit opens the configuration editing page with raw content access; the metadata form contains only metadata fields and update time. Copy link, QR code, share and export are direct menu actions. Imports and edits retain sing-box JSON, binary/QRS metadata and Room operations; preserve local/remote type conversion, clipboard import, a 15-minute Android update minimum and serialized native updates. No Mihomo custom generator, providers, overrides, age key or runtime-preview claim. Disable configuration selection in both the page and picker during native service start/stop transitions, and recheck current state when a press callback runs. Disable deletion of the selected profile and recheck selection before and after confirmation in both views. Migrated to the v0.9.3 prism_ui types and presentation.",
       "supportingSources": [
         {
           "source": "lib/views/profiles/add.dart",
@@ -122,7 +122,7 @@
           "sourceSHA256": "0b2e8ec0da7adaf98e2e8ce135eadff9e9c1ab7907e8aff9fee4cfcf2cbaf664"
         }
       ],
-      "changes": "Mobile LAN IP, sharing switch, cookie/circle Wi-Fi badge, adaptive row and compact switch track from intranet_ip.dart/card.dart. Copy retains DashboardIconButton's fixed 32px square, 18px glyph, zero padding, surface-variant foreground and 8px right translation. Sharing changes native sing-box proxy inbound listen fields with independent ports and existing authentication/TLS. Copy expands actual running binds to device endpoints; stopped and remote sessions retain device IP copying. Card and details share visibility ownership for native callback-driven refresh and hotspot fallback checks. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Mobile LAN IP, sharing switch, cookie/circle Wi-Fi badge, adaptive row and compact switch track from intranet_ip.dart/card.dart. Copy retains DashboardIconButton's fixed 32px square, 18px glyph, zero padding, surface-variant foreground and 8px right translation. Sharing changes native sing-box proxy inbound listen fields with independent ports and existing authentication/TLS. Copy expands actual running binds to device endpoints; stopped and remote sessions retain device IP copying. Card and details share visibility ownership for native callback-driven refresh and hotspot fallback checks. The details Edit action opens the unified profile editing page. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/system_proxy_panel.dart": {
       "source": "lib/views/dashboard/widgets/network_takeover.dart",
