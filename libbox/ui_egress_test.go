@@ -397,9 +397,9 @@ func TestUIEgressDeadlineAndCloseCancelRoutedDial(t *testing.T) {
 	}
 }
 
-func TestUIEgressCloseWaitsForRouting(t *testing.T) {
-	for _, owner := range []string{"probe", "service"} {
-		t.Run(owner, func(t *testing.T) {
+func TestUIEgressServiceCloseWaitsForRouting(t *testing.T) {
+	for _, alreadyClosing := range []bool{false, true} {
+		t.Run(fmt.Sprintf("alreadyClosing=%t", alreadyClosing), func(t *testing.T) {
 			server := &CommandServer{StartedService: daemon.NewStartedService(daemon.ServiceOptions{
 				Context: context.Background(), LogMaxLines: 32,
 			})}
@@ -429,15 +429,17 @@ func TestUIEgressCloseWaitsForRouting(t *testing.T) {
 			case <-time.After(2 * time.Second):
 				t.Fatal("probe did not enter routing")
 			}
-			closed := make(chan error, 1)
-			go func() {
-				if owner == "service" {
-					closed <- server.CloseService()
-				} else {
-					probe.Close()
-					closed <- nil
+			if alreadyClosing {
+				probeClosed := make(chan struct{})
+				go func() { probe.Close(); close(probeClosed) }()
+				select {
+				case <-probeClosed:
+				case <-time.After(2 * time.Second):
+					t.Fatal("probe cancellation blocked on route cleanup")
 				}
-			}()
+			}
+			closed := make(chan error, 1)
+			go func() { closed <- server.CloseService() }()
 			select {
 			case <-cancelled:
 			case <-time.After(2 * time.Second):

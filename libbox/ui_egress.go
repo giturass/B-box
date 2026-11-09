@@ -90,6 +90,10 @@ func (s *uiEgressProbeSet) close() {
 	for _, probe := range probes {
 		probe.Close()
 	}
+	for _, probe := range probes {
+		// DNS/dial setup must finish before its service instance is closed.
+		probe.routes.Wait()
+	}
 }
 
 // NewUIDirectEgressProbe checks the device's current network without starting
@@ -178,10 +182,13 @@ func (p *UIEgressProbe) Close() {
 		p.cancel()
 		p.routeAccess.Unlock()
 		p.closeClient()
-		// RouteConnectionEx must leave DNS/dial setup before its core is closed.
-		p.routes.Wait()
 		if p.onClose != nil {
-			p.onClose()
+			// Android can cancel a probe from the UI thread. Keep it registered
+			// until routing exits so concurrent service teardown still waits.
+			go func() {
+				p.routes.Wait()
+				p.onClose()
+			}()
 		}
 	})
 }
