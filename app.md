@@ -227,13 +227,26 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 ### 特权增强移除验证
 
-2026-11-09，本次移除基于 `f590e1b06682261ad7d1a485dec2d41231de0ad7`。提交前本机通过 `git diff --check`、`python3 tools/verify_newui.py`、Python/JSON/XML 语法、文档链接/锚点、已删除类型的导入残留及许可资源检查。通用 Room 持久化、Root/Shizuku 和 MITM CA 回归继续保留。
+2026-11-09，最终验证源码为 `95a6f002170628911e2687af6e2dd39b3691bb3e`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42570495902)，全部 8 个 job 通过。后续补充本记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。通用 Room 持久化、Root/Shizuku 和 MITM CA 回归继续保留。
 
-移除提交 `9df354941d5c8fb2deba9b4fd077b6f13f13f3e4` 的 [统一测试](https://github.com/giturass/B-box/actions/runs/42563166489) 已通过核心、Root CA、Flutter 分析与 219 项测试、56 项 JVM 测试及 Android 编译。API 24/31/36 的 4 KiB 模拟器均通过 UI smoke 和 37 项原生测试；API 36 / 16 KiB 在同一提交的两次尝试中均未等到首次启动的 Dashboard，截图停留在系统桌面，但各自的 37 项原生测试通过。两次实际页大小均为 16384；当时只采集末尾 5000 行日志，启动记录已丢失，尚不能确定退出原因。后续 smoke 改为持续采集启动日志、记录启动命令结果及系统退出原因，实际验证须核对对应源码 SHA。
+- 核心扩展、HTTP/MITM race、路由与 Root CA 回归通过；新增出口探测生命周期回归分别检查普通取消和服务关闭，并以 Go race detector 再次运行全部 `TestUIEgress` 用例。
+- Flutter 分析、219 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 77 条 info、0 条 warning/error。
+- 已读取 `native-unit-tests` 的 13 份 XML，56 项 JVM 测试全部通过，无失败、错误或跳过；`play` 编译及 x86_64 应用/仪器测试 APK 构建通过。
 
-诊断提交 `a50e59639ac48d7e21dc9a40ebf0477c0a9eae19` 的 [测试](https://github.com/giturass/B-box/actions/runs/42567022417) 中，16 KiB UI 与原生测试通过，但完整启动日志确认前台 B-box 曾被 `lowmemorykiller` 杀掉，随后由系统重新启动，退出记录为 `LOW_MEMORY`。API 36 / 4 KiB 的 UI 通过，原生测试则捕获到出口探测与服务重载的竞态：`UIEgressProbe` 在旧核心关闭后进入 DNS，触发 `dns.Client.newCacheKey` 空 transport panic。修复为 [核心探测生命周期同步](libbox.md#出口-ip-和质量查询传输)，并提高 16 KiB 模拟器的 RAM。该轮 Flutter 分析/交互测试通过，AAR 构建因 Kotlin 编译器下载 HTTP 504 失败；这些结果不构成修复提交的通过声明。
+已逐项核对以下 Artifact 的 `results.json` 和 `native-tests.txt`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 37 项原生测试通过，页大小为实际读取值。
 
-尚未完成移除后版本的全矩阵通过、ARM64 Release 和实机验收，也未验证旧模块升级后的禁用/重启退出流程；此前版本的结果不代替本次验收。
+| 环境与结果产物 | 实际页大小 | 采集来源 |
+| --- | --- | --- |
+| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/42570495902/artifacts/13652634834) | 4096 字节 | `/proc/self/smaps` |
+| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/42570495902/artifacts/13653627957) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/42570495902/artifacts/13652903876) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/42570495902/artifacts/13653119963) | 16384 字节 | `getconf` |
+
+16 KiB job 的 AVD 配置已核对为 `hw.ramSize=4096M`；完整日志和应用退出记录中没有 B-box 的低内存退出、崩溃或 ANR，UI 阶段只有脚本主动执行的 force-stop。已查看其首次启动和 VPN 运行态截图；运行态截图中的公网 IP 查询显示 `Check failed`，本轮不证明外部 IP/质量服务的可用性。所有设备均为临时 x86_64 模拟器，未验证移除后的 ARM64 Release、实机或旧 LSPosed 模块升级后的禁用/重启退出流程。
+
+本次移除基于 `f590e1b06682261ad7d1a485dec2d41231de0ad7`。本机通过差异、源码约束、Python/JSON/XML 语法、文档链接/锚点、删除类型残留及许可检查；生命周期补丁的全部上下文另与核心基线 `824dbcfb4dd0a95921840b1737b950cde590241e` 静态核对。编译、Go/Flutter/JVM 和设备测试均在 Actions 运行。
+
+[首轮测试](https://github.com/giturass/B-box/actions/runs/42563166489) 对应移除提交 `9df354941d5c8fb2deba9b4fd077b6f13f13f3e4`，16 KiB 两次首次启动均停留在桌面；当时只保留末尾日志，缺少退出原因。增加持续日志的 `a50e59639ac48d7e21dc9a40ebf0477c0a9eae19` [诊断运行](https://github.com/giturass/B-box/actions/runs/42567022417) 捕获到 16 KiB 前台进程的 `LOW_MEMORY` 退出及系统重启，以及 4 KiB 原生测试期间的 `dns.Client.newCacheKey` 空 transport panic。后者来自出口探测在旧核心关闭后进入 DNS，现由 [核心探测生命周期同步](libbox.md#出口-ip-和质量查询传输) 修复。诊断运行还遇到 Kotlin 编译器下载 HTTP 504；最终上述运行的 Flutter 构建已通过。
 
 ### 持久化、配置恢复与后台检查优化验证
 
