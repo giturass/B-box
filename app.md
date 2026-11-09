@@ -195,7 +195,7 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 该原生套件还覆盖超限订阅在 URL 导入、手动及自动更新时保留原数据和服务；备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、慢速响应与限额边界由 [核心订阅测试](libbox/ui_profile_test.go) 覆盖。
 
-模拟器统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、远程 JSON 导入、VPN 授权、启停、实际内核分组及进程重启后配置保留；原生组运行全部仪器测试并拒绝零测试结果。`build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
+模拟器统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、远程 JSON 导入、VPN 授权、启停、实际内核分组及进程重启后配置保留；原生组运行全部仪器测试并拒绝零测试结果。`build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。每组测试在应用启动前持续采集 main/system/crash/events 日志，结束后保存 Activity 和内存状态，API 30+ 另保存该应用的系统退出记录；`am start -W` 的输出单独保存，避免启动过程被末尾日志截断。启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
 
 实际 smoke 运行结果须附对应 SHA；自有 CA 客户端测试不等于第三方信任库、CT/ECH 或 Root 模块的兼容性验收。
 
@@ -229,7 +229,9 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 2026-11-09，本次移除基于 `f590e1b06682261ad7d1a485dec2d41231de0ad7`。提交前本机通过 `git diff --check`、`python3 tools/verify_newui.py`、Python/JSON/XML 语法、文档链接/锚点、已删除类型的导入残留及许可资源检查。通用 Room 持久化、Root/Shizuku 和 MITM CA 回归继续保留。
 
-上述为提交前的静态验证，未包含编译或 Flutter/JVM/设备测试；移除后的 APK 打包、界面与旧模块升级退出流程不能由这些检查证明。代码推送会自动触发统一测试，实际结果须核对对应源码 SHA；此前 Actions 记录仅对应各自源码。
+移除提交 `9df354941d5c8fb2deba9b4fd077b6f13f13f3e4` 的 [统一测试](https://github.com/giturass/B-box/actions/runs/42563166489) 已通过核心、Root CA、Flutter 分析与 219 项测试、56 项 JVM 测试及 Android 编译。API 24/31/36 的 4 KiB 模拟器均通过 UI smoke 和 37 项原生测试；API 36 / 16 KiB 在同一提交的两次尝试中均未等到首次启动的 Dashboard，截图停留在系统桌面，但各自的 37 项原生测试通过。两次实际页大小均为 16384；当时只采集末尾 5000 行日志，启动记录已丢失，尚不能确定退出原因。后续 smoke 改为持续采集启动日志、记录启动命令结果及系统退出原因，实际验证须核对对应源码 SHA。
+
+尚未完成移除后版本的全矩阵通过、ARM64 Release 和实机验收，也未验证旧模块升级后的禁用/重启退出流程；此前版本的结果不代替本次验收。
 
 ### 持久化、配置恢复与后台检查优化验证
 

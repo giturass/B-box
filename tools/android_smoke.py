@@ -21,10 +21,38 @@ from pathlib import Path
 PACKAGE = "io.ericlee.bfa"
 COMPONENT = PACKAGE + "/io.nekohasekai.sfa.compose.MainActivity"
 OUT = Path("build/android-smoke")
+LOG_BUFFERS = ("-b", "main", "-b", "system", "-b", "crash", "-b", "events")
 
 
 def adb(*args, binary=False, timeout=45):
     return subprocess.check_output(["adb", *args], text=not binary, timeout=timeout)
+
+
+def launch_activity(*args):
+    result = adb("shell", "am", "start", "-W", "-n", COMPONENT, *args)
+    with (OUT / "activity-starts.txt").open("a") as log:
+        log.write(f"Arguments: {args!r}\n{result}\n")
+    print(result, flush=True)
+
+
+@contextlib.contextmanager
+def record_logcat(name):
+    # Stream before launching the app: a tail collected after a UI timeout can
+    # discard the startup failure amid the emulator's background activity.
+    with (OUT / f"{name}-logcat.txt").open("wb") as log:
+        process = subprocess.Popen(
+            ["adb", "logcat", *LOG_BUFFERS, "-v", "threadtime"],
+            stdout=log, stderr=subprocess.STDOUT,
+        )
+        try:
+            yield
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
 
 
 def device_page_size():
@@ -83,7 +111,7 @@ def wait_for(label, timeout=90, dismiss_launcher_anr=False, whole_window=False, 
                 dismiss_launcher_anr = False
                 capture("launcher-anr")
                 tap_node(close[0])
-                adb("shell", "am", "start", "-W", "-n", COMPONENT)
+                launch_activity()
         time.sleep(0.5)
     raise AssertionError(f"UI never showed {label!r}; see window.xml")
 
@@ -127,15 +155,14 @@ def ui_smoke():
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
             adb("reverse", f"tcp:{port}", f"tcp:{port}")
-            adb("shell", "am", "start", "-W", "-n", COMPONENT)
+            launch_activity()
             wait_for("Dashboard", dismiss_launcher_anr=True)
             capture("01-startup")
             uri = "sing-box://import-remote-profile?" + urllib.parse.urlencode({
                 "url": f"http://127.0.0.1:{port}/profile.json",
             }) + "#" + urllib.parse.quote("Smoke profile")
             # ADB's shell parses the encoded URI a second time.
-            adb("shell", "am", "start", "-W", "-n", COMPONENT,
-                "-a", "android.intent.action.VIEW", "-d", "'" + uri + "'")
+            launch_activity("-a", "android.intent.action.VIEW", "-d", "'" + uri + "'")
             # Prism's form sheet can expose semantics before it stops moving.
             # Confirm the button's position, then require the form to close;
             # its prefilled name alone does not establish a successful import.
@@ -165,7 +192,7 @@ def ui_smoke():
             click("Stop")
             wait_for("Not running")
             adb("shell", "am", "force-stop", PACKAGE)
-            adb("shell", "am", "start", "-W", "-n", COMPONENT)
+            launch_activity()
             wait_for("Smoke profile")
             capture("05-restored-profile")
         finally:
@@ -284,18 +311,30 @@ def native_regressions():
         "Native regressions failed or ran no tests; see native-tests.txt"
 
 
-def diagnostics(name):
+def diagnostics(name, sdk=0):
     try:
         capture(f"{name}-last-screen")
     except (subprocess.SubprocessError, OSError) as error:
         print(f"Screenshot capture failed: {error}")
-    try:
-        with (OUT / f"{name}-logcat.txt").open("wb") as log:
-            # Some emulator logcat versions exit 255 after dumping their buffers.
-            subprocess.run(["adb", "logcat", "-d", "-t", "5000"], stdout=log,
-                           stderr=subprocess.STDOUT, timeout=45, check=False)
-    except (subprocess.SubprocessError, OSError) as error:
-        print(f"Log collection failed: {error}")
+    log_path = OUT / f"{name}-logcat.txt"
+    if not log_path.exists() or not log_path.stat().st_size:
+        try:
+            with log_path.open("wb") as log:
+                # Also preserve setup failures that precede the log stream.
+                subprocess.run(["adb", "logcat", *LOG_BUFFERS, "-d", "-v", "threadtime"],
+                               stdout=log, stderr=subprocess.STDOUT, timeout=45, check=False)
+        except (subprocess.SubprocessError, OSError) as error:
+            print(f"Log collection failed: {error}")
+    dumps = {"activities": ("activity", "activities"), "memory": ("meminfo",)}
+    if sdk >= 30:
+        dumps["exit-info"] = ("activity", "exit-info", PACKAGE)
+    for suffix, arguments in dumps.items():
+        try:
+            with (OUT / f"{name}-{suffix}.txt").open("wb") as output:
+                subprocess.run(["adb", "shell", "dumpsys", *arguments], stdout=output,
+                               stderr=subprocess.STDOUT, timeout=45, check=False)
+        except (subprocess.SubprocessError, OSError) as error:
+            print(f"{suffix} collection failed: {error}")
 
 
 def main():
@@ -326,18 +365,19 @@ def main():
                 # Each suite owns a fresh installation state, even if the UI suite failed mid-start.
                 adb("shell", "am", "force-stop", PACKAGE)
                 assert "Success" in adb("shell", "pm", "clear", PACKAGE)
-                adb("logcat", "-c")
-                check()
+                adb("logcat", *LOG_BUFFERS, "-c")
+                with record_logcat(name):
+                    check()
                 results[name] = {"passed": True}
             except Exception as error:
                 results[name] = {"passed": False, "error": str(error)}
                 (OUT / f"{name}-failure.txt").write_text(traceback.format_exc())
                 traceback.print_exc()
             finally:
-                diagnostics(name)
+                diagnostics(name, int(device.get("sdk", 0)))
     except Exception as error:
         results["setup"] = {"passed": False, "error": str(error)}
-        diagnostics("setup")
+        diagnostics("setup", int(device.get("sdk", 0)))
         traceback.print_exc()
     finally:
         (OUT / "results.json").write_text(json.dumps({
