@@ -18,31 +18,34 @@ for path in frontend.rglob("*.dart"):
     for name in set(re.findall(r"AppGlyphs\.(\w+)", source)):
         if not re.search(r"\b" + name + r"\b", glyph_source):
             errors.append(f"{path.relative_to(ROOT)}: unknown FlClash glyph {name}")
-    for target in re.findall(r"import ['\"]([^'\"]+)", source):
+    for target in re.findall(r"(?:import|export) ['\"]([^'\"]+)", source):
         if ":" not in target and not (path.parent / target).is_file():
             errors.append(f"{path.relative_to(ROOT)}: missing import {target}")
 for name in ("MainActivity", "ShareActivity"):
     source = (native / f"compose/{name}.kt").read_text()
     if f"class {name} : BoxActivity()" not in source or "setContent" in source:
         errors.append(f"{name} must enter the Flutter host")
-module_metadata = ROOT / "app/src/main/resources/META-INF/xposed"
-if (module_metadata / "java_init.list").read_text().splitlines() != [
-    "io.nekohasekai.sfa.xposed.XposedInit", "io.nekohasekai.sfa.xposed.XposedInit101",
-]:
-    errors.append("Both LSPosed API 100/101 entry points must remain registered")
 root_aidl = (ROOT / "app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl").read_text()
-if re.search(r"=\s*(?:2|3|10)\s*;", root_aidl):
-    errors.append("Retired Root transactions 2, 3 and 10 must not be reused")
-for path in (ROOT / "app/src").rglob("*.kt"):
+if re.search(r"=\s*(?:2|3|10|11)\s*;", root_aidl):
+    errors.append("Retired Root transactions 2, 3, 10 and 11 must not be reused")
+for path in (ROOT / "app/src").rglob("*"):
+    if path.suffix not in (".kt", ".java", ".aidl"):
+        continue
     source = path.read_text()
     if re.search(r"(?:androidx\.compose|androidx\.navigation|sfa\.compose\.(?:screen|navigation|component)|sfa\.update)\b", source):
         errors.append(f"{path.relative_to(ROOT)}: retired UI/update dependency")
-for path in (ROOT / "app/build.gradle.kts", ROOT / "build.gradle.kts"):
+    if re.search(r"(?:sfa\.xposed|io\.github\.libxposed|de\.robv\.android\.xposed)\b|PrivilegeSettings|BoxPrivilege", source):
+        errors.append(f"{path.relative_to(ROOT)}: retired privilege integration")
+for path in (ROOT / "app/build.gradle.kts", ROOT / "build.gradle.kts", ROOT / "settings.gradle.kts"):
     if re.search(r"plugin\.compose|androidx\.compose|navigation-(?:compose|fragment|ui)|sora-editor|libghostty-android-compose|app-update-ktx", path.read_text()):
         errors.append(f"{path.name}: retired UI/update build dependency")
+    if re.search(r"xposed", path.read_text(), re.I):
+        errors.append(f"{path.name}: retired Xposed build dependency")
 for path in (ROOT / "app/src").rglob("AndroidManifest.xml"):
     if re.search(r"REQUEST_INSTALL_PACKAGES|UPDATE_PACKAGES_WITHOUT_USER_ACTION|InstallResultReceiver|WRITE_EXTERNAL_STORAGE", path.read_text()):
         errors.append(f"{path.relative_to(ROOT)}: retired installer/QR export permission")
+    if re.search(r"xposed", path.read_text(), re.I):
+        errors.append(f"{path.relative_to(ROOT)}: retired Xposed component or metadata")
 for directory in (native / "compose", native / "update", native / "compat", ROOT / "app/src/github"):
     for path in directory.rglob("*"):
         if path.is_file() and path.name not in ("MainActivity.kt", "ShareActivity.kt"):
@@ -55,10 +58,14 @@ for path in (native / "flutter").glob("*.kt"):
         errors.append(f"{path.name}: legacy navigation is not allowed")
 for retired in ("flutter/lib/pages/capture_rules.dart", "libbox/option/httpdebug.go", "tools/ebpf",
                 "libbox/httpdebug/wire.go", "flutter/lib/pages/tls_offsets.dart",
-                "app/src/main/java/io/nekohasekai/sfa/bg/RootCaptureSession.kt"):
+                "app/src/main/java/io/nekohasekai/sfa/bg/RootCaptureSession.kt",
+                "flutter/lib/pages/privilege.dart", "third_party/libxposed-api",
+                "app/src/main/java/io/nekohasekai/sfa/xposed",
+                "app/src/main/java/io/github/libxposed", "app/src/main/aidl/io/github/libxposed",
+                "app/src/main/resources/META-INF/xposed", "app/src/main/assets/xposed_init"):
     path = ROOT / retired
     if path.is_file() or path.is_dir() and any(item.is_file() for item in path.rglob("*")):
-        errors.append(f"{retired}: retired capture implementation remains")
+        errors.append(f"{retired}: retired implementation remains")
 manifest = json.loads((ROOT / "flutter/flclash-manifest.json").read_text())
 flutter = ROOT / "flutter"
 
@@ -141,4 +148,4 @@ for reference in manifest.get("supplementalReferences", []):
                 errors.append(f"Changed verbatim supplemental import: {local}")
 if errors:
     raise SystemExit("\n".join(errors))
-print("FlClash/prism_ui sources, licenses, Flutter imports, glyphs, Android entry points and capture removal guards passed")
+print("FlClash/prism_ui sources, licenses, Flutter imports, glyphs, Android entry points and retired feature guards passed")

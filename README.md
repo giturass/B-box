@@ -12,7 +12,7 @@
 - Tailscale、Taildrop、SSH、OpenConnect/OpenVPN 认证、USB/IP、网络诊断和报告通过新页面使用现有后端。
 - 支持配置和设置备份；B-box 既有包名、数据库及配置保持兼容。
 - 旧 Compose 页面、导航、编辑器及更新下载/静默安装链路已移除。关于页使用独立的 B-box Release 检查；配置订阅更新继续保留。
-- 支持通过新界面配置 [LSPosed 特权增强](app.md#lsposed-特权增强)；Android 5/6 支持已移除。
+- Xposed/LSPosed 特权增强及 Android 5/6 支持已移除；[兼容说明](app.md#已移除能力与兼容入口)。
 
 项目约束：[AGENTS.md](AGENTS.md)。核心差异：[libbox.md](libbox.md)。FlClash UI 使用情况及来源：[flclash.md](flclash.md)。Android 应用差异与构建发布：[app.md](app.md)。组件许可证：[flutter/assets/licenses](flutter/assets/licenses)。
 

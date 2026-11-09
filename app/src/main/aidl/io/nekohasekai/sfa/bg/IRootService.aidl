@@ -1,6 +1,5 @@
 package io.nekohasekai.sfa.bg;
 
-import android.os.ParcelFileDescriptor;
 import io.nekohasekai.sfa.bg.IAutoRedirectHandler;
 import io.nekohasekai.sfa.bg.IAutoRedirectSession;
 import io.nekohasekai.sfa.bg.IBridgeSession;
@@ -29,5 +28,5 @@ interface IRootService {
 
     // Transaction 10 (retired eBPF capture) must not be reused.
 
-    void exportHookDebugInfo(in ParcelFileDescriptor output) = 11;
+    // Transaction 11 (retired module diagnostics export) must not be reused.
 }

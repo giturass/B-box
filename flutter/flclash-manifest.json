@@ -153,7 +153,7 @@
     "lib/pages/tools.dart": {
       "source": "lib/views/tools.dart",
       "sourceSHA256": "aa81cb38649ba5f4c7f48c5a29ad4993fac0362ad1857e937af77f4093d572f9",
-      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools. Uses tool-specific state notifications and shares a visibility-controlled native detail subscription with endpoint pages. Migrated to the v0.9.3 prism_ui types and presentation. Adds the B-box LSPosed privilege settings destination, implemented with shared Flutter controls."
+      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools. Uses tool-specific state notifications and shares a visibility-controlled native detail subscription with endpoint pages. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/pages/about.dart": {
       "source": "lib/views/about.dart",
@@ -263,7 +263,7 @@
     "lib/main.dart": {
       "source": "lib/application.dart",
       "sourceSHA256": "5b89684b6596e0d3529b2ef05c6a499441188b1691c916f500858c3ec9110d2c",
-      "changes": "PrismApp, Prism themes, built-in glass/emoji/text scaling, banner messages and navigation adapted to the existing B-box controller. Banners reserve Prism's toolbar clearance so copy and failure feedback leave toolbar actions accessible. System language and 0.8–1.4 scaling remain; no Flutter or Android identity change. Routes the LSPosed MODULE_SETTINGS intent directly to the Flutter privilege page and registers the restored libxposed notices."
+      "changes": "PrismApp, Prism themes, built-in glass/emoji/text scaling, banner messages and navigation adapted to the existing B-box controller. Banners reserve Prism's toolbar clearance so copy and failure feedback leave toolbar actions accessible. System language and 0.8–1.4 scaling remain; no Flutter or Android identity change."
     },
     "lib/components/page_switcher.dart": {
       "source": "lib/pages/home.dart",

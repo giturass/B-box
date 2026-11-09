@@ -7,7 +7,6 @@ import 'pages/proxies.dart';
 import 'pages/profiles.dart';
 import 'pages/tools.dart';
 import 'pages/taildrop.dart';
-import 'pages/privilege.dart';
 import 'theme_settings.dart';
 import 'components/page_switcher.dart';
 import 'components/navigation_bar.dart';
@@ -16,7 +15,7 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   LicenseRegistry.addLicense(() async* {
-    for (final entry in const {'FlClash': 'LICENSE', 'libxposed API and service': 'libxposed-LICENSE', 'libxposed source notices': 'libxposed-NOTICE', 'prism_ui': 'LICENSE', 'prism_ui third-party notices': 'prism_ui-NOTICE', 'prism_ui shapes / material_new_shapes': 'prism_shapes-LICENSE', 'prism_ui lists / super_sliver_list': 'prism_sliver_list-LICENSE', 'prism_ui sheets / navigator_resizable': 'prism_navigator-LICENSE', 'Goja': 'goja-LICENSE', 'gojq': 'gojq-LICENSE', 'timefmt-go': 'timefmt-go-LICENSE', 'robfig/cron': 'cron-LICENSE', 'regexp2': 'regexp2-LICENSE', 'go-sourcemap': 'sourcemap-LICENSE', 'Google pprof': 'pprof-LICENSE', 'Brotli': 'brotli-LICENSE', 'klauspost/compress': 'klauspost-compress-LICENSE', 'JetBrains Mono': 'JetBrainsMono-OFL.txt', 'Twemoji / Mozilla': 'Twemoji-LICENSE.md'}.entries) {
+    for (final entry in const {'FlClash': 'LICENSE', 'prism_ui': 'LICENSE', 'prism_ui third-party notices': 'prism_ui-NOTICE', 'prism_ui shapes / material_new_shapes': 'prism_shapes-LICENSE', 'prism_ui lists / super_sliver_list': 'prism_sliver_list-LICENSE', 'prism_ui sheets / navigator_resizable': 'prism_navigator-LICENSE', 'Goja': 'goja-LICENSE', 'gojq': 'gojq-LICENSE', 'timefmt-go': 'timefmt-go-LICENSE', 'robfig/cron': 'cron-LICENSE', 'regexp2': 'regexp2-LICENSE', 'go-sourcemap': 'sourcemap-LICENSE', 'Google pprof': 'pprof-LICENSE', 'Brotli': 'brotli-LICENSE', 'klauspost/compress': 'klauspost-compress-LICENSE', 'JetBrains Mono': 'JetBrainsMono-OFL.txt', 'Twemoji / Mozilla': 'Twemoji-LICENSE.md'}.entries) {
       yield LicenseEntryWithLineBreaks([entry.key], await rootBundle.loadString('assets/licenses/${entry.value}'));
     }
   });
@@ -152,10 +151,6 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _import(String uri) async {
     try {
-      if (uri == 'bbox-settings:privilege') {
-        if (mounted) await openPage(context, const PrivilegePage());
-        return;
-      }
       if (uri.startsWith('bbox-share:')) {
         if (mounted) await openPage(context, SharePage(token: uri.substring('bbox-share:'.length)));
         return;

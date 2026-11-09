@@ -5,7 +5,6 @@ import re
 import subprocess
 from pathlib import Path
 from zipfile import ZipFile
-from verify_xposed import verify_xposed_apk
 
 
 def main():
@@ -18,13 +17,14 @@ def main():
     expected_name = f"B-box-{properties['VERSION_NAME']}-arm64-v8a.apk"
     if len(apks) != 1 or apks[0].name != expected_name:
         raise SystemExit(f'Expected exactly one {expected_name}, found: {apks}')
-    verify_xposed_apk(apks[0])
     with ZipFile(apks[0]) as apk:
         names = apk.namelist()
         abis = {name.split('/')[1] for name in names
                 if name.startswith('lib/') and name.endswith('.so')}
         if any(name.endswith('/libbbox_capture.so') for name in names):
             raise SystemExit('Retired capture collector was packaged')
+        if any(name.startswith('META-INF/xposed/') or name == 'assets/xposed_init' for name in names):
+            raise SystemExit('Retired Xposed module metadata was packaged')
         for source in Path('app/src/main/assets/mitm-ca').rglob('*'):
             if not source.is_file():
                 continue

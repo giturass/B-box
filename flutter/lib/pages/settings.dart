@@ -4,7 +4,6 @@ export 'appearance.dart';
 export 'access.dart';
 export 'about.dart';
 export 'backup.dart';
-export 'privilege.dart';
 
 class NativeToggle extends StatelessWidget {
   const NativeToggle(this.title, this.setting, {super.key, this.restart = true, this.autoRestart = false});

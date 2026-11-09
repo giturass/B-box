@@ -30,7 +30,7 @@
 3. 模式、代理组、可选节点和延迟来自当前内核；自动组不能手动选择。保留本地/远程会话区分，不把本机配置、出口 IP 或演示数据当作远端状态。
 4. 保留 Android VPN 权限、前台服务和服务状态确认流程。配置及备份应用须保留修订冲突检查、原子写入和失败恢复；不能在需要重启服务时把发出启动请求视为启动成功。
 5. B-box 的安装身份为 `io.ericlee.bfa`，源码 namespace、类路径及 AIDL 描述符保留 `io.nekohasekai.sfa`。任务未涉及这些约定时保持兼容；不要重排或复用已退役的 Binder 方法编号，也不要清空无关设置和数据库。
-6. 保留完整 sing-box 协议和 Tailscale/Taildrop、终端、普通 Root/Shizuku 能力。Xposed/LSPosed 系统模块与特权增强已恢复，设置和诊断使用 Flutter 页面；模块状态必须来自系统端，版本不匹配时要求重启系统。Android 5/6、legacy AAR 和旧更新下载/静默安装链路仍已移除。具体范围见 [libbox.md](libbox.md) 和 [app.md](app.md#lsposed-特权增强)。
+6. 保留完整 sing-box 协议和 Tailscale/Taildrop、终端、普通 Root/Shizuku 能力。Xposed/LSPosed 系统模块、特权增强、Android 5/6、legacy AAR 和旧更新下载/静默安装链路已移除。具体范围见 [libbox.md](libbox.md) 和 [app.md](app.md#已移除能力与兼容入口)。
 7. 复用 FlClash 组件时保留来源和许可，按 [flclash-manifest.json](flutter/flclash-manifest.json) 区分直接导入与业务适配。共享源码复用、编译成功或预览声明都不能代替视觉和实机验收。
 
 ## 上游同步与验证

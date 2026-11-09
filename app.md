@@ -142,29 +142,13 @@ CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期�
 
 `httpScriptsUseRoutedClientTimersAndPersistentNamespaces` 使用仅当前路由可解析、也匹配脚本范围的 HTTP 目标，检查异步回调及防递归、定时器、磁盘快照、规则改名/重载/清空记录后保留值、命名空间隔离、默认联网及显式空允许列表禁止联网。Go 回归补充四种前后查找、数字/命名反向引用及 Unicode 位置、jq 失败透传、正文限额、20 并发 HTTP、重定向/Cookie/二进制、资源更新/损坏缓存/关闭取消。新用例以当前源码的 Actions 为准，此前记录不替代本次验收。
 
-## LSPosed 特权增强
-
-[xposed/](app/src/main/java/io/nekohasekai/sfa/xposed/) 的模块入口、VPN 隐藏、HTTP 代理信息隐藏、VPN 应用列表过滤与接口重命名恢复自本文件固定的 Android 上游 `a548a7903e96266a0046018562c73b192edbfc18`，保留该版本的 Connectivity APEX、Android 13+ 应用过滤及 Android 16 QPR2 适配。不改变核心标签、libbox 绑定或 FlClash 参考版本。
-
-入口为“工具 → 特权增强”；LSPosed 的模块设置入口也通过稳定 `compose.MainActivity` 进入同一 Flutter 页面。首次使用需在 LSPosed 中启用 B-box、勾选“系统框架”作用域并重启 Android。应用最低 API 24 不变，模块的实际可用范围由所安装 LSPosed 版本及 ROM 决定；未安装或未激活模块时普通 VPN、Root/Shizuku 等功能继续使用。
-
-- 模块使用 [META-INF/xposed](app/src/main/resources/META-INF/xposed/) 注册 API 100/101 入口，当前模块版本为 `5`。`de.robv.android.xposed:api:82` 与 [libxposed-api](third_party/libxposed-api/) 仅 `compileOnly`；恢复的 libxposed Service Provider/AIDL 使用 `${applicationId}.XposedService`，Provider 限制框架/本进程来源，系统端特权事务按 `BuildConfig.APPLICATION_ID` 校验调用方。来源和 Apache-2.0 声明保留在 [NOTICE](third_party/libxposed-api/NOTICE) 与应用许可页。
-- LinkProperties 隐藏通过 [LinkPropertiesHookMethod.kt](app/src/main/java/io/nekohasekai/sfa/xposed/hooks/hidevpn/LinkPropertiesHookMethod.kt) 按实际签名选择入口，优先使用 `sanitizeLinkPropertiesForCallerAndUid(LinkProperties,int,int,int)`，其次为同名三参数方法，最后兼容 [AOSP 原三参数入口](https://android.googlesource.com/platform/packages/modules/Connectivity/+/f930245ec39a510f37a9a7dfaded96d287491a61/service/src/com/android/server/ConnectivityService.java#3391) `linkPropertiesRestrictedForCallerPermissions`。已检查的 Android 15 Connectivity APEX 中，三参数新入口委托给四参数重载，网络回调直接调用四参数重载；不能仅按系统 API 等级选择。隐藏判断继续使用第三个参数 `callerUid`，第四个参数是代理查询的 `asUid`。安装成功记录实际方法，所有已知签名均不存在时保留诊断警告。
-- [HookStatusClient.kt](app/src/main/java/io/nekohasekai/sfa/utils/HookStatusClient.kt) 读取实际系统 Binder 状态；模块缺失、死亡或读取失败不阻断应用启动。版本不匹配时禁止同步，页面提示重启系统，不以本地激活记录或保存设置推断 Hook 成功。Hook 日志可检查具体 ROM 适配错误，状态不等于所有目标应用均无法检测 VPN。
-- [BoxPrivilege.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxPrivilege.kt) 将读取、保存、应用选择、自检、Hook 日志和诊断导出接入 Flutter。隐藏开关只针对所选应用；接口重命名是独立系统能力，影响本机新创建的 VPN 接口，名称前缀限定为 1～13 位 ASCII 字母、数字或下划线，首位不能为数字。netlink 重命名重试失败也尝试恢复原接口的 UP 状态。
-- 设置继续读取历史 `hide_settings_*` 键，不清理无关设置。保存检查修订，通过 Room 的单次批量事务写入并等待真实结果，再同步系统端；系统端原子写文件后发布完整快照。保存或同步失败恢复原设置和模块状态；接口设置变更时，运行中的本地 VPN 通过既有流程重启并等待 Started，失败恢复。恢复失败时不再启动未恢复的服务，并保留原错误及恢复错误。应用启动和返回前台补同步保存的设置；相同系统进程与修订避免重复同步。模块设置为本机专用，未加入 `bbox-1` 备份字段。
-- 应用查询在兼容模块激活时优先使用系统端查询，失败回退到当前 flavor 原有的 PackageManager 或所选 Root/Shizuku 策略，不改写保存的查询方式。特权应用选择包含 B-box 自身，保留被筛选或已卸载的已选包名；进入页面不触发托管应用扫描。自检仅观察 B-box 当前进程，验证隐藏时需先启动 VPN、将 B-box 加入选择并保存，不将自检结果当成其他应用的结果。
-- Root 诊断导出通过系统文件选择器保存 ZIP，包含系统/LSPosed 日志、应用列表和 Android 框架文件，页面在导出前说明内容。新的 `IRootService.exportHookDebugInfo` 使用事务 `11` 和文件描述符，不恢复退役的事务 `3` 或任意 Root 输出路径接口。命令输出限 8 MiB、单命令 15 秒、归档未压缩写入限 512 MiB；取消文件选择不显示成功。不会自动执行 Root 导出或上传文件。
-- 远程会话的页面和原生写入均隔离本机模块能力；迟到的状态结果不能覆盖远程页面。所有页面继续使用 Flutter/Prism，不恢复 Compose 页面或旧更新器。
-
-[PrivilegeSettingsChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/utils/PrivilegeSettingsChangeTest.kt) 覆盖写入、同步、VPN 重启失败及取消恢复；[PrivilegeBridgeTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/PrivilegeBridgeTest.kt) 在无模块模拟器中检查正常启动/拒绝应用、实际 Room 提交失败与 Parcelable 往返。[LinkPropertiesHookMethodTest.kt](app/src/test/java/io/nekohasekai/sfa/xposed/hooks/hidevpn/LinkPropertiesHookMethodTest.kt) 覆盖新旧方法探测、优先选择网络回调共用的四参数入口和拒绝未知签名/返回类型。[verify_xposed.py](tools/verify_xposed.py) 在测试 APK 和签名 Release 中读取真实 DEX 定义，检查模块入口、Provider 与 Parcelable 保留，以及框架 API 未打包。Flutter 回归范围见 [flclash.md](flclash.md#验证与升级参考版本)。这些检查不能代替安装 LSPosed 的 Root 实机验收。
-
 ## 已移除能力与兼容入口
 
+- **Xposed/LSPosed 特权增强：** 删除系统模块、VPN/HTTP 代理信息与 VPN 应用列表隐藏、接口重命名、Flutter 设置及自检/Hook 日志、Root 诊断导出，以及对应模块注册、Provider、API 依赖、许可资源和专用测试。应用查询恢复各 flavor 的普通路径：`other` 使用 PackageManager，`play` 使用保存的 Root/Shizuku 选择。普通 VPN、Root/Shizuku 查询、终端和 MITM CA 模块继续保留。从含模块的版本升级时，已注入系统进程的旧 Hook 需要在 LSPosed 中禁用 B-box 并重启 Android 后退出。
 - **Android 5/6：** 删除 `otherLegacy`、`src/minApi21`、`src/otherLegacy`、legacy 核心依赖及 API 21 专用依赖版本。`play` 和 `other` 均使用 API 24+ 实现；网络监听、通知、WebView、托管扫描和 Termux 环境也已清理低于 API 24 的分支。Android 7/8 的网络回调选择及现有 Go 栈兼容处理继续保留。Gradle 的 `useLegacyPackaging` 是原生库压缩方式，不代表仍支持旧 Android 分支。
 - **旧更新下载/静默安装：** 删除 GitHub/F-Droid/Play 旧更新器、APK 下载和安装工具、对应 Root/Shizuku Binder 方法、Manifest 权限、设置及资源。设置/启动器不再显示旧自动更新询问、弹窗和徽标。
 - **旧任务兼容：** 启动取消 WorkManager 的 `AutoUpdate`；[UpdateWorker.kt](app/src/main/java/io/nekohasekai/sfa/vendor/UpdateWorker.kt) 保留类名并直接成功返回，不下载或安装。配置订阅的 `UpdateProfileWork` 仍正常工作。
-- **Binder/设置兼容：** Root/Shizuku 已退役的安装事务编号 2 不复用；Root 的模块专用编号 3 与采集器编号 10 也保持空缺，其余编号不重排。删除功能的历史设置不再读取，不清空无关设置和数据库。
+- **Binder/设置兼容：** Root/Shizuku 已退役的安装事务编号 2 不复用；Root 的模块专用编号 3、采集器编号 10 与模块诊断导出编号 11 也保持空缺，其余编号不重排。删除功能的历史设置（包括 `hide_settings_*`）不再读取，不清空无关设置和数据库。
 
 关于页仍提供独立 [BoxUpdates.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxUpdates.kt) 检查：读取 B-box Releases（含预发布），以 `B-box-version-metadata.json` 的 `application_id`、`version_code`、`version_name` 核对安装身份和版本，再匹配设备 ABI 的 `B-box-<版本>-<ABI>.apk`。没有匹配 APK 时不提供下载资产。它不恢复原更新器的后台下载/静默安装链路。
 
@@ -189,7 +173,7 @@ CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期�
 
 工作流将已有密钥解码至 `app/release.keystore`，结束时清理，不上传密钥。Gradle 属性优先读取直接环境变量，再回退 `LOCAL_PROPERTIES` 和 `local.properties`。本地签名文件不入库，不重新生成发布密钥。
 
-Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用 `--no-debug --no-profile`，只生成打包所需的 Release 库。应用构建从**同一次运行**下载两个 AAR 产物，再准备既有签名密钥并执行保留 R8 的 `assembleOtherRelease`。它不调用或等待测试工作流，也不执行 Go、Flutter 或 JVM 测试；验证统一由 [newui.yml](.github/workflows/newui.yml) 在代码推送时运行。中间 AAR Artifact 保留一天。[verify_release.py](tools/verify_release.py) 在 APK 上传前校验唯一 APK、最低 API 24、ARM64、应用包名/版本/标签、启动 Activity、MITM 模块 assets、退役采集器未打包及签名。APK Artifact 名为 `B-box-<版本>-arm64-v8a-release`，保留 30 天。
+Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用 `--no-debug --no-profile`，只生成打包所需的 Release 库。应用构建从**同一次运行**下载两个 AAR 产物，再准备既有签名密钥并执行保留 R8 的 `assembleOtherRelease`。它不调用或等待测试工作流，也不执行 Go、Flutter 或 JVM 测试；验证统一由 [newui.yml](.github/workflows/newui.yml) 在代码推送时运行。中间 AAR Artifact 保留一天。[verify_release.py](tools/verify_release.py) 在 APK 上传前校验唯一 APK、最低 API 24、ARM64、应用包名/版本/标签、启动 Activity、MITM 模块 assets、退役采集器及 Xposed 模块元数据未打包、签名。APK Artifact 名为 `B-box-<版本>-arm64-v8a-release`，保留 30 天。
 
 `publish_release` 默认开启；设为 `false` 时仍构建、校验并上传 Actions Artifact，仅跳过发布。[publish_release.py](tools/publish_release.py) 要求 Release tag 严格等于 `VERSION_NAME`（不加 `v`）且指向本次源码 SHA；已有 tag 指向其他提交时失败，不移动版本标签。同一提交重跑可重传资产。发布 APK 及 `B-box-version-metadata.json`，alpha/beta/rc 标为预发布。
 
@@ -199,7 +183,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 | 入口 | 配置的验证范围 |
 | --- | --- |
-| [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入、Android 入口、旧 UI/更新依赖及退役抓包实现残留的静态检查 |
+| [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入/导出、Android 入口、旧 UI/更新依赖、退役抓包/特权增强实现残留及 Root 事务编号的静态检查 |
 | [newui.yml](.github/workflows/newui.yml) | 各分支代码 push 自动触发，也支持目标为 `dev` / `newui` 的 PR 及手动触发；仅 Markdown 的 push/PR 跳过。统一运行 Root CA 挂载/补查、Go 扩展/HTTP/MITM/重定向布局、Flutter 分析/交互/布局、JVM、`play` 编译及 API 24/31/36 smoke，API 36 另运行 `google_apis_ps16k`；同时构建验证所需的 AAR 和 x86_64 模拟器 APK |
 | [build-release.yml](.github/workflows/build-release.yml) | 仅手动触发；独立并行准备核心/Flutter Release 库，构建签名 ARM64 APK、校验安装身份/产物及可选发布，不运行测试 |
 
@@ -207,7 +191,7 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 [PreferencePersistenceTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/database/preference/PreferencePersistenceTest.kt) 使用实际 Room 检查普通设置重新读取、提交失败后的缓存恢复、后续排队值保留、取消与回滚顺序，以及 UTF-8 字符串集合。`ProfileRecoveryTest` 另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。[ReleaseCheckerTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ReleaseCheckerTest.kt) 用虚拟时间检查总时限、并发上限、失败候选保留、缓存失效及取消后重试。
 
-模拟器镜像名称依据 [Google SDK 系统镜像清单](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml)；16 KiB 测试方式见 [Android 官方文档](https://developer.android.com/guide/practices/page-sizes)。smoke 读取设备实际页大小，普通镜像要求 4096、`ps16k` 要求 16384，不能仅凭镜像名称记录通过。所有矩阵均为临时 x86_64 模拟器，不代表 ARM64 实机、真实 LSPosed 注入或系统 CA 模块安装已验收。
+模拟器镜像名称依据 [Google SDK 系统镜像清单](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml)；16 KiB 测试方式见 [Android 官方文档](https://developer.android.com/guide/practices/page-sizes)。smoke 读取设备实际页大小，普通镜像要求 4096、`ps16k` 要求 16384，不能仅凭镜像名称记录通过。所有矩阵均为临时 x86_64 模拟器，不代表 ARM64 实机或系统 CA 模块安装已验收。
 
 该原生套件还覆盖超限订阅在 URL 导入、手动及自动更新时保留原数据和服务；备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、慢速响应与限额边界由 [核心订阅测试](libbox/ui_profile_test.go) 覆盖。
 
@@ -241,6 +225,12 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### 特权增强移除验证
+
+2026-11-09，本次移除基于 `f590e1b06682261ad7d1a485dec2d41231de0ad7`。提交前本机通过 `git diff --check`、`python3 tools/verify_newui.py`、Python/JSON/XML 语法、文档链接/锚点、已删除类型的导入残留及许可资源检查。通用 Room 持久化、Root/Shizuku 和 MITM CA 回归继续保留。
+
+上述为提交前的静态验证，未包含编译或 Flutter/JVM/设备测试；移除后的 APK 打包、界面与旧模块升级退出流程不能由这些检查证明。代码推送会自动触发统一测试，实际结果须核对对应源码 SHA；此前 Actions 记录仅对应各自源码。
+
 ### 持久化、配置恢复与后台检查优化验证
 
 2026-11-08，最终测试源码为 `3ea124a980b0c8bdd205cc8ebdf79633a991210b`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42477676213)，全部 job 通过。后续补充验证记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。
@@ -260,9 +250,9 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 [首轮测试](https://github.com/giturass/B-box/actions/runs/42476182525) 暴露了 API 24 备份回滚测试夹具未制造预期写入失败的问题；最终测试提交按不同版本 AtomicFile 的写入路径修正故障注入，保留全部回滚断言。最终运行的第一次尝试分别遇到 Gradle 下载 HTTP 504 和 API 24 的 `Messenger has stopped` 系统弹窗；在相同 SHA 上重试两个失败 job 后均通过。
 
-[ARM64 Release 构建](https://github.com/giturass/B-box/actions/runs/42476210954) 在实现提交 `82ffed86f57891f68fd055d707124a1b1714ba14` 上通过，独立构建核心/Flutter Release AAR 和使用既有密钥签名的 R8 APK，并通过安装身份、API 24、ARM64、签名及 LSPosed 入口/框架 API 排除检查。最终测试提交相较此提交仅修改 Android 测试夹具，应用、核心、Flutter 和构建源码一致。`publish_release=false`，未发布 GitHub Release；[签名 APK Artifact](https://github.com/giturass/B-box/actions/runs/42476210954/artifacts/13615846557) 可供下载。
+[ARM64 Release 构建](https://github.com/giturass/B-box/actions/runs/42476210954) 在实现提交 `82ffed86f57891f68fd055d707124a1b1714ba14` 上通过，独立构建核心/Flutter Release AAR 和使用既有密钥签名的 R8 APK，并通过安装身份、API 24、ARM64 和签名检查。最终测试提交相较此提交仅修改 Android 测试夹具，应用、核心、Flutter 和构建源码一致。`publish_release=false`，未发布 GitHub Release；[签名 APK Artifact](https://github.com/giturass/B-box/actions/runs/42476210954/artifacts/13615846557) 可供下载。
 
-本机仅完成源码约束、Go 格式、Python 语法及差异/文档链接静态检查，未在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未验收 ARM64 实机、真实 LSPosed 注入、系统 CA 模块安装或第三方应用信任，也没有新增人工视觉或实机性能验收结论。
+本机仅完成源码约束、Go 格式、Python 语法及差异/文档链接静态检查，未在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未验收 ARM64 实机、系统 CA 模块安装或第三方应用信任，也没有新增人工视觉或实机性能验收结论。
 
 ### 脚本修复合并验证
 
@@ -284,30 +274,6 @@ API 31 smoke 在执行模拟器阶段被取消，工作流总体结果为 `cance
 - 已读取 `android-smoke-api-31` 的 `results.json` 和 `native-tests.txt`，源码 SHA 与上述提交一致，UI smoke 与全部 28 项原生测试通过。设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（`getconf`）。
 
 本机仅完成 Go 格式、差异/源码约束、示例 JSON 和文档链接等静态检查，未在本机编译或运行 Go/Flutter/Android 测试。新增 gRPC 协议行为由 Go HTTP/2 MITM 回归覆盖；没有完成哔哩哔哩、YouTube、高德等第三方 App、ARM64 实机或证书固定的验证，也未触发签名 Release 或发布 APK。支持范围与配置方式见 [一元 gRPC 正文脚本](libbox.md#一元-grpc-正文脚本)。
-
-### LinkProperties Hook 兼容修复验证
-
-2026-11-07，修复源码为 `9a1a0f9bea2118c8dfdac302b581b65b7c6ad70c`。定位时只读解析本机 Android 15 / API 35 的 `/apex/com.android.tethering/javalib/service-connectivity.jar`，SHA-256 为 `3bb596d30288d63e3e7607798751d9d5d2250388ea8b718944bb4c7ab62f1273`。其 DEX 已无旧方法，包含 `sanitizeLinkPropertiesForCallerAndUid` 的三/四参数重载；三参数方法将 `callerUid` 同时作为后两个 UID 传给四参数方法，网络回调则分别传入 `NetworkRequestInfo.mUid` 和 `mAsUid`。四参数方法用前者检查权限、后者查询代理。此记录是系统文件静态检查，不是 Hook 注入或运行验收。
-
-[统一测试工作流](https://github.com/giturass/B-box/actions/runs/42317329785) 的全部 job 通过：
-
-- 已读取 `native-unit-tests` 的 14 份 XML，61 项 JVM 测试全部通过，无失败、错误或跳过；新增的 5 项 `LinkPropertiesHookMethodTest` 均实际执行。`play` Kotlin 编译、模拟器应用/仪器测试 APK 构建及 LSPosed DEX/元数据检查通过。
-- API 31 UI smoke 与全部 28 项原生测试通过。已读取 `android-smoke-api-31` 的 `results.json` 和 `native-tests.txt`，源码 SHA 与上述提交一致；设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（`getconf`）。
-- Root CA、Go 扩展、HTTP/MITM race、原路由及重定向布局回归通过；Flutter 分析、交互/布局测试和 ARM64 Debug/Release AAR 构建通过。此次没有新增视觉验收结论。
-
-本机完成 `git diff --check`、`python3 tools/verify_newui.py` 与文档链接/旧引用静态检查，未在本机编译、运行 JVM/设备测试或重启系统。本轮未构建签名 ARM64 Release/R8 APK 或发布 GitHub Release，未验收真实 LSPosed 注入与目标应用的网络回调；安装含本次修复的 APK 后需重启 Android，加载模块版本 `5`。
-
-### LSPosed 恢复验证
-
-2026-11-07，验证源码为 `0a3c0fa28df1ce776c5b0187eec14243c451117a`；后续补充验证记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。
-
-- [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42308927615) 全部 job 通过，包含 Root CA、Go 扩展、HTTP/MITM race、原路由及 Android 重定向布局回归。第一次 Android job 在下载 Go 依赖时遇到代理 HTTP/2 错误，尚未编译应用；同一源码重试后通过。
-- Flutter 分析、交互/布局测试及 ARM64 Debug/Release AAR 构建通过，具体数量和实际查看的截图见 [LSPosed 新 UI 验证](flclash.md#lsposed-新-ui-验证)。
-- 读取 `native-unit-tests` 的 13 份 XML，56 项 JVM 测试全部通过，无失败、错误或跳过；新增用例覆盖模块同步未确认、设置写入、VPN 重启失败及取消后的恢复。`play` Kotlin 编译、模拟器应用/仪器测试 APK 构建与 LSPosed DEX/元数据检查通过。
-- API 31 UI smoke 和全部 28 项原生测试通过。已读取 `android-smoke-api-31` 的 `results.json` 与 `native-tests.txt`，核对源码 SHA 一致及三个 `PrivilegeBridgeTest` 用例成功：模块缺失时不改设置/请求 Root、真实 Room 批量提交失败时保留缓存、应用列表和 Hook 日志的 Parcelable 往返。设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（`getconf`）；UI smoke 同时覆盖普通 VPN 授权、启停、真实分组及进程重启后配置保留。
-- 同一源码的 [ARM64 Release 构建](https://github.com/giturass/B-box/actions/runs/42308989406) 通过，使用既有签名密钥构建 R8 APK；安装身份、API 24、ARM64、应用标签及签名校验通过。额外检查确认模块入口、Provider 与 Parcelable 保留，`compileOnly` 的框架 API 未打包。`publish_release=false`，未发布 GitHub Release；[APK Artifact](https://github.com/giturass/B-box/actions/runs/42308989406/artifacts/13547787541) 中的 `B-box-1.15.0-alpha.13-arm64-v8a.apk` 为 48,245,911 字节，SHA-256 为 `6661e9278c97eef908f5e3fe0c84c64682a89c2ebf348ba34c3dc7254488b7ef`。
-
-本机仅完成差异、源码约束、Python/XML 语法及文档链接静态检查，未在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未验证真实 LSPosed 注入、目标应用的 VPN/代理信息隐藏、接口重命名及 Root 诊断导出，也未覆盖其他 Android 版本、ARM64 实机或 16 KiB 页运行。
 
 ### 订阅下载、备份回滚与配置删除修复验证
 

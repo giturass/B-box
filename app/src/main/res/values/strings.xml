@@ -1,6 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="xposed_description">VPN hiding and privileged application queries. Configure in B-box.</string>
     <!-- App -->
     <string name="app_name" translatable="false">B-box</string>
 
