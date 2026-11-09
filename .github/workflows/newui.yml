@@ -41,6 +41,9 @@ jobs:
       - name: HTTP, routed IP and LAN tests against the matching core
         working-directory: .core
         run: go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1
+      - name: Routed probe lifecycle race tests
+        working-directory: .core
+        run: go test -race -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIEgress' -count=1
       - name: HTTP/TCP MITM, independent rewrites, scripts/cron, storage and route tests
         working-directory: .core
         run: |
@@ -142,6 +145,7 @@ jobs:
           - api: '36'
             target: google_apis_ps16k
             page-size: 16384
+            ram-size: 4096M
     steps:
       - uses: actions/checkout@v5
       - name: Make room for emulator data
@@ -169,6 +173,7 @@ jobs:
           arch: x86_64
           profile: pixel_2
           disk-size: 4096M
+          ram-size: ${{ matrix.ram-size }}
           emulator-boot-timeout: 600
           disable-animations: true
           script: python3 tools/android_smoke.py

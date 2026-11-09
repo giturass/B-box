@@ -201,7 +201,7 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 导入 smoke 等待弹层保存按钮在连续两次窗口观察中位置稳定后点击，记录实际点击边界；保存后须返回带“启动”按钮及导入配置名的仪表盘，不能以表单内的预填名称作为导入成功依据。
 
-模拟器数据分区统一设为 4 GiB，以容纳完整核心的测试 APK 及安装数据。smoke job 不编译原生库，下载镜像前移除该临时 runner 上不使用的预装 NDK，为系统镜像和数据分区留空间；构建 job 的 NDK 不受影响。页大小优先使用 `getconf PAGE_SIZE`；旧系统缺少该命令时从 `/proc/self/smaps` 的 `KernelPageSize` 读取，并在结果中记录采集来源，不按 Android 版本猜测。
+模拟器数据分区统一设为 4 GiB，以容纳完整核心的测试 APK 及安装数据。API 36 / 16 KiB 另显式分配 4 GiB RAM：默认镜像曾在冷启动期间因内存水位不足杀掉前台 B-box，系统退出记录为 `LOW_MEMORY`；该矩阵用于页大小兼容验证，不是低内存压力测试。smoke job 不编译原生库，下载镜像前移除该临时 runner 上不使用的预装 NDK，为系统镜像和数据分区留空间；构建 job 的 NDK 不受影响。页大小优先使用 `getconf PAGE_SIZE`；旧系统缺少该命令时从 `/proc/self/smaps` 的 `KernelPageSize` 读取，并在结果中记录采集来源，不按 Android 版本猜测。
 
 查询策略回归在每次切换 Root/Shizuku 并刷盘后重新打开 Room 数据库读取持久值，同时核对状态流，不以读取同一内存缓存代替持久化验证。
 
@@ -230,6 +230,8 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 2026-11-09，本次移除基于 `f590e1b06682261ad7d1a485dec2d41231de0ad7`。提交前本机通过 `git diff --check`、`python3 tools/verify_newui.py`、Python/JSON/XML 语法、文档链接/锚点、已删除类型的导入残留及许可资源检查。通用 Room 持久化、Root/Shizuku 和 MITM CA 回归继续保留。
 
 移除提交 `9df354941d5c8fb2deba9b4fd077b6f13f13f3e4` 的 [统一测试](https://github.com/giturass/B-box/actions/runs/42563166489) 已通过核心、Root CA、Flutter 分析与 219 项测试、56 项 JVM 测试及 Android 编译。API 24/31/36 的 4 KiB 模拟器均通过 UI smoke 和 37 项原生测试；API 36 / 16 KiB 在同一提交的两次尝试中均未等到首次启动的 Dashboard，截图停留在系统桌面，但各自的 37 项原生测试通过。两次实际页大小均为 16384；当时只采集末尾 5000 行日志，启动记录已丢失，尚不能确定退出原因。后续 smoke 改为持续采集启动日志、记录启动命令结果及系统退出原因，实际验证须核对对应源码 SHA。
+
+诊断提交 `a50e59639ac48d7e21dc9a40ebf0477c0a9eae19` 的 [测试](https://github.com/giturass/B-box/actions/runs/42567022417) 中，16 KiB UI 与原生测试通过，但完整启动日志确认前台 B-box 曾被 `lowmemorykiller` 杀掉，随后由系统重新启动，退出记录为 `LOW_MEMORY`。API 36 / 4 KiB 的 UI 通过，原生测试则捕获到出口探测与服务重载的竞态：`UIEgressProbe` 在旧核心关闭后进入 DNS，触发 `dns.Client.newCacheKey` 空 transport panic。修复为 [核心探测生命周期同步](libbox.md#出口-ip-和质量查询传输)，并提高 16 KiB 模拟器的 RAM。该轮 Flutter 分析/交互测试通过，AAR 构建因 Kotlin 编译器下载 HTTP 504 失败；这些结果不构成修复提交的通过声明。
 
 尚未完成移除后版本的全矩阵通过、ARM64 Release 和实机验收，也未验证旧模块升级后的禁用/重启退出流程；此前版本的结果不代替本次验收。
 

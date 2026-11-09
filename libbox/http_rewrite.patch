@@ -14,16 +14,25 @@ diff --git a/option/experimental.go b/option/experimental.go
 diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command_server.go
 --- a/experimental/libbox/command_server.go
 +++ b/experimental/libbox/command_server.go
-@@ -181,7 +181,7 @@
+@@ -36,6 +36,7 @@
+ 	oomRecorder       *oomkiller.Recorder
+ 	grpcServer        *grpc.Server
+ 	listener          net.Listener
++	uiEgressProbes     uiEgressProbeSet
+ }
+ 
+ type CommandServerHandler interface {
+@@ -181,7 +182,8 @@
  func (s *CommandServer) Close() {
  	uiCaptureLifecycle.Lock()
  	defer uiCaptureLifecycle.Unlock()
 -	StopUICapture()
++	s.uiEgressProbes.close()
 +	stopUIProcessing()
  	if s.grpcServer != nil {
  		s.grpcServer.Stop()
  	}
-@@ -196,17 +196,28 @@
+@@ -195,17 +197,29 @@
  	AutoRedirect   bool
  	IncludePackage StringIterator
  	ExcludePackage StringIterator
@@ -38,14 +47,15 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
  	uiCaptureLifecycle.Lock()
  	defer uiCaptureLifecycle.Unlock()
 -	StopUICapture()
+-	saveConfigSnapshot(configContent)
 +	normalizedContent, err := RemoveUIRetiredCaptureOptions(configContent)
 +	if err != nil { return err }
 +	preparedProcessing, err := s.prepareUIProcessing(normalizedContent, options)
 +	if err != nil {
 +		return err
 +	}
++	s.uiEgressProbes.close()
 +	stopUIProcessing()
--	saveConfigSnapshot(configContent)
 +	saveConfigSnapshot(normalizedContent)
  	if s.powerManager.Recorder() != nil {
  		copyConfigSnapshot(filepath.Join(sWorkingPath, powerreport.DraftDirectoryName))
@@ -55,7 +65,7 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
  		AutoRedirect:   options.AutoRedirect,
  		IncludePackage: iteratorToArray(options.IncludePackage),
  		ExcludePackage: iteratorToArray(options.ExcludePackage),
-@@ -215,13 +223,14 @@
+@@ -213,13 +227,15 @@
  	if err != nil {
  		return E.Cause(err, "start or reload service")
  	}
@@ -67,6 +77,7 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
  	uiCaptureLifecycle.Lock()
  	defer uiCaptureLifecycle.Unlock()
 -	StopUICapture()
++	s.uiEgressProbes.close()
 +	stopUIProcessing()
  	return s.StartedService.CloseService()
  }

@@ -10,9 +10,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sagernet/sing-box/daemon"
 )
 
 func TestUIEgressSourceParsers(t *testing.T) {
@@ -394,12 +397,92 @@ func TestUIEgressDeadlineAndCloseCancelRoutedDial(t *testing.T) {
 	}
 }
 
+func TestUIEgressCloseWaitsForRouting(t *testing.T) {
+	for _, owner := range []string{"probe", "service"} {
+		t.Run(owner, func(t *testing.T) {
+			server := &CommandServer{StartedService: daemon.NewStartedService(daemon.ServiceOptions{
+				Context: context.Background(), LogMaxLines: 32,
+			})}
+			t.Cleanup(server.StartedService.Close)
+			entered := make(chan struct{})
+			cancelled := make(chan struct{})
+			release := make(chan struct{})
+			releaseRouting := sync.OnceFunc(func() { close(release) })
+			var routed atomic.Int32
+			probe := newUIEgressProbe(func() bool { return true },
+				func(ctx context.Context, conn net.Conn, address string, onClose func(error)) {
+					routed.Add(1)
+					close(entered)
+					<-ctx.Done()
+					close(cancelled)
+					// Model a DNS/dial operation still unwinding after cancellation.
+					<-release
+					onClose(ctx.Err())
+				})
+			server.uiEgressProbes.add(probe)
+			t.Cleanup(probe.Close)
+			t.Cleanup(releaseRouting)
+			requestResult := make(chan error, 1)
+			go func() { _, err := probe.Get("http://probe.invalid", 8000); requestResult <- err }()
+			select {
+			case <-entered:
+			case <-time.After(2 * time.Second):
+				t.Fatal("probe did not enter routing")
+			}
+			closed := make(chan error, 1)
+			go func() {
+				if owner == "service" {
+					closed <- server.CloseService()
+				} else {
+					probe.Close()
+					closed <- nil
+				}
+			}()
+			select {
+			case <-cancelled:
+			case <-time.After(2 * time.Second):
+				t.Fatal("close did not cancel the routed request")
+			}
+			if _, err := probe.Get("http://probe.invalid/late", 1000); !errors.Is(err, context.Canceled) {
+				t.Fatalf("a closing probe accepted another request: %v", err)
+			}
+			select {
+			case err := <-closed:
+				t.Fatalf("close returned before routing stopped: %v", err)
+			case <-time.After(40 * time.Millisecond):
+			}
+			releaseRouting()
+			select {
+			case err := <-closed:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("close did not finish after routing stopped")
+			}
+			select {
+			case err := <-requestResult:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("request did not retain its cancellation: %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("request was left running")
+			}
+			if routed.Load() != 1 {
+				t.Fatal("a closing probe started another routed connection")
+			}
+		})
+	}
+}
+
 func TestUIEgressNeverFallsBackToDirect(t *testing.T) {
 	var reached atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached.Store(true) }))
 	defer server.Close()
 	probe := newUIEgressProbe(func() bool { return true },
-		func(ctx context.Context, conn net.Conn, address string, onClose func(error)) { onClose(errors.New("route rejected")) })
+		func(ctx context.Context, conn net.Conn, address string, onClose func(error)) {
+			onClose(errors.New("route rejected"))
+		})
 	defer probe.Close()
 	if _, err := probe.Get(server.URL, 1000); err == nil || reached.Load() {
 		t.Fatal("failed routing must not use the device's direct network")

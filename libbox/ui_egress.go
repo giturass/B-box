@@ -51,10 +51,46 @@ type UIEgressProbe struct {
 	client      *http.Client
 	closeClient func()
 	current     func() bool
+	onClose     func()
+	routeAccess sync.Mutex
+	routes      sync.WaitGroup
 	once        sync.Once
 }
 
 type uiEgressRequestContextKey struct{}
+
+// Creation and service teardown hold uiCaptureLifecycle. Individual callers
+// can close their own probe independently, so membership has its own lock.
+type uiEgressProbeSet struct {
+	access sync.Mutex
+	probes map[*UIEgressProbe]struct{}
+}
+
+func (s *uiEgressProbeSet) add(probe *UIEgressProbe) {
+	s.access.Lock()
+	defer s.access.Unlock()
+	if s.probes == nil {
+		s.probes = make(map[*UIEgressProbe]struct{})
+	}
+	s.probes[probe] = struct{}{}
+	probe.onClose = func() {
+		s.access.Lock()
+		delete(s.probes, probe)
+		s.access.Unlock()
+	}
+}
+
+func (s *uiEgressProbeSet) close() {
+	s.access.Lock()
+	probes := make([]*UIEgressProbe, 0, len(s.probes))
+	for probe := range s.probes {
+		probes = append(probes, probe)
+	}
+	s.access.Unlock()
+	for _, probe := range probes {
+		probe.Close()
+	}
+}
 
 // NewUIDirectEgressProbe checks the device's current network without starting
 // sing-box. The Android host permits it only while the local service is stopped.
@@ -63,16 +99,20 @@ func NewUIDirectEgressProbe() *UIEgressProbe {
 }
 
 func (s *CommandServer) NewUIEgressProbe() (*UIEgressProbe, error) {
+	uiCaptureLifecycle.Lock()
+	defer uiCaptureLifecycle.Unlock()
 	instance := s.Instance()
 	if instance == nil {
 		return nil, fmt.Errorf("service is not running")
 	}
-	return newUIEgressProbe(func() bool { return s.Instance() == instance },
+	probe := newUIEgressProbe(func() bool { return s.Instance() == instance },
 		func(ctx context.Context, conn net.Conn, address string, onClose func(error)) {
 			instance.Box().Router().RouteConnectionEx(ctx, conn, adapter.InboundContext{
 				Inbound: "b-box-dashboard", Network: "tcp", Source: M.ParseSocksaddr("127.0.0.1:0"), Destination: M.ParseSocksaddr(address),
 			}, onClose)
-		}), nil
+		})
+	s.uiEgressProbes.add(probe)
+	return probe, nil
 }
 
 func newUIEgressProbe(current func() bool, route func(context.Context, net.Conn, string, func(error))) *UIEgressProbe {
@@ -107,7 +147,25 @@ func newUIEgressProbe(current func() bool, route func(context.Context, net.Conn,
 		}
 		local, routed := net.Pipe()
 		stop := context.AfterFunc(requestContext, func() { local.Close(); routed.Close() })
-		go route(requestContext, routed, address, func(error) { stop(); routed.Close() })
+		probe.routeAccess.Lock()
+		if err := probe.ctx.Err(); err != nil {
+			probe.routeAccess.Unlock()
+			stop()
+			local.Close()
+			routed.Close()
+			return nil, err
+		}
+		probe.routes.Add(1)
+		probe.routeAccess.Unlock()
+		go func() {
+			defer probe.routes.Done()
+			onClose := func(error) { stop(); routed.Close() }
+			if err := requestContext.Err(); err != nil {
+				onClose(err)
+				return
+			}
+			route(requestContext, routed, address, onClose)
+		}()
 		return local, nil
 	}
 	return probe
@@ -115,8 +173,16 @@ func newUIEgressProbe(current func() bool, route func(context.Context, net.Conn,
 
 func (p *UIEgressProbe) Close() {
 	p.once.Do(func() {
+		// Prevent a detached HTTP dial from registering after Wait starts.
+		p.routeAccess.Lock()
 		p.cancel()
+		p.routeAccess.Unlock()
 		p.closeClient()
+		// RouteConnectionEx must leave DNS/dial setup before its core is closed.
+		p.routes.Wait()
+		if p.onClose != nil {
+			p.onClose()
+		}
 	})
 }
 
