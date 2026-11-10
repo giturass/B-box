@@ -201,7 +201,7 @@ HTTP/1 请求处理错误立即终止后续正文读取并关闭连接，避免�
 
 ### 文件和 URL 资源加载
 
-[processing_resources.go](libbox/httpdebug/processing_resources.go) 供 Map Local 和脚本共用。`data_type: "file"` 的 `data` 为相对实际配置文件目录的路径或 HTTP(S) URL；文件和脚本源码不设固定容量上限。文件读取、下载及每层解压随实际大小[登记正文缓冲](#json-配置中的-http-改写)。拒绝绝对本地路径、目录逃逸及非普通文件。配置 JSON 的校验、编辑、格式化、导入及备份不读取其引用的文件，不下载或执行代码，缺失资源在运行时处理。Android 的主动本地资源导入负责复制用户选择的文档并写入相对引用，见 [应用导入流程](app.md#配置处理生命周期)。配置导出仅携带引用，不打包实际文件或下载缓存。
+[processing_resources.go](libbox/httpdebug/processing_resources.go) 供 Map Local 和脚本共用。`data_type: "file"` 的 `data` 为相对实际配置文件目录的路径或 HTTP(S) URL；文件和脚本源码不设固定容量上限。文件读取、下载及每层解压随实际大小[登记正文缓冲](#json-配置中的-http-改写)。拒绝绝对本地路径、目录逃逸及非普通文件。配置 JSON 的校验、编辑、格式化、导入及应用内备份不读取其引用的文件，不下载或执行代码，缺失资源在运行时处理。Android 的主动本地资源导入负责复制用户选择的文档并写入相对引用，见 [应用导入流程](app.md#配置处理生命周期)。配置导出仅携带引用，不打包实际文件或下载缓存。
 
 本地 Map Local 每次命中重新读，按后缀推断 MIME，显式 Content-Type 优先；内嵌资源引用继承其 data_type。本地脚本编译结果默认缓存到服务结束，`debug: true` 每次重新读/编译。URL 资源在服务成功激活后经当前核心路由自动下载、后台刷新，默认 86400 秒；资源 `update_interval` 或脚本 `script_update_interval` 接受可表示为 duration 的正整数秒。下载由调用方及服务取消，不另加固定期限；检测重复 URL/方法的重定向循环。同资源合并并发下载，不同资源独立刷新，同一身份使用最短配置间隔，不递归改写/脚本。
 

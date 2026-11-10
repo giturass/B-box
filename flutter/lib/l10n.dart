@@ -15,7 +15,7 @@ const _zh = <String, String>{
   "Import local resource": "导入本地资源",
   "Resource imported": "资源已导入",
   "Edit resources JSON": "编辑资源 JSON",
-  "Imported files stay on this device and are not included in profile exports or backups. Use the resource name in the resource field of a rule.": "导入的文件保留在本机，不包含在配置导出或备份中。请在规则的 resource 字段中填写资源名称。",
+  "Profile exports and B-box backups include resource references only. Use the resource name in the resource field of a rule.": "配置导出和 B-box 应用内备份仅包含资源引用，不打包本地文件。请在规则的 resource 字段中填写资源名称。",
   "Decrypt TCP": "解密TCP",
   "MITM over HTTP/2": "通过 HTTP/2 解密",
   "Skip server certificate verification": "跳过服务器证书校验",

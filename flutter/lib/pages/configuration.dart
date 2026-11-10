@@ -364,7 +364,7 @@ class ProcessingResourcesPage extends StatelessWidget {
             final name = await store.importResource(section);
             if (context.mounted && name != null) context.box.messages.add('${context.tr('Resource imported')}: $name');
           }),
-      ], footer: context.tr('Imported files stay on this device and are not included in profile exports or backups. Use the resource name in the resource field of a rule.')),
+      ], footer: context.tr('Profile exports and B-box backups include resource references only. Use the resource name in the resource field of a rule.')),
       if (resources.isNotEmpty) generateSection(items: [
         for (final entry in resources.entries)
           ListItem.open(title: Text(entry.key), subtitle: Text(json(entry.value)['data_type']?.toString() ?? 'text'),
