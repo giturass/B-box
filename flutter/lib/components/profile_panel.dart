@@ -25,11 +25,11 @@ class _ProfilePanelState extends State<ProfilePanel> {
               await box.act('profiles.update', {'id': profile!['id']});
               if (mounted) setState(() => _updating = false);
             }))),
-          const GlyphIcon(AppGlyphs.chevronForward, size: 18),
+          const SizedBox(width: 32, child: Center(child: GlyphIcon(AppGlyphs.chevronForward, size: 18))),
         ])),
         const SizedBox(height: 12),
         Row(children: [
-          Flexible(child: EmojiText(name?.toString() ?? context.tr('Add profile'), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyle.headline.of(context, emphasized: true))),
+          Expanded(child: EmojiText(name?.toString() ?? context.tr('Add profile'), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyle.headline.of(context, emphasized: true))),
           if (!box.remote && box.profiles.length > 1) SizedBox.square(dimension: 32,
             child: Tooltip(message: context.tr('Switch profile'), triggerMode: TooltipTriggerMode.tap, child: IconButton(padding: EdgeInsets.zero,
               icon: const GlyphIcon(AppGlyphs.swap, size: 18),

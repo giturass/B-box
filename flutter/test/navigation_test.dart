@@ -9,6 +9,7 @@ import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/pages/requests.dart';
 import 'package:b_box_ui/pages/logs.dart';
 import 'package:b_box_ui/pages/settings.dart';
+import 'package:b_box_ui/pages/tools.dart';
 import 'package:b_box_ui/pages/diagnostics.dart';
 import 'package:b_box_ui/pages/profiles.dart';
 import 'package:b_box_ui/pages/proxies.dart';
@@ -170,6 +171,30 @@ void main() {
         await closed;
         expect(find.byWidget(page), findsNothing, reason: '$label closes within the new UI');
       }
+      await selectTab('Tools');
+      final diagnosticsEntry = find.descendant(of: find.byType(ToolsPage), matching: find.text('Network diagnostics'));
+      await Scrollable.ensureVisible(tester.element(diagnosticsEntry), alignment: .5);
+      await tester.pumpAndSettle();
+      expect(diagnosticsEntry.hitTestable(), findsOneWidget);
+      await tester.tap(diagnosticsEntry);
+      await tester.pumpAndSettle();
+      expect(find.byType(NetworkDiagnosticsPage), findsOneWidget, reason: 'Network diagnostics opens from Tools');
+      expect(tester.takeException(), isNull, reason: 'Network-diagnostics');
+      await capture('Network-diagnostics');
+      for (final (diagnosticLabel, diagnosticTitle, quality) in [('Quality', 'Network quality', true), ('STUN', 'STUN test', false)]) {
+        await tester.tap(find.descendant(of: find.byType(NetworkDiagnosticsPage), matching: find.text(diagnosticTitle)));
+        await tester.pumpAndSettle();
+        expect(tester.widget<DiagnosticsPage>(find.byType(DiagnosticsPage)).quality, quality);
+        expect(tester.takeException(), isNull, reason: diagnosticLabel);
+        await capture(diagnosticLabel);
+        tester.element(find.byType(DiagnosticsPage)).safeNestedPop();
+        await tester.pumpAndSettle();
+        expect(find.byType(NetworkDiagnosticsPage), findsOneWidget);
+      }
+      tester.element(find.byType(NetworkDiagnosticsPage)).safeNestedPop();
+      await tester.pumpAndSettle();
+      expect(find.byType(ToolsPage), findsOneWidget, reason: 'Network diagnostics returns to Tools');
+      await selectTab('Dashboard');
       await tester.tap(find.byTooltip('Settings'));
       await tester.pumpAndSettle();
       expect(find.byType(SettingsPage), findsOneWidget);
@@ -181,7 +206,6 @@ void main() {
         ('Appearance', 'Appearance', const AppearancePage()),
         ('Service', 'Service', const ServiceSettingsPage()), ('Core', 'Core', const CoreSettingsPage()),
         ('Access', 'Access control', const AccessPage()),
-        ('Network-diagnostics', 'Network diagnostics', const NetworkDiagnosticsPage()),
         ('Backup', 'Backup and restore', const BackupPage()), ('About', 'About', const AboutPage()),
       ]) {
         final entry = find.descendant(of: find.byType(SettingsPage), matching: find.text(title));
@@ -198,18 +222,6 @@ void main() {
           await expectClearTrailingToolbar(tester, boundaryKey, destination);
         }
         if (page is CoreSettingsPage) expect(find.text('Power reports'), findsNothing);
-        if (page is NetworkDiagnosticsPage) {
-          for (final (diagnosticLabel, diagnosticTitle, quality) in [('Quality', 'Network quality', true), ('STUN', 'STUN test', false)]) {
-            await tester.tap(find.descendant(of: find.byType(NetworkDiagnosticsPage), matching: find.text(diagnosticTitle)));
-            await tester.pumpAndSettle();
-            expect(tester.widget<DiagnosticsPage>(find.byType(DiagnosticsPage)).quality, quality);
-            expect(tester.takeException(), isNull, reason: diagnosticLabel);
-            await capture(diagnosticLabel);
-            tester.element(find.byType(DiagnosticsPage)).safeNestedPop();
-            await tester.pumpAndSettle();
-            expect(find.byType(NetworkDiagnosticsPage), findsOneWidget);
-          }
-        }
         tester.element(destination).safeNestedPop();
         await tester.pumpAndSettle();
         expect(find.byType(SettingsPage), findsOneWidget, reason: '$label returns to Settings');

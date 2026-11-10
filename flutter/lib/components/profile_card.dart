@@ -103,7 +103,7 @@ class _ProfileUpdateTimeState extends State<ProfileUpdateTime> with WidgetsBindi
     return Tooltip(
       message: '${context.tr('Last updated')}: $date',
       triggerMode: widget.tooltipTriggerMode,
-      child: Text(widget.showLabel ? '${context.tr('Last updated')} $age' : age,
+      child: Text(widget.showLabel ? '${context.tr('Updated')} $age' : age,
         maxLines: 1, overflow: TextOverflow.ellipsis,
         style: widget.style ?? AppTextStyle.footnote.of(context).toLighter),
     );

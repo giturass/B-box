@@ -3,7 +3,6 @@ import 'appearance.dart';
 import 'access.dart';
 import 'about.dart';
 import 'backup.dart';
-import 'diagnostics.dart';
 
 export 'appearance.dart';
 export 'access.dart';
@@ -32,7 +31,6 @@ class SettingsPage extends StatelessWidget {
       ListItem.open(leading: const GlyphIcon(AppGlyphs.vpn), title: Text(context.tr('Service')), widget: const ServiceSettingsPage()),
       ListItem.open(leading: const GlyphIcon(AppGlyphs.cpu), title: Text(context.tr('Core')), widget: const CoreSettingsPage()),
       ListItem.open(leading: const GlyphIcon(AppGlyphs.appsList), title: Text(context.tr('Access control')), widget: const AccessPage()),
-      ListItem.open(leading: const GlyphIcon(AppGlyphs.speed), title: Text(context.tr('Network diagnostics')), widget: const NetworkDiagnosticsPage()),
       ListItem.open(leading: const GlyphIcon(AppGlyphs.cloudSync), title: Text(context.tr('Backup and restore')), widget: const BackupPage()),
       ListItem.open(leading: const GlyphIcon(AppGlyphs.info), title: Text(context.tr('About')), widget: const AboutPage()),
     ]),

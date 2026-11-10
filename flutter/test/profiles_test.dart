@@ -111,13 +111,13 @@ void main() {
   testWidgets('local update times are visible on the dashboard and refresh with native metadata', (tester) async {
     final events = StreamController<dynamic>.broadcast();
     await _mount(tester, selected: 2, eventController: events);
-    expect(find.text('Last updated Unknown'), findsOneWidget);
+    expect(find.text('Updated Unknown'), findsOneWidget);
     final updatedAt = DateTime.now().millisecondsSinceEpoch;
     events.add({'type': 'profiles', 'value': [_remote, {..._local, 'updatedAt': updatedAt}]});
     await tester.pumpAndSettle();
-    expect(find.text('Last updated Just now'), findsOneWidget);
+    expect(find.text('Updated Just now'), findsOneWidget);
     expect(find.byTooltip('Last updated: ${localDate(updatedAt)}'), findsOneWidget);
-    final updateTime = find.text('Last updated Just now');
+    final updateTime = find.text('Updated Just now');
     await Scrollable.ensureVisible(tester.element(updateTime), alignment: .5);
     await tester.pumpAndSettle();
     await tester.tap(updateTime);
