@@ -142,6 +142,16 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ## 验证与升级参考版本
 
+2026-11-10，正文保留方式、WebDAV 长输入及表单滚动边界的验证源码为 `6414cea3bfca092b8f5c146552f6c76738cb4bf1`，对应 [Actions 42848220348](https://github.com/giturass/B-box/actions/runs/42848220348)。Flutter 分析、232 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 80 条 info、0 条 warning/error。完整正文切换、任意正数字节限制、超过旧条数范围的搜索/导出，以及超过旧长度限制的 WebDAV 输入和失败重试均由本次用例覆盖。
+
+实际查看本次 `newui-validation` 中以下截图，路径相对 `build/screenshots/`：
+
+- `requests/360-1.4-dark-settings-ports.png`、`requests/360-1.0-light-settings-ports.png`：滚动内容在标题下方裁剪，正文开关、字节输入、端口及说明可读，顶部保存按钮保持可用。
+- `requests/800-1.0-light-settings.png`：宽屏设置侧页完整显示正文保留选项及输入框，关闭和保存操作可见。
+- `360-dark-1.4-Profile-edit.png`、`800-light-1.0-Profile-edit.png`：共享表单改动后，配置编辑弹层仍保留字段、滚动和保存操作，长内容在字段内横向编辑。
+
+这些截图使用测试桥接数据，覆盖的是声明的布局情景；核心、Android 及未覆盖范围见 [应用验证](app.md#路由正文准入与资源缓存修复验证)。后续只补充记录的 Markdown 提交不改变上述验证源码。
+
 2026-11-10，统一请求查看器的验证源码为 `3922cd606f520f6581bd4fd0a7d211a68a24ca23`，对应 [Actions 42760227283](https://github.com/giturass/B-box/actions/runs/42760227283)。Flutter 分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；本次实际查看 `newui-validation` 中以下截图：
 
 - `requests/unified-http2-and-connections.png`、`requests/unified-related-requests.png`：同一 HTTP/2 连接的多个请求独立展示，普通 UDP 连接和关联请求可见；滚动后的连接信息不进入标题栏。

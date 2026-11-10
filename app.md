@@ -227,6 +227,27 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### 路由、正文准入与资源缓存修复验证
+
+2026-11-11，验证源码为 `6414cea3bfca092b8f5c146552f6c76738cb4bf1`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42848220348)，全部 8 个 job 通过。后续补充本记录的 Markdown 提交不改变验证源码。共享路由关闭、正文准入及资源缓存回收的当前行为分别见 [路由生命周期](libbox.md#出口-ip-和质量查询传输)、[正文记账](libbox.md#json-配置中的-http-改写)和[资源加载](libbox.md#文件和-url-资源加载)；本次同时取消审计中缺少 Android 容量测量依据的固定配额，不以 Surge iOS/macOS 数值作为 Android 容量依据。
+
+- 匹配版本核心的 Android ingress-discard、`TestUI`、路由/HTTP/订阅 race、`experimental/httpdebug` race 及路由接入回归通过，Root CA namespace 回归通过。新增用例覆盖停服等待、迟到拨号结果关闭、正文 getter/序列化前准入、UTF-8/TypedArray 副本长度检查、缓存清理与活跃版本保留、独立资源刷新和正则取消。
+- Flutter 分析、232 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 80 条 info、0 条 warning/error。实际查看的表单与正文设置截图见 [界面验证记录](flclash.md#验证与升级参考版本)。
+- 已读取 `native-unit-tests` 的 13 份 XML，56 项 JVM 测试全部通过，无失败、错误或跳过；`play` Kotlin 编译和 x86_64 应用/仪器测试 APK 构建通过。
+
+已逐项核对以下 Artifact 的 `results.json` 和 `native-tests.txt`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 38 项原生测试通过，无失败或跳过；页大小为实际读取值。
+
+| 环境与结果产物 | 实际页大小 | 采集来源 |
+| --- | --- | --- |
+| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/42848220348/artifacts/13780636105) | 4096 字节 | `/proc/self/smaps` |
+| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/42848220348/artifacts/13780636619) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/42848220348/artifacts/13780875889) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/42848220348/artifacts/13780856293) | 16384 字节 | `getconf` |
+
+四组均通过超过旧 16 MiB 阈值的订阅导入、手动/自动更新，以及 IO/Default 调度器交替执行的 20 次下载取消；取消后继续发起请求成功，未再把原生取消误报为使父任务失败的普通网络错误。核心另验证大正文、超过旧缓存容量的提交、存储/规则/并发配额移除和用户显式限额继续生效。这些样本只证明相应行为，不构成设备容量测量或新的固定上限依据。
+
+本机仅执行 `git diff --check`、`python3 tools/verify_newui.py` 及文档链接/锚点等静态检查；编译和 Go/Flutter/JVM/Android 测试均在 Actions 运行。本轮未运行签名 ARM64 Release/R8、ARM64 实机容量/性能或第三方应用信任验收。
+
 ### 统一请求查看器验证
 
 2026-11-10，验证源码为 `3922cd606f520f6581bd4fd0a7d211a68a24ca23`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42760227283)，全部 8 个 job 通过。后续补充本记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。统一列表、筛选和详情的交互约定见 [flclash.md](flclash.md#导航与交互约定)，关联摘要及 HAR 选择绑定见 [libbox.md](libbox.md#httphttps-请求调试)。
