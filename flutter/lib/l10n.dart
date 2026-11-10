@@ -12,7 +12,6 @@ const _zh = <String, String>{
   "Edit script options": "编辑脚本配置",
   "Script resources": "脚本资源",
   "Rewrite resources": "改写资源",
-  "Resources": "资源",
   "Import local resource": "导入本地资源",
   "Resource imported": "资源已导入",
   "Edit resources JSON": "编辑资源 JSON",
