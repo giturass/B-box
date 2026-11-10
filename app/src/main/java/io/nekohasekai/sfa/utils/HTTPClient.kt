@@ -26,6 +26,7 @@ object HTTPClient {
 
     suspend fun <T> withTask(block: (UIHTTPTask) -> T): T = coroutineScope {
         val task = Libbox.newUIHTTPTask()
+        val ownerContext = coroutineContext
         // Cancellation must reach Go while its blocking JNI call is still in
         // progress. This child closes the task as soon as the parent cancels.
         val cancellation = launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
@@ -33,16 +34,17 @@ object HTTPClient {
         }
         try {
             withContext(Dispatchers.IO) {
-                ensureActive()
+                ownerContext.ensureActive()
                 val result = try {
                     block(task)
                 } catch (error: Exception) {
-                    // The Go call reports cancellation as a bound error. Keep
-                    // it a coroutine cancellation instead of failing its parent.
-                    ensureActive()
+                    // The cancellation child can close Go before this IO child
+                    // is notified. Check their common owner, whose cancellation
+                    // is already visible, before propagating a bound Go error.
+                    ownerContext.ensureActive()
                     throw error
                 }
-                ensureActive()
+                ownerContext.ensureActive()
                 result
             }
         } finally {

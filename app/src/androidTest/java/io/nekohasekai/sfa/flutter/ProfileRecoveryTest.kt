@@ -772,15 +772,21 @@ class ProfileRecoveryTest {
 
     @Test fun subscriptionCoroutineCancellationStopsTheNativeDownload() = runBlocking(Dispatchers.IO) {
         Application.application.setupLibbox()
-        val gate = CountDownLatch(1)
-        SubscriptionServer("{}", gate).use { server ->
-            try {
-                val request = async { io.nekohasekai.sfa.utils.HTTPClient.getString(server.url) }
-                withTimeout(10_000) { while (server.requests.get() == 0) delay(10) }
-                request.cancel()
-                withTimeout(5_000) { request.join() }
-                assertTrue(request.isCancelled)
-            } finally { gate.countDown() }
+        repeat(20) { attempt ->
+            val gate = CountDownLatch(1)
+            SubscriptionServer("{}", gate).use { server ->
+                try {
+                    val dispatcher = if (attempt % 2 == 0) Dispatchers.IO else Dispatchers.Default
+                    val request = async(dispatcher) { io.nekohasekai.sfa.utils.HTTPClient.getString(server.url) }
+                    withTimeout(10_000) { while (server.requests.get() == 0) delay(10) }
+                    request.cancel()
+                    withTimeout(5_000) { request.join() }
+                    assertTrue(request.isCancelled)
+                } finally { gate.countDown() }
+            }
+        }
+        SubscriptionServer("{}").use { server ->
+            assertEquals("{}", withTimeout(5_000) { io.nekohasekai.sfa.utils.HTTPClient.getString(server.url) })
         }
     }
 
