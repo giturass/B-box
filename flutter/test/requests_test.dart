@@ -769,12 +769,16 @@ void main() {
       }));
       expect(find.text('Decrypt HTTPS'), findsNothing);
       await tester.pumpAndSettle();
+      final settingsList = find.descendant(of: find.byType(RequestSettingsPage), matching: find.byType(ListView)).first;
+      final settingsTitle = find.text('Capture settings');
+      expect(tester.getTopLeft(settingsList).dy, greaterThanOrEqualTo(tester.getBottomLeft(settingsTitle).dy));
       await capture(tester, '$label-settings');
       final ports = find.byKey(const ValueKey('Capture ports'));
       await tester.scrollUntilVisible(ports, 250,
         scrollable: find.descendant(of: find.byType(RequestSettingsPage), matching: find.byType(Scrollable)).first);
       await tester.enterText(ports, '80, 443, 8443');
       await tester.pumpAndSettle();
+      expect(tester.getTopLeft(settingsList).dy, greaterThanOrEqualTo(tester.getBottomLeft(settingsTitle).dy));
       await capture(tester, '$label-settings-ports');
       await tester.tap(find.byTooltip('Save').last);
       await tester.pumpAndSettle();

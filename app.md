@@ -76,7 +76,7 @@ Flutter 从 `ready` 和配置/设置变更事件取得配置列表与设置，�
 
 界面偏好的读取、保存及备份恢复共用 [BoxPreferences.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxPreferences.kt) 校验，卡片布局接受 `System HTTP proxy` 键。旧设置及备份中的 `locale`、`fontFamily`、`fontScale`、`customFontScale` 被忽略，下次保存界面偏好时清理这些键，保留其余偏好；终端设置使用独立数据，不受此清理影响。外观及首页卡片交互见 [flclash.md](flclash.md#导航与交互约定)。
 
-配置、备份、终端配置文本及导入字体不设固定容量配额；保留 JSON/字体有效性、文件路径、修订和原子提交校验。文档选择器读取完整内容，WebDAV 使用 [BoxWebDAV.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxWebDAV.kt) 与可取消核心任务；取消文件选择、传输失败和未确认上传不能报告成功。HTTP 行为见 [libbox.md](libbox.md#http-与-webdav)。报告文本读取同样不额外设置固定字节上限，二进制配置继续使用下载入口。
+配置、备份、终端配置文本及导入字体不设固定容量配额；保留 JSON/字体有效性、文件路径、修订和原子提交校验。文档选择器读取完整内容，WebDAV 使用 [BoxWebDAV.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxWebDAV.kt) 与可取消核心任务；订阅/WebDAV 取消会结束原生请求并按协程取消传播，正常网络错误继续报告。取消文件选择、传输失败和未确认上传不能报告成功。HTTP 行为见 [libbox.md](libbox.md#http-与-webdav)。报告文本读取同样不额外设置固定字节上限，二进制配置继续使用下载入口。
 
 原生日志保留所有收到的等级供 Flutter 过滤，`CommandClient` 将当前会话内核的 `setDefaultLogLevel` 回调与日志记录一起传给界面。默认值来自内核实际使用的配置，不自行解析本地文件来推断远端状态；本地配置成功重载后，通过已启动配置快照的变化重新订阅日志，更新默认级别。界面筛选规则见 [flclash.md](flclash.md#导航与交互约定)。
 

@@ -14,21 +14,25 @@ class FormPage extends StatelessWidget {
   final List<IconButtonData> actions;
   final ScrollController? controller;
 
-  @override Widget build(BuildContext context) => Scaffold(
-    title: context.tr(title), iconActions: actions,
-    confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'),
-      isLoading: saving, onPressed: saving ? null : onSave),
-    body: AbsorbPointer(absorbing: saving, child: ListView(shrinkWrap: true, controller: controller,
-      padding: EdgeInsets.fromLTRB(16, context.sectionsTopPadding, 16, 20 + context.bottomInset),
-      children: [
-        // Keep form children at stable indices when the validation message changes.
-        if (error != null) Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: Text(error!, style: context.listCaptionStyle.copyWith(color: context.colorScheme.error)))
-        else const SizedBox.shrink(),
-        ...children,
-      ],
-    )),
-  );
+  @override Widget build(BuildContext context) {
+    final inset = context.appBarInset;
+    final gap = context.sectionsTopPadding - inset;
+    return Scaffold(
+      title: context.tr(title), iconActions: actions,
+      confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'),
+        isLoading: saving, onPressed: saving ? null : onSave),
+      body: Padding(padding: EdgeInsets.only(top: inset), child: AbsorbPointer(absorbing: saving, child: ListView(shrinkWrap: true, controller: controller,
+        padding: EdgeInsets.fromLTRB(16, gap > 0 ? gap : 0, 16, 20 + context.bottomInset),
+        children: [
+          // Keep form children at stable indices when the validation message changes.
+          if (error != null) Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Text(error!, style: context.listCaptionStyle.copyWith(color: context.colorScheme.error)))
+          else const SizedBox.shrink(),
+          ...children,
+        ],
+      ))),
+    );
+  }
 }
 
 class FormRow extends StatelessWidget {

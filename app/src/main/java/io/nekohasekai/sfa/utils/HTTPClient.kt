@@ -34,7 +34,16 @@ object HTTPClient {
         try {
             withContext(Dispatchers.IO) {
                 ensureActive()
-                block(task)
+                val result = try {
+                    block(task)
+                } catch (error: Exception) {
+                    // The Go call reports cancellation as a bound error. Keep
+                    // it a coroutine cancellation instead of failing its parent.
+                    ensureActive()
+                    throw error
+                }
+                ensureActive()
+                result
             }
         } finally {
             task.close()
