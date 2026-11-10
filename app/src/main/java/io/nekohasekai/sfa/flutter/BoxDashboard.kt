@@ -263,7 +263,7 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
 
     private suspend fun createProbe(id: String): EgressSession {
         requireLocalProbe()
-        require(id.length in 1..128 && id !in egressSessions && egressSessions.size < 8) { "Invalid IP probe session" }
+        require(id.isNotEmpty() && id !in egressSessions) { "Invalid IP probe session" }
         val server = when (activity.serviceStatus.value) {
             Status.Started -> BoxService.dashboardServer ?: error("Service is not available")
             Status.Stopped -> {
@@ -320,7 +320,7 @@ internal class BoxDashboard(private val activity: BoxActivity, private val emit:
         val encoded = JSONObject(value).toString()
         val record = JSONObject(encoded)
         val now = System.currentTimeMillis()
-        require(ip.length in 1..128 && encoded.toByteArray().size <= 16384 &&
+        require(ip.isNotEmpty() &&
             record.optJSONObject("quality")?.optString("ip") == ip && record.optLong("checkedAt", -1) in 0..now) { "Invalid IP quality record" }
         val editor = qualityCache.edit().putString(ip, encoded)
         qualityCache.all.forEach { (key, stored) ->

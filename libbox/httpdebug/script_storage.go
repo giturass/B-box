@@ -19,16 +19,7 @@ import (
 	"github.com/dop251/goja"
 )
 
-const (
-	maxScriptStorageNamespaces = 256
-	maxScriptStorageKeys       = 128
-	maxScriptStorageKeyBytes   = 256
-	maxScriptStorageValueBytes = 4 * 1024 * 1024
-	maxScriptStorageBytes      = 32 * 1024 * 1024
-	maxScriptStorageTotalBytes = 64 * 1024 * 1024
-	maxScriptStorageCalls      = 64
-	scriptStorageTemporary     = ".pending"
-)
+const scriptStorageTemporary = ".pending"
 
 type scriptNamespace struct {
 	values map[string]string
@@ -50,9 +41,6 @@ type scriptStorageDocument struct {
 func validateStorageNamespace(namespace string) error {
 	if namespace == "" { // The shared default namespace preserves Surge key semantics.
 		return nil
-	}
-	if len(namespace) > 64 {
-		return errors.New("storage_namespace must contain 1 to 64 ASCII letters, digits, dots, underscores or hyphens, starting with a letter or digit")
 	}
 	for i, c := range namespace {
 		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
@@ -121,19 +109,19 @@ func openScriptStore(directory string) (*scriptStore, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !info.Mode().IsRegular() || info.Size() > maxScriptStorageBytes || len(store.namespaces) >= maxScriptStorageNamespaces {
-			return nil, fmt.Errorf("invalid or oversized script storage namespace %q", namespace)
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("invalid script storage namespace %q", namespace)
 		}
 		file, err := os.Open(filepath.Join(directory, name))
 		if err != nil {
 			return nil, err
 		}
-		data, err := io.ReadAll(io.LimitReader(file, maxScriptStorageBytes+1))
+		data, err := io.ReadAll(file)
 		file.Close()
 		if err != nil {
 			return nil, err
 		}
-		if len(data) > maxScriptStorageBytes || !utf8.Valid(data) {
+		if !utf8.Valid(data) {
 			return nil, fmt.Errorf("invalid script storage namespace %q", namespace)
 		}
 		var document struct {
@@ -145,28 +133,25 @@ func openScriptStore(directory string) (*scriptStore, error) {
 		if err = decoder.Decode(&document); err != nil {
 			return nil, fmt.Errorf("read script storage namespace %q: %w", namespace, err)
 		}
-		if decoder.Decode(new(any)) != io.EOF || document.Version != 1 || len(document.Values) == 0 || len(document.Values) > maxScriptStorageKeys {
+		if decoder.Decode(new(any)) != io.EOF || document.Version != 1 || len(document.Values) == 0 {
 			return nil, fmt.Errorf("invalid script storage namespace %q", namespace)
 		}
 		values := make(map[string]string, len(document.Values))
 		for key, value := range document.Values {
-			if value == nil || validScriptStorageKey(key) != nil || !utf8.ValidString(*value) || len(*value) > maxScriptStorageValueBytes {
+			if value == nil || validScriptStorageKey(key) != nil || !utf8.ValidString(*value) {
 				return nil, fmt.Errorf("invalid script storage entry in %q", namespace)
 			}
 			values[key] = *value
 		}
 		store.totalBytes += len(data)
-		if store.totalBytes > maxScriptStorageTotalBytes {
-			return nil, errors.New("script storage exceeds its global 64 MiB quota")
-		}
 		store.namespaces[namespace] = scriptNamespace{values, len(data)}
 	}
 	return store, nil
 }
 
 func validScriptStorageKey(key string) error {
-	if key == "" || len(key) > maxScriptStorageKeyBytes || !utf8.ValidString(key) {
-		return errors.New("storage key must contain 1 to 256 UTF-8 bytes")
+	if key == "" || !utf8.ValidString(key) {
+		return errors.New("storage key must be a nonempty UTF-8 string")
 	}
 	return nil
 }
@@ -193,8 +178,8 @@ func (s *scriptStore) read(ctx context.Context, namespace, key string) (string, 
 	return value, found, nil
 }
 
-// Each write commits a complete bounded namespace before changing the cache
-// or quota counters. Concurrent writes to different keys never overwrite a
+// Each write commits a complete namespace before changing the cache.
+// Concurrent writes to different keys never overwrite a
 // stale snapshot. A read followed by a write is not a multi-operation transaction.
 func (s *scriptStore) write(ctx context.Context, namespace, key string, value *string) error {
 	if namespace == "" {
@@ -206,14 +191,14 @@ func (s *scriptStore) write(ctx context.Context, namespace, key string, value *s
 	if err := validScriptStorageKey(key); err != nil {
 		return err
 	}
-	if value != nil && (!utf8.ValidString(*value) || len(*value) > maxScriptStorageValueBytes) {
-		return errors.New("storage value exceeds 4 MiB or is not UTF-8")
+	if value != nil && !utf8.ValidString(*value) {
+		return errors.New("storage value is not UTF-8")
 	}
 	if err := s.lock(ctx); err != nil {
 		return err
 	}
 	defer func() { <-s.gate }()
-	old, exists := s.namespaces[namespace]
+	old := s.namespaces[namespace]
 	current, found := old.values[key]
 	if value == nil && !found || value != nil && found && current == *value {
 		return nil
@@ -226,9 +211,6 @@ func (s *scriptStore) write(ctx context.Context, namespace, key string, value *s
 		delete(values, key)
 	} else {
 		values[key] = *value
-	}
-	if len(values) > maxScriptStorageKeys || !exists && len(s.namespaces) >= maxScriptStorageNamespaces {
-		return errors.New("script storage key or namespace quota exceeded")
 	}
 	if len(values) == 0 {
 		if err := ctx.Err(); err != nil {
@@ -246,9 +228,6 @@ func (s *scriptStore) write(ctx context.Context, namespace, key string, value *s
 		return err
 	}
 	nextTotal := s.totalBytes - old.bytes + len(data)
-	if len(data) > maxScriptStorageBytes || nextTotal > maxScriptStorageTotalBytes {
-		return errors.New("script storage byte quota exceeded (32 MiB per namespace, 64 MiB total)")
-	}
 	if err = s.commit(ctx, namespace+".json", data); err != nil {
 		return err
 	}
@@ -295,15 +274,10 @@ func installScriptStorage(vm *goja.Runtime, ctx context.Context, store *scriptSt
 	if len(defaultKeys) > 0 {
 		defaultKey = defaultKeys[0]
 	}
-	calls := 0
 	warned := false
 	check := func() error {
-		calls++
 		if store == nil {
 			return errors.New("persistent storage requires the running local service")
-		}
-		if calls > maxScriptStorageCalls {
-			return errors.New("script storage operation limit exceeded (64)")
 		}
 		return ctx.Err()
 	}

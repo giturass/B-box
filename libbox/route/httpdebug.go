@@ -60,13 +60,8 @@ func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata ada
 	}
 	captureMetadata := metadata
 	if captureMetadata.Protocol == "" {
-		buffer := buf.NewSize(httpdebug.MaxHeaderBytes)
-		err := sniff.PeekStream(ctx, &captureMetadata, conn, nil, buffer, time.Second, sniff.TLSClientHello, sniff.HTTPHost)
-		if !buffer.IsEmpty() {
-			conn = bufio.NewCachedConn(conn, buffer)
-		} else {
-			buffer.Release()
-		}
+		var err error
+		conn, err = peekHTTPDebug(ctx, &captureMetadata, conn)
 		if err != nil {
 			return conn, false
 		}
@@ -125,6 +120,36 @@ func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata ada
 		return local, nil
 	}
 	return conn, engine.HandleRouted(ctx, conn, info, dial, mapped, adapter.RootPoolFromContext(r.ctx), onClose)
+}
+
+// Keep upstream's protocol-detection fallback and replay semantics, but grow
+// its read-ahead buffer when it needs more bytes. Buffer capacity must not also
+// act as a limit on valid HTTP headers or fragmented TLS records.
+func peekHTTPDebug(ctx context.Context, metadata *adapter.InboundContext, conn net.Conn) (net.Conn, error) {
+	buffer := buf.New()
+	deadline := time.Now().Add(time.Second)
+	var err error
+	for {
+		if err = ctx.Err(); err != nil {
+			break
+		}
+		err = sniff.PeekStream(ctx, metadata, conn, nil, buffer, time.Until(deadline), sniff.TLSClientHello, sniff.HTTPHost)
+		if !errors.Is(err, sniff.ErrNeedMoreData) || !buffer.IsFull() || !time.Now().Before(deadline) {
+			break
+		}
+		if buffer.Cap() > int(^uint(0)>>1)/2 {
+			break // Cannot represent a larger buffer length.
+		}
+		grown := buf.NewSize(buffer.Cap() * 2)
+		_, _ = grown.Write(buffer.Bytes())
+		buffer.Release()
+		buffer = grown
+	}
+	if !buffer.IsEmpty() {
+		return bufio.NewCachedConn(conn, buffer), err
+	}
+	buffer.Release()
+	return conn, err
 }
 
 func debugNeedsStream(m adapter.InboundContext) bool {

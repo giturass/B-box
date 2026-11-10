@@ -56,7 +56,7 @@ class _RequestsPageState extends State<RequestsPage> {
     final box = context.watchBox(BoxAspect.connections);
     return BoxDataSubscription(data: BoxData.connections, child: box.remote
       ? _buildList(context, null, null, null)
-      : CapturePoll(method: 'capture.snapshot', arguments: const {'query': '', 'limit': 300}, revision: _revision,
+      : CapturePoll(method: 'capture.snapshot', arguments: const {'query': '', 'limit': 0}, revision: _revision,
           builder: _buildList));
   }
 
@@ -93,7 +93,7 @@ class _RequestsPageState extends State<RequestsPage> {
           }),
         ],
       ],
-      // Join and filter all bounded summaries first; paginate the unified result.
+      // Join and filter all summaries first; paginate the unified result.
       body: Builder(builder: (context) {
         final inset = context.appBarInset, gap = context.contentTopPadding - inset;
         return Padding(padding: EdgeInsets.only(top: inset), child: ListView.builder(
@@ -121,7 +121,7 @@ class _RequestsPageState extends State<RequestsPage> {
                 ]),
                 if (!box.running) Padding(padding: const EdgeInsets.all(12), child: Text(context.tr('Start the local service before capturing requests'))),
                 if (snapshot != null) Padding(padding: const EdgeInsets.all(12), child: Text(
-                  '${page['total'] ?? 0} ${context.tr('Captured')} · ${bytes(page['storedBytes'] as num? ?? 0)} / 32 MiB', style: context.listSubtitleStyle)),
+                  '${page['total'] ?? 0} ${context.tr('Captured')} · ${bytes(page['storedBytes'] as num? ?? 0)}', style: context.listSubtitleStyle)),
                 if ((page['error'] as String? ?? '').isNotEmpty) Text(page['error'].toString(), style: TextStyle(color: context.colorScheme.error)),
                 if (error != null) ErrorState(error, retry: refresh),
                 if (snapshot == null && error == null) const Center(child: ActivityIndicator()),
@@ -362,7 +362,7 @@ class _RelatedRequestsState extends State<_RelatedRequests> {
     if (widget.connectionId.isEmpty) return const SizedBox.shrink();
     if (context.box.remote) return Padding(padding: const EdgeInsets.all(12),
       child: Text(context.tr('HTTP debugging is only available for the local service'), style: context.listSubtitleStyle));
-    return CapturePoll(method: 'capture.snapshot', arguments: const {'query': '', 'limit': 300}, builder: (context, snapshot, error, refresh) {
+    return CapturePoll(method: 'capture.snapshot', arguments: const {'query': '', 'limit': 0}, builder: (context, snapshot, error, refresh) {
       final items = rows(json(snapshot?['page'])['items']).where((item) => item['connectionId'] == widget.connectionId).toList();
       return generateSection(title: context.tr('Related captured requests'), items: [
         if (error != null) ErrorState(error, retry: refresh),

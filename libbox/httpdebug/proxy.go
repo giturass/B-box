@@ -220,15 +220,14 @@ func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, di
 		}
 	}()
 	base := &http.Server{
-		Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
-		MaxHeaderBytes: MaxHeaderBytes, ErrorLog: log.New(io.Discard, "", 0),
+		Handler: handler,
+		// Go adds 4096 bytes of parser lookahead; leave integer headroom.
+		MaxHeaderBytes: int(^uint(0)>>1) - 4096, ErrorLog: log.New(io.Discard, "", 0),
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 	h2 := &http2.Server{
-		MaxConcurrentStreams: 16, MaxReadFrameSize: 64 * 1024,
-		MaxDecoderHeaderTableSize: 4096, MaxEncoderHeaderTableSize: 4096,
-		IdleTimeout:                  60 * time.Second,
-		MaxUploadBufferPerConnection: 256 * 1024, MaxUploadBufferPerStream: 64 * 1024,
+		// SETTINGS uses uint32, and HTTP/2 frames have a 24-bit length.
+		MaxConcurrentStreams: ^uint32(0), MaxReadFrameSize: 1<<24 - 1,
 	}
 	if metadata.Protocol == "tls" {
 		if metadata.TLS != nil && metadata.TLS.ALPN == "h2" {
@@ -237,9 +236,7 @@ func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, di
 		}
 	} else {
 		reader := bufio.NewReader(conn)
-		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 		prefix, _ := reader.Peek(3)
-		conn.SetReadDeadline(time.Time{})
 		conn = &bufferedConn{Conn: conn, reader: reader}
 		if string(prefix) == "PRI" {
 			h2.ServeConn(conn, &http2.ServeConnOpts{Context: ctx, BaseConfig: base, Handler: handler})
@@ -282,10 +279,8 @@ func bindDialLifetime(lifetime context.Context, dial DialFunc) DialFunc {
 func newTransport(dial DialFunc) *http.Transport {
 	return &http.Transport{
 		Proxy: nil, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return dial(ctx) },
-		DisableCompression: true, MaxIdleConns: 4, MaxIdleConnsPerHost: 4,
-		MaxConnsPerHost: 4, IdleConnTimeout: 60 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second, ExpectContinueTimeout: time.Second,
-		MaxResponseHeaderBytes: MaxHeaderBytes,
+		DisableCompression: true, ExpectContinueTimeout: time.Second,
+		MaxResponseHeaderBytes: int64(^uint64(0)>>1) - 4096,
 	}
 }
 
@@ -369,9 +364,8 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 		}
 		var local *http.Response
 		if program != nil {
-			// Limit reads of a selected request body, including slow/chunked uploads.
+			// Abort rejected HTTP/1 uploads without draining unfinished bodies.
 			controller := http.NewResponseController(w)
-			_ = controller.SetReadDeadline(time.Now().Add(15 * time.Second))
 			local, err = program.request(request, scriptID, originalURL.String(), note)
 			if err != nil && request.ProtoMajor == 1 {
 				// HTTP/1 Body.Close may drain unread data before the response is

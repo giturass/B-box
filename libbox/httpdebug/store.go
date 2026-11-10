@@ -142,9 +142,9 @@ func OpenStore(directory string) (*Store, error) {
 			continue
 		}
 		var record Exchange
-		err = json.NewDecoder(io.LimitReader(file, 2*1024*1024)).Decode(&record)
+		err = json.NewDecoder(file).Decode(&record)
 		file.Close()
-		if err != nil || record.ID != id || record.BodyLimit < 1 || record.BodyLimit > MaxBodyLimit {
+		if err != nil || record.ID != id || record.BodyLimit < -1 {
 			_ = os.Remove(filepath.Join(directory, name))
 			continue
 		}
@@ -163,7 +163,10 @@ func OpenStore(directory string) (*Store, error) {
 					if suffix == ".response" {
 						message = &record.Response
 					}
-					message.CapturedBytes = min(info.Size(), record.BodyLimit)
+					message.CapturedBytes = info.Size()
+					if record.BodyLimit > 0 {
+						message.CapturedBytes = min(info.Size(), record.BodyLimit)
+					}
 					message.BodyBytes = max(message.BodyBytes, info.Size())
 				}
 			}
@@ -193,7 +196,6 @@ func OpenStore(directory string) (*Store, error) {
 			}
 		}
 	}
-	s.trimLocked()
 	return s, nil
 }
 
@@ -223,7 +225,6 @@ func (s *Store) begin(metadata Metadata, request *http.Request, bodyLimit int64)
 	s.records[id] = record
 	s.order = append(s.order, id)
 	s.persistLocked(record)
-	s.trimLocked()
 	return id
 }
 
@@ -253,7 +254,6 @@ func (s *Store) response(id string, response *http.Response) {
 			record.Response.BodyComplete = true
 		}
 		s.persistLocked(record)
-		s.trimLocked()
 	}
 }
 
@@ -283,8 +283,7 @@ func appendRecordNote(record *Exchange, note string) {
 	if record.Note != "" {
 		note = "\n" + note
 	}
-	remaining := max(0, 4096-len(record.Note))
-	record.Note += strings.ToValidUTF8(note[:min(len(note), remaining)], "")
+	record.Note += strings.ToValidUTF8(note, "")
 }
 
 func (s *Store) domainOnly(id string) {
@@ -299,7 +298,7 @@ func (s *Store) domainOnly(id string) {
 // Domain extraction uses all retained matching records, not only the currently
 // visible page. Historical URL hosts remain readable and are deduped.
 func (s *Store) Domains(query string) []string {
-	page := s.Page(MaxEntries, query)
+	page := s.Page(0, query)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	hosts := make(map[string]bool)
@@ -359,7 +358,10 @@ func (s *Store) appendBody(id string, response bool, p []byte) {
 	}
 	message.BodyBytes += int64(len(p))
 	message.BodyTruncated = message.BodyBytes > message.CapturedBytes
-	remaining := record.BodyLimit - message.CapturedBytes
+	remaining := int64(len(p))
+	if record.BodyLimit > 0 {
+		remaining = record.BodyLimit - message.CapturedBytes
+	}
 	// Reaching the saved prefix limit must not stop counting forwarded bytes.
 	if remaining <= 0 || len(p) == 0 || body.done {
 		s.mu.Unlock()
@@ -379,13 +381,8 @@ func (s *Store) appendBody(id string, response bool, p []byte) {
 	reserved := int64(len(p))
 	record.pendingBytes += reserved
 	s.pendingBytes += reserved
-	// Reserve the prefix before releasing the index lock, so concurrent writes
-	// cannot all claim the same remaining space in the retained storage budget.
-	s.trimLocked()
-	if s.records[id] != record {
-		s.mu.Unlock()
-		return
-	}
+	// In-flight counts keep completion and Clear consistent while I/O runs
+	// outside the index lock.
 	body.writing = true
 	s.mu.Unlock()
 
@@ -403,14 +400,13 @@ func (s *Store) appendBody(id string, response bool, p []byte) {
 		if err != nil {
 			s.lastError = "Cannot save capture body: " + err.Error()
 		}
-		if message.CapturedBytes >= record.BodyLimit {
+		if record.BodyLimit > 0 && message.CapturedBytes >= record.BodyLimit {
 			body.done = true
 		}
 		if record.finishing {
 			record.Complete = record.pendingBytes == 0
 			s.persistLocked(record)
 		}
-		s.trimLocked()
 	}
 	if err != nil || body.done || record.Complete || s.records[id] != record {
 		s.closeBodyLocked(body)
@@ -485,7 +481,6 @@ func (s *Store) finish(id string) {
 	defer s.mu.Unlock()
 	if record := s.records[id]; record != nil && !record.finishing && !record.Complete {
 		s.finishLocked(record)
-		s.trimLocked()
 	}
 }
 
@@ -535,13 +530,6 @@ func (s *Store) removeLocked(id string) {
 	}
 }
 
-func (s *Store) trimLocked() {
-	for len(s.order) > 0 && (len(s.order) > MaxEntries || s.totalBytes+s.pendingBytes > MaxStorageBytes) {
-		s.removeLocked(s.order[0])
-		s.order = s.order[1:]
-	}
-}
-
 func (s *Store) Clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -553,7 +541,6 @@ func (s *Store) Clear() {
 }
 
 func (s *Store) Page(limit int, query string) Page {
-	limit = min(max(limit, 1), MaxEntries)
 	query = strings.ToLower(strings.TrimSpace(query))
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -565,7 +552,7 @@ func (s *Store) Page(limit int, query string) Page {
 			continue
 		}
 		page.Total++
-		if len(page.Items) >= limit {
+		if limit > 0 && len(page.Items) >= limit {
 			continue
 		}
 		duration := r.DurationMS
@@ -620,7 +607,7 @@ func (s *Store) Detail(id string) (*Detail, error) {
 		}
 		files[i] = file
 	}
-	// Opening under the index lock pins the files across eviction/Clear. Read only
+	// Opening under the index lock pins the files across Clear. Read only
 	// the captured prefix in this snapshot, even if a writer appends concurrently.
 	s.mu.Unlock()
 	for i, file := range files {

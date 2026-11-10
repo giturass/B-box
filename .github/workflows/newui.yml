@@ -43,7 +43,7 @@ jobs:
         run: go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1
       - name: Routed probe lifecycle race tests
         working-directory: .core
-        run: go test -race -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIEgress' -count=1
+        run: go test -race -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(Egress|Route|HTTP|Profile)' -count=1
       - name: HTTP/TCP MITM, independent rewrites, scripts/cron, storage and route tests
         working-directory: .core
         run: |

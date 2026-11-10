@@ -3,7 +3,6 @@ package httpdebug
 import (
 	"context"
 	"crypto/x509"
-	"errors"
 	"sync"
 	"time"
 
@@ -21,23 +20,19 @@ type cronRunner struct {
 	mu      sync.Mutex
 	closed  bool
 	next    []time.Time
-	pending []bool // One invocation per job, whether queued or running.
-	queue   chan int
+	pending []bool // A job does not overlap its own unfinished invocation.
 	wg      sync.WaitGroup
 }
 
 func startCron(program *ScriptProgram, dial RewriteDialFunc, roots *x509.CertPool) *cronRunner {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &cronRunner{ctx: ctx, cancel: cancel, program: program, dial: dial, roots: roots,
-		next: make([]time.Time, len(program.cron)), pending: make([]bool, len(program.cron)), queue: make(chan int, len(program.cron))}
+		next: make([]time.Time, len(program.cron)), pending: make([]bool, len(program.cron))}
 	now := time.Now()
 	for i, job := range program.cron {
 		r.next[i] = job.schedule.Next(now)
 	}
-	r.wg.Add(1 + cap(cronScriptSlots))
-	for range cap(cronScriptSlots) {
-		go r.worker()
-	}
+	r.wg.Add(1)
 	go r.loop()
 	return r
 }
@@ -76,51 +71,30 @@ func (r *cronRunner) runDue(now time.Time) {
 		if r.next[i].IsZero() || now.Before(r.next[i]) {
 			continue
 		}
-		// Skip missed intervals after suspend. A queued or running invocation
-		// absorbs further triggers so the backlog never exceeds the job count.
+		// Skip missed intervals after suspend and do not overlap a job with
+		// itself. Independent jobs start without an arbitrary worker quota.
 		r.next[i] = job.schedule.Next(now)
 		if r.pending[i] {
-			writeLog("warn", job.label+": previous cron invocation is queued or still running; skipped")
+			writeLog("warn", job.label+": previous cron invocation is still running; skipped")
 			continue
 		}
-		select {
-		case r.queue <- i:
-			r.pending[i] = true
-		default:
-			writeLog("warn", job.label+": cron queue limit reached; skipped")
-		}
-	}
-}
-
-func (r *cronRunner) worker() {
-	defer r.wg.Done()
-	for {
-		select {
-		case <-r.ctx.Done():
-			return
-		case index := <-r.queue:
-			// Cancellation wins even when both select cases are ready. Queue
-			// waiting holds no interpreter/body budget and does not use timeout_ms.
+		r.pending[i] = true
+		r.wg.Add(1)
+		go func(index int) {
+			defer r.wg.Done()
 			if r.ctx.Err() == nil {
 				r.run(r.program.cron[index])
 			}
 			r.mu.Lock()
 			r.pending[index] = false
 			r.mu.Unlock()
-		}
+		}(i)
 	}
 }
 
 func (r *cronRunner) run(job compiledCron) error {
-	ctx, cancel := context.WithTimeout(r.ctx, time.Duration(job.options.TimeoutMS)*time.Millisecond)
+	ctx, cancel := scriptContext(r.ctx, job.options.TimeoutMS)
 	defer cancel()
-	lease := reserveBodyWork(r.program.limit)
-	if lease == nil {
-		err := errors.New("global body budget exhausted")
-		writeLog("warn", job.label+": cron skipped: "+err.Error())
-		return err
-	}
-	defer lease.release()
 	writeLog("info", job.label+": cron started")
 	program := job.program
 	if job.source != nil {
@@ -158,12 +132,7 @@ func (r *cronRunner) Close() {
 	r.cancel()
 	r.mu.Unlock()
 	r.wg.Wait()
-	// Producers and workers have stopped; queued triggers do not survive a
-	// service stop or reload.
 	r.mu.Lock()
-	for len(r.queue) > 0 {
-		<-r.queue
-	}
 	clear(r.pending)
 	r.mu.Unlock()
 }

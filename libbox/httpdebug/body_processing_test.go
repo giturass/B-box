@@ -52,7 +52,7 @@ func encodedBody(t *testing.T, body []byte, encodings ...string) []byte {
 }
 
 func TestBodyEncodingsAgreeAcrossRewritingPreviewAndHAR(t *testing.T) {
-	for _, encoding := range []string{"gzip", "deflate", "raw-deflate", "br", "zstd", "gzip,br", "gzip,br,zstd"} {
+	for _, encoding := range []string{"gzip", "deflate", "raw-deflate", "br", "zstd", "gzip,br", "gzip,br,zstd", "gzip,br,gzip,br"} {
 		t.Run(encoding, func(t *testing.T) {
 			encodings := strings.Split(encoding, ",")
 			wire := encodedBody(t, []byte("old"), encodings...)
@@ -112,7 +112,6 @@ func (b *observedBody) Close() error               { return nil }
 func TestIneligibleBodiesAreNotReadOrSubjectToRewriteSizeLimits(t *testing.T) {
 	for _, test := range []struct{ name, field, value string }{
 		{"unsupported encoding", "Content-Encoding", "future-encoding"},
-		{"too many encoding layers", "Content-Encoding", "gzip,br,gzip,br"},
 		{"SSE", "Content-Type", "text/event-stream; charset=utf-8"},
 		{"gRPC", "Content-Type", "application/grpc+proto"},
 		{"NDJSON", "Content-Type", "application/x-ndjson"},
@@ -141,43 +140,40 @@ func TestIneligibleBodiesAreNotReadOrSubjectToRewriteSizeLimits(t *testing.T) {
 	}
 }
 
-func TestGlobalBodyBudgetPassesThroughBeforeReadingAndRetainsOutputLease(t *testing.T) {
-	program := rewriteProgram(t, `{"max_body_bytes":64,"body_rewrite":[{"pattern":".","phase":"request","regex":"old","replacement":"new"},{"pattern":".","phase":"response","regex":"old","replacement":"new"}]}`)
-	occupied := processingBodies.acquire(maxBufferedBodyBytes)
-	if occupied == nil {
-		t.Fatalf("earlier body work leaked %d bytes", processingBodies.used.Load())
+func TestBodyReservationsUseActualBytesAndRetainOutputLease(t *testing.T) {
+	const previousBudget = 384 * 1024 * 1024
+	occupied := processingBodies.acquire(previousBudget)
+	if occupied == nil || processingBodies.limit != 0 {
+		t.Fatal("production body bookkeeping still imposes a global quota")
 	}
-	defer func() { occupied.release() }()
-	body := &observedBody{Reader: strings.NewReader("old")}
-	request, _ := http.NewRequest("POST", "http://example.test/", body)
-	var notes []string
-	note := func(value string) { notes = append(notes, value) }
-	if _, err := program.request(request, "test", request.URL.String(), note); err != nil {
-		t.Fatal(err)
+	defer occupied.release()
+	var bodies []io.ReadCloser
+	defer func() {
+		for _, body := range bodies {
+			body.Close()
+		}
+	}()
+	for range 8 {
+		program := rewriteProgram(t, `{"max_body_bytes":1099511627776,"body_rewrite":[{"pattern":".","phase":"request","regex":"old","replacement":"new"}]}`)
+		request, _ := http.NewRequest("POST", "http://example.test/", strings.NewReader("old"))
+		if _, err := program.request(request, "test", request.URL.String(), func(string) {}); err != nil {
+			t.Fatal(err)
+		}
+		bodies = append(bodies, request.Body)
 	}
-	response := &http.Response{StatusCode: 200, Header: make(http.Header), Body: body}
-	if err := program.response(request, response, "test", request.URL.String(), note); err != nil {
-		t.Fatal(err)
+	if used := processingBodies.used.Load(); used <= previousBudget || used > previousBudget+1024 {
+		t.Fatalf("small retained bodies reserved their configured maximum: %d", used)
 	}
-	if body.reads != 0 || !strings.Contains(strings.Join(notes, "\n"), "budget exhausted") {
-		t.Fatal("budget was checked after reading the body")
+	for _, body := range bodies {
+		data, err := io.ReadAll(body)
+		body.Close()
+		body.Close()
+		if err != nil || string(data) != "new" {
+			t.Fatal("a small body was skipped under the former budget", err)
+		}
 	}
-	// Release pressure before checking the lifetime of the replacement body.
-	occupied.release()
-	occupied = nil
-	// A rewritten body still owns its memory while a slow consumer holds it.
-	request, _ = http.NewRequest("POST", "http://example.test/", strings.NewReader("old"))
-	if _, err := program.request(request, "test", request.URL.String(), note); err != nil {
-		t.Fatal(err)
-	}
-	if processingBodies.used.Load() == 0 {
-		t.Fatal("output reservation was released before its body was consumed")
-	}
-	data, err := io.ReadAll(request.Body)
-	request.Body.Close()
-	request.Body.Close()
-	if err != nil || string(data) != "new" || processingBodies.used.Load() != 0 {
-		t.Fatal("body lease leaked or was released twice")
+	if processingBodies.used.Load() != previousBudget {
+		t.Fatal("body leases leaked or were released twice")
 	}
 }
 

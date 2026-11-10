@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"time"
 )
 
 // RewriteDialFunc routes a new host:port through the same sing-box instance.
@@ -21,7 +20,6 @@ func newRewriteTransport(lifetime context.Context, dial RewriteDialFunc, roots *
 		return bindDialLifetime(lifetime, func(ctx context.Context) (net.Conn, error) { return dial(ctx, address) })(ctx)
 	}
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
-	transport.TLSHandshakeTimeout = 10 * time.Second
 	transport.ForceAttemptHTTP2 = true
 	return transport
 }
@@ -44,9 +42,7 @@ func (e *Engine) openRewriteMITM(ctx context.Context, raw net.Conn, metadata Met
 			return &tls.Config{MinVersion: tls.VersionTLS12, SessionTicketsDisabled: true,
 				Certificates: []tls.Certificate{*certificate}, NextProtos: e.mitm.httpProtocols()}, nil
 		}})
-	handshake, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if err := client.HandshakeContext(handshake); err != nil {
+	if err := client.HandshakeContext(ctx); err != nil {
 		e.tlsFailed.Add(1)
 		failure := fmt.Errorf("Client TLS for %s: %w", metadata.Host, err)
 		e.reportError(failure.Error())
@@ -61,9 +57,7 @@ func (e *Engine) openRewriteMITM(ctx context.Context, raw net.Conn, metadata Met
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ServerName: metadata.Host,
 		NextProtos: e.mitm.httpProtocols(), InsecureSkipVerify: e.mitm.SkipServerCertVerify}
 	transport.DialTLSContext = func(callCtx context.Context, _, _ string) (net.Conn, error) {
-		deadline, cancel := context.WithTimeout(callCtx, 10*time.Second)
-		defer cancel()
-		conn, err := dialUpstreamTLS(callCtx, deadline, dial, metadata.Host, e.mitm.httpProtocols(), roots, e.mitm.SkipServerCertVerify)
+		conn, err := dialUpstreamTLS(callCtx, callCtx, dial, metadata.Host, e.mitm.httpProtocols(), roots, e.mitm.SkipServerCertVerify)
 		if err != nil {
 			e.tlsFailed.Add(1)
 			e.reportError(fmt.Sprintf("Rewrite upstream TLS for %s: %v", metadata.Host, err))

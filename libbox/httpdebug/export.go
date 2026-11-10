@@ -14,8 +14,6 @@ import (
 	"unicode/utf8"
 )
 
-const previewLimit = 64 * 1024
-
 type Preview struct {
 	Text      string `json:"text"`
 	Encoding  string `json:"encoding"`
@@ -31,8 +29,7 @@ func headerValue(m Message, name string) string {
 	return ""
 }
 
-// Decode only a bounded prefix. A compressed response cannot allocate an
-// unbounded expansion, and unsupported/binary data remains available as base64.
+// Decode the saved content. Unknown encodings remain available as base64.
 func decodeBody(m Message, body []byte, limit int) (data []byte, decoded, truncated bool) {
 	encodings, err := contentEncodings(messageContentEncoding(m))
 	if err != nil {
@@ -47,8 +44,8 @@ func decodeBody(m Message, body []byte, limit int) (data []byte, decoded, trunca
 	if len(data) == 0 && err != nil {
 		return body, false, true
 	}
-	truncated = len(data) > limit || m.BodyTruncated || err != nil
-	if len(data) > limit {
+	truncated = limit > 0 && len(data) > limit || m.BodyTruncated || err != nil
+	if limit > 0 && len(data) > limit {
 		data = data[:limit]
 	}
 	return data, true, truncated
@@ -65,7 +62,7 @@ func messageContentEncoding(m Message) string {
 }
 
 func preview(m Message, body []byte) Preview {
-	data, decoded, truncated := decodeBody(m, body, previewLimit)
+	data, decoded, truncated := decodeBody(m, body, 0)
 	if !decoded {
 		return binaryPreview(body, truncated)
 	}
@@ -82,12 +79,11 @@ func preview(m Message, body []byte) Preview {
 }
 
 func binaryPreview(body []byte, truncated bool) Preview {
-	return Preview{Text: base64.StdEncoding.EncodeToString(body[:min(len(body), previewLimit)]),
-		Encoding: "base64", Truncated: truncated || len(body) > previewLimit}
+	return Preview{Text: base64.StdEncoding.EncodeToString(body), Encoding: "base64", Truncated: truncated}
 }
 
 func (s *Store) WriteHAR(output io.Writer, query string) error {
-	page := s.Page(MaxEntries, query)
+	page := s.Page(0, query)
 	ids := make([]string, 0, len(page.Items))
 	for _, summary := range page.Items {
 		if !summary.DomainOnly && summary.Protocol != "TLS/TCP" {
@@ -101,9 +97,6 @@ func (s *Store) WriteHAR(output io.Writer, query string) error {
 // Export exactly its selected exchanges, even if the filter or store changes
 // while the document picker is open. An empty selection never means all records.
 func (s *Store) WriteHARSelection(output io.Writer, ids []string) error {
-	if len(ids) > MaxEntries {
-		return errors.New("too many requests selected for HAR export")
-	}
 	selected := make([]string, 0, len(ids))
 	seen := make(map[string]bool, len(ids))
 	for _, id := range ids {
@@ -190,7 +183,7 @@ func harContent(message Message, body []byte) map[string]any {
 	if encoding != "" && encoding != "identity" {
 		// HAR content.text is the decoded representation. Preserve the complete
 		// captured wire prefix separately, including unsupported content encodings.
-		data, decoded, truncated = decodeBody(message, body, previewLimit)
+		data, decoded, truncated = decodeBody(message, body, 0)
 		content["_rawBody"] = base64.StdEncoding.EncodeToString(body)
 		content["_rawBodyEncoding"], content["_contentEncoding"] = "base64", encoding
 		content["size"] = len(data)

@@ -35,5 +35,4 @@ func (s *Store) stopRecording() {
 		appendRecordNote(record, "Recording stopped; retained data may be incomplete; connection continues")
 		s.finishLocked(record)
 	}
-	s.trimLocked()
 }

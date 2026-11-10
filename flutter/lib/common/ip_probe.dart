@@ -11,6 +11,6 @@ class IpProbeCancelled implements Exception {
 
 abstract interface class IpProbeTransport {
   bool get cancelled;
-  Future<IpProbeResponse> get(String url, Duration timeout);
+  Future<IpProbeResponse> get(String url, Duration? timeout);
   Future<void> close();
 }

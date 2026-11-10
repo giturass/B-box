@@ -14,14 +14,6 @@ import (
 	"golang.org/x/net/http/httpguts"
 )
 
-const (
-	MaxRewriteConfigBytes  = 2 * 1024 * 1024
-	MaxRewriteRules        = 256
-	MaxRewriteRequestBody  = 32 * 1024 * 1024
-	MaxRewriteResponseBody = 10 * 1024 * 1024
-	MaxLocalResourceBytes  = 15 * 1024 * 1024
-)
-
 // RewriteConfig is the B-box experimental.http_rewrite profile extension.
 // It is deliberately separate from the device's private capture settings.
 // Resources may be embedded or loaded by the active service; validation never reads files,
@@ -93,8 +85,8 @@ type RewriteResource struct {
 }
 
 func (c *RewriteConfig) UnmarshalJSON(data []byte) error {
-	if len(data) > MaxRewriteConfigBytes || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
-		return errors.New("http_rewrite must be an object of at most 2 MiB")
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return errors.New("http_rewrite must be an object")
 	}
 	type plain RewriteConfig
 	var value plain
@@ -137,8 +129,8 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 		return nil, nil
 	}
 	requestLimit, responseLimit := c.MaxRequestBodyBytes, c.MaxResponseBodyBytes
-	if c.MaxBodyBytes < 0 || c.MaxBodyBytes > MaxRewriteResponseBody {
-		return nil, errors.New("max_body_bytes must be between 1 and 10485760")
+	if _, err := configuredBodyLimit(c.MaxBodyBytes); err != nil {
+		return nil, err
 	}
 	if requestLimit == 0 {
 		requestLimit = c.MaxBodyBytes
@@ -146,17 +138,14 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 	if responseLimit == 0 {
 		responseLimit = c.MaxBodyBytes
 	}
-	if requestLimit == 0 {
-		requestLimit = MaxRewriteRequestBody
+	var err error
+	requestLimit, err = configuredBodyLimit(requestLimit)
+	if err != nil {
+		return nil, err
 	}
-	if responseLimit == 0 {
-		responseLimit = MaxBodyLimit
-	}
-	if requestLimit < 1 || requestLimit > MaxRewriteRequestBody || responseLimit < 1 || responseLimit > MaxRewriteResponseBody {
-		return nil, errors.New("request body limit must be 1..33554432; response body limit must be 1..10485760")
-	}
-	if len(c.HeaderRewrite)+len(c.URLRewrite)+len(c.MapRemote)+len(c.BodyRewrite)+len(c.MapLocal) > MaxRewriteRules {
-		return nil, errors.New("http_rewrite supports at most 256 rules")
+	responseLimit, err = configuredBodyLimit(responseLimit)
+	if err != nil {
+		return nil, err
 	}
 	scope := Config{Ports: append([]uint16(nil), c.Ports...), Packages: append([]string(nil), c.Packages...)}
 	if err := scope.validate(); err != nil {
@@ -165,22 +154,19 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 	p := &RewriteProgram{scope: scope, limit: responseLimit, requestLimit: requestLimit}
 	resources := make(map[string][]byte)
 	resourceSources := make(map[string]*processingResource)
-	if len(c.Resources) > MaxRewriteRules {
-		return nil, errors.New("too many rewrite resources")
-	}
 	for name, resource := range c.Resources {
-		if name == "" || len(name) > 256 {
+		if name == "" {
 			return nil, errors.New("invalid rewrite resource name")
 		}
 		if resource.DataType == "file" {
-			spec, err := compileProcessingResource(resource.Data, MaxLocalResourceBytes, false, resource.UpdateInterval, false)
+			spec, err := compileProcessingResource(resource.Data, 0, false, resource.UpdateInterval, false)
 			if err != nil {
 				return nil, fmt.Errorf("resource %q: %w", name, err)
 			}
 			resources[name], resourceSources[name] = nil, spec
 			continue
 		}
-		data, err := decodeRewriteData(resource.DataType, resource.Data, MaxLocalResourceBytes)
+		data, err := decodeRewriteData(resource.DataType, resource.Data, 0)
 		if err != nil {
 			return nil, fmt.Errorf("resource %q: %w", name, err)
 		}
@@ -253,9 +239,6 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 			if rule.Regex != "" || rule.Replacement != "" {
 				return nil, fmt.Errorf("%s: jq cannot be combined with regex/replacement", item.label)
 			}
-			if len(*rule.JQ) > 4096 {
-				return nil, fmt.Errorf("%s: jq expression exceeds 4096 bytes", item.label)
-			}
 			query, parseErr := gojq.Parse(*rule.JQ)
 			if parseErr == nil {
 				item.jq, parseErr = gojq.Compile(query)
@@ -301,12 +284,12 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 			}
 			item.options.DataType = c.Resources[rule.Resource].DataType
 		} else if rule.DataType == "file" {
-			source, err = compileProcessingResource(rule.Data, MaxLocalResourceBytes, false, 0, false)
+			source, err = compileProcessingResource(rule.Data, 0, false, 0, false)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", item.label, err)
 			}
 		} else {
-			data, err = decodeRewriteData(rule.DataType, rule.Data, MaxLocalResourceBytes)
+			data, err = decodeRewriteData(rule.DataType, rule.Data, 0)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", item.label, err)
 			}
@@ -325,9 +308,6 @@ func compileRewriteRule[T any](options T, match RewriteMatch, kind string, index
 	label := fmt.Sprintf("%s[%d]", kind, index)
 	if match.Name != "" {
 		label += " " + match.Name
-	}
-	if len(label) > 256 {
-		return compiledRule[T]{}, errors.New("rewrite rule name is too long")
 	}
 	if match.Pattern == "" {
 		return compiledRule[T]{}, fmt.Errorf("%s: URL pattern is required", label)
@@ -351,18 +331,16 @@ func protectedRewriteHeader(name string) bool {
 
 func rewriteHeaders(values []Header) (http.Header, error) {
 	headers := make(http.Header)
-	size := 0
 	for _, value := range values {
-		size += len(value.Name) + len(value.Value)
-		if size > MaxHeaderBytes || !httpguts.ValidHeaderFieldName(value.Name) || !httpguts.ValidHeaderFieldValue(value.Value) || protectedRewriteHeader(value.Name) {
-			return nil, errors.New("invalid, oversized or framing header in local response")
+		if !httpguts.ValidHeaderFieldName(value.Name) || !httpguts.ValidHeaderFieldValue(value.Value) || protectedRewriteHeader(value.Name) {
+			return nil, errors.New("invalid or framing header in local response")
 		}
 		headers.Add(value.Name, value.Value)
 	}
 	return headers, nil
 }
 
-// A zero limit leaves embedded script sizes to the enclosing configuration limit.
+// A zero limit permits embedded resources of any size.
 func decodeRewriteData(kind, value string, limit int64) ([]byte, error) {
 	var data []byte
 	var err error
@@ -386,8 +364,8 @@ func decodeRewriteData(kind, value string, limit int64) ([]byte, error) {
 }
 
 func validateURLTemplate(value string) error {
-	if len(value) > 8192 || strings.ContainsAny(value, "\r\n") || (!strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://")) {
-		return errors.New("replacement must be an absolute http:// or https:// URL template, at most 8192 bytes")
+	if strings.ContainsAny(value, "\r\n") || (!strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://")) {
+		return errors.New("replacement must be an absolute http:// or https:// URL template")
 	}
 	if !strings.Contains(value, "$") {
 		_, err := parseRewriteURL(value)
@@ -409,7 +387,7 @@ func validateRewriteURLTemplate(value, action string) error {
 }
 
 func (p *RewriteProgram) bodyLimit(phase string) int64 {
-	if phase == "request" && p.requestLimit > 0 {
+	if phase == "request" {
 		return p.requestLimit
 	}
 	return p.limit
@@ -420,7 +398,7 @@ func parseRewriteURL(value string) (*url.URL, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(value) > 8192 || u.Opaque != "" || u.User != nil || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") || !validHost(normalizeHost(u.Hostname())) || strings.ContainsAny(value, "\r\n") {
+	if u.Opaque != "" || u.User != nil || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") || !validHost(normalizeHost(u.Hostname())) || strings.ContainsAny(value, "\r\n") {
 		return nil, errors.New("rewrite produced an invalid HTTP(S) URL")
 	}
 	if port := u.Port(); port != "" {

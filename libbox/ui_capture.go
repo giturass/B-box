@@ -82,9 +82,6 @@ func ExportUICaptureHAR(path, query string) error {
 }
 
 func ExportUICaptureHARSelection(path, idsJSON string) error {
-	if len(idsJSON) > 32*1024 {
-		return errors.New("HAR selection is too large")
-	}
 	var ids []string
 	if err := json.Unmarshal([]byte(idsJSON), &ids); err != nil {
 		return err

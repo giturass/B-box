@@ -47,8 +47,9 @@ func TestUIProfileGetPreservesSubscriptionRequests(t *testing.T) {
 	}
 }
 
-func TestUIProfileGetLimitsDeclaredChunkedAndDecodedBodies(t *testing.T) {
-	content := bytes.Repeat([]byte(" "), uiProfileLimit+1)
+func TestUIProfileGetReadsBeyondFormerSizeCap(t *testing.T) {
+	const formerProfileLimit = 16 * 1024 * 1024
+	content := bytes.Repeat([]byte(" "), formerProfileLimit+1)
 	copy(content, "{}")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		size, _ := strconv.Atoi(r.URL.Query().Get("size"))
@@ -68,15 +69,11 @@ func TestUIProfileGetLimitsDeclaredChunkedAndDecodedBodies(t *testing.T) {
 	}))
 	defer server.Close()
 	for _, mode := range []string{"declared", "chunked", "gzip"} {
-		for _, size := range []int{uiProfileLimit, uiProfileLimit + 1} {
+		for _, size := range []int{formerProfileLimit, formerProfileLimit + 1} {
 			t.Run(mode+"/"+strconv.Itoa(size), func(t *testing.T) {
 				result, err := UIProfileGet(server.URL+"/"+mode+"?size="+strconv.Itoa(size), "SFA test")
-				if size > uiProfileLimit {
-					if err == nil || result != nil || !strings.Contains(err.Error(), "Subscription exceeds 16 MiB") {
-						t.Fatalf("oversized subscription: result present=%v err=%v", result != nil, err)
-					}
-				} else if err != nil || result == nil || len(result.Value) != size || !strings.HasPrefix(result.Value, "{}") {
-					t.Fatalf("subscription at the size limit: result present=%v err=%v", result != nil, err)
+				if err != nil || result == nil || len(result.Value) != size || !strings.HasPrefix(result.Value, "{}") {
+					t.Fatalf("subscription body was lost: result present=%v err=%v", result != nil, err)
 				}
 			})
 		}
@@ -89,7 +86,8 @@ func TestUIProfileGetDeadlineIncludesHeadersAndBody(t *testing.T) {
 			select {
 			case <-r.Context().Done():
 			case <-time.After(40 * time.Millisecond):
-				http.Redirect(w, r, "/redirect", http.StatusFound)
+				step, _ := strconv.Atoi(r.URL.Query().Get("step"))
+				http.Redirect(w, r, "/redirect?step="+strconv.Itoa(step+1), http.StatusFound)
 			}
 			return
 		}
@@ -117,7 +115,9 @@ func TestUIProfileGetDeadlineIncludesHeadersAndBody(t *testing.T) {
 	defer server.Close()
 	for _, path := range []string{"/headers", "/body", "/trickle", "/redirect"} {
 		t.Run(path, func(t *testing.T) {
-			result, err := uiProfileGet(server.URL+path, "SFA test", 100*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			result, err := uiProfileGet(ctx, server.URL+path, "SFA test")
 			if result != nil || !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("download deadline did not stop the request: result=%v err=%v", result, err)
 			}
@@ -125,24 +125,16 @@ func TestUIProfileGetDeadlineIncludesHeadersAndBody(t *testing.T) {
 	}
 }
 
-func TestUIProfileGetRejectsErrorAndOversizedHeadersWithoutReading(t *testing.T) {
+func TestUIProfileGetRejectsErrorStatusWithoutReadingBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Length", strconv.Itoa(uiProfileLimit+1))
-		if r.URL.Path == "/error" {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		}
+		w.WriteHeader(http.StatusServiceUnavailable)
 		w.(http.Flusher).Flush()
 		<-r.Context().Done()
 	}))
 	defer server.Close()
-	for path, expected := range map[string]string{
-		"/error": "HTTP 503 Service Unavailable",
-		"/large": "Subscription exceeds 16 MiB",
-	} {
-		result, err := uiProfileGet(server.URL+path, "SFA test", time.Second)
-		if result != nil || err == nil || err.Error() != expected {
-			t.Fatalf("response headers must fail without waiting for a body: result=%v err=%v", result, err)
-		}
+	result, err := UIProfileGet(server.URL, "SFA test")
+	if result != nil || err == nil || err.Error() != "HTTP 503 Service Unavailable" {
+		t.Fatalf("failed response waited for or read an error body: %v %v", result, err)
 	}
 }
 

@@ -15,13 +15,13 @@ class FakeIpProbe implements IpProbeTransport {
 
   final Map<String, ProbeReply> replies;
   final requested = <Uri>[];
-  final timeouts = <Duration>[];
+  final timeouts = <Duration?>[];
   final cancelledHosts = <String>{};
   final _pending = <Completer<IpProbeResponse>, ({String host, Timer timer})>{};
   bool _closed = false;
   @override bool cancelled = false;
 
-  @override Future<IpProbeResponse> get(String url, Duration timeout) {
+  @override Future<IpProbeResponse> get(String url, Duration? timeout) {
     if (cancelled || _closed) return Future.error(const IpProbeCancelled());
     final uri = Uri.parse(url);
     requested.add(uri);

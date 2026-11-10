@@ -22,8 +22,6 @@ import (
 	"github.com/dop251/goja"
 )
 
-const maxProcessingCacheBytes = 64 * 1024 * 1024
-
 type processingResource struct {
 	path     string
 	limit    int64 // Zero means no per-resource cap; reads still reserve body work.
@@ -33,7 +31,7 @@ type processingResource struct {
 }
 
 func compileProcessingResource(path string, limit int64, script bool, interval int64, debug bool) (*processingResource, error) {
-	if path == "" || len(path) > 8192 || strings.ContainsAny(path, "\r\n\x00") {
+	if path == "" || strings.ContainsAny(path, "\r\n\x00") {
 		return nil, errors.New("resource file path or URL is invalid")
 	}
 	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
@@ -46,8 +44,8 @@ func compileProcessingResource(path string, limit int64, script bool, interval i
 	if interval == 0 {
 		interval = 86400
 	}
-	if interval < 1 || interval > 31536000 {
-		return nil, errors.New("resource update interval must be 1..31536000 seconds")
+	if interval < 1 || interval > int64((1<<63-1)/time.Second) {
+		return nil, errors.New("resource update interval must be positive and representable as a duration")
 	}
 	return &processingResource{path: path, limit: limit, script: script, interval: time.Duration(interval) * time.Second, debug: debug}, nil
 }
@@ -151,6 +149,9 @@ func (r *processingResources) key(spec *processingResource) string {
 		// Preserve existing disk cache and default storage keys. This value is
 		// only part of the persisted identity, not a script source size limit.
 		identityLimit = 128 * 1024
+	} else if identityLimit == 0 {
+		// Preserve URL caches created before the Map Local size cap was removed.
+		identityLimit = 15 * 1024 * 1024
 	}
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%t:%d:%s", spec.script, identityLimit, identity)))
 	return hex.EncodeToString(sum[:])
@@ -238,15 +239,16 @@ func (r *processingResources) load(parent context.Context, spec *processingResou
 		}
 		return processingResourceValue{}, errors.New("resource downloads require a running sing-box route")
 	}
-	fetchCtx, stopFetch := context.WithTimeout(ctx, 15*time.Second)
-	defer stopFetch()
+	fetchCtx := ctx
 	transport := newRewriteTransport(fetchCtx, r.dial, r.roots)
 	transport.DisableKeepAlives = true
 	defer transport.CloseIdleConnections()
 	policy := scriptHTTPPolicy{unrestricted: true}
 	client := &http.Client{Transport: transport, CheckRedirect: func(request *http.Request, via []*http.Request) error {
-		if len(via) >= 10 {
-			return errors.New("resource redirect limit exceeded")
+		for _, previous := range via {
+			if request.Method == previous.Method && request.URL.String() == previous.URL.String() {
+				return errors.New("resource redirect loop")
+			}
 		}
 		return validateScriptHTTPDestination(request, policy)
 	}}
@@ -327,24 +329,17 @@ func (r *processingResources) readCache(spec *processingResource, state *resourc
 	}
 	defer file.Close()
 	info, err := file.Stat()
-	maximum := int64(maxProcessingCacheBytes)
-	if spec.limit > 0 {
-		maximum = min(maximum, spec.limit*2+4096)
-	}
 	if err != nil {
 		return processingResourceValue{}, time.Time{}, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > maximum {
+	if !info.Mode().IsRegular() {
 		return processingResourceValue{}, time.Time{}, errors.New("invalid cached resource file")
 	}
-	data, err := readScriptHTTPBody(file, maximum, lease, 0)
+	data, err := readScriptHTTPBody(file, 0, lease, 0)
 	if err != nil {
 		return processingResourceValue{}, time.Time{}, err
 	}
 	var document resourceCacheDocument
-	if int64(len(data)) > maximum {
-		return processingResourceValue{}, time.Time{}, errors.New("cached resource exceeds size limit")
-	}
 	if err = json.Unmarshal(data, &document); err != nil {
 		return processingResourceValue{}, time.Time{}, err
 	}
@@ -370,28 +365,7 @@ func (r *processingResources) writeCache(ctx context.Context, spec *processingRe
 	if err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(r.directory)
-	if err != nil {
-		return err
-	}
 	name := r.key(spec) + ".json"
-	total := int64(len(encoded))
-	for _, entry := range entries {
-		if entry.Name() == name || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			return errors.New("invalid resource cache entry")
-		}
-		total += info.Size()
-	}
-	if total > maxProcessingCacheBytes {
-		return errors.New("resource disk cache exceeds 64 MiB")
-	}
 	pending := name + ".pending"
 	// A leftover pending file is never a committed cache and is safe to remove.
 	_ = root.Remove(pending)
@@ -419,39 +393,40 @@ func (r *processingResources) writeCache(ctx context.Context, spec *processingRe
 
 func (r *processingResources) refreshLoop() {
 	defer r.wg.Done()
-	period := time.Minute
+	if err := r.pruneCache(); err != nil && r.ctx.Err() == nil {
+		writeLog("warn", "Resource cache cleanup failed: "+err.Error())
+	}
+	// One stalled origin must not prevent other resources from refreshing.
+	// Deduplicate identities and honor the shortest configured refresh interval.
+	specs := make(map[string]*processingResource)
 	for _, spec := range r.specs {
 		if spec.remote() {
-			period = min(period, spec.interval)
+			key := r.key(spec)
+			if previous := specs[key]; previous == nil || spec.interval < previous.interval {
+				specs[key] = spec
+			}
 		}
 	}
-	for {
-		for _, spec := range r.specs {
-			if !spec.remote() {
-				continue
-			}
-			if r.ctx.Err() != nil {
-				return
-			}
-			state := r.state(spec)
-			select {
-			case state.gate <- struct{}{}:
-				due := !time.Now().Before(state.next)
-				<-state.gate
-				if !due {
-					continue
-				}
-			default:
-				continue
-			}
-			lease := reserveBodyWork(0)
-			if lease == nil {
-				continue
-			}
+	for _, spec := range specs {
+		if r.ctx.Err() != nil {
+			return
+		}
+		// refreshLoop remains registered until every child is registered, so
+		// Close cannot observe a zero wait count before these Adds.
+		r.wg.Add(1)
+		go r.refreshResource(spec)
+	}
+}
+
+func (r *processingResources) refreshResource(spec *processingResource) {
+	defer r.wg.Done()
+	for r.ctx.Err() == nil {
+		lease := reserveBodyWork(0)
+		if lease != nil {
 			_, _ = r.load(r.ctx, spec, lease, true)
 			lease.release()
 		}
-		timer := time.NewTimer(period)
+		timer := time.NewTimer(min(spec.interval, time.Minute))
 		select {
 		case <-r.ctx.Done():
 			timer.Stop()
@@ -459,6 +434,53 @@ func (r *processingResources) refreshLoop() {
 		case <-timer.C:
 		}
 	}
+}
+
+// The active configuration defines the working set. Remove only cache-owned
+// files no longer referenced by it; do not evict a usable active resource to
+// admit another one, or touch unrelated files and directories.
+func (r *processingResources) pruneCache() error {
+	r.diskMu.Lock()
+	defer r.diskMu.Unlock()
+	if err := r.ctx.Err(); err != nil {
+		return err
+	}
+	root, err := r.cacheRoot(false)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	active := make(map[string]bool)
+	for _, spec := range r.specs {
+		if spec.remote() {
+			active[r.key(spec)+".json"] = true
+		}
+	}
+	entries, err := os.ReadDir(r.directory)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := r.ctx.Err(); err != nil {
+			return err
+		}
+		name := entry.Name()
+		base := strings.TrimSuffix(name, ".pending")
+		key := strings.TrimSuffix(base, ".json")
+		if !strings.HasSuffix(base, ".json") || len(key) != sha256.Size*2 || !entry.Type().IsRegular() {
+			continue
+		}
+		if _, err := hex.DecodeString(key); err != nil || active[name] {
+			continue
+		}
+		if err := root.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *processingResources) Close() {

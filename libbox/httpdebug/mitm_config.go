@@ -23,8 +23,8 @@ type MITMConfig struct {
 }
 
 func (c *MITMConfig) UnmarshalJSON(data []byte) error {
-	if len(data) > MaxConfigBytes || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
-		return errors.New("mitm must be an object of at most 64 KiB")
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return errors.New("mitm must be an object")
 	}
 	type plain MITMConfig
 	value := plain{BlockQUIC: true}
@@ -43,9 +43,6 @@ func (c *MITMConfig) validate() error {
 	scope := Config{Ports: slices.Clone(c.Ports), Packages: slices.Clone(c.Packages)}
 	if err := scope.validate(); err != nil {
 		return err
-	}
-	if len(c.Hosts) > 256 {
-		return errors.New("mitm supports at most 256 hosts")
 	}
 	for i, host := range c.Hosts {
 		rule, err := parseMITMHost(host)

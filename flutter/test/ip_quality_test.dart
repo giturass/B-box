@@ -25,7 +25,7 @@ _Reply _status(int status) =>
 
 ({FakeIpProbe adapter, Future<IpQuality> result}) _lookup(
   Map<String, _Reply> replies, {
-  Duration timeout = const Duration(seconds: 8),
+  Duration? timeout,
   Duration hedge = const Duration(seconds: 1),
 }) {
   final adapter = FakeIpProbe(replies);
@@ -191,10 +191,10 @@ void main() {
     );
   });
 
-  test('uses an eight-second timeout for every source', () async {
+  test('adds no fixed timeout to sources', () async {
     final lookup = _lookup({});
     await expectLater(lookup.result, throwsA(isA<IpQualityLookupException>()));
-    expect(lookup.adapter.timeouts, everyElement(const Duration(seconds: 8)));
+    expect(lookup.adapter.timeouts, everyElement(isNull));
   });
 
   test('user cancellation stops the lookup without launching later waves', () async {

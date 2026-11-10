@@ -25,7 +25,6 @@ internal object ProfileContent {
         .digest(content.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     fun validate(content: String) {
-        require(content.toByteArray().size <= 16 * 1024 * 1024) { "Configuration exceeds 16 MiB" }
         Libbox.checkConfig(content)
     }
 

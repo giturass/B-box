@@ -62,8 +62,8 @@ internal class BoxCapture(private val activity: BoxActivity) {
                         "capture.snapshot" -> mapOf(
                             "state" to jsonObject(status()),
                             "page" to jsonObject(JSONObject(Libbox.listUICapture(
-                                (args["limit"] as? Number)?.toInt()?.coerceIn(1, 300) ?: 50,
-                                (args["query"] as? String).orEmpty().take(1024),
+                                (args["limit"] as? Number)?.toInt()?.also { require(it >= 0) { "Invalid page size" } } ?: 50,
+                                (args["query"] as? String).orEmpty(),
                             ))),
                         )
                         "capture.settings" -> settings.snapshot()
@@ -77,7 +77,7 @@ internal class BoxCapture(private val activity: BoxActivity) {
                         "capture.stop" -> { Libbox.stopUICapture(); jsonObject(status()) }
                         "capture.clear" -> { Libbox.clearUICapture(); null }
                         "capture.domains" -> {
-                            val domains = JSONArray(Libbox.extractUICaptureHosts((args["query"] as? String).orEmpty().take(1024)))
+                            val domains = JSONArray(Libbox.extractUICaptureHosts((args["query"] as? String).orEmpty()))
                             List(domains.length()) { domains.getString(it) }
                         }
                         "capture.detail" -> jsonObject(JSONObject(Libbox.readUICapture(args["id"] as? String ?: error("Missing request ID"))))
@@ -173,15 +173,15 @@ internal class BoxCapture(private val activity: BoxActivity) {
                 when {
                     args["format"] == "curl" -> file.writeText(Libbox.exportUICaptureCurl(args["id"] as? String ?: error("Missing request ID")))
                     args["format"] == "domains" -> {
-                        val domains = JSONArray(Libbox.extractUICaptureHosts((args["query"] as? String).orEmpty().take(1024)))
+                        val domains = JSONArray(Libbox.extractUICaptureHosts((args["query"] as? String).orEmpty()))
                         file.writeText(List(domains.length()) { domains.getString(it) }.joinToString("\n", postfix = "\n"))
                     }
                     args.containsKey("ids") -> {
                         val ids = args["ids"] as? List<*> ?: error("Missing HAR request selection")
-                        require(ids.size <= 300 && ids.all { it is String }) { "Invalid HAR request selection" }
+                        require(ids.all { it is String }) { "Invalid HAR request selection" }
                         Libbox.exportUICaptureHARSelection(file.absolutePath, JSONArray(ids).toString())
                     }
-                    else -> Libbox.exportUICaptureHAR(file.absolutePath, (args["query"] as? String).orEmpty().take(1024))
+                    else -> Libbox.exportUICaptureHAR(file.absolutePath, (args["query"] as? String).orEmpty())
                 }
                 activity.contentResolver.openOutputStream(destination, "wt")?.use { output ->
                     file.inputStream().use { it.copyTo(output) }

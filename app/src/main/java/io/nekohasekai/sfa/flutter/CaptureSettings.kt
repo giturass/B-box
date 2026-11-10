@@ -13,9 +13,9 @@ internal class CaptureSettings(private val directory: File, private val retiredK
     private val file = AtomicFile(File(directory, "settings.json"))
     private var migrated = false
 
-    private fun read(maxBytes: Int): String? {
+    private fun read(): String? {
         // openRead restores an interrupted write, including a legacy .bak with
-        // no base file. Check the recovered descriptor instead of the old path.
+        // no base file. Read the recovered descriptor instead of the old path.
         val input = try {
             file.openRead()
         } catch (error: FileNotFoundException) {
@@ -23,7 +23,6 @@ internal class CaptureSettings(private val directory: File, private val retiredK
             return null
         }
         return input.use {
-            require(it.channel.size() <= maxBytes) { "Capture settings exceed ${maxBytes / 1024} KiB" }
             it.readBytes().toString(Charsets.UTF_8)
         }
     }
@@ -36,7 +35,7 @@ internal class CaptureSettings(private val directory: File, private val retiredK
                 load(null)
                 if (containsAlias(retiredKeyAlias)) deleteEntry(retiredKeyAlias)
             }
-            val previous = read(4 * 1024 * 1024)
+            val previous = read()
             if (previous != null) {
                 val value = JSONObject(previous)
                 val retired = listOf("blockQUIC", "rewriteEnabled", "headerRewrite", "urlRewrite", "bodyRewrite", "mapLocal", "scripts",
@@ -51,7 +50,7 @@ internal class CaptureSettings(private val directory: File, private val retiredK
             }
             migrated = true
         }
-        return read(64 * 1024) ?: ""
+        return read() ?: ""
     }
 
     fun snapshot(): Map<String, Any?> {

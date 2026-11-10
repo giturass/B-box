@@ -16,7 +16,7 @@ import (
 func TestScriptsValidateIndependentlyAndCronSchedule(t *testing.T) {
 	for _, invalid := range []string{
 		`null`, `{"unknown":true}`, `{"http":[{"pattern":".","phase":"request","source":"function {"}]}`,
-		`{"http":[{"pattern":".","phase":"request","source":"$done()","timeout_ms":86400001}]}`,
+		`{"http":[{"pattern":".","phase":"request","source":"$done()","timeout_ms":-2}]}`,
 		`{"cron":[{"cron":"* * * *","source":"$done()"}]}`,
 		`{"cron":[{"cron":"61 * * * *","source":"$done()"}]}`,
 		`{"cron":[{"cron":"0 0 31 2 *","source":"$done()"}]}`,
@@ -26,7 +26,7 @@ func TestScriptsValidateIndependentlyAndCronSchedule(t *testing.T) {
 		`{"cron":[{"cron":"* * * * *","timezone":"bad/zone","source":"$done()"}]}`,
 		`{"cron":[{"cron":"* * * * *","source":"const =","disabled":true}]}`,
 		`{"cron":[{"cron":"* * * * *","resource":"missing"}]}`,
-		`{"cron":[{"cron":"* * * * *","source":"$done()","timeout_ms":86400001}]}`,
+		`{"cron":[{"cron":"* * * * *","source":"$done()","timeout_ms":-2}]}`,
 	} {
 		var config ScriptsConfig
 		if err := json.Unmarshal([]byte(invalid), &config); err == nil {

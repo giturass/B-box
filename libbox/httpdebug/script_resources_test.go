@@ -11,8 +11,9 @@ import (
 	"time"
 )
 
-func TestSlowCronHTTPDoesNotOccupyHTTPInterpreterCapacity(t *testing.T) {
-	started := make(chan struct{}, cap(cronScriptSlots))
+func TestSlowCronHTTPDoesNotBlockOtherInvocations(t *testing.T) {
+	const concurrent = 6
+	started := make(chan struct{}, concurrent)
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		started <- struct{}{}
 		<-request.Context().Done()
@@ -28,18 +29,18 @@ func TestSlowCronHTTPDoesNotOccupyHTTPInterpreterCapacity(t *testing.T) {
 	runner := &cronRunner{ctx: ctx, program: program, dial: func(ctx context.Context, address string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "tcp", address)
 	}}
-	finished := make(chan error, cap(cronScriptSlots))
-	for i := 0; i < cap(cronScriptSlots); i++ {
+	finished := make(chan error, concurrent)
+	for i := 0; i < concurrent; i++ {
 		go func() { finished <- runner.run(program.cron[0]) }()
 	}
-	for i := 0; i < cap(cronScriptSlots); i++ {
+	for i := 0; i < concurrent; i++ {
 		select {
 		case <-started:
 		case <-time.After(2 * time.Second):
-			t.Fatal("cron HTTP did not occupy its interpreter pool")
+			t.Fatal("independent cron HTTP did not start")
 		}
 	}
-	httpProgram := &httpProgram{RewriteProgram: &RewriteProgram{limit: MaxBodyLimit},
+	httpProgram := &httpProgram{RewriteProgram: &RewriteProgram{limit: (1024 * 1024)},
 		scripts: scriptProgram(t, `{"http":[{"pattern":".","phase":"request","source":"$done({response:{body:'immediate'}});"}]}`)}
 	request, _ := http.NewRequest("GET", "http://example.test/", nil)
 	response, err := httpProgram.request(request, "test", request.URL.String(), func(string) {})
@@ -52,7 +53,7 @@ func TestSlowCronHTTPDoesNotOccupyHTTPInterpreterCapacity(t *testing.T) {
 		t.Fatal("HTTP script did not return its result")
 	}
 	cancel()
-	for i := 0; i < cap(cronScriptSlots); i++ {
+	for i := 0; i < concurrent; i++ {
 		select {
 		case err := <-finished:
 			if err == nil {
@@ -62,7 +63,7 @@ func TestSlowCronHTTPDoesNotOccupyHTTPInterpreterCapacity(t *testing.T) {
 			t.Fatal("cancelled cron retained its interpreter")
 		}
 	}
-	if len(cronScriptSlots) != 0 || len(httpScriptSlots) != 0 || processingBodies.used.Load() != 0 {
+	if cronScriptsRunning.Load() != 0 || httpScriptsRunning.Load() != 0 || processingBodies.used.Load() != 0 {
 		t.Fatal("script cancellation leaked execution or body capacity")
 	}
 }

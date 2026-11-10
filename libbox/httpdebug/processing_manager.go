@@ -132,9 +132,7 @@ func ActivateProcessing(prepared *PreparedProcessing, dial RewriteDialFunc, root
 				}
 			}
 		}
-		if len(sources) > 0 {
-			prepared.resources = newProcessingResources(next.ctx, prepared.directory, prepared.profileDirectory, dial, roots, sources)
-		}
+		prepared.resources = newProcessingResources(next.ctx, prepared.directory, prepared.profileDirectory, dial, roots, sources)
 		next.scriptEnvironment = scriptEnvironment{dial: dial, roots: roots, gateway: prepared.gateway, resources: prepared.resources}
 		if prepared.scripts != nil {
 			next.scriptEnvironment.storage = prepared.scripts.storage

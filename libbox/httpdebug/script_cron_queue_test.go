@@ -18,7 +18,7 @@ type cronQueueTest struct {
 
 // Real script HTTP calls wait in the routed dialer until explicitly released
 // or cancelled. Annual schedules let tests advance runDue without wall-clock
-// ticks interfering; zero timeout entries use the longest allowed timeout.
+// ticks interfering; zero timeout entries explicitly disable the execution deadline.
 func newCronQueueTest(t *testing.T, timeouts ...int) *cronQueueTest {
 	t.Helper()
 	f := &cronQueueTest{started: make(chan int, 2*len(timeouts)), release: make([]chan struct{}, len(timeouts))}
@@ -26,11 +26,11 @@ func newCronQueueTest(t *testing.T, timeouts ...int) *cronQueueTest {
 	addresses := make(map[string]int)
 	for i, timeout := range timeouts {
 		if timeout == 0 {
-			timeout = 30000
+			timeout = -1
 		}
 		config.Cron = append(config.Cron, CronScript{
 			Cron: "0 0 1 1 *", Timezone: "UTC", TimeoutMS: timeout,
-			Source:   "$httpClient.get($argument, function() { $done(); });",
+			Source:   "$httpClient.get({url:$argument,timeout:-1}, function() { $done(); });",
 			Argument: fmt.Sprintf("http://cron-%d.test/task", i),
 		})
 		addresses[fmt.Sprintf("cron-%d.test:80", i)] = i
@@ -74,115 +74,99 @@ func (f *cronQueueTest) nextStarted(t *testing.T) int {
 	case index := <-f.started:
 		return index
 	case <-time.After(3 * time.Second):
-		t.Fatal("queued cron did not start")
+		t.Fatal("independent cron did not start")
 		return -1
 	}
 }
 
-func (f *cronQueueTest) firstPair(t *testing.T) {
+func (f *cronQueueTest) waitIdle(t *testing.T, index int) {
 	t.Helper()
-	first := map[int]bool{f.nextStarted(t): true, f.nextStarted(t): true}
-	if len(first) != 2 || !first[0] || !first[1] {
-		t.Fatalf("wrong first cron pair: %v", first)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		f.runner.mu.Lock()
+		pending := f.runner.pending[index]
+		f.runner.mu.Unlock()
+		if !pending {
+			return
+		}
+		time.Sleep(time.Millisecond)
 	}
+	t.Fatal("cron invocation did not finish")
 }
 
-func TestCronQueueFIFOAndCoalescedTriggers(t *testing.T) {
-	f := newCronQueueTest(t, 0, 0, 0, 0)
+func TestCronIndependentJobsAndCoalescedTriggers(t *testing.T) {
+	f := newCronQueueTest(t, 0, 0, 0, 0, 0, 0)
 	f.trigger()
-	f.firstPair(t)
-
-	// Both executing and queued jobs must absorb subsequent triggers.
-	f.trigger()
-	if queued := len(f.runner.queue); queued != 2 {
-		t.Fatalf("repeated triggers changed the backlog: %d", queued)
+	seen := make(map[int]bool)
+	for range 6 {
+		seen[f.nextStarted(t)] = true
 	}
-	f.release[0] <- struct{}{}
-	if index := f.nextStarted(t); index != 2 {
-		t.Fatalf("third simultaneous job was skipped: got %d", index)
+	if len(seen) != 6 {
+		t.Fatal("independent jobs did not run together", seen)
 	}
-
-	// Job 0 is eligible again, but must wait behind the older queued job 3.
-	// Job 1 stays blocked so the other worker's dispatch order is observable.
-	f.trigger()
-	f.release[2] <- struct{}{}
-	if index := f.nextStarted(t); index != 3 {
-		t.Fatalf("a new trigger overtook an older queued job: got %d", index)
-	}
-	f.release[3] <- struct{}{}
-	if index := f.nextStarted(t); index != 0 {
-		t.Fatalf("completed job was not admitted again: got %d", index)
-	}
-}
-
-func TestCronQueueWaitDoesNotConsumeExecutionTimeout(t *testing.T) {
-	const timeoutMS = 200
-	f := newCronQueueTest(t, 0, 0, timeoutMS)
-	f.trigger()
-	f.firstPair(t)
-	// Hold both workers longer than the queued job's entire execution budget.
-	time.Sleep(2 * timeoutMS * time.Millisecond)
-	f.release[0] <- struct{}{}
-	if index := f.nextStarted(t); index != 2 {
-		t.Fatalf("queue waiting consumed the execution timeout: got %d", index)
-	}
-	f.release[2] <- struct{}{}
-}
-
-func TestCronQueueContinuesAfterInvocationTimeout(t *testing.T) {
-	f := newCronQueueTest(t, 500, 0, 0)
-	f.trigger()
-	f.firstPair(t)
-	// No request is released: job 0's timeout must free a worker for job 2.
-	if index := f.nextStarted(t); index != 2 {
-		t.Fatalf("timed-out invocation stalled the queue: got %d", index)
-	}
-	if err := f.runner.ctx.Err(); err != nil {
-		t.Fatalf("one invocation cancelled the scheduler: %v", err)
-	}
-}
-
-func TestCronQueueBoundAndCloseDiscardPending(t *testing.T) {
-	f := newCronQueueTest(t, make([]int, MaxRewriteRules)...)
-	f.trigger()
-	f.firstPair(t)
-	for range 8 {
+	for range 3 {
 		f.trigger()
 	}
-	if queued := len(f.runner.queue); queued != MaxRewriteRules-2 || cap(f.runner.queue) != MaxRewriteRules {
-		t.Fatalf("backlog is not bounded to one invocation per job: len=%d cap=%d", queued, cap(f.runner.queue))
+	select {
+	case index := <-f.started:
+		t.Fatalf("unfinished job overlapped itself: %d", index)
+	default:
 	}
-	if running := len(cronScriptSlots); running != 2 {
-		t.Fatalf("wrong number of active cron interpreters: %d", running)
+	f.release[0] <- struct{}{}
+	f.waitIdle(t, 0)
+	f.trigger()
+	if index := f.nextStarted(t); index != 0 {
+		t.Fatalf("completed job could not run again: %d", index)
 	}
+}
 
+func TestCronInvocationTimeoutDoesNotCancelOtherJobs(t *testing.T) {
+	f := newCronQueueTest(t, 100, 0, 0)
+	f.trigger()
+	seen := make(map[int]bool)
+	for range 3 {
+		seen[f.nextStarted(t)] = true
+	}
+	if len(seen) != 3 {
+		t.Fatal("a slow job delayed another job", seen)
+	}
+	f.waitIdle(t, 0)
+	if err := f.runner.ctx.Err(); err != nil {
+		t.Fatal("one timeout stopped the scheduler", err)
+	}
+	f.trigger()
+	if index := f.nextStarted(t); index != 0 {
+		t.Fatalf("timed-out job could not run again: %d", index)
+	}
+}
+
+func TestCronCloseCancelsAndWaitsForAllInvocations(t *testing.T) {
+	f := newCronQueueTest(t, 0, 0, 0, 0, 0, 0)
+	f.trigger()
+	for range 6 {
+		f.nextStarted(t)
+	}
 	closed := make(chan struct{})
-	go func() {
-		f.runner.Close()
-		close(closed)
-	}()
+	go func() { f.runner.Close(); close(closed) }()
 	select {
 	case <-closed:
 	case <-time.After(3 * time.Second):
-		t.Fatal("service stop did not cancel cron workers")
+		t.Fatal("stop did not wait for cancelled cron work")
 	}
 	f.trigger()
 	select {
 	case index := <-f.started:
-		t.Fatalf("service stop executed a queued cron: %d", index)
+		t.Fatalf("closed scheduler started job %d", index)
 	default:
-	}
-	if queued := len(f.runner.queue); queued != 0 {
-		t.Fatalf("service stop retained %d queued jobs", queued)
 	}
 	f.runner.mu.Lock()
 	for index, pending := range f.runner.pending {
 		if pending {
-			t.Errorf("service stop retained pending job %d", index)
+			t.Errorf("stop retained pending job %d", index)
 		}
 	}
 	f.runner.mu.Unlock()
-	if len(cronScriptSlots) != 0 || processingBodies.used.Load() != 0 {
-		t.Fatal("service stop leaked interpreter or body capacity")
+	if cronScriptsRunning.Load() != 0 || processingBodies.used.Load() != 0 {
+		t.Fatal("cron stop retained runtime or body work")
 	}
 }

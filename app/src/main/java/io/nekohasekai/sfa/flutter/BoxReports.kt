@@ -30,7 +30,6 @@ internal class BoxReports(private val activity: BoxActivity) {
                             val file = CrashReportManager.availableFiles(report).firstOrNull { it.file.name == args["name"] } ?: error("Report file no longer exists")
                             if (method == "reports.save") file.file else {
                                 require(file.kind.name != "PROFILE") { "Download binary profiles to inspect them" }
-                                require(file.file.length() <= 16 * 1024 * 1024) { "Report is too large to view; download it" }
                                 CrashReportManager.loadFileContent(file)
                             }
                         }
@@ -55,7 +54,6 @@ internal class BoxReports(private val activity: BoxActivity) {
                             val file = OOMReportManager.availableFiles(report).firstOrNull { it.file.name == args["name"] } ?: error("Report file no longer exists")
                             if (method == "reports.save") file.file else {
                                 require(file.kind.name != "PROFILE") { "Download binary profiles to inspect them" }
-                                require(file.file.length() <= 16 * 1024 * 1024) { "Report is too large to view; download it" }
                                 OOMReportManager.loadFileContent(file)
                             }
                         }
@@ -80,7 +78,6 @@ internal class BoxReports(private val activity: BoxActivity) {
                             val file = PowerReportManager.availableFiles(report).firstOrNull { it.file.name == args["name"] } ?: error("Report file no longer exists")
                             if (method == "reports.save") file.file else {
                                 require(file.kind.name != "PROFILE") { "Download binary profiles to inspect them" }
-                                require(file.file.length() <= 16 * 1024 * 1024) { "Report is too large to view; download it" }
                                 PowerReportManager.loadFileContent(file)
                             }
                         }

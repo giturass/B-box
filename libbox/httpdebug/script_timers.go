@@ -2,18 +2,13 @@ package httpdebug
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/dop251/goja"
-)
-
-const (
-	maxScriptTimers       = 64
-	maxScriptTimerDelayMS = 24 * 60 * 60 * 1000
 )
 
 type scriptTimer struct {
@@ -32,7 +27,10 @@ type scriptTimers struct {
 	ctx        context.Context
 	pending    map[int64]*scriptTimer
 	registered int64
-	events     chan scriptHTTPEvent
+	eventsMu   sync.Mutex
+	events     []scriptHTTPEvent
+	eventReady chan struct{}
+	closed     bool
 	finished   bool
 }
 
@@ -44,7 +42,7 @@ type scriptHTTPEvent struct {
 }
 
 func installScriptTimers(vm *goja.Runtime, ctx context.Context) *scriptTimers {
-	timers := &scriptTimers{ctx: ctx, pending: make(map[int64]*scriptTimer), events: make(chan scriptHTTPEvent, maxScriptHTTPConcurrent*2)}
+	timers := &scriptTimers{ctx: ctx, pending: make(map[int64]*scriptTimer), eventReady: make(chan struct{}, 1)}
 	for _, name := range []string{"setTimeout", "setInterval"} {
 		_ = vm.Set(name, func(call goja.FunctionCall) goja.Value {
 			callback, ok := goja.AssertFunction(call.Argument(0))
@@ -58,11 +56,8 @@ func installScriptTimers(vm *goja.Runtime, ctx context.Context) *scriptTimers {
 				}
 				delay = value.ToFloat()
 			}
-			if math.IsNaN(delay) || math.IsInf(delay, 0) || delay < 0 || delay > maxScriptTimerDelayMS {
-				panic(vm.NewTypeError("timer delay must be between 0 and 86400000 milliseconds"))
-			}
-			if len(timers.pending) >= maxScriptTimers {
-				panic(vm.NewGoError(errors.New("script timer limit exceeded (64 pending)")))
+			if math.IsNaN(delay) || math.IsInf(delay, 0) || delay < 0 || delay >= float64(math.MaxInt64)/float64(time.Millisecond) {
+				panic(vm.NewTypeError("timer delay must be nonnegative and representable as a duration"))
 			}
 			timers.registered++
 			duration := max(time.Duration(delay*float64(time.Millisecond)), time.Millisecond)
@@ -117,9 +112,13 @@ func (t *scriptTimers) run() error {
 				wait.Stop()
 			}
 			return fmt.Errorf("script must call $done() before its deadline: %w", t.ctx.Err())
-		case event := <-t.events:
+		case <-t.eventReady:
 			if wait != nil {
 				wait.Stop()
+			}
+			event, ok := t.nextEvent()
+			if !ok {
+				continue
 			}
 			err := func() error { defer event.release(); return event.call() }()
 			if err != nil {
@@ -142,5 +141,53 @@ func (t *scriptTimers) run() error {
 		if next.repeat {
 			next.next = time.Now().Add(next.delay)
 		}
+	}
+}
+
+// The wakeup channel is a notification, not a callback quota. Queue Go values
+// only; the VM thread remains the sole consumer of JavaScript callbacks.
+func (t *scriptTimers) enqueue(event scriptHTTPEvent) {
+	t.eventsMu.Lock()
+	if t.closed || t.ctx.Err() != nil {
+		t.eventsMu.Unlock()
+		event.release()
+		return
+	}
+	t.events = append(t.events, event)
+	select {
+	case t.eventReady <- struct{}{}:
+	default:
+	}
+	t.eventsMu.Unlock()
+}
+
+func (t *scriptTimers) nextEvent() (scriptHTTPEvent, bool) {
+	t.eventsMu.Lock()
+	defer t.eventsMu.Unlock()
+	if len(t.events) == 0 {
+		return scriptHTTPEvent{}, false
+	}
+	event := t.events[0]
+	t.events[0] = scriptHTTPEvent{}
+	t.events = t.events[1:]
+	if len(t.events) == 0 {
+		t.events = nil
+	} else {
+		select {
+		case t.eventReady <- struct{}{}:
+		default:
+		}
+	}
+	return event, true
+}
+
+func (t *scriptTimers) releaseEvents() {
+	t.eventsMu.Lock()
+	t.closed = true
+	events := t.events
+	t.events = nil
+	t.eventsMu.Unlock()
+	for _, event := range events {
+		event.release()
 	}
 }

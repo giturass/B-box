@@ -29,6 +29,23 @@ type captureTestOutbound struct {
 	metadata chan adapter.InboundContext
 }
 
+func TestBboxHTTPDebugSniffGrowsAndReplaysLargeHeaders(t *testing.T) {
+	client, inbound := net.Pipe()
+	defer client.Close()
+	defer inbound.Close()
+	metadata := adapter.InboundContext{}
+	payload := "GET /large HTTP/1.1\r\nX-Large: " + strings.Repeat("x", 128*1024) + "\r\nHost: large.test\r\n\r\n"
+	go func() { _, _ = io.WriteString(client, payload) }()
+	replay, err := peekHTTPDebug(context.Background(), &metadata, inbound)
+	if err != nil || metadata.Protocol != "http" || metadata.Domain != "large.test" {
+		t.Fatal("sniff buffer still limits valid request headers", metadata, err)
+	}
+	got := make([]byte, len(payload))
+	if _, err = io.ReadFull(replay, got); err != nil || string(got) != payload {
+		t.Fatal("growing the sniff buffer lost bytes", err)
+	}
+}
+
 func (o *captureTestOutbound) Tag() string  { return "selected-group" }
 func (o *captureTestOutbound) Type() string { return "direct" }
 

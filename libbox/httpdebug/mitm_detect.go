@@ -18,16 +18,10 @@ type tlsProtocolProbe struct {
 	http1 bool
 }
 
-// No ALPN does not imply a non-HTTP protocol. Read a bounded request line while
+// No ALPN does not imply a non-HTTP protocol. Read the request line while
 // also watching the origin, so a server-first protocol never waits for a client
 // request. All inspected bytes are replayed on the same TLS connections.
 func inspectTLSProtocol(ctx context.Context, client, upstream *tls.Conn) (net.Conn, net.Conn, bool, error) {
-	deadline := time.Now().Add(10 * time.Second)
-	if err := errors.Join(client.SetReadDeadline(deadline), upstream.SetReadDeadline(deadline)); err != nil {
-		client.Close()
-		upstream.Close()
-		return nil, nil, false, err
-	}
 	clientResult, serverResult := make(chan tlsProtocolProbe, 1), make(chan tlsProtocolProbe, 1)
 	go func() { clientResult <- probeHTTPRequestLine(client) }()
 	go func() {
@@ -78,7 +72,7 @@ func probeHTTPRequestLine(conn net.Conn) tlsProtocolProbe {
 	reader := bufio.NewReader(conn)
 	result := tlsProtocolProbe{}
 	method := true
-	for len(result.data) < MaxHeaderBytes {
+	for {
 		value, err := reader.ReadByte()
 		if err != nil {
 			break

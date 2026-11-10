@@ -51,8 +51,8 @@ func TestSurgeLookaroundBackreferencesAndReplacementOffsets(t *testing.T) {
 		}
 	}
 	re, _ := compileRewritePattern(`(?=(猫))`)
-	if _, err := boundedReplace(re, strings.Repeat("猫", 8193), "$1", 100000); err == nil {
-		t.Fatal("replacement count was not bounded")
+	if got, err := boundedReplace(re, strings.Repeat("猫", 8193), "$1", 100000); err != nil || got != strings.Repeat("猫猫", 8193) {
+		t.Fatal("replacement beyond the former count cap failed", err)
 	}
 	re, _ = compileRewritePattern(`(?=(猫))猫`)
 	if _, err := boundedReplace(re, "猫", "$1$1", 5); !errors.Is(err, errRewriteSize) {
@@ -60,33 +60,24 @@ func TestSurgeLookaroundBackreferencesAndReplacementOffsets(t *testing.T) {
 	}
 }
 
-func TestSurgeRegexTimeoutCapacityAndConcurrentUse(t *testing.T) {
+func TestSurgeRegexCancellationAndIndependentConcurrentUse(t *testing.T) {
 	re, err := compileRewritePattern(`^(?=a)(a+)+$`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	start := time.Now()
-	if _, err = re.match(strings.Repeat("a", 100)+"!", newRegexBudget(context.Background())); err == nil {
-		t.Fatal("catastrophic backtracking was treated as a miss")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if _, err = re.match(strings.Repeat("a", 100)+"!", newRegexContext(ctx)); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("native backtracking did not observe cancellation", err)
 	}
-	if time.Since(start) > 2*time.Second {
-		t.Fatal("regex execution did not stop")
+	if matched, err := re.match("aaaa", newRegexContext(context.Background())); err != nil || !matched {
+		t.Fatal("one invocation's cancellation poisoned the compiled expression", err)
 	}
 	re, _ = compileRewritePattern(`(?<=猫)(😊)\1`)
-	for range cap(regexSlots) {
-		regexSlots <- struct{}{}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	_, err = re.match("猫😊😊", newRegexBudget(ctx))
-	cancel()
-	for range cap(regexSlots) {
-		<-regexSlots
-	}
-	if err == nil || len(re.gate) != 0 {
-		t.Fatal("capacity timeout was lost or retained the expression", err)
-	}
-	if _, err = re.match("猫😊😊", &regexBudget{ctx: context.Background()}); !errors.Is(err, errRegexBudget) {
-		t.Fatal("exhausted cumulative budget was ignored", err)
+	cancelled, stop := context.WithCancel(context.Background())
+	stop()
+	if _, err := re.match("猫😊😊", newRegexContext(cancelled)); !errors.Is(err, context.Canceled) {
+		t.Fatal("already-cancelled match started", err)
 	}
 	var workers sync.WaitGroup
 	for range 12 {
@@ -100,9 +91,6 @@ func TestSurgeRegexTimeoutCapacityAndConcurrentUse(t *testing.T) {
 		}()
 	}
 	workers.Wait()
-	if len(regexSlots) != 0 {
-		t.Fatal("regex slots leaked")
-	}
 }
 
 func TestSurgeURLCandidatesWebSocketGatewayAndInvalidTarget(t *testing.T) {
@@ -178,6 +166,11 @@ func TestSurgeJQBodyRulesAndFailurePreservation(t *testing.T) {
 				}}})
 				program := rewriteProgram(t, string(content))
 				request, _ := http.NewRequest("POST", "http://example.test/json", strings.NewReader(test.input))
+				if test.note == "deadline" {
+					ctx, cancel := context.WithTimeout(request.Context(), 30*time.Millisecond)
+					defer cancel()
+					request = request.WithContext(ctx)
+				}
 				var notes []string
 				note := func(s string) { notes = append(notes, s) }
 				var body io.ReadCloser
@@ -249,8 +242,8 @@ func TestSurgeJQRunsBeforeScriptsAndScriptExceptionsPreserveMessages(t *testing.
 
 func TestSurgeBodySizeDefaultsAndNonstandardMockStatus(t *testing.T) {
 	program := rewriteProgram(t, `{"body_rewrite":[{"pattern":".","phase":"request","regex":"^x","replacement":"y"}]}`)
-	if program.bodyLimit("request") != 32*1024*1024 || program.bodyLimit("response") != 1024*1024 {
-		t.Fatal("incorrect mobile body defaults")
+	if program.bodyLimit("request") != 0 || program.bodyLimit("response") != 0 {
+		t.Fatal("default body processing should have no size cap")
 	}
 	data := bytes.Repeat([]byte("x"), 2*1024*1024)
 	request, _ := http.NewRequest("POST", "http://example.test/large", bytes.NewReader(data))
@@ -262,12 +255,16 @@ func TestSurgeBodySizeDefaultsAndNonstandardMockStatus(t *testing.T) {
 	if err != nil || len(got) != len(data) || got[0] != 'y' {
 		t.Fatal("request above the old 1 MiB limit was not rewritten", err)
 	}
-	request, _ = http.NewRequest("POST", "http://example.test/large", bytes.NewReader(bytes.Repeat([]byte("x"), MaxRewriteRequestBody+1)))
-	if _, err := program.request(request, "test", request.URL.String(), func(string) {}); !errors.Is(err, errRewriteSize) {
-		t.Fatal("32 MiB request cap was not enforced", err)
+	request, _ = http.NewRequest("POST", "http://example.test/large", bytes.NewReader(bytes.Repeat([]byte("x"), 32*1024*1024+1)))
+	if _, err := program.request(request, "test", request.URL.String(), func(string) {}); err != nil {
+		t.Fatal("request beyond the former 32 MiB cap failed", err)
 	}
+	large, err := io.ReadAll(request.Body)
 	request.Body.Close()
-	for _, limit := range []int64{0, MaxRewriteResponseBody} {
+	if err != nil || len(large) != 32*1024*1024+1 || large[0] != 'y' {
+		t.Fatal("large request was truncated or skipped", err)
+	}
+	for _, limit := range []int64{0, 1024 * 1024, 10 * 1024 * 1024} {
 		encoded, _ := json.Marshal(RewriteConfig{MaxResponseBodyBytes: limit, BodyRewrite: []BodyRewrite{{RewriteMatch: RewriteMatch{Pattern: "."}, Phase: "response", Regex: "^x", Replacement: "y"}}})
 		p := rewriteProgram(t, string(encoded))
 		request, _ := http.NewRequest("GET", "http://example.test/large", nil)
@@ -278,7 +275,7 @@ func TestSurgeBodySizeDefaultsAndNonstandardMockStatus(t *testing.T) {
 		got, err := io.ReadAll(response.Body)
 		response.Body.Close()
 		want := byte('x')
-		if limit > 0 {
+		if limit == 0 || limit >= int64(len(data)) {
 			want = 'y'
 		}
 		if err != nil || len(got) != len(data) || got[0] != want {

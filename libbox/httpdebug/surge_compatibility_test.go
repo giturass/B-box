@@ -63,11 +63,15 @@ func TestScriptUngzipBinaryViewsAndFailure(t *testing.T) {
 	if err != nil || !bytes.Equal(result.body, []byte{0, 255, 7}) || processingBodies.used.Load() != 0 {
 		t.Fatal("ungzip failed or retained its budget", result.body, err)
 	}
-	for _, data := range [][]byte{wire[:len(wire)-1], encodedBody(t, bytes.Repeat([]byte("x"), maxScriptUngzipBytes+1), "gzip")} {
-		rule := httpAPIScript(t, HTTPScript{RequiresBody: true, BinaryBody: true, Source: `if($utils.ungzip($request.body)!==null) throw Error('corrupt or oversized gzip accepted'); $done();`})
-		if _, err := runHTTPScript(request, nil, rule, "test", data, scriptEnvironment{}, func(string) {}); err != nil || processingBodies.used.Load() != 0 {
-			t.Fatal("gzip failure did not release its budget", err)
-		}
+	corrupt := httpAPIScript(t, HTTPScript{RequiresBody: true, BinaryBody: true, Source: `if($utils.ungzip($request.body)!==null) throw Error('corrupt gzip accepted'); $done();`})
+	if _, err := runHTTPScript(request, nil, corrupt, "test", wire[:len(wire)-1], scriptEnvironment{}, func(string) {}); err != nil || processingBodies.used.Load() != 0 {
+		t.Fatal("corrupt gzip retained work", err)
+	}
+	large := encodedBody(t, bytes.Repeat([]byte("x"), 16*1024*1024+1), "gzip")
+	uncapped := httpAPIScript(t, HTTPScript{RequiresBody: true, BinaryBody: true, TimeoutMS: 10000,
+		Source: `const result=$utils.ungzip($request.body); if(!result || result.length!==16777217) throw Error('gzip output was capped'); $done();`})
+	if _, err := runHTTPScript(request, nil, uncapped, "test", large, scriptEnvironment{}, func(string) {}); err != nil || processingBodies.used.Load() != 0 {
+		t.Fatal("large gzip output failed or retained work", err)
 	}
 }
 
@@ -79,20 +83,16 @@ func TestScriptUngzipRetainsBudgetUntilInvocationEnds(t *testing.T) {
 	defer cleanup()
 	wire := encodedBody(t, []byte("value"), "gzip")
 	_ = vm.Set("input", scriptBodyValue(vm, wire, true))
-	// Leave capacity for exactly one small result. Keeping the first array in
-	// the VM must prevent a second allocation until invocation cleanup.
-	occupied := processingBodies.acquire(maxBufferedBodyBytes - 8*4096)
-	if occupied == nil {
-		t.Fatal("budget not initially empty")
-	}
-	defer occupied.release()
-	if _, err := vm.RunString(`let first=$utils.ungzip(input); if(!(first instanceof Uint8Array)||$utils.ungzip(input)!==null) throw Error('result reservation not held');`); err != nil {
+	if _, err := vm.RunString(`let first=$utils.ungzip(input); let second=$utils.ungzip(input); if(!(first instanceof Uint8Array)||!(second instanceof Uint8Array)) throw Error('decode');`); err != nil {
 		t.Fatal(err)
+	}
+	if processingBodies.used.Load() == 0 {
+		t.Fatal("live utility arrays lost their reservations")
 	}
 	cleanup()
 	cleanup = func() {}
-	if processingBodies.used.Load() != maxBufferedBodyBytes-8*4096 {
-		t.Fatal("utility result reservation not released")
+	if processingBodies.used.Load() != 0 {
+		t.Fatal("utility result reservations were not released")
 	}
 }
 

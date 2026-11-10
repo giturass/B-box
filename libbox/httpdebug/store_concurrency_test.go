@@ -28,7 +28,7 @@ func bodyTestStore(t *testing.T) (*Store, *http.Request) {
 }
 
 func TestStoreBodyHandlesCloseAtEveryRetentionBoundary(t *testing.T) {
-	for _, boundary := range []string{"eof", "finish", "limit", "clear", "eviction"} {
+	for _, boundary := range []string{"eof", "finish", "limit", "clear"} {
 		t.Run(boundary, func(t *testing.T) {
 			s, request := bodyTestStore(t)
 			id := s.begin(Metadata{}, request, 16)
@@ -48,15 +48,11 @@ func TestStoreBodyHandlesCloseAtEveryRetentionBoundary(t *testing.T) {
 				s.appendBody(id, false, []byte("still forwarded"))
 			case "clear":
 				s.Clear()
-			case "eviction":
-				for range MaxEntries {
-					s.begin(Metadata{}, request, 16)
-				}
 			}
 			if _, err := file.Stat(); !errors.Is(err, os.ErrClosed) {
 				t.Fatalf("descriptor remained open after %s: %v", boundary, err)
 			}
-			if boundary == "clear" || boundary == "eviction" {
+			if boundary == "clear" {
 				if _, err := s.Detail(id); !errors.Is(err, os.ErrNotExist) {
 					t.Fatalf("removed record reappeared: %v", err)
 				}
@@ -79,7 +75,7 @@ func TestStoreBodyHandlesCloseAtEveryRetentionBoundary(t *testing.T) {
 
 func TestStoreSlowBodyWriteDoesNotBlockOtherRecordsOrClear(t *testing.T) {
 	s, request := bodyTestStore(t)
-	id := s.begin(Metadata{}, request, MaxBodyLimit)
+	id := s.begin(Metadata{}, request, (1024 * 1024))
 	s.appendBody(id, false, []byte("x"))
 	reader, writer, err := os.Pipe()
 	if err != nil {
@@ -97,7 +93,7 @@ func TestStoreSlowBodyWriteDoesNotBlockOtherRecordsOrClear(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.appendBody(id, false, bytes.Repeat([]byte("b"), int(MaxBodyLimit)))
+		s.appendBody(id, false, bytes.Repeat([]byte("b"), int((1024*1024))))
 	}()
 	started := make(chan error, 1)
 	go func() { _, err := io.ReadFull(reader, make([]byte, 1)); started <- err }()
@@ -136,7 +132,7 @@ func TestStoreSlowBodyWriteDoesNotBlockOtherRecordsOrClear(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("removed writer was not released")
 	}
-	if page := s.Page(MaxEntries, ""); page.Total != 0 || page.StoredBytes != 0 {
+	if page := s.Page(0, ""); page.Total != 0 || page.StoredBytes != 0 {
 		t.Fatalf("late write resurrected cleared accounting: %+v", page)
 	}
 	for _, suffix := range []string{".request", ".response", ".json"} {
@@ -188,7 +184,7 @@ func TestStoreDetailsRemainConsistentDuringConcurrentBodyWrites(t *testing.T) {
 
 func TestStoreCompletionWaitsForPendingBodyAccounting(t *testing.T) {
 	s, request := bodyTestStore(t)
-	id := s.begin(Metadata{}, request, MaxBodyLimit)
+	id := s.begin(Metadata{}, request, (1024 * 1024))
 	s.appendBody(id, false, []byte("x"))
 	reader, writer, err := os.Pipe()
 	if err != nil {
@@ -204,7 +200,7 @@ func TestStoreCompletionWaitsForPendingBodyAccounting(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.appendBody(id, false, bytes.Repeat([]byte("b"), int(MaxBodyLimit)))
+		s.appendBody(id, false, bytes.Repeat([]byte("b"), int((1024*1024))))
 	}()
 	started := make(chan error, 1)
 	go func() { _, err := io.ReadFull(reader, make([]byte, 1)); started <- err }()

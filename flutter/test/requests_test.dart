@@ -274,6 +274,38 @@ void main() {
     expect(calls.where((call) => call.method == 'capture.start'), isEmpty);
   });
 
+  testWidgets('capture body size accepts custom values and unlimited saved bodies', (tester) async {
+    await mount(tester);
+    await open(tester, const RequestSettingsPage(initial: {'bodyLimit': 2097153}));
+    expect(find.byKey(const ValueKey('Body limit per message (bytes)')), findsOneWidget);
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    expect(json(json(calls.lastWhere((call) => call.method == 'capture.configure').arguments)['config'])['bodyLimit'], 2097153);
+    await open(tester, const RequestSettingsPage(initial: {'bodyLimit': -1}));
+    expect(find.byKey(const ValueKey('Body limit per message (bytes)')), findsNothing);
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    expect(json(json(calls.lastWhere((call) => call.method == 'capture.configure').arguments)['config'])['bodyLimit'], -1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('old captures beyond 300 remain searchable and exportable', (tester) async {
+    await mount(tester);
+    snapshot['page'] = {'total': 301, 'items': [for (var index=0;index<301;index++) {
+      'id': 'history-$index', 'url': 'https://history.test/record-$index', 'method': 'GET',
+      'protocol': 'HTTP/1.1', 'status': 200, 'complete': true,
+    }]};
+    await open(tester, const RequestsPage());
+    expect(json(calls.lastWhere((call) => call.method == 'capture.snapshot').arguments)['limit'], 0);
+    final scaffold = tester.widget<Scaffold>(find.descendant(of: find.byType(RequestsPage), matching: find.byType(Scaffold)).first);
+    scaffold.searchState!.onSearch('record-300');
+    await tester.pumpAndSettle();
+    expect(find.text('https://history.test/record-300'), findsOneWidget);
+    await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
+    await tester.tap(find.text('Export HAR').last); await tester.pumpAndSettle();
+    expect(json(calls.lastWhere((call) => call.method == 'capture.export').arguments)['ids'], ['history-300']);
+  });
+
   testWidgets('HAR export uses the current request filter', (tester) async {
     await mount(tester);
     snapshot['page'] = {'items': [{'id': 'saved', 'url': 'https://api.test/request',
@@ -436,14 +468,14 @@ void main() {
     await capture(tester, 'requests-pagination');
     await tester.tap(find.text('Show more'));
     await tester.pumpAndSettle();
-    expect(json(calls.lastWhere((call) => call.method == 'capture.snapshot').arguments), {'query': '', 'limit': 300});
+    expect(json(calls.lastWhere((call) => call.method == 'capture.snapshot').arguments), {'query': '', 'limit': 0});
     await tester.scrollUntilVisible(find.text('https://match-50.test/request'), 240, scrollable: scrollable);
     expect(find.text('Show more'), findsNothing);
     scaffold().searchState!.onSearch('other');
     await tester.pumpAndSettle();
     tester.state<ScrollableState>(scrollable).position.jumpTo(0);
     await tester.pumpAndSettle();
-    expect(json(calls.lastWhere((call) => call.method == 'capture.snapshot').arguments), {'query': '', 'limit': 300});
+    expect(json(calls.lastWhere((call) => call.method == 'capture.snapshot').arguments), {'query': '', 'limit': 0});
     expect(find.text('https://other-0.test/request'), findsOneWidget);
     expect(calls.where((call) => ['capture.start', 'capture.stop'].contains(call.method)), isEmpty);
     expect(calls.where((call) => call.method == 'connections.visible'), isNotEmpty);

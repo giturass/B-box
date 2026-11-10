@@ -18,8 +18,6 @@ import (
 	"time"
 )
 
-const maxLeafCertificates = 128
-
 // GenerateCA signs with the platform's non-exportable key. The CA private key
 // never crosses the Android Keystore boundary or appears in a file/export.
 func GenerateCA(signer crypto.Signer) (string, error) {
@@ -76,11 +74,11 @@ func ParseCA(certificate string) (*x509.Certificate, error) {
 }
 
 type authority struct {
-	mu     sync.Mutex
-	issuer *x509.Certificate
-	signer crypto.Signer
-	leaves map[string]*tls.Certificate
-	order  []string
+	mu         sync.Mutex
+	issuer     *x509.Certificate
+	signer     crypto.Signer
+	leaves     map[string]*tls.Certificate
+	nextExpiry time.Time
 }
 
 func checkSigner(signer crypto.Signer) error {
@@ -128,6 +126,17 @@ func (a *authority) leaf(host string) (*tls.Certificate, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := time.Now()
+	if !now.Before(a.nextExpiry) {
+		a.nextExpiry = time.Time{}
+		for name, cached := range a.leaves {
+			expires := cached.Leaf.NotAfter.Add(-time.Minute)
+			if !now.Before(expires) {
+				delete(a.leaves, name)
+			} else if a.nextExpiry.IsZero() || expires.Before(a.nextExpiry) {
+				a.nextExpiry = expires
+			}
+		}
+	}
 	if cached := a.leaves[host]; cached != nil && cached.Leaf.NotAfter.After(now.Add(time.Minute)) {
 		return cached, nil
 	}
@@ -171,14 +180,11 @@ func (a *authority) leaf(host string) (*tls.Certificate, error) {
 		return nil, err
 	}
 	result := &tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: parsed}
-	if a.leaves[host] == nil {
-		if len(a.order) == maxLeafCertificates {
-			delete(a.leaves, a.order[0])
-			a.order = a.order[1:]
-		}
-		a.order = append(a.order, host)
-	}
 	a.leaves[host] = result
+	expires := leaf.NotAfter.Add(-time.Minute)
+	if a.nextExpiry.IsZero() || expires.Before(a.nextExpiry) {
+		a.nextExpiry = expires
+	}
 	return result, nil
 }
 

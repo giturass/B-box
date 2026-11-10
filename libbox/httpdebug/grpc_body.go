@@ -106,11 +106,19 @@ func inspectUnaryGRPC(wire []byte, header http.Header, webResponse bool, limit i
 			}
 			// Bound the uncompressed message as well as the serialized HTTP body.
 			// Keep the original frame for Surge-compatible binary scripts.
-			if limit < 5 {
+			if limit > 0 && limit < 5 {
 				return 0, errRewriteSize
 			}
-			if _, err := decodeContent(wire[offset+5:end], []string{encoding}, limit-5); err != nil {
+			payloadLimit := int64(0)
+			if limit > 0 {
+				payloadLimit = max(1, limit-5)
+			}
+			decoded, err := decodeContent(wire[offset+5:end], []string{encoding}, payloadLimit)
+			if err != nil {
 				return 0, fmt.Errorf("gRPC message decompression: %w", err)
+			}
+			if limit > 0 && int64(len(decoded)) > limit-5 {
+				return 0, errRewriteSize
 			}
 		}
 		if !trailer {
@@ -143,7 +151,7 @@ func (g *unaryGRPCBody) result(result scriptResult, original http.Header) (scrip
 	if g.format == grpcWebText {
 		length = (length + 2) / 3 * 4
 	}
-	if length > g.limit {
+	if exceedsBodyLimit(length, g.limit) {
 		return scriptResult{}, errRewriteSize
 	}
 	if len(g.trailers) > 0 {
@@ -166,7 +174,11 @@ func decodeGRPCWebText(wire []byte, limit int64) ([]byte, error) {
 			clean = append(clean, value)
 		}
 	}
-	decoded := make([]byte, 0, min(int64(base64.StdEncoding.DecodedLen(len(clean))), limit))
+	capacity := int64(base64.StdEncoding.DecodedLen(len(clean)))
+	if limit > 0 {
+		capacity = min(capacity, limit)
+	}
+	decoded := make([]byte, 0, capacity)
 	for len(clean) > 0 {
 		end := len(clean)
 		if padding := bytes.IndexByte(clean, '='); padding >= 0 {
@@ -180,7 +192,7 @@ func decodeGRPCWebText(wire []byte, limit int64) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid grpc-web-text body: %w", err)
 		}
-		if int64(len(decoded)+n) > limit {
+		if exceedsBodyLimit(int64(len(decoded)+n), limit) {
 			return nil, errRewriteSize
 		}
 		decoded = append(decoded, block[:n]...)

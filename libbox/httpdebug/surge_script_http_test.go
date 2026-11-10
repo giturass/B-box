@@ -20,8 +20,8 @@ func routedTestEnvironment(origin *httptest.Server) scriptEnvironment {
 	}}
 }
 
-func TestSurgeHTTPClientRunsTwentyRequestsAsynchronously(t *testing.T) {
-	started := make(chan struct{}, 20)
+func TestSurgeHTTPClientRunsBeyondFormerConcurrencyAndQueueLimits(t *testing.T) {
+	started := make(chan struct{}, 64)
 	release := make(chan struct{})
 	var once sync.Once
 	defer once.Do(func() { close(release) })
@@ -37,7 +37,7 @@ func TestSurgeHTTPClientRunsTwentyRequestsAsynchronously(t *testing.T) {
 	go func() {
 		timer := time.NewTimer(2 * time.Second)
 		defer timer.Stop()
-		for range 20 {
+		for range 64 {
 			select {
 			case <-started:
 			case <-timer.C:
@@ -50,13 +50,12 @@ func TestSurgeHTTPClientRunsTwentyRequestsAsynchronously(t *testing.T) {
 		once.Do(func() { close(release) })
 	}()
 	rule := httpAPIScript(t, HTTPScript{TimeoutMS: 5000, Source: `
-		let top=false, timer=false, completed=0, rejected=0;
-		function done(){if(top&&timer&&completed===20&&rejected===1)$done();}
+		let top=false, timer=false, completed=0;
+		function done(){if(top&&timer&&completed===64)$done();}
 		setTimeout(()=>{timer=true;done();},0);
-		for(let i=0;i<21;i++) $httpClient.get('http://parallel.test/',(error,response,data)=>{
+		for(let i=0;i<64;i++) $httpClient.get('http://parallel.test/',(error,response,data)=>{
 			if(!top) throw Error('synchronous callback');
-			if(i===20){if(!error||!error.includes('concurrent'))throw Error('concurrency limit');rejected++;}
-			else{if(error||data!=='ok'||!timer)throw Error(error||'timer blocked by HTTP');completed++;}
+			if(error||data!=='ok')throw Error(error||'HTTP result');completed++;
 			done();
 		});
 		top=true;
@@ -65,7 +64,7 @@ func TestSurgeHTTPClientRunsTwentyRequestsAsynchronously(t *testing.T) {
 	if _, err := runHTTPScript(request, nil, rule, "test", nil, routedTestEnvironment(origin), func(string) {}); err != nil {
 		t.Fatal(err)
 	}
-	if processingBodies.used.Load() != 0 || len(httpScriptSlots) != 0 {
+	if processingBodies.used.Load() != 0 || httpScriptsRunning.Load() != 0 {
 		t.Fatal("async client retained resources")
 	}
 }

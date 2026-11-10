@@ -28,10 +28,10 @@ class RoutedIpProbe implements IpProbeTransport {
     return result;
   }
 
-  @override Future<IpProbeResponse> get(String url, Duration timeout) async {
+  @override Future<IpProbeResponse> get(String url, Duration? timeout) async {
     if (cancelled) throw const IpProbeCancelled();
     try {
-      final result = json(await box.call('dashboard.probe.get', {'id': id, 'url': url, 'timeoutMillis': timeout.inMilliseconds}));
+      final result = json(await box.call('dashboard.probe.get', {'id': id, 'url': url, 'timeoutMillis': timeout?.inMilliseconds ?? -1}));
       if (cancelled) throw const IpProbeCancelled();
       return IpProbeResponse(status: (result['status'] as num?)?.toInt() ?? 503, body: result['body'] as String? ?? '');
     } on PlatformException catch (error) {

@@ -64,7 +64,7 @@ Flutter 从 `ready` 和配置/设置变更事件取得配置列表与设置，�
 - 配置切换、选中配置的内容写入及备份恢复在持久化前检查宿主与本机服务状态，启动中或停止中拒绝修改。配置事务另用短期互斥区保护文件、选择及元数据写入，启动/重载读取同一快照；等待服务重启前释放该锁，避免启动读旧内容或与配置操作互相等待。保存预检后才发生的启停请求等待最终状态再决定是否应用。界面禁用行为见 [flclash.md](flclash.md#配置页与内核差异)。
 - 运行中重载缺少 Wi-Fi 规则所需定位权限时，RPC 返回失败并回滚旧配置，确认原服务恢复后结束操作；不会发送可能在回滚后再次启动服务的定位授权回调。初次启动仍保留系统定位授权流程，停服保存后再启动也沿用该流程。运行配置快照在权限检查成功后发布。
 - 删除配置在同一互斥区内检查最新选择，禁止删除当前选中的配置，停服时也需先切换到其他配置。拒绝操作不改文件、数据库、选择或服务；不再通过删除操作自动选择其他配置。
-- URL 导入、手动及后台订阅更新共用 [HTTPClient.kt](app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt) 和有界核心下载接口，在内容跨越 gomobile 前限制总时限与解压后的大小，具体限额见 [HTTP 与 WebDAV](libbox.md#http-与-webdav)。网络下载在配置及桥接操作锁外执行，下载失败不进入保存或服务应用。更新提交时通过 [ProfileSubscription.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileSubscription.kt) 复核配置存在、URL、类型、路径、修订、更新时间和自动更新计划；编辑、删除或另一轮更新后的旧结果不能覆盖当前数据。桥接提交另检查本地会话身份，切换会话后的迟到下载需要重试。
+- URL 导入、手动及后台订阅更新共用 [HTTPClient.kt](app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt) 和可取消的核心下载接口，不设固定下载容量或总时限；协程取消在阻塞的 gomobile 调用仍在运行时关闭 `UIHTTPTask`，等待网络退出，接口语义见 [HTTP 与 WebDAV](libbox.md#http-与-webdav)。网络下载在配置及桥接操作锁外执行，下载失败不进入保存或服务应用。更新提交时通过 [ProfileSubscription.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileSubscription.kt) 复核配置存在、URL、类型、路径、修订、更新时间和自动更新计划；编辑、删除或另一轮更新后的旧结果不能覆盖当前数据。桥接提交另检查本地会话身份，切换会话后的迟到下载需要重试。
 - [UpdateProfileWork.kt](app/src/main/java/io/nekohasekai/sfa/bg/UpdateProfileWork.kt) 在同一互斥区内完成每个订阅的保存、应用和恢复，应用失败请求重试。[BackgroundProfileService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BackgroundProfileService.kt) 通过本机服务连接确认状态，模式相同重载，模式变化及失败恢复时等待停止和 Started 回调；后台重启所需 VPN/通知权限未授予时更新失败并回滚。更新未选中配置或停服时不启动服务，远程会话不接收本机订阅的重载。
 - 服务设置页的 VPN 绕过、自动重定向和动态通知开关保存后，运行中的本地服务自动停止并重新走权限/启动流程，确认 Started 后完成操作。[ServiceSettingsChange.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ServiceSettingsChange.kt) 在保存或重启失败时恢复原设置，仅在设置恢复成功后尝试恢复原服务；恢复失败保留原错误与恢复错误，不启动未恢复的设置。停止状态只保存设置，远程会话不触发本机或远端重启。
 - Root 自动重定向的系统 BPF map 兼容范围和核心补丁见 [libbox.md](libbox.md#android-自动重定向兼容)。Android 桥接继续沿用上游的启动、错误传递及 Root 服务死亡清理流程。
@@ -76,7 +76,7 @@ Flutter 从 `ready` 和配置/设置变更事件取得配置列表与设置，�
 
 界面偏好的读取、保存及备份恢复共用 [BoxPreferences.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxPreferences.kt) 校验，卡片布局接受 `System HTTP proxy` 键。旧设置及备份中的 `locale`、`fontFamily`、`fontScale`、`customFontScale` 被忽略，下次保存界面偏好时清理这些键，保留其余偏好；终端设置使用独立数据，不受此清理影响。外观及首页卡片交互见 [flclash.md](flclash.md#导航与交互约定)。
 
-备份读取/传输上限为 64 MiB，WebDAV 使用 [BoxWebDAV.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxWebDAV.kt) 与核心扩展；取消文件选择和未确认上传不能报告成功。HTTP 行为见 [libbox.md](libbox.md)。
+配置、备份、终端配置文本及导入字体不设固定容量配额；保留 JSON/字体有效性、文件路径、修订和原子提交校验。文档选择器读取完整内容，WebDAV 使用 [BoxWebDAV.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxWebDAV.kt) 与可取消核心任务；取消文件选择、传输失败和未确认上传不能报告成功。HTTP 行为见 [libbox.md](libbox.md#http-与-webdav)。报告文本读取同样不额外设置固定字节上限，二进制配置继续使用下载入口。
 
 原生日志保留所有收到的等级供 Flutter 过滤，`CommandClient` 将当前会话内核的 `setDefaultLogLevel` 回调与日志记录一起传给界面。默认值来自内核实际使用的配置，不自行解析本地文件来推断远端状态；本地配置成功重载后，通过已启动配置快照的变化重新订阅日志，更新默认级别。界面筛选规则见 [flclash.md](flclash.md#导航与交互约定)。
 
@@ -102,7 +102,7 @@ MITM 配置、证书设置及 HTTP 脚本/Cron 的入口见 [配置编辑](flcla
 
 统一请求查看器通过原有 `capture.snapshot` 读取有界摘要，并与当前连接订阅合并；UI 行为见 [flclash.md](flclash.md#导航与交互约定)。`capture.export` 的 HAR 操作可携带显式 `ids`，桥接校验数组及条数后调用 `ExportUICaptureHARSelection`；旧的 `query` 形式继续支持，正文、文件选择取消和导出失败语义保持不变。[BoxWire.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxWire.kt) 在仪表盘消息中提供远程服务器 ID，Flutter 按目标变化清空连接视图并递增会话代次，隔离迟到抓取结果和旧详情操作，同名远程服务器也分别处理。远程页面只订阅远端连接，不能查看或操作本机抓取历史。
 
-[CaptureSettings.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureSettings.kt) 将 version 3 的应用/端口、域名提取和正文限额保存到私有 `noBackupFilesDir/http-debug/settings.json`，最多 64 KiB。多个 Activity 共用互斥锁，保存检查修订并使用 AtomicFile，读取恢复中断写入后再检查大小。抓包期间不能改记录设置。version 0～2 原子迁移保留记录筛选，删除旧 HTTPS、解密包含/排除、QUIC、库路径、函数偏移及本机改写/脚本字段，新保存拒绝这些字段；不会将旧本机解密策略提升为配置。配置和备份不携带抓包设置、记录或 CA。其他旧扩展清理见 [核心兼容说明](libbox.md#旧抓包配置清理)。
+[CaptureSettings.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureSettings.kt) 将 version 3 的应用/端口、域名提取和正文限额保存到私有 `noBackupFilesDir/http-debug/settings.json`，正文可保存完整内容或使用用户填写的字节限制。多个 Activity 共用互斥锁，保存检查修订并使用 AtomicFile，读取先恢复中断写入，不另设设置或迁移文件容量配额。抓包期间不能改记录设置。version 0～2 原子迁移保留记录筛选，删除旧 HTTPS、解密包含/排除、QUIC、库路径、函数偏移及本机改写/脚本字段，新保存拒绝这些字段；不会将旧本机解密策略提升为配置。配置和备份不携带抓包设置、记录或 CA。其他旧扩展清理见 [核心兼容说明](libbox.md#旧抓包配置清理)。
 
 [MitmCertificate.kt](app/src/main/java/io/nekohasekai/sfa/flutter/MitmCertificate.kt) 只在用户点击生成时创建 CA。P-256 根私钥使用随机独立 alias 保存到 Android Keystore，不可导出；Go 传入 SHA-256 摘要，由 `NONEwithECDSA` 签名，再由 Go 验证。API 24 起所需操作依据 [AOSP Android 7 Keystore 实现](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-7.0.0_r1/keystore/java/android/security/keystore/AndroidKeyStoreECDSASignatureSpi.java)。公钥证书和 alias 保存于不参与备份的 `http-debug/mitm-authority.json`，AtomicFile 记录最多 32 KiB。重新生成检查修订、先创建新密钥并签发，原子写入成功后才删除旧 alias；失败保留旧记录，清理本次新密钥。手动抓包或配置 MITM 正在运行时不能重新生成；单独运行改写或脚本不占用 CA。生成本身不安装证书或启用解密。
 
@@ -128,11 +128,11 @@ HAR/cURL、域名、CRT 和模块导出使用 Android 文档选择器，取消�
 
 [BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 启动/重载时调用 `NeedsUIMITMCA`，只有启用且非空的 MITM 域名配置要求 CA。OverrideOptions 的 ProcessingDirectory/MitmCertificate/MitmSigner 传入私有路径、公钥证书及 Keystore 回调，ScriptTimezone 传入设备时区，ProcessingProfileDirectory 传入当前实际配置文件的父目录，供相对文件资源解析。缺少所需 CA 时明确失败，不自动生成或安装。
 
-libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理、启动核心，成功后才激活 MITM/改写/脚本、Cron 和外部资源刷新。脚本及资源下载使用已启动实例的路由和证书库，`policy` 查找该实例的真实出站，网关模板读取该实例默认接口的网关；配置校验和预览不读取外部源码、不联网或执行脚本。重载/停止取消在途网络及定时器，等待调度/刷新退出；手动抓包启停不会重建调度。默认联网、可选限制及失败语义见 [脚本 HTTP 客户端](libbox.md#脚本-http-客户端)。
+libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理、启动核心，成功后才激活 MITM/改写/脚本、Cron 和外部资源刷新。脚本及资源下载使用已启动实例的路由和证书库，`policy` 查找该实例的真实出站，网关模板读取该实例默认接口的网关；配置校验和预览不读取外部源码、不联网或执行脚本。重载/停止先关闭共享路由准入，再取消在途网络及定时器，等待调度/刷新、异步路由和显式出站拨号退出后才关闭核心；手动抓包启停不会重建调度。默认联网、可选限制及失败语义见 [脚本 HTTP 客户端](libbox.md#脚本-http-客户端)。
 
 一元 gRPC 脚本的 `grpc_mode` 与空响应快捷动作使用同一 JSON 校验、格式化和保存通路，不新增平台绑定或模块导入入口。HTTP/2、消息与 trailers 处理及脚本宿主行为见 [一元 gRPC 正文脚本](libbox.md#一元-grpc-正文脚本)；脚本主动 abort 关闭当前 HTTP/1 连接或 HTTP/2 流，请求页仍保留实际错误记录。
 
-脚本持久数据保存在私有 `noBackupFilesDir/http-debug/captures/script-storage/`，使用默认共享或显式命名空间；URL 资源缓存位于同级 `resource-cache/`。二者与抓包独立计额，清空记录、启停录制及服务重载不删除。配置/订阅/备份携带资源引用、命名空间和联网限制，实际存储值和下载缓存留在本机，不加入配置导出、应用备份或系统自动备份；本地文件引用也不会自动打包。配额、原子提交及失败保留旧缓存分别见 [存储](libbox.md#脚本持久存储)和[资源加载](libbox.md#文件和-url-资源加载)。
+脚本持久数据保存在私有 `noBackupFilesDir/http-debug/captures/script-storage/`，使用默认共享或显式命名空间；URL 资源缓存位于同级 `resource-cache/`。二者不设固定容量配额；清空记录、启停录制不删除它们，处理配置激活时只回收已无引用的资源缓存及未提交临时文件。脚本持久数据不会因移除规则或重载自动删除。配置/订阅/备份携带资源引用、命名空间和联网限制，实际存储值和下载缓存留在本机，不加入配置导出、应用备份或系统自动备份；本地文件引用也不会自动打包。原子提交及失败保留旧缓存分别见 [存储](libbox.md#脚本持久存储)和[资源加载](libbox.md#文件和-url-资源加载)。
 
 所有保存继续经过 ProfileContent 修订检查、完整 Libbox.checkConfig、原子写入及失败恢复。配置应用、恢复和后台启动使用同一入口；失败不能留下部分生效的处理或被报告为启动成功。旧嵌套配置的保守迁移见 [核心说明](libbox.md#旧抓包配置清理)。
 
@@ -142,7 +142,7 @@ CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期�
 
 `ProfileRecoveryTest.profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 使用实际 gomobile、Keystore、mixed CONNECT 和 HTTP 服务器，覆盖平级 MITM/脚本与改写、HTTPS 离线 Mock、跨域映射重新匹配路由、响应改写、停记录后继续处理及应用失败恢复；资源用例通过实际配置目录加载文件与脚本，检查 999 状态、MIME、后查找/内部反向引用 → jq → 脚本的顺序及本地文件更新。`independentCronUsesRoutingAndStopsWithTheService` 覆盖定时路由请求、抓包启停、非法 Cron 保存拒绝及移除配置后不再请求。这些测试由 [统一 smoke 矩阵](#验证与历史记录) 运行，实际结果见验证记录。
 
-`httpScriptsUseRoutedClientTimersAndPersistentNamespaces` 使用仅当前路由可解析、也匹配脚本范围的 HTTP 目标，检查异步回调及防递归、定时器、磁盘快照、规则改名/重载/清空记录后保留值、命名空间隔离、默认联网及显式空允许列表禁止联网。Go 回归补充四种前后查找、数字/命名反向引用及 Unicode 位置、jq 失败透传、正文限额、20 并发 HTTP、重定向/Cookie/二进制、资源更新/损坏缓存/关闭取消。新用例以当前源码的 Actions 为准，此前记录不替代本次验收。
+`httpScriptsUseRoutedClientTimersAndPersistentNamespaces` 使用仅当前路由可解析、也匹配脚本范围的 HTTP 目标，检查异步回调及防递归、定时器、磁盘快照、规则改名/重载/清空记录后保留值、命名空间隔离、默认联网及显式空允许列表禁止联网。Go 回归补充四种前后查找、数字/命名反向引用及 Unicode 位置、jq 失败透传、用户正文限额、并发 HTTP/VM、原生正则取消、重定向/Cookie/二进制、资源清理/刷新/损坏缓存/关闭取消。大样本越过旧阈值只证明不再因该阈值拒绝，不代表 Android 容量测量。新用例以当前源码的 Actions 为准，此前记录不替代本次验收。
 
 ## 已移除能力与兼容入口
 

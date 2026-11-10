@@ -12,6 +12,8 @@ import (
 func TestScriptTimersOrderArgumentsIntervalsAndDone(t *testing.T) {
 	for _, source := range []string{
 		`setTimeout($done,0);`,
+		`for(let i=0;i<129;i++) setTimeout(()=>{},86400001); $done();`,
+		`let n=0; for(let i=0;i<129;i++) setTimeout(()=>{if(++n===129)$done();},0);`,
 		`let phase='top'; setTimeout((a,b)=>{if(phase!=='returned'||a!==3||b!=='arg') throw Error('arguments or order'); $done();},0,3,'arg'); phase='returned';`,
 		`let n=0; const id=setInterval(()=>{if(++n===2){clearInterval(id); setTimeout(()=>{if(n!==2) throw Error('not cleared'); $done();},5);}},1);`,
 		`const a=setTimeout(()=>{throw Error('timeout survived clear');},0); clearInterval(a);
@@ -44,7 +46,7 @@ func TestScriptTimersOrderArgumentsIntervalsAndDone(t *testing.T) {
 	}
 }
 
-func TestScriptTimersEnforceLimitsAndCancellation(t *testing.T) {
+func TestScriptTimersValidateDelaysAndCancel(t *testing.T) {
 	for _, test := range []struct {
 		source, message string
 		timeout         int
@@ -54,8 +56,7 @@ func TestScriptTimersEnforceLimitsAndCancellation(t *testing.T) {
 		{`setTimeout(()=>{},NaN); $done();`, "delay", 2000},
 		{`setTimeout(()=>{},Infinity); $done();`, "delay", 2000},
 		{`setTimeout(()=>{},-1); $done();`, "delay", 2000},
-		{`setTimeout(()=>{},86400001); $done();`, "delay", 2000},
-		{`for(let i=0;i<65;i++) setTimeout(()=>{},100); $done();`, "timer limit", 2000},
+		{`setTimeout(()=>{},1e100); $done();`, "delay", 2000},
 		{`setInterval(()=>{},0);`, "deadline", 20},
 		{`setTimeout(()=>{$done();},1000);`, "deadline", 20},
 		{`setTimeout(()=>{for(;;){}},0);`, "deadline", 20},
@@ -75,7 +76,7 @@ func TestScriptTimersEnforceLimitsAndCancellation(t *testing.T) {
 	if _, err := runHTTPScript(request, nil, rule, "test", nil, scriptEnvironment{}, func(string) {}); err == nil {
 		t.Fatal("cancelled timer succeeded")
 	}
-	if len(httpScriptSlots) != 0 {
+	if httpScriptsRunning.Load() != 0 {
 		t.Fatal("timer cancellation retained an interpreter")
 	}
 }
@@ -90,7 +91,7 @@ func TestCronTimersUseTheSameInvocationDeadline(t *testing.T) {
 	if err := runner.run(program.cron[0]); err != nil {
 		t.Fatal(err)
 	}
-	if len(cronScriptSlots) != 0 || processingBodies.used.Load() != 0 {
+	if cronScriptsRunning.Load() != 0 || processingBodies.used.Load() != 0 {
 		t.Fatal("cron timer retained resources")
 	}
 }

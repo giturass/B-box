@@ -193,12 +193,12 @@
     "lib/pages/backup.dart": {
       "source": "lib/views/backup_and_restore.dart",
       "sourceSHA256": "a0ab41a3c2a3337914b4d29dcc37b8c534989bcbee7c7971a23bf550c359f4a5",
-      "changes": "Remote/local sections, WebDAV form, connectivity indicator, restore scopes and strategy adapted to bounded bbox-1 backups. Waits for native writes and preserves edits on error. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Remote/local sections, WebDAV form, connectivity indicator, restore scopes and strategy adapted to bbox-1 backups with cancellable transfers and no fixed byte quota. Waits for native writes and preserves edits on error. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/common/ip_quality.dart": {
       "source": "lib/common/ip_quality.dart",
       "sourceSHA256": "9386dbef872f4e41b54b5abd8153fda4910be78b772ded3f36f972956e12cd02",
-      "changes": "Source URLs, parsers, wave order, explicit and inferred types, flags and quality rules preserved; Dio replaced by a cancellable sing-box transport."
+      "changes": "Source URLs, parsers, wave order, explicit and inferred types, flags and quality rules preserved; Dio replaced by a cancellable sing-box transport. Per-source deadlines are optional and disabled by default."
     },
     "lib/common/ip_quality_models.dart": {
       "source": "lib/models/ip_quality.dart",
@@ -287,7 +287,7 @@
         {
           "source": "core/outbound_ip.go",
           "sourceSHA256": "3fe24d2501c91dd4e6a9a3e5c734b92fa1e0fd9e6e54d7d27266659de256c1a0",
-          "changes": "IP race concurrency, stagger, response limit, browser user agent and public-IP validation preserved; routed HTTP transport uses sing-box. A source wins only after its source-specific parser validates the public IP and country field; malformed or incomplete responses advance the race. Services own their routed probes, cancel them and wait for route dispatch to finish before closing the core; closing probes reject later dispatches."
+          "changes": "IP source order, stagger, browser user agent and public-IP validation preserved; routed HTTP transport uses sing-box. Fixed concurrency, body-size and total-time ceilings removed. A source wins only after its source-specific parser validates the public IP and country field; malformed or incomplete responses advance the race. Services use the same routing admission, cancellation and exit wait as scripts before closing the core; closing probes reject later dispatches."
         },
         {
           "source": "lib/common/service_probe.dart",
@@ -406,7 +406,7 @@
             "flutter/lib/common/network_activity.dart",
             "flutter/lib/components/connection_record.dart"
           ],
-          "changes": "Reference for HTTP exchange information. B-box combines current sing-box connections and bounded capture summaries in one request viewer, following Surge's documented recent/active request model. Independent exchange IDs and optional original connection UUIDs support one-to-many association, filtered deduplication and historical requests without a live parent. Body counts remain separate from socket traffic; recording and MITM retain independent controls. No profile-rewrite banner or dedicated capture logs."
+          "changes": "Reference for HTTP exchange information. B-box combines current sing-box connections and all retained capture summaries in one request viewer, following Surge's documented recent/active request model. Independent exchange IDs and optional original connection UUIDs support one-to-many association, filtered deduplication and historical requests without a live parent. Pagination affects presentation, not search or export coverage. Body counts remain separate from socket traffic; recording and MITM retain independent controls. No profile-rewrite banner or dedicated capture logs."
         },
         {
           "source": "lib/features/connection/detail_tabs.dart",

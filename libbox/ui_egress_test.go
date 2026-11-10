@@ -99,7 +99,7 @@ func TestUIEgressRaceConcurrencyAndCancellation(t *testing.T) {
 	}
 	completed := make(chan result, 1)
 	go func() {
-		source, _, err := lookupUIOutboundIP(ctx, uiIPSources, 10*time.Millisecond, uiIPConcurrency,
+		source, _, err := lookupUIOutboundIP(ctx, uiIPSources, 10*time.Millisecond,
 			func(ctx context.Context, source uiIPSource) (*UIHTTPResponse, error) {
 				count := active.Add(1)
 				defer active.Add(-1)
@@ -123,24 +123,19 @@ func TestUIEgressRaceConcurrencyAndCancellation(t *testing.T) {
 			})
 		completed <- result{source, err}
 	}()
-	for index := 0; index < uiIPConcurrency; index++ {
+	for range uiIPSources {
 		select {
 		case <-started:
 		case <-ctx.Done():
-			t.Fatal("staggered race did not start three sources")
+			t.Fatal("stalled sources blocked later sources behind a concurrency quota")
 		}
-	}
-	select {
-	case <-started:
-		t.Fatal("race exceeded its three-request concurrency limit")
-	case <-time.After(40 * time.Millisecond):
 	}
 	close(release)
 	answer := <-completed
-	if answer.err != nil || answer.source != uiIPSources[2] || maximum.Load() != 3 {
+	if answer.err != nil || answer.source != uiIPSources[2] || maximum.Load() != int32(len(uiIPSources)) {
 		t.Fatalf("unexpected race result: %v max=%d", answer, maximum.Load())
 	}
-	for index := 0; index < 2; index++ {
+	for index := 0; index < len(uiIPSources)-1; index++ {
 		select {
 		case <-cancelled:
 		case <-ctx.Done():
@@ -153,7 +148,7 @@ func TestUIEgressRaceAdvancesAfterFailures(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	var calls int
-	source, info, err := lookupUIOutboundIP(ctx, uiIPSources, time.Hour, 3,
+	source, info, err := lookupUIOutboundIP(ctx, uiIPSources, time.Hour,
 		func(ctx context.Context, source uiIPSource) (*UIHTTPResponse, error) {
 			calls++
 			switch calls {
@@ -192,7 +187,7 @@ func TestUIEgressRaceAdvancesAfterParseFailures(t *testing.T) {
 			defer cancel()
 			winner := uiIPSources[7]
 			var calls atomic.Int32
-			source, info, err := lookupUIOutboundIP(ctx, []uiIPSource{fixture.source, winner}, time.Hour, uiIPConcurrency,
+			source, info, err := lookupUIOutboundIP(ctx, []uiIPSource{fixture.source, winner}, time.Hour,
 				func(ctx context.Context, source uiIPSource) (*UIHTTPResponse, error) {
 					calls.Add(1)
 					body := `{"ip":"203.0.113.9","cc":"GB"}`
@@ -222,7 +217,7 @@ func TestUIEgressRaceParseFailureKeepsOtherSourcesAlive(t *testing.T) {
 	}
 	completed := make(chan result, 1)
 	go func() {
-		source, info, err := lookupUIOutboundIP(ctx, sources, 10*time.Millisecond, 2,
+		source, info, err := lookupUIOutboundIP(ctx, sources, 10*time.Millisecond,
 			func(ctx context.Context, source uiIPSource) (*UIHTTPResponse, error) {
 				started <- source
 				switch source {
@@ -302,7 +297,7 @@ func uiTestRoutedProbe(t *testing.T, current func() bool) *UIEgressProbe {
 	return probe
 }
 
-func TestUIEgressGetStatusLimitsAndServiceChange(t *testing.T) {
+func TestUIEgressGetCompleteBodiesStatusAndServiceChange(t *testing.T) {
 	var current atomic.Bool
 	current.Store(true)
 	var requests atomic.Int32
@@ -317,9 +312,9 @@ func TestUIEgressGetStatusLimitsAndServiceChange(t *testing.T) {
 			w.WriteHeader(429)
 			io.WriteString(w, "quota exceeded")
 		case "/large":
-			io.WriteString(w, strings.Repeat("x", uiQualityBodyLimit+1))
+			io.WriteString(w, strings.Repeat("x", 128*1024+1))
 		case "/trace-limit":
-			io.WriteString(w, strings.Repeat("x", uiIPBodyLimit+1))
+			io.WriteString(w, strings.Repeat("x", 4097))
 		case "/changed":
 			close(entered)
 			<-release
@@ -332,11 +327,11 @@ func TestUIEgressGetStatusLimitsAndServiceChange(t *testing.T) {
 	if err != nil || response.Status != 429 || string(response.Content) != "quota exceeded" {
 		t.Fatalf("quality lookup must retain status and body: %v %v", response, err)
 	}
-	if _, err := probe.Get(server.URL+"/large", 1000); err == nil {
-		t.Fatal("oversized quality response accepted")
+	if response, err := probe.Get(server.URL+"/large", -1); err != nil || len(response.Content) != 128*1024+1 {
+		t.Fatal("large quality response lost", err)
 	}
-	if _, err := probe.get(context.Background(), server.URL+"/trace-limit", uiIPBodyLimit); err == nil {
-		t.Fatal("oversized IP response accepted")
+	if response, err := probe.Get(server.URL+"/trace-limit", 9000); err != nil || len(response.Content) != 4097 {
+		t.Fatal("probe still has a fixed byte or timeout ceiling", err)
 	}
 	completed := make(chan error, 1)
 	go func() { _, err := probe.Get(server.URL+"/changed", 1000); completed <- err }()

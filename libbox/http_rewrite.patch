@@ -14,11 +14,12 @@ diff --git a/option/experimental.go b/option/experimental.go
 diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command_server.go
 --- a/experimental/libbox/command_server.go
 +++ b/experimental/libbox/command_server.go
-@@ -36,6 +36,7 @@
+@@ -36,6 +36,8 @@
  	oomRecorder       *oomkiller.Recorder
  	grpcServer        *grpc.Server
  	listener          net.Listener
 +	uiEgressProbes     uiEgressProbeSet
++	uiProcessingRoutes *uiRouteLifecycle
  }
  
  type CommandServerHandler interface {
@@ -28,7 +29,7 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
  	defer uiCaptureLifecycle.Unlock()
 -	StopUICapture()
 +	s.uiEgressProbes.close()
-+	stopUIProcessing()
++	s.stopUIProcessing()
  	if s.grpcServer != nil {
  		s.grpcServer.Stop()
  	}
@@ -55,7 +56,7 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
 +		return err
 +	}
 +	s.uiEgressProbes.close()
-+	stopUIProcessing()
++	s.stopUIProcessing()
 +	saveConfigSnapshot(normalizedContent)
  	if s.powerManager.Recorder() != nil {
  		copyConfigSnapshot(filepath.Join(sWorkingPath, powerreport.DraftDirectoryName))
@@ -78,7 +79,7 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
  	defer uiCaptureLifecycle.Unlock()
 -	StopUICapture()
 +	s.uiEgressProbes.close()
-+	stopUIProcessing()
++	s.stopUIProcessing()
  	return s.StartedService.CloseService()
  }
  

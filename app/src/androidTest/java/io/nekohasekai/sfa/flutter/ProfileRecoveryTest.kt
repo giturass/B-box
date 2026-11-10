@@ -524,13 +524,12 @@ class ProfileRecoveryTest {
             assertEquals(content, base.readText())
             assertFalse(backup.exists())
 
-            // A small base must not bypass the limit on the recovered backup.
+            // Recovery must read the complete committed backup even beyond the
+            // former migration/settings size caps.
             base.writeText("{}")
-            backup.writeText(" ".repeat(4 * 1024 * 1024 + 1))
-            val error = assertThrows(IllegalArgumentException::class.java) {
-                CaptureSettings(directory, retiredKeyAlias = null).snapshot()
-            }
-            assertTrue(error.message.orEmpty().contains("exceed"))
+            backup.writeText(content.padEnd(4 * 1024 * 1024 + 1))
+            assertEquals(recovered["config"], CaptureSettings(directory, retiredKeyAlias = null).snapshot()["config"])
+            assertFalse(backup.exists())
         } finally { directory.deleteRecursively() }
     }
 
@@ -745,35 +744,43 @@ class ProfileRecoveryTest {
         }
     }
 
-    @Test fun oversizedSubscriptionsPreserveDataAndService() {
+    @Test fun largeSubscriptionsUpdateImportAndPreserveServiceState() {
         SubscriptionServer("{}".padEnd(16 * 1024 * 1024 + 1)).use { server ->
             withRunningProfile(server.url) { activity, profiles, id ->
-                val before = profiles.get(id).typed.lastUpdated.time
-                val running = BoxService.dashboardServer
-                val failure = runCatching { profiles.update(id) }.exceptionOrNull()
-                assertTrue(failure?.message.orEmpty().contains("Subscription exceeds 16 MiB"))
-                assertEquals("{}", profiles.read(id))
-                assertEquals(before, profiles.get(id).typed.lastUpdated.time)
+                profiles.update(id)
+                assertEquals(server.content, profiles.read(id))
+                assertTrue(profiles.get(id).typed.lastUpdated.time > 0L)
 
                 val profile = profiles.get(id)
                 profile.typed.autoUpdate = true
                 profile.typed.lastUpdated = Date(0)
                 ProfileManager.update(profile)
-                assertFalse(UpdateProfileWork.updateProfiles(activity.applicationContext))
-                assertEquals("{}", profiles.read(id))
-                assertEquals(0L, profiles.get(id).typed.lastUpdated.time)
+                assertTrue(UpdateProfileWork.updateProfiles(activity.applicationContext))
+                assertEquals(server.content, profiles.read(id))
+                assertTrue(profiles.get(id).typed.lastUpdated.time > 0L)
 
-                val ids = ProfileManager.list().map { it.id }
-                val importFailure = runCatching {
-                    profiles.save(mapOf("name" to "Oversized subscription", "url" to server.url))
-                }.exceptionOrNull()
-                assertTrue(importFailure?.message.orEmpty().contains("Subscription exceeds 16 MiB"))
-                assertEquals(ids, ProfileManager.list().map { it.id })
-                assertEquals(id, Settings.selectedProfile)
-                assertEquals(Status.Started, activity.serviceStatus.value)
-                assertSame(running, BoxService.dashboardServer)
-                assertEquals(3, server.requests.get())
+                val imported = profiles.save(mapOf("name" to "Large subscription", "url" to server.url))
+                try {
+                    assertEquals(server.content, profiles.read(imported))
+                    assertEquals(id, Settings.selectedProfile)
+                    assertEquals(Status.Started, activity.serviceStatus.value)
+                    assertEquals(3, server.requests.get())
+                } finally { profiles.delete(imported) }
             }
+        }
+    }
+
+    @Test fun subscriptionCoroutineCancellationStopsTheNativeDownload() = runBlocking(Dispatchers.IO) {
+        Application.application.setupLibbox()
+        val gate = CountDownLatch(1)
+        SubscriptionServer("{}", gate).use { server ->
+            try {
+                val request = async { io.nekohasekai.sfa.utils.HTTPClient.getString(server.url) }
+                withTimeout(10_000) { while (server.requests.get() == 0) delay(10) }
+                request.cancel()
+                withTimeout(5_000) { request.join() }
+                assertTrue(request.isCancelled)
+            } finally { gate.countDown() }
         }
     }
 

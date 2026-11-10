@@ -9,36 +9,26 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
+	"unicode/utf16"
 	"unicode/utf8"
 
-	"github.com/dlclark/regexp2/v2"
 	"github.com/dop251/goja"
 	"golang.org/x/net/http/httpguts"
 )
 
-// Limit concurrent interpreters across all intercepted connections. Runtimes
-// never share globals or expose host files/processes. Host APIs are scoped to
-// each rule and to the current local service.
-var httpScriptSlots = make(chan struct{}, 4)
-var cronScriptSlots = make(chan struct{}, 2)
+// Runtimes do not share globals. Counts are observations, not admission quotas.
+var httpScriptsRunning atomic.Int64
+var cronScriptsRunning atomic.Int64
 var scriptFinished = errors.New("script called $done")
 var errScriptAbort = errors.New("HTTP processing aborted by script")
-
-const maxScriptTimeoutMS = 24 * 60 * 60 * 1000
 
 type scriptResultError struct{ error }
 
 type scriptRunInfo struct {
 	name string
 	note func(string)
-}
-
-func init() {
-	// Interrupt stops VM bytecode, while regexp2 runs inside a native Go call.
-	// Configure its own deadline once, before any runtime compiles expressions.
-	regexp2.DefaultMatchTimeout = 200 * time.Millisecond
-	regexp2.SetTimeoutCheckPeriod(10 * time.Millisecond)
 }
 
 type scriptResult struct {
@@ -52,10 +42,10 @@ type scriptResult struct {
 }
 
 func runHTTPScript(request *http.Request, response *http.Response, script *compiledScript, id string, data []byte, environment scriptEnvironment, note func(string)) (scriptResult, error) {
-	ctx, cancel := context.WithTimeout(request.Context(), time.Duration(script.options.TimeoutMS)*time.Millisecond)
+	ctx, cancel := scriptContext(request.Context(), script.options.TimeoutMS)
 	defer cancel()
 	if script.options.RequiresBody {
-		if int64(len(data)) > script.options.MaxBodyBytes {
+		if exceedsBodyLimit(int64(len(data)), script.options.MaxBodyBytes) {
 			return scriptResult{}, errRewriteSize
 		}
 		if !script.options.BinaryBody && !utf8.Valid(data) {
@@ -121,23 +111,18 @@ func runHTTPScript(request *http.Request, response *http.Response, script *compi
 // execute on its calling goroutine; only Interrupt is called concurrently.
 func executeScript(parent context.Context, program *goja.Program, label, kind string, timeout int, argument string, binary bool,
 	setup func(*goja.Runtime, context.Context), done func(*goja.Runtime, goja.Value) error, infos ...scriptRunInfo) error {
-	ctx, cancel := context.WithTimeout(parent, time.Duration(timeout)*time.Millisecond)
+	ctx, cancel := scriptContext(parent, timeout)
 	defer cancel()
-	slots := httpScriptSlots
+	running := &httpScriptsRunning
 	if kind == "cron" {
-		slots = cronScriptSlots
-	}
-	select {
-	case slots <- struct{}{}:
-		defer func() { <-slots }()
-	case <-ctx.Done():
-		return fmt.Errorf("%s: waiting for %s interpreter capacity: %w", label, kind, ctx.Err())
+		running = &cronScriptsRunning
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("%s: %w", label, err)
 	}
+	running.Add(1)
+	defer running.Add(-1)
 	vm := goja.New()
-	vm.SetMaxCallStackSize(256)
 	stop := context.AfterFunc(ctx, func() { vm.Interrupt(ctx.Err()) })
 	defer stop()
 	if argument != "" {
@@ -153,24 +138,16 @@ func executeScript(parent context.Context, program *goja.Program, label, kind st
 	_ = vm.Set("$script", map[string]any{"name": info.name, "type": kind, "binaryBodyMode": binary, "startTime": float64(time.Now().UnixMilli()) / 1000, "sessionID": rand.Text()})
 	cleanupUtils := installScriptUtils(vm, ctx)
 	defer cleanupUtils()
-	logs := 0
 	console := make(map[string]any)
 	for _, level := range []string{"log", "info", "warn", "error", "debug"} {
 		console[level] = func(call goja.FunctionCall) goja.Value {
-			if logs >= 10 {
-				return goja.Undefined()
-			}
-			logs++
 			var message strings.Builder
 			for _, value := range call.Arguments {
-				if message.Len() >= 2048 {
-					break
-				}
 				if message.Len() > 0 {
 					message.WriteByte(' ')
 				}
 				part := scriptLogValue(vm, value)
-				message.WriteString(part[:min(len(part), 2048-message.Len())])
+				message.WriteString(part)
 			}
 			logLevel := level
 			if logLevel == "log" {
@@ -316,7 +293,7 @@ func decodeScriptResult(vm *goja.Runtime, value goja.Value, request *http.Reques
 			}
 			var valid bool
 			*target, valid = field.Export().(string)
-			if !valid || *target == "" || len(*target) > 8192 {
+			if !valid || *target == "" {
 				return result, fmt.Errorf("invalid script %s", name)
 			}
 		}
@@ -410,34 +387,65 @@ func scriptStatus(value goja.Value) (int, error) {
 	return status, nil
 }
 
-func decodeScriptBody(value goja.Value, binary bool, limit int64) ([]byte, error) {
-	var data []byte
+func decodeScriptBody(value goja.Value, binary bool, limit int64, leases ...*bodyLease) ([]byte, error) {
+	var lease *bodyLease
+	if len(leases) > 0 {
+		lease = leases[0]
+	}
 	if binary {
 		if value.ExportType() != reflect.TypeFor[[]uint8]() {
 			return nil, errors.New("binary script body must be a Uint8Array")
 		}
-		var ok bool
-		data, ok = value.Export().([]uint8)
+		// The pinned Goja typed-array export returns a view of its backing
+		// buffer, without copying. Admission still precedes our owned clone.
+		data, ok := value.Export().([]uint8)
 		if !ok {
 			return nil, errors.New("binary script body must be a Uint8Array")
 		}
-	} else {
-		if value.ExportType() != reflect.TypeFor[string]() {
-			return nil, errors.New("script body must be a string")
-		}
-		text, ok := value.Export().(string)
-		if !ok {
-			return nil, errors.New("script body must be a string")
-		}
-		if int64(len(text)) > limit {
+		if exceedsBodyLimit(int64(len(data)), limit) {
 			return nil, errRewriteSize
 		}
-		data = []byte(text)
+		if !lease.growWork(int64(len(data))) {
+			return nil, errors.New("script body budget exhausted before copying")
+		}
+		return bytesClone(data), nil
 	}
-	if int64(len(data)) > limit {
-		return nil, errRewriteSize
+	text, ok := value.(goja.String)
+	if !ok {
+		return nil, errors.New("script body must be a string")
 	}
-	return bytesClone(data), nil
+	// Goja stores UTF-16. Count the UTF-8 output before exporting/allocating it,
+	// preserving the replacement behavior of Goja.String for lone surrogates.
+	nextRune := func(index *int) rune {
+		first := rune(text.CharAt(*index))
+		*index += 1
+		if first >= 0xD800 && first <= 0xDBFF && *index < text.Length() {
+			second := rune(text.CharAt(*index))
+			if second >= 0xDC00 && second <= 0xDFFF {
+				*index += 1
+				return utf16.DecodeRune(first, second)
+			}
+		}
+		if utf16.IsSurrogate(first) {
+			return utf8.RuneError
+		}
+		return first
+	}
+	var size int64
+	for i := 0; i < text.Length(); {
+		size += int64(utf8.RuneLen(nextRune(&i)))
+		if exceedsBodyLimit(size, limit) {
+			return nil, errRewriteSize
+		}
+	}
+	if !lease.growWork(size) {
+		return nil, errors.New("script body budget exhausted before copying")
+	}
+	data := make([]byte, 0, size)
+	for i := 0; i < text.Length(); {
+		data = utf8.AppendRune(data, nextRune(&i))
+	}
+	return data, nil
 }
 
 func decodeScriptHeaders(vm *goja.Runtime, value goja.Value, original http.Header) (http.Header, error) {
@@ -446,7 +454,6 @@ func decodeScriptHeaders(vm *goja.Runtime, value goja.Value, original http.Heade
 		return nil, errors.New("script headers must be an object or array")
 	}
 	headers := make(http.Header)
-	size := 0
 	add := func(name string, value goja.Value) error {
 		if missingScriptValue(value) {
 			return errors.New("missing script header value")
@@ -458,17 +465,13 @@ func decodeScriptHeaders(vm *goja.Runtime, value goja.Value, original http.Heade
 		if !ok || !httpguts.ValidHeaderFieldName(name) || !httpguts.ValidHeaderFieldValue(text) {
 			return errors.New("invalid script header")
 		}
-		size += len(name) + len(text)
-		if size > MaxHeaderBytes {
-			return errors.New("script headers exceed 64 KiB")
-		}
 		headers.Add(name, text)
 		return nil
 	}
 	if object.ClassName() == "Array" {
 		length := object.Get("length").ToInteger()
-		if length < 0 || length > 1024 {
-			return nil, errors.New("too many script headers")
+		if length < 0 {
+			return nil, errors.New("invalid script headers length")
 		}
 		for i := int64(0); i < length; i++ {
 			entry, ok := object.Get(fmt.Sprint(i)).(*goja.Object)
@@ -489,9 +492,6 @@ func decodeScriptHeaders(vm *goja.Runtime, value goja.Value, original http.Heade
 		}
 	} else if object.ClassName() == "Object" {
 		keys := object.Keys()
-		if len(keys) > 1024 {
-			return nil, errors.New("too many script headers")
-		}
 		for _, name := range keys {
 			if err := add(name, object.Get(name)); err != nil {
 				return nil, err

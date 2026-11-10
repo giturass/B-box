@@ -7,19 +7,13 @@ import (
 	"errors"
 	"io"
 	"slices"
-	"time"
 
 	"github.com/itchyny/gojq"
 )
 
 // No module, input or environment loaders are installed. Each run has its own
 // JSON tree; compiled jq bytecode can safely be reused across HTTP/2 streams.
-func rewriteJSONBody(parent context.Context, code *gojq.Code, body []byte, limit int64, budget time.Duration) ([]byte, error) {
-	if budget <= 0 {
-		return nil, errors.New("jq processing budget exhausted")
-	}
-	ctx, cancel := context.WithTimeout(parent, budget)
-	defer cancel()
+func rewriteJSONBody(ctx context.Context, code *gojq.Code, body []byte, limit int64) ([]byte, error) {
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	var input any
@@ -46,15 +40,12 @@ func rewriteJSONBody(parent context.Context, code *gojq.Code, body []byte, limit
 			return nil, err
 		}
 		count++
-		if count > 8192 {
-			return nil, errors.New("jq output exceeds 8192 values")
-		}
 		if count > 1 {
 			if err := output.append([]byte{'\n'}); err != nil {
 				return nil, err
 			}
 		}
-		if err := output.value(value, 0); err != nil {
+		if err := output.value(value); err != nil {
 			return nil, err
 		}
 	}
@@ -79,23 +70,20 @@ func (w *boundedJSONWriter) append(data []byte) error {
 	if err := w.ctx.Err(); err != nil {
 		return err
 	}
-	if int64(w.Len())+int64(len(data)) > w.limit {
+	if exceedsBodyLimit(int64(w.Len())+int64(len(data)), w.limit) {
 		return errRewriteSize
 	}
 	_, _ = w.Write(data)
 	return nil
 }
 
-func (w *boundedJSONWriter) value(value any, depth int) error {
-	if depth > 256 {
-		return errors.New("jq output nesting exceeds 256")
-	}
+func (w *boundedJSONWriter) value(value any) error {
 	if err := w.ctx.Err(); err != nil {
 		return err
 	}
 	switch v := value.(type) {
 	case []any:
-		if int64(len(v)) > w.limit-int64(w.Len()) {
+		if exceedsBodyLimit(int64(len(v))+int64(w.Len()), w.limit) {
 			return errRewriteSize
 		}
 		if err := w.append([]byte{'['}); err != nil {
@@ -107,13 +95,13 @@ func (w *boundedJSONWriter) value(value any, depth int) error {
 					return err
 				}
 			}
-			if err := w.value(item, depth+1); err != nil {
+			if err := w.value(item); err != nil {
 				return err
 			}
 		}
 		return w.append([]byte{']'})
 	case map[string]any:
-		if int64(len(v)) > w.limit-int64(w.Len()) {
+		if exceedsBodyLimit(int64(len(v))+int64(w.Len()), w.limit) {
 			return errRewriteSize
 		}
 		keys := make([]string, 0, len(v))
@@ -130,19 +118,19 @@ func (w *boundedJSONWriter) value(value any, depth int) error {
 					return err
 				}
 			}
-			if err := w.value(key, depth+1); err != nil {
+			if err := w.value(key); err != nil {
 				return err
 			}
 			if err := w.append([]byte{':'}); err != nil {
 				return err
 			}
-			if err := w.value(v[key], depth+1); err != nil {
+			if err := w.value(v[key]); err != nil {
 				return err
 			}
 		}
 		return w.append([]byte{'}'})
 	case string:
-		if int64(len(v)) > w.limit-int64(w.Len()) {
+		if exceedsBodyLimit(int64(len(v))+int64(w.Len()), w.limit) {
 			return errRewriteSize
 		}
 	}

@@ -4,13 +4,14 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"testing"
 	"time"
 )
 
-func TestMITMAuthorityIdentityKeyMismatchAndBoundedSingleHostLeaves(t *testing.T) {
+func TestMITMAuthorityIdentityKeyMismatchAndExpiringSingleHostLeaves(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -25,6 +26,7 @@ func TestMITMAuthorityIdentityKeyMismatchAndBoundedSingleHostLeaves(t *testing.T
 	}
 	pool := x509.NewCertPool()
 	pool.AddCert(ca.issuer)
+	ca.leaves["expired.test"] = &tls.Certificate{Leaf: &x509.Certificate{NotAfter: time.Now().Add(-time.Hour)}}
 	for _, host := range []string{"origin.test", "127.0.0.1", "::1"} {
 		leaf, err := ca.leaf(host)
 		if err != nil {
@@ -45,13 +47,13 @@ func TestMITMAuthorityIdentityKeyMismatchAndBoundedSingleHostLeaves(t *testing.T
 	if first != second {
 		t.Fatal("leaf cache not reused")
 	}
-	for i := 0; i < maxLeafCertificates+1; i++ {
+	for i := 0; i < 129; i++ {
 		if _, err = ca.leaf(fmt.Sprintf("host%d.test", i)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if len(ca.leaves) != maxLeafCertificates || len(ca.order) != maxLeafCertificates {
-		t.Fatal("leaf cache is unbounded")
+	if len(ca.leaves) != 132 || ca.leaves["origin.test"] != first || ca.leaves["expired.test"] != nil {
+		t.Fatal("leaf cache must expire old certificates without evicting valid hosts by count")
 	}
 	otherKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	otherPEM, err := GenerateCA(otherKey)

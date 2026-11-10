@@ -41,10 +41,10 @@ List<CapturedCookie> capturedCookies(Iterable<Map<String, dynamic>> headers, {re
 }
 
 /// Adds whitespace without rewriting numbers, duplicate keys or string escapes.
-/// Invalid, deeply nested or excessively expanded JSON stays in its raw view.
+/// Invalid JSON stays in its raw view.
 String? formatCapturedJson(String text) {
   final source = text.trim();
-  if (source.length > 65536 || !(source.startsWith('{') || source.startsWith('['))) return null;
+  if (!(source.startsWith('{') || source.startsWith('['))) return null;
   final output = StringBuffer();
   var depth = 0;
   var quoted = false, escaped = false;
@@ -71,7 +71,6 @@ String? formatCapturedJson(String text) {
           output.write(char);
         case '{' || '[':
           depth++;
-          if (depth > 64) return null;
           output.write(char);
           var next = index + 1;
           while (next < source.length && whitespace(source[next])) { next++; }
@@ -91,7 +90,6 @@ String? formatCapturedJson(String text) {
       }
       previous = char;
     }
-    if (output.length > 262144) return null;
   }
   if (quoted || depth != 0) return null;
   try {

@@ -16,13 +16,12 @@ import (
 	"slices"
 	"strconv"
 	"sync"
-	"time"
 )
 
 var errHelloInspected = errors.New("ClientHello inspected without a TLS response")
 
 // SelectTLS reads only the ClientHello, using Go's TLS parser. All bytes are
-// replayed, including on timeout, oversized/unsupported hellos and unmatched names.
+// replayed, including unsupported hellos and unmatched names.
 // The probe cannot write an alert or a ServerHello to the real client.
 func (e *Engine) SelectTLS(ctx context.Context, conn net.Conn, metadata Metadata) (net.Conn, Metadata, bool) {
 	if e.ca == nil || !e.mitm.candidate(metadata) {
@@ -50,9 +49,7 @@ func (e *Engine) SelectTLS(ctx context.Context, conn net.Conn, metadata Metadata
 		name, protos, inspected = hello.ServerName, slices.Clone(hello.SupportedProtos), true
 		return nil, errHelloInspected
 	}})
-	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_ = server.HandshakeContext(ctx)
-	_ = conn.SetReadDeadline(time.Time{})
 	replay := &replayConn{Conn: conn, reader: io.MultiReader(bytes.NewReader(probe.data), conn)}
 	if !inspected {
 		e.skipped.Add(1)
@@ -92,11 +89,9 @@ type helloProbe struct {
 }
 
 func (p *helloProbe) Read(buffer []byte) (int, error) {
-	remaining := MaxHeaderBytes - len(p.data)
-	if remaining == 0 {
-		return 0, errors.New("ClientHello exceeds inspection limit")
-	}
-	n, err := p.Conn.Read(buffer[:min(len(buffer), remaining)])
+	// Let crypto/tls enforce its parser's handshake boundary. A separate byte
+	// ceiling would also count record framing and reject otherwise valid hellos.
+	n, err := p.Conn.Read(buffer)
 	p.data = append(p.data, buffer[:n]...)
 	return n, err
 }
@@ -133,8 +128,6 @@ func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, 
 			upstream = nil
 		}
 	}
-	handshakeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
 	phase := "Client TLS"
 	client := tls.Server(raw, &tls.Config{
 		MinVersion: tls.VersionTLS12, SessionTicketsDisabled: true,
@@ -160,7 +153,7 @@ func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, 
 				offered = e.mitm.httpProtocols()
 			}
 			phase = "Upstream TLS"
-			remote, err := dialUpstreamTLS(ctx, handshakeCtx, dial, metadata.Host, offered, roots, e.mitm.SkipServerCertVerify)
+			remote, err := dialUpstreamTLS(ctx, ctx, dial, metadata.Host, offered, roots, e.mitm.SkipServerCertVerify)
 			if err != nil {
 				return nil, err
 			}
@@ -185,7 +178,7 @@ func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, 
 				NextProtos: protos, SessionTicketsDisabled: true}, nil
 		},
 	})
-	if err := client.HandshakeContext(handshakeCtx); err != nil {
+	if err := client.HandshakeContext(ctx); err != nil {
 		cleanup()
 		e.tlsFailed.Add(1)
 		failure := fmt.Errorf("%s for %s: %w", phase, metadata.Host, err)
@@ -232,9 +225,7 @@ func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, 
 			return result, nil
 		}
 		primeMu.Unlock()
-		deadlineCtx, stop := context.WithTimeout(callCtx, 10*time.Second)
-		defer stop()
-		return dialUpstreamTLS(callCtx, deadlineCtx, dial, metadata.Host, offered, roots, e.mitm.SkipServerCertVerify)
+		return dialUpstreamTLS(callCtx, callCtx, dial, metadata.Host, offered, roots, e.mitm.SkipServerCertVerify)
 	}
 	return downstream, transport, metadata, cleanup, nil
 }

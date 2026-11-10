@@ -89,8 +89,8 @@ type ScriptProgram struct {
 }
 
 func (c *ScriptsConfig) UnmarshalJSON(data []byte) error {
-	if len(data) > MaxRewriteConfigBytes || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
-		return errors.New("scripts must be an object of at most 2 MiB")
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return errors.New("scripts must be an object")
 	}
 	type plain ScriptsConfig
 	var value plain
@@ -133,25 +133,17 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 	if c == nil {
 		return nil, nil
 	}
-	if c.MaxBodyBytes == 0 {
-		c.MaxBodyBytes = MaxBodyLimit
-	}
-	if c.MaxBodyBytes == -1 {
-		c.MaxBodyBytes = MaxRewriteRequestBody
-	}
-	if c.MaxBodyBytes < 1 || c.MaxBodyBytes > MaxRewriteRequestBody {
-		return nil, errors.New("max_body_bytes must be between 1 and 33554432, or -1")
-	}
-	if len(c.HTTP)+len(c.Cron) > MaxRewriteRules || len(c.Resources) > MaxRewriteRules {
-		return nil, errors.New("scripts supports at most 256 rules and resources")
+	limit, err := configuredBodyLimit(c.MaxBodyBytes)
+	if err != nil {
+		return nil, err
 	}
 	scope := Config{Ports: append([]uint16(nil), c.Ports...), Packages: append([]string(nil), c.Packages...)}
 	if err := scope.validate(); err != nil {
 		return nil, fmt.Errorf("scripts scope: %w", err)
 	}
-	p := &ScriptProgram{scope: scope, limit: c.MaxBodyBytes}
+	p := &ScriptProgram{scope: scope, limit: limit}
 	for name, resource := range c.Resources {
-		if name == "" || len(name) > 256 {
+		if name == "" {
 			return nil, errors.New("invalid script resource name")
 		}
 		var err error
@@ -178,17 +170,15 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 		if rule.TimeoutMS == 0 {
 			item.options.TimeoutMS = 5000
 		}
-		if item.options.TimeoutMS < 1 || item.options.TimeoutMS > maxScriptTimeoutMS {
-			return nil, fmt.Errorf("%s: timeout_ms must be between 1 and %d", item.label, maxScriptTimeoutMS)
+		if !validTimeoutMS(item.options.TimeoutMS) {
+			return nil, fmt.Errorf("%s: timeout_ms must be positive and representable as a duration, or -1 for unlimited", item.label)
 		}
 		if rule.MaxBodyBytes == 0 {
 			item.options.MaxBodyBytes = c.MaxBodyBytes
 		}
-		if item.options.MaxBodyBytes == -1 {
-			item.options.MaxBodyBytes = MaxRewriteRequestBody
-		}
-		if item.options.MaxBodyBytes < 1 || item.options.MaxBodyBytes > MaxRewriteRequestBody {
-			return nil, fmt.Errorf("%s: script body limit must be 1..33554432, or -1", item.label)
+		item.options.MaxBodyBytes, err = configuredBodyLimit(item.options.MaxBodyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", item.label, err)
 		}
 		client, err := compileScriptHTTP(rule.HTTPClient, false)
 		if err != nil {
@@ -208,14 +198,11 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 	}
 	for i, rule := range c.Cron {
 		label := fmt.Sprintf("scripts.cron[%d] %s", i, rule.Name)
-		if len(label) > 256 {
-			return nil, errors.New("script name is too long")
-		}
 		if rule.TimeoutMS == 0 {
 			rule.TimeoutMS = 5000
 		}
-		if rule.TimeoutMS < 1 || rule.TimeoutMS > maxScriptTimeoutMS {
-			return nil, fmt.Errorf("%s: timeout_ms must be between 1 and %d", label, maxScriptTimeoutMS)
+		if !validTimeoutMS(rule.TimeoutMS) {
+			return nil, fmt.Errorf("%s: timeout_ms must be positive and representable as a duration, or -1 for unlimited", label)
 		}
 		client, err := compileScriptHTTP(rule.HTTPClient, true)
 		if err != nil {
@@ -242,7 +229,7 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 
 func compileCron(expression, zone string, location *time.Location) (cron.Schedule, error) {
 	fields := strings.Fields(expression)
-	if len(expression) > 256 || len(fields) < 5 || len(fields) > 6 || strings.ContainsAny(expression, "@=?") {
+	if len(fields) < 5 || len(fields) > 6 || strings.ContainsAny(expression, "@=?") {
 		return nil, errors.New("cron requires five fields, or six with seconds first")
 	}
 	// Reject empty list elements that the dependency otherwise ignores.

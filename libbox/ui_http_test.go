@@ -2,9 +2,13 @@ package libbox
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -98,23 +102,69 @@ func TestUIWebDAVRedirects(t *testing.T) {
 	}
 }
 
-func TestUIWebDAVLimitsAndTimeout(t *testing.T) {
+func TestUIWebDAVTransferBeyondFormerSizeLimit(t *testing.T) {
+	content := bytes.Repeat([]byte("x"), 64*1024*1024+1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/slow" {
-			<-r.Context().Done()
-			return
+		if r.Method == http.MethodPut {
+			n, err := io.Copy(io.Discard, r.Body)
+			if err != nil || n != int64(len(content)) {
+				t.Error("upload was incomplete", n, err)
+			}
+			_, _ = io.WriteString(w, strconv.FormatInt(n, 10))
+		} else {
+			_, _ = w.Write(content)
 		}
-		_, _ = io.WriteString(w, strings.Repeat("x", 2048))
 	}))
 	defer server.Close()
-	if _, err := uiHTTPRequest(http.MethodGet, server.URL, "", "", nil, 1024, time.Second, false); err == nil {
-		t.Fatal("oversized download accepted")
+	for _, method := range []string{http.MethodGet, http.MethodPut} {
+		var body []byte
+		if method == http.MethodPut {
+			body = content
+		}
+		response, err := UIWebDAVRequest(method, server.URL, "", "", body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if method == http.MethodGet && !bytes.Equal(response.Content, content) || method == http.MethodPut && string(response.Content) != strconv.Itoa(len(content)) {
+			t.Fatal("large WebDAV transfer was truncated")
+		}
 	}
-	if _, err := uiHTTPRequest(http.MethodPut, server.URL, "", "", make([]byte, 1025), 1024, time.Second, false); err == nil {
-		t.Fatal("oversized upload accepted")
-	}
-	if _, err := uiHTTPRequest(http.MethodGet, server.URL+"/slow", "", "", nil, 1024, 30*time.Millisecond, false); err == nil {
-		t.Fatal("request timeout did not cancel the read")
+}
+
+func TestUIHTTPTaskCloseCancelsResponseHeadersAndBodies(t *testing.T) {
+	for _, headers := range []bool{false, true} {
+		for _, profile := range []bool{false, true} {
+			started := make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if headers {
+					w.(http.Flusher).Flush()
+				}
+				close(started)
+				<-r.Context().Done()
+			}))
+			task := NewUIHTTPTask()
+			finished := make(chan error, 1)
+			go func() {
+				var err error
+				if profile {
+					_, err = task.ProfileGet(server.URL, "SFA test")
+				} else {
+					_, err = task.WebDAVRequest(http.MethodGet, server.URL, "", "", nil)
+				}
+				finished <- err
+			}()
+			<-started
+			task.Close()
+			select {
+			case err := <-finished:
+				if !errors.Is(err, context.Canceled) {
+					t.Error("task did not propagate cancellation", err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Error("closed task retained a blocked download")
+			}
+			server.Close()
+		}
 	}
 }
 
@@ -144,12 +194,12 @@ func TestUIHTTPGetMetadataRedirect(t *testing.T) {
 	if _, err := UIWebDAVRequest(http.MethodGet, release.URL, "account", "password", nil); err == nil || downloaded.Load() {
 		t.Fatal("WebDAV GET must still reject cross-origin redirects")
 	}
-	if _, err := uiHTTPRequest(http.MethodGet, release.URL, "account", "password", nil, 1024, time.Second, true); err == nil {
+	if _, err := uiHTTPRequest(context.Background(), http.MethodGet, release.URL, "account", "password", nil, true); err == nil {
 		t.Fatal("metadata redirect policy accepted an authenticated request")
 	}
 }
 
-func TestUIHTTPGetMetadataSizeAndRedirectLimit(t *testing.T) {
+func TestUIHTTPGetLargeMetadataAndRedirectLoop(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/large" {
 			_, _ = io.WriteString(w, strings.Repeat("x", 2*1024*1024+1))
@@ -158,8 +208,8 @@ func TestUIHTTPGetMetadataSizeAndRedirectLimit(t *testing.T) {
 		http.Redirect(w, r, "/loop", http.StatusFound)
 	}))
 	defer server.Close()
-	if _, err := UIHTTPGet(server.URL + "/large"); err == nil {
-		t.Fatal("oversized release metadata accepted")
+	if result, err := UIHTTPGetWithTimeout(server.URL+"/large", 15001); err != nil || len(result.Content) != 2*1024*1024+1 {
+		t.Fatal("large metadata was rejected or truncated", err)
 	}
 	if _, err := UIHTTPGet(server.URL + "/loop"); err == nil {
 		t.Fatal("unbounded release redirect loop")
@@ -183,7 +233,7 @@ func TestUIHTTPGetSharedDeadline(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed-out metadata request still owns its connection")
 	}
-	for _, timeout := range []int64{0, -1, 15001} {
+	for _, timeout := range []int64{0, -2, math.MaxInt64} {
 		if _, err := UIHTTPGetWithTimeout(server.URL, timeout); err == nil {
 			t.Fatalf("accepted invalid timeout %d", timeout)
 		}

@@ -485,7 +485,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             "backup.read" -> {
                 val uri = activity.pickDocument() ?: return null
                 withContext(Dispatchers.IO) {
-                    backups.read(activity.readDocument(uri, BoxBackups.MAX_BYTES).second, args["scope"] as? String ?: "all")
+                    backups.read(activity.readDocument(uri).second, args["scope"] as? String ?: "all")
                 }
             }
             "backup.restore" -> localProfiles {

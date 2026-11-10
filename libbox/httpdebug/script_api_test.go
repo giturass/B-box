@@ -44,7 +44,7 @@ func TestScriptCapabilitiesValidateWithoutExecuting(t *testing.T) {
 		`{"http_client":{"allowed_origins":["http://api.test:0"]}}`,
 		`{"http_client":{"allowed_origins":["http://api.test:65536"]}}`,
 		`{"http_client":{"max_requests":-1}}`,
-		`{"http_client":{"max_body_bytes":33554433}}`,
+		`{"http_client":{"max_body_bytes":-2}}`,
 		`{"http_client":{"proxy":"http://other.test"}}`,
 		`{"storage_namespace":"../other"}`,
 		`{"storage_namespace":"/absolute"}`,
@@ -74,11 +74,15 @@ func TestScriptCapabilitiesValidateWithoutExecuting(t *testing.T) {
 	if policy, err := compileScriptHTTP(&ScriptHTTPOptions{MaxRequests: 5}, false); err != nil || policy.maxRequests != 5 {
 		t.Fatal("explicit total request cap was not preserved", err)
 	}
-	if err := validateStorageNamespace(strings.Repeat("n", 65)); err == nil {
-		t.Fatal("unbounded namespace")
+	if err := validateStorageNamespace(strings.Repeat("n", 65)); err != nil {
+		t.Fatal("long namespace rejected", err)
 	}
-	if _, err := compileScriptHTTP(&ScriptHTTPOptions{AllowedOrigins: make([]string, 17)}, false); err == nil {
-		t.Fatal("unbounded origin allowlist")
+	origins := make([]string, 17)
+	for i := range origins {
+		origins[i] = "https://api" + strings.Repeat("a", i) + ".test"
+	}
+	if _, err := compileScriptHTTP(&ScriptHTTPOptions{AllowedOrigins: origins}, false); err != nil {
+		t.Fatal("large valid origin allowlist rejected", err)
 	}
 	policy, err := compileScriptHTTP(&ScriptHTTPOptions{AllowedOrigins: []string{"https://API.TEST.:443/", "http://[::1]:8080"}}, false)
 	if err != nil || !policy.origins["https://api.test:443"] || !policy.origins["http://[::1]:8080"] {
@@ -297,28 +301,29 @@ func TestHTTPClientCancellationReleasesResources(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("HTTP cancellation did not stop the script")
 	}
-	if len(httpScriptSlots) != 0 || processingBodies.used.Load() != 0 {
+	if httpScriptsRunning.Load() != 0 || processingBodies.used.Load() != 0 {
 		t.Fatal("HTTP cancellation retained interpreter or body capacity")
 	}
 }
 
-func TestHeaderOnlyScriptHTTPHonorsGlobalBodyBudget(t *testing.T) {
-	lease := processingBodies.acquire(maxBufferedBodyBytes)
+func TestHeaderOnlyScriptHTTPDoesNotUseFormerGlobalBodyQuota(t *testing.T) {
+	const previousBudget = 384 * 1024 * 1024
+	lease := processingBodies.acquire(previousBudget)
 	if lease == nil {
-		t.Fatal("body budget already in use")
+		t.Fatal("failed to reserve bookkeeping sample")
 	}
 	defer lease.release()
 	rule := httpAPIScript(t, HTTPScript{Phase: "response", HTTPClient: &ScriptHTTPOptions{AllowedOrigins: []string{"http://aux.test"}},
-		Source: `$httpClient.get('http://aux.test/',(e)=>{if(!e || !e.includes('budget')) throw Error('budget'); $done();});`})
+		Source: `$httpClient.get('http://aux.test/',(e)=>{if(!e || !e.includes('routed')) throw Error('request was skipped'); $done();});`})
 	request, _ := http.NewRequest("GET", "http://intercepted.test/", nil)
 	response := localRewriteResponse(request, 200, make(http.Header), nil)
 	defer response.Body.Close()
 	var dials atomic.Int32
 	_, err := runHTTPScript(request, response, rule, "test", nil, scriptEnvironment{dial: func(context.Context, string) (net.Conn, error) {
 		dials.Add(1)
-		return nil, errors.New("unexpected dial")
+		return nil, errors.New("routed test failure")
 	}}, func(string) {})
-	if err != nil || dials.Load() != 0 {
-		t.Fatalf("header-only script bypassed body budget: %v", err)
+	if err != nil || dials.Load() != 1 || processingBodies.used.Load() != previousBudget {
+		t.Fatalf("former global quota skipped script HTTP or leaked work: %v", err)
 	}
 }

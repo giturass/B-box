@@ -37,7 +37,7 @@ const _waves = [
 Future<IpQuality> lookupIpQuality(
   IpProbeTransport transport,
   String ip, {
-  Duration timeout = const Duration(seconds: 8),
+  Duration? timeout,
   Duration hedge = const Duration(seconds: 1),
 }) => _Lookup(transport, ip, timeout, hedge).run();
 
@@ -45,7 +45,8 @@ class _Lookup {
   _Lookup(this.transport, this.ip, this.timeout, this.hedge);
   final IpProbeTransport transport;
   final String ip;
-  final Duration timeout, hedge;
+  final Duration? timeout;
+  final Duration hedge;
   final _completer = Completer<IpQuality>();
   final _failures = <IpQualityFailure>[];
   IpQuality? _fallback;
@@ -117,9 +118,10 @@ Future<_Answer> _query(
   IpProbeTransport transport,
   IpQualitySource source,
   String ip,
-  Duration timeout,
+  Duration? timeout,
 ) async {
-  final response = await transport.get(_urlOf(source, ip), timeout).timeout(timeout);
+  final request = transport.get(_urlOf(source, ip), timeout);
+  final response = await (timeout == null ? request : request.timeout(timeout));
   if (response.status == HttpStatus.tooManyRequests) {
     throw const _SourceFailure(IpQualitySourceStatus.rateLimited);
   }

@@ -1,0 +1,21 @@
+diff --git a/builtin_regexp.go b/builtin_regexp.go
+--- a/builtin_regexp.go
++++ b/builtin_regexp.go
+@@ -24,7 +24,7 @@
+ func (r *Runtime) newRegExpp(pattern *regexpPattern, patternStr String, proto *Object) *regexpObject {
+ 	o := r.newRegexpObject(proto)
+ 
+-	o.pattern = pattern
++	o.pattern = r.interruptibleRegexp(pattern)
+ 	o.source = patternStr
+ 
+ 	return o
+@@ -477,7 +477,7 @@
+ 		if err != nil {
+ 			panic(r.newSyntaxError(err.Error()))
+ 		}
+-		this.pattern = pattern
++		this.pattern = r.interruptibleRegexp(pattern)
+ 		this.source = source
+ 	exit:
+ 		this.setOwnStr("lastIndex", intToValue(0), true)

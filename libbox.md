@@ -13,9 +13,11 @@
 | 排除 legacy 产物 | [libbox-no-legacy.patch](libbox/libbox-no-legacy.patch) | 修改上游 `cmd/internal/build_libbox/main.go`，删除 API 21 AAR 分支及只供该分支使用的 `filterTags` |
 | Android 自动重定向兼容 | [sing-tun-android-ingress.patch](libbox/sing-tun-android-ingress.patch) | 兼容 ingress discard BPF map 的 4/8 字节 value，保留接口归属检查和原值恢复 |
 | 运行时内存绑定 | [ui_dashboard.go](libbox/ui_dashboard.go) | 读取 Go 运行时内存和 goroutine 数，提供释放内存操作 |
-| HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码和有大小上限的响应，供备份及 Release 元数据使用 |
-| 订阅下载绑定 | [ui_profile.go](libbox/ui_profile.go) | 限制订阅下载的总时限及解压后的内容大小，失败响应不读取正文 |
+| HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码与完整响应，通过 `UIHTTPTask` 传播 Android 取消，供备份及 Release 元数据使用 |
+| 订阅下载绑定 | [ui_profile.go](libbox/ui_profile.go) | 可取消的完整订阅下载，失败响应不读取正文 |
 | 出口探测绑定 | [ui_egress.go](libbox/ui_egress.go) | 可取消的设备网络/运行中路由探测、出口 IP 多源查询与质量请求传输 |
+| 路由生命周期 | [ui_route.go](libbox/ui_route.go) | 出口探测与脚本共用路由准入、取消及退出等待，包含脚本指定出站的拨号 |
+| 正则取消 | [regexp2-cancel.patch](libbox/regexp2-cancel.patch)、[goja-regexp-cancel.patch](libbox/goja-regexp-cancel.patch) | 将请求取消和 VM 中断传入回溯执行，不对不同请求共用可变期限 |
 | 局域网代理配置绑定 | [ui_lan.go](libbox/ui_lan.go) | 读取 mixed/http/socks 监听端点、修改 listen 或显式新增 mixed 入站 |
 | HTTP/HTTPS 请求抓取 | [httpdebug.patch](libbox/httpdebug.patch)、[httpdebug/](libbox/httpdebug/)、[route/](libbox/route/)、[ui_capture.go](libbox/ui_capture.go) | HTTP 录制、HTTPS MITM、平台签名、域名提取、记录及导出绑定 |
 | 独立配置处理 | [http_rewrite.patch](libbox/http_rewrite.patch)、[ui_processing.go](libbox/ui_processing.go)、[processing.go](libbox/option/processing.go) | 独立的 MITM、HTTP 改写、HTTP 脚本与 Cron，统一校验及服务生命周期 |
@@ -30,12 +32,13 @@
 
 `UIHTTPResponse` 保留 `Status` 与 `Content`，不修改上游 `HTTPRequest.Execute` 的行为。
 
-- `UIWebDAVRequest` 支持 GET、PUT、OPTIONS、MKCOL，使用上游 HTTP 客户端的证书库和 Modern TLS；请求/响应内容上限 64 MiB，超时 30 秒。
+- `UIWebDAVRequest` 支持 GET、PUT、OPTIONS、MKCOL，使用上游 HTTP 客户端的证书库和 Modern TLS，完整读取请求/响应，不设固定容量或下载时限。
 - WebDAV 不跨源转发凭据和正文，不接受 HTTPS 降级；会改变请求方法的重定向交回调用方判断，防止把失败写入报告为成功。
-- `UIHTTPGet` 用于匿名 Release 元数据 GET，上限 2 MiB，超时 15 秒；`UIHTTPGetWithTimeout` 允许调用方传入 1–15000 毫秒的剩余时限，让一轮版本查询共享总时限。两者允许访问重定向后的资产地址，剥离凭据头且禁止 HTTPS 降级；超时关闭在途请求及响应正文。Android 使用生成绑定 `Libbox.uihttpGetWithTimeout`，版本查询调度与缓存见 [app.md](app.md#已移除能力与兼容入口)。
-- `UIProfileGet` 用于 sing-box JSON 订阅，沿用 Android 的 16 MiB 配置上限，总超时 30 秒覆盖连接、重定向、响应头及正文读取；不以持续收到少量数据延长截止时间。提前检查 `Content-Length`，同时对实际读取及 gzip 解压后的正文限额，超限或超时不返回部分内容。保留 SFA User-Agent、URL 认证、上游重定向规则、证书库及 Modern TLS；非 HTTP 200 只报告状态并关闭正文，避免错误页面占满内存或拖住下载。
+- `UIHTTPGet` 用于匿名 Release 元数据 GET；`UIHTTPGetWithTimeout` 接受可表示为 Go duration 的正整数毫秒，`-1` 不增加期限，响应不设固定容量上限。调用方可传入剩余时限，让一轮查询共享期限。两者允许访问重定向后的资产地址，剥离凭据头且禁止 HTTPS 降级；取消关闭在途请求及响应正文。Android 使用生成绑定 `Libbox.uihttpGetWithTimeout`，版本查询调度与缓存见 [app.md](app.md#已移除能力与兼容入口)。
+- `UIProfileGet` 用于 sing-box JSON 订阅，完整读取实际响应及 gzip 解压后的内容，不设固定容量或总时限。保留 SFA User-Agent、URL 认证、证书库及 Modern TLS；非 HTTP 200 只报告状态并关闭正文。重定向检测重复的 URL 与方法，不按固定次数拒绝。
+- Android 订阅/WebDAV 使用 `NewUIHTTPTask` 的 `ProfileGet` / `WebDAVRequest`；协程取消立即调用 `Close`，使正在等待响应头、正文或 TLS 握手的阻塞绑定退出。原静态绑定保留兼容。没有 B-box 的固定 TLS 握手期限；调用方期限与取消继续生效。
 
-[ui_profile_test.go](libbox/ui_profile_test.go) 覆盖订阅认证/重定向、声明长度/分块/gzip 正文的上限及超限、等待响应头/正文/持续慢速发送的总超时、错误响应不读正文，以及非法地址和重定向循环；通过统一测试工作流的 `TestUI` 入口运行。
+[ui_profile_test.go](libbox/ui_profile_test.go) 和 [ui_http_test.go](libbox/ui_http_test.go) 覆盖订阅认证/重定向、超过原容量的声明长度/分块/gzip 正文、WebDAV 大文件、等待响应头/正文时的取消、调用方期限、错误响应不读正文，以及非法地址和重定向循环；通过统一测试工作流的 `TestUI` 入口运行。
 
 这些接口不使用下述 `UIEgressProbe` 路由注入。需要查询当前 sing-box 出口时必须走探测接口，不能用一般 HTTP 请求替代。
 
@@ -45,15 +48,17 @@
 
 服务持有自身的路由探测集合，创建探测与停服/重载共用生命周期锁。[服务补丁](libbox/http_rewrite.patch) 在关闭核心之前取消这些探测，并等待已登记的 `RouteConnectionEx` 调用退出；探测关闭后不再允许 HTTP 客户端登记新的异步路由调用。这样，已经通过实例检查但尚未进入 DNS/拨号的请求不会在核心关闭后继续访问它。普通 `Close` 发出取消后快速返回，探测在路由退出后才从服务集合移除，因此后台停服仍会等待已经由界面取消的请求，不依赖 Flutter 收到状态通知后的清理时序。
 
+探测与脚本使用同一 [uiRouteLifecycle](libbox/ui_route.go)。停止先关闭路由准入并取消，随后停止处理引擎、等待已登记调用退出，最后关闭核心；脚本显式 `policy` 的 `DialContext` 也在此边界内。取消后才成功返回的连接立即关闭。[ui_route_test.go](libbox/ui_route_test.go) 检查路由/指定出站退出等待、关闭与登记竞争，以及迟到拨号结果。
+
 `UIEgressProbe` 提供：
 
-- `LookupOutboundIP`：对八个来源错峰竞速，总时限 6 秒、间隔 800 毫秒、最多并发 3 个请求、响应上限 4096 字节；每个 HTTP 200 响应先按对应来源解析并校验公网 IP 与国家字段，首个完整解析成功的结果才取消其余请求。解析失败立即继续其他来源，国家字段允许空字符串表示未知。返回 IP、地理信息、来源与查询时间。
-- `Get`：供 Flutter 质量查询使用，保留 HTTP 状态，响应上限 128 KiB，调用方可指定 1～8000 毫秒超时。
+- `LookupOutboundIP`：对八个来源错峰竞速，间隔 800 毫秒，不设置固定总时限、并发名额或响应容量上限；每个 HTTP 200 响应先按对应来源解析并校验公网 IP 与国家字段，首个完整解析成功的结果才取消其余请求。解析失败立即继续其他来源，未结束的来源不阻塞后续来源启动。国家字段允许空字符串表示未知。返回 IP、地理信息、来源与查询时间。
+- `Get`：供 Flutter 质量查询使用，保留 HTTP 状态及完整正文，调用方可指定可表示的正整数毫秒期限，`-1` 不增加期限；两种查询的重定向都检测循环，不按固定次数拒绝。
 - `Close`：取消本次探测的请求和等待中的连接。每个请求独立持有连接与截止时间，不将 IP 竞速连接复用于后续质量查询。
 
 两种探测共用 libbox TLS 证书库；运行中的路由查询失败不能回退到设备网络。远程会话不提供本机出口探测。FlClash 来源、分批质量查询、缓存和界面刷新规则见 [flclash.md](flclash.md)；其中质量解析与缓存主要在 Dart/Android 层，不能将它们误记为 Go 核心补丁。
 
-[ui_egress_test.go](libbox/ui_egress_test.go) 用可控的路由退出时机检查探测关闭和服务关闭：取消必须传到请求，普通取消快速返回，停服须等仍在退出的路由结束，关闭中的探测拒绝后续请求；统一测试工作流另以 Go race detector 运行出口探测回归。当前源码的运行结果见 [应用验证记录](app.md#特权增强移除验证)。
+[ui_egress_test.go](libbox/ui_egress_test.go) 用可控的路由退出时机检查探测关闭和服务关闭：取消必须传到请求，普通取消快速返回，停服须等仍在退出的路由结束，关闭中的探测拒绝后续请求；统一测试工作流另以 Go race detector 运行路由、出口探测、HTTP 任务和订阅回归。实际运行按 [应用验证记录](app.md#验证与历史记录) 中的源码 SHA 区分。
 
 ### 局域网代理
 
@@ -73,21 +78,21 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 
 每条请求/响应记录保留独立 `id`，详情查询、正文文件和导出继续使用它。路由入口从 sing-box [trafficcontrol.Tracker](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/common/trafficcontrol/tracker.go) 读取原始客户端连接的 UUID，写入可选的 `metadata.connectionId`，与 libbox 连接列表的 ID 一致；读取会穿过嗅探缓存等连接包装。同一连接的 HTTP/1.1 请求和 HTTP/2 流共享此关联，HTTPS 与 TLS/TCP 记录也保留它，跨目标改写不替换为新出站连接的 ID。
 
-没有跟踪器的流、跟踪前的 QUIC 域名观察和旧记录可缺省该字段；旧 `captureId` 不作为连接 ID。关联以字符串随记录保存，连接关闭或从连接历史淘汰不删除请求记录，后者仍按自身限额清理；启停抓包接口不接收连接 ID。
+没有跟踪器的流、跟踪前的 QUIC 域名观察和旧记录可缺省该字段；旧 `captureId` 不作为连接 ID。关联以字符串随记录保存，连接关闭或从连接历史淘汰不删除请求记录，请求记录保留到明确清空；启停抓包接口不接收连接 ID。
 
 [列表摘要](libbox/httpdebug/store.go) 也返回可选 `connectionId`、来源/目标、入站、出站、规则、应用及改写前 URL，供统一请求查看器直接关联、搜索和展示，无需逐条读取详情或正文。`requestBytes`/`responseBytes` 为该请求两个方向的实际正文计数，`bytes` 为二者之和；它们不是保存前缀大小或底层连接流量。旧记录的缺省关联保持缺省。
 
-`ExportUICaptureHARSelection(path, idsJSON)` 接收最多 300 个请求 ID，按选择顺序去重导出，空数组导出空 HAR；校验 ID、条数及 32 KiB 参数上限。选择后的淘汰记录跳过，不以新记录或整份历史替换；仅域名和 TLS/TCP 继续排除。原有按搜索文本的 HAR 绑定保留。详情与 cURL 使用请求 ID，关闭连接仍使用连接 UUID，两者不能交换。界面筛选及分页规则见 [统一查看器](flclash.md#导航与交互约定)。
+`ExportUICaptureHARSelection(path, idsJSON)` 接收请求 ID 数组，校验 ID 并按选择顺序去重导出，空数组导出空 HAR，不设条数或参数字节配额。选择后已清理的记录跳过，不以新记录或整份历史替换；仅域名和 TLS/TCP 继续排除。原有按搜索文本的 HAR 绑定保留。详情与 cURL 使用请求 ID，关闭连接仍使用连接 UUID，两者不能交换。界面筛选及分页规则见 [统一查看器](flclash.md#导航与交互约定)。
 
 资源与完整性边界：
 
-- 不设固定的接管连接总数上限；每条 HTTP/2 仍最多 16 个并发流。ClientHello 检查最多 64 KiB/5 秒，[tls_selection.go](libbox/httpdebug/tls_selection.go) 跟踪探测、待交接与正式处理的生命周期，调用取消及服务停止会回收尚未交接的连接。拨号和握手仍受超时及会话取消约束。
+- 不设固定的接管连接、HTTP/2 并发流、每主机连接、HTTP 头或正文容量配额，也不增加固定读头、空闲、正文读取、MITM 探测和 TLS 握手期限。[tls_selection.go](libbox/httpdebug/tls_selection.go) 跟踪探测、待交接与正式处理的生命周期，调用取消及服务停止会回收连接。ClientHello 使用当前 Go `crypto/tls` 的解析边界；路由入口保留上游协议嗅探的回退期限，缓冲区按需增长并完整回放，不以初始容量拒绝大请求头。
 - [recording.go](libbox/httpdebug/recording.go) 将记录策略与服务处理引擎分开。启停记录不替换引擎或关闭已有 HTTP、SSE、WebSocket、TLS/TCP 连接；停止时封存已有前缀和当时的完整性状态，迟到正文、响应及 EOF 不再更新该记录。重新开启从已有拦截连接的新 HTTP 请求或新 TCP 流开始记录，不能补录正在传输的旧流；尚未被接管的连接需由应用重新建立。服务停止/重载才关闭旧处理连接，记录不会自动恢复。
-- 抓包端口默认 80、443、8080、8443，最多 32 个；按原始目标端口筛选。应用列表为空表示不限；未知归属不能匹配指定应用，共享 UID 使用同一归属结果。这些设置只限制记录，不改变配置中的解密或处理范围。
-- 最多保存 300 条、磁盘 32 MiB；每方向正文默认保留 64 KiB，最高 1 MiB；头部和 trailers 分别最多 64 KiB。存储失败、截断、未完成和流错误分别保留。
-- 正文处理、预览和 HAR 共用 [content_encoding.go](libbox/httpdebug/content_encoding.go)，支持 identity、gzip/x-gzip、deflate（zlib/raw）、br 和 zstd，最多三层 Content-Encoding，合并重复头后逆序解码，每层输出均检查限额。预览/HAR 解码最多 64 KiB；不支持的编码或二进制使用 Base64，HAR 请求/响应均保留原始前缀与完整性标志。HAR 用 `_trailers` 保存尾部字段，耗时仅为总时长。cURL 仅允许完整、未截断且无 trailers 的 HTTP 请求；TLS/TCP 流和仅域名记录不进入 HAR，也不能导出 cURL。
+- 抓包端口默认 80、443、8080、8443，端口、应用和 MITM 主机列表不设条数配额；按原始目标端口筛选。应用列表为空表示不限；未知归属不能匹配指定应用，共享 UID 使用同一归属结果。这些设置只限制记录，不改变配置中的解密或处理范围。
+- 请求条数、磁盘总量、头部和 trailers 不设固定配额。每方向正文默认保留 64 KiB，用户可填写任意可表示的正整数字节数，`-1` 保存完整正文；旧记录的截断标记保留。存储失败、截断、未完成和流错误分别保留。
+- 正文处理、预览和 HAR 共用 [content_encoding.go](libbox/httpdebug/content_encoding.go)，支持 identity、gzip/x-gzip、deflate（zlib/raw）、br 和 zstd，合并重复头后按应用顺序逆序解码。处理阶段对每层应用用户配置的限额；预览/HAR 使用全部已保存内容，不另设解码字节或编码层数上限。不支持的编码或二进制使用 Base64，HAR 请求/响应均保留原始保存内容与完整性标志。HAR 用 `_trailers` 保存尾部字段，耗时仅为总时长。cURL 仅允许完整、未截断且无 trailers 的 HTTP 请求；TLS/TCP 流和仅域名记录不进入 HAR，也不能导出 cURL。
 
-[store.go](libbox/httpdebug/store.go) 为每条记录的两个方向按需保留正文文件句柄，方向内串行写入，EOF、前缀限额、完成、淘汰和清空均释放句柄；达到前缀上限后继续累计实际转发字节。正文写入前在索引锁内预留存储字节，再释放索引锁执行写入，避免并发写入重复占用剩余额度；迟到写入不能重建已清理记录。完成标志等待在途写入提交计数，元数据沿用原子替换。详情在锁内复制元数据并打开文件，随后在锁外只读取该快照已保存的字节数并解码，保留并发追加及淘汰期间的快照一致性。
+[store.go](libbox/httpdebug/store.go) 为每条记录的两个方向按需保留正文文件句柄，方向内串行写入，EOF、用户正文限额、完成和清空均释放句柄；达到前缀上限后继续累计实际转发字节。正文写入在索引锁外执行，完成标志等待在途写入提交计数，迟到写入不能重建已清理记录；元数据沿用原子替换。详情在锁内复制元数据并打开文件，随后在锁外只读取该快照已保存的字节数并解码，保留并发追加及清空期间的快照一致性。列表 `limit=0` 返回全部摘要，界面分页不限制可搜索或导出的历史。
 
 `extractHosts` 额外保存可见 TLS/QUIC 名称，标为“仅域名”；它不启用解密、阻断 QUIC 或恢复 ECH 隐藏的名称。域名导出对当前搜索条件下的保留记录去重。保存记录在停服后仍可读取。
 
@@ -95,7 +100,7 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 
 `ReadUICaptureStatus` 保留抓包状态、计数和最近错误，并报告 `bodyBudgetReserved`/`bodyBudgetLimit`、`httpScriptsRunning`/`cronScriptsRunning`，供平台确认状态；请求页不展示配置已生效横幅。
 
-`CommandServer.StartUICapture(directory, config, certificate, signer)` 与核心重载/关闭串行；后两个参数保留生成调用兼容，解密策略及 CA 只取已启动配置的 MITM。`GenerateUICaptureCA(publicKeyDER, UICaptureSigner)` 只接收平台公钥和签名回调，不接收或导出根私钥。其他 `Open/Validate/Stop/Read/List/Clear/ExportUICapture*`、`ExtractUICaptureHosts` 提供本地访问，轮询只传有界预览。
+`CommandServer.StartUICapture(directory, config, certificate, signer)` 与核心重载/关闭串行；后两个参数保留生成调用兼容，解密策略及 CA 只取已启动配置的 MITM。`GenerateUICaptureCA(publicKeyDER, UICaptureSigner)` 只接收平台公钥和签名回调，不接收或导出根私钥。其他 `Open/Validate/Stop/Read/List/Clear/ExportUICapture*`、`ExtractUICaptureHosts` 提供本地访问；列表轮询传摘要，详情按需读取保存的正文。
 
 ### 独立 MITM 配置
 
@@ -104,7 +109,7 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 | 字段 | 含义 |
 | --- | --- |
 | `enabled` | 启用 HTTPS/TLS 解密，默认 false；不依赖改写、脚本或抓包开关 |
-| `hosts` | 最多 256 项，支持域名、IP、`*` / `?` 通配符、`-` 排除前缀及 `:port`（`:0` 匹配所有端口）；按顺序取首个匹配项，排除项应放在前面。空列表不解密任何连接，非法项拒绝保存 |
+| `hosts` | 支持域名、IP、`*` / `?` 通配符、`-` 排除前缀及 `:port`（`:0` 匹配所有端口）；按顺序取首个匹配项，排除项应放在前面。空列表不解密任何连接，非法项拒绝保存 |
 | `ports` / `packages` | 额外限定原始目的端口及应用，与 `hosts` 取交集；为空时不增加该项限制 |
 | `tcp` | 默认 false；开启后支持非 HTTP TLS 字节流，无 ALPN 时先识别 HTTP/1.x 请求，其他内容按 TCP 转发 |
 | `h2` | 默认 false；开启后允许 HTTP/2 MITM，客户端与上游分别协商 HTTP 版本；关闭时使用 HTTP/1.1 |
@@ -126,6 +131,8 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 HTTP 离线 Mock 的握手方式见下文。TCP 支持限于直接建立 TLS 的连接，不解密任意私有加密协议、STARTTLS 升级、HTTP/3、真实 ECH 或客户端证书认证；嵌套 CONNECT 不支持。证书固定校验或独立信任库可拒绝连接，可移除该域名或由目标客户端调整信任。QUIC 回退只处理已恢复名称的匹配流，其他 UDP、未知名称和未命中的数据报保留；不保证应用会回退。证书安装及平台限制见 [app.md](app.md#请求抓取与-mitm)。
 
 握手设计参考 mitmproxy [`b08148b35d7679bc9be8d4a3d85b32bcea5ce250`](https://github.com/mitmproxy/mitmproxy/tree/b08148b35d7679bc9be8d4a3d85b32bcea5ce250) 的 `addons/tlsconfig.py`、`proxy/layers/tls.py` 和 `certs.py`；生产实现使用 Go `crypto/tls`。FlClash 补充参考见 [界面来源](flclash.md#参考版本与来源清单)。
+
+叶证书缓存按证书到期时间清理，不设置固定主机数量配额；仍使用独立单主机 SAN，证书有效期不超过签发 CA。缓存随服务实例释放。
 
 本轮协议、配置及 Android 路由回归的实际结果见 [MITM 与 Surge 对齐验证](app.md#mitm-与-surge-对齐验证)。
 
@@ -154,15 +161,15 @@ HTTPS MITM 需准备并安装 CA，入口见 [配置编辑](flclash.md#配置页
 | 字段 | 含义 |
 | --- | --- |
 | `enabled` | 启用声明式 HTTP 处理，默认 false |
-| `ports` / `packages` | 原始目的端口及应用范围；默认端口 80、443、8080、8443，最多 32 个；应用为空表示不限 |
-| `max_request_body_bytes` | 请求正文及改写输出上限，默认及最大 33554432 字节（32 MiB） |
-| `max_response_body_bytes` | 响应正文及改写输出上限，默认 1048576（移动端 1 MiB），可提高到 10485760（10 MiB） |
-| `max_body_bytes` | 兼容旧配置；1～10485760 字节，作为未指定方向的共同值，方向字段优先 |
+| `ports` / `packages` | 原始目的端口及应用范围；默认端口 80、443、8080、8443，应用为空表示不限 |
+| `max_request_body_bytes` | 请求正文及改写输出上限，正整数按字节限制，缺省或 `-1` 不限制 |
+| `max_response_body_bytes` | 响应正文及改写输出上限，正整数按字节限制，缺省或 `-1` 不限制 |
+| `max_body_bytes` | 兼容旧配置，作为未指定方向的共同值；正整数按字节限制，`0` / `-1` 不限制，方向字段优先 |
 | `resources` | 资源字典，值包含 `data_type`、`data`，文件/URL 资源可设 `update_interval`，见[资源加载](#文件和-url-资源加载) |
 
-规则及资源各最多 256，扩展 JSON 最多 2 MiB。规则有必填 `pattern`、可选 `name`/`disabled`（默认 false）。匹配依次尝试原始完整 URL（含查询参数）、替换为可见 Host 的 URL、替换为底层连接域名的 URL，任一命中即可；请求和响应使用相同候选，URL 替换基于实际命中的候选。HTTP 脚本同样使用这些候选。HTTP/1 absolute-form 的 Host 可见性受 Go HTTP 解析器约束：以请求目标的 authority 填充 Host 时，独立的原始 Host 头无法再作为另一候选恢复。
+规则、资源数量及扩展 JSON 不设固定容量配额。规则有必填 `pattern`、可选 `name`/`disabled`（默认 false）。匹配依次尝试原始完整 URL（含查询参数）、替换为可见 Host 的 URL、替换为底层连接域名的 URL，任一命中即可；请求和响应使用相同候选，URL 替换基于实际命中的候选。HTTP 脚本同样使用这些候选。HTTP/1 absolute-form 的 Host 可见性受 Go HTTP 解析器约束：以请求目标的 authority 填充 Host 时，独立的原始 Host 头无法再作为另一候选恢复。
 
-[正则实现](libbox/httpdebug/rewrite_regex.go) 对普通表达式使用 Go RE2，对扩展语法回退 regexp2，支持正向/负向前查找 `(?=…)`/`(?!…)`、正向/负向后查找 `(?<=…)`/`(?<!…)`，以及正则内部数字和命名反向引用。替换模板保留 `$1`、`${name}`、`$$`，中文和 emoji 按字节位置正确切片；正文 `^`/`$` 按行匹配。表达式最多 4096 字节、32 个捕获组，单次替换最多 8192 处。回溯最多 4 个并发、100000 栈槽、每次匹配 200 毫秒，同一请求/响应累计回溯工作预算 500 毫秒（包含等待名额，不含线性 RE2、上游和脚本等待）；RE2 由输入大小和替换次数约束，避免大正文在线性扫描时被回溯期限误拒。超限报处理错误；不支持从右向左模式。
+[正则实现](libbox/httpdebug/rewrite_regex.go) 对普通表达式使用 Go RE2，对扩展语法回退 regexp2，支持正向/负向前查找 `(?=…)`/`(?!…)`、正向/负向后查找 `(?<=…)`/`(?<!…)`，以及正则内部数字和命名反向引用。替换模板保留 `$1`、`${name}`、`$$`，中文和 emoji 按字节位置正确切片；正文 `^`/`$` 按行匹配，稀疏数字捕获组映射到紧凑索引。表达式、捕获组、替换次数、回溯栈和并发不设 B-box 配额；输出遵守用户正文限额。回溯执行持续检查当前请求取消，每次调用使用独立 runner 缓存，不修改共享表达式的期限；不支持从右向左模式。
 
 | 能力 / 字段 | 规则内容及行为 |
 | --- | --- |
@@ -172,13 +179,15 @@ HTTPS MITM 需准备并安装 CA，入口见 [配置编辑](flclash.md#配置页
 | Body Rewrite / `body_rewrite` | `phase`、URL `pattern`，使用正文 `regex`/`replacement` 或 `jq`，二者互斥；匹配规则依次执行 |
 | Map Local / `map_local` | 首条匹配返回本地响应，`status` 默认 200，接受 200～999；`headers` 为 `{name,value}` 数组；`data_type` 支持 text、base64、tiny-gif、file，`data` 为内容或路径/URL；可用 `resource` 引用资源，与 data/data_type 互斥。为兼容已有 B-box JSON，省略类型仍按 text 处理 |
 
-[jq](libbox/httpdebug/rewrite_json.go) 支持请求和响应的完整 JSON 值、保留大整数，多个输出值以换行连接。非法 JSON/表达式、执行失败、超时或输出超限跳过该规则并告警；无输出（如 `empty`）保持原文。整个请求/响应累计 jq 预算 500 毫秒，表达式最多 4096 字节、最多 8192 个输出值、256 层输出嵌套；无外部模块、文件、输入和环境变量加载器。gojq 与原版 jq 并非逐项完全等价。
+[jq](libbox/httpdebug/rewrite_json.go) 支持请求和响应的完整 JSON 值、保留大整数，多个输出值以换行连接。非法 JSON/表达式、执行失败、取消或超过用户输出限额时跳过该规则并告警；无输出（如 `empty`）保持原文。表达式、输出值数量和输出嵌套不设 B-box 配额，执行使用当前请求的 context；无外部模块、文件、输入和环境变量加载器。gojq 与原版 jq 并非逐项完全等价。
 
 顺序为请求 Header → URL → Map Remote → Body（含 jq）→ 请求脚本 → Map Local → 上游 → 响应 Header → Body（含 jq）→ 响应脚本。重定向、拒绝或脚本 Mock 提前结束请求路径，响应仍经过响应阶段。脚本未捕获异常、超时或源码加载失败时，本次脚本不生效，保留前序改写后的报文并继续，记录告警；不尝试后续匹配脚本。`$done({abort:true})` 终止当前 HTTP 交换：HTTP/1 关闭连接，HTTP/2 只重置当前流，不返回合成错误页。非法 `$done` 结果、分帧错误、正则处理错误和上游失败返回 502，超限请求正文返回 413。
 
 HTTP/1 请求处理错误立即终止后续正文读取并关闭连接，避免半上传阻塞错误响应；HTTP/2 只关闭本次请求正文。只缓冲需要正文的匹配规则，编码及分层限制见 [HTTP 调试](#httphttps-请求调试)。压缩前后检查限额；不支持/无效编码和非 UTF-8 文本保留原文。响应超限回放已读前缀继续转发；SSE、未显式选择[一元处理](#一元-grpc-正文脚本)的 gRPC/grpc-web、NDJSON、JSON sequence、multipart/x-mixed-replace、协议升级、HEAD 和 206 响应跳过正文处理，无需正文的规则仍可执行。普通 HTTP 改写后移除旧压缩、摘要、ETag、范围及 trailer，重算 Content-Length；gRPC 改写保留协议 trailers。禁止手动改变分帧/升级头或 101 状态。HEAD/204/205/304 不发送不允许的正文。B-box 保留 chunked 和 Expect 上传处理，不完全复制 Surge 的跳过条件。
 
-[body_budget.go](libbox/httpdebug/body_budget.go) 为正文处理、预览/HAR 解码、资源下载与脚本共用 384 MiB 工作预留预算。被拦截正文按 `8 × max(4096, limit + 1)` 预留 wire、解码、改写和脚本副本余量；独立 HTTP/资源随读取长度增长预留。结果及响应回放持有预留直到正文关闭。预算不足跳过未开始的正文处理及相应脚本、保留原流并记原因；请求脚本即使不读正文也可能 Mock，仍须预留。它限制正文工作准入，不是 Goja/gojq 任意分配或进程 RSS 的硬隔离，也不是实机压测容量。zstd 另有 8 MiB 解码窗口/内存及单解码器并发限制。
+[body_budget.go](libbox/httpdebug/body_budget.go) 按实际正文缓冲长度记账，生产环境不设全局容量配额，不再按配置上限倍数预留。脚本主动请求先检查累计次数、取消与服务可用性，再解析选项；目标校验通过后才访问 body getter 或 JSON 序列化。字符串按 Goja UTF-16 精确计算 UTF-8 字节数，TypedArray 按子视图长度检查用户限额，并在分配自己的正文副本前登记；异步 worker 将所有权交给 VM 回调，结束或取消后释放。JSON 序列化本身发生在 VM 内，统计不涵盖任意 JS/gojq 分配、缓冲容量或进程 RSS，也不是实机容量测量。结果及响应回放保持登记直到正文关闭，`bodyBudgetLimit=0` 表示没有全局配额。
+
+保留的数值边界来自格式或表示范围：端口和 gRPC 长度字段、DNS 标签/域名长度、Go 整数与 duration 范围，以及 [RFC 9113](https://www.rfc-editor.org/rfc/rfc9113.html#section-6.5.2) 的 HTTP/2 SETTINGS/帧长度字段。HTTP zstd 保留 [RFC 9659 §3](https://www.rfc-editor.org/rfc/rfc9659.html#section-3) 要求的 8 MiB 最大窗口，采用流式解码；这不限制完整正文长度。`crypto/tls` 的 ClientHello 解析边界由固定 Go 版本决定，见 [Go 1.26.10 源码](https://github.com/golang/go/blob/go1.26.10/src/crypto/tls/conn.go)。Surge iOS/macOS 的容量值不作为 Android 容量依据。
 
 未改变 origin 的请求沿用原出站、解析结果和网络选项；跨 origin 重新进入同一核心，保留入站、来源和应用归属，清除旧目的地/规则缓存并防止递归处理，无直连回退。记录保留原 URL 和命中说明，路由字段表示原连接。
 
@@ -186,19 +195,19 @@ HTTP/1 请求处理错误立即终止后续正文读取并关闭连接，避免�
 
 ### 文件和 URL 资源加载
 
-[processing_resources.go](libbox/httpdebug/processing_resources.go) 供 Map Local 和脚本共用。`data_type: "file"` 的 `data` 为相对实际配置文件目录的路径或 HTTP(S) URL；Map Local 文件最多 15 MiB，脚本源码不设单独的大小上限。文件读取、下载及每层解压随实际大小预留[共享正文工作预算](#json-配置中的-http-改写)，URL 缓存仍受下述磁盘总额约束。拒绝绝对本地路径、目录逃逸及非普通文件。校验、编辑、格式化、导入及备份不读这些文件、不下载或执行代码，缺失资源在运行时处理。配置导出仅携带引用，不打包实际文件或下载缓存。
+[processing_resources.go](libbox/httpdebug/processing_resources.go) 供 Map Local 和脚本共用。`data_type: "file"` 的 `data` 为相对实际配置文件目录的路径或 HTTP(S) URL；文件和脚本源码不设固定容量上限。文件读取、下载及每层解压随实际大小[登记正文缓冲](#json-配置中的-http-改写)。拒绝绝对本地路径、目录逃逸及非普通文件。校验、编辑、格式化、导入及备份不读这些文件、不下载或执行代码，缺失资源在运行时处理。配置导出仅携带引用，不打包实际文件或下载缓存。
 
-本地 Map Local 每次命中重新读，按后缀推断 MIME，显式 Content-Type 优先；内嵌资源引用继承其 data_type。本地脚本编译结果默认缓存到服务结束，`debug: true` 每次重新读/编译。URL 资源在服务成功激活后经当前核心路由自动下载、后台刷新，默认 86400 秒，资源 `update_interval` 或脚本 `script_update_interval` 可设 1～31536000 秒。下载最多 15 秒、10 次重定向，同资源合并并发下载，不递归改写/脚本。
+本地 Map Local 每次命中重新读，按后缀推断 MIME，显式 Content-Type 优先；内嵌资源引用继承其 data_type。本地脚本编译结果默认缓存到服务结束，`debug: true` 每次重新读/编译。URL 资源在服务成功激活后经当前核心路由自动下载、后台刷新，默认 86400 秒；资源 `update_interval` 或脚本 `script_update_interval` 接受可表示为 duration 的正整数秒。下载由调用方及服务取消，不另加固定期限；检测重复 URL/方法的重定向循环。同资源合并并发下载，不同资源独立刷新，同一身份使用最短配置间隔，不递归改写/脚本。
 
-URL 内容和成功时间原子存入私有 `captures/resource-cache/`，按资源身份哈希命名，磁盘缓存合计最多 64 MiB。更新失败、超限或新脚本编译失败保留上次可用缓存；无缓存时，Map Local 跳过并回到上游，脚本保留报文，均告警。首次命中可能等待下载，加载也计入脚本时限；有缓存则使用缓存并后台刷新。停止/重载取消下载、等待后台退出。清空抓包不删除缓存；目录和备份边界见 [应用生命周期](app.md#配置处理生命周期)。
+URL 内容和成功时间原子存入私有 `captures/resource-cache/`，按资源身份哈希命名，不设累计磁盘配额。处理配置激活时按当前引用集合清理过期身份及未提交的 `.pending`；只处理缓存拥有的 64 位十六进制文件名，不删除无关文件、目录或符号链接，不淘汰仍在引用的最后可用版本。缓存写入与清理共用锁，保持临时文件、同步及原子替换。更新、磁盘提交或新脚本编译失败保留上次可用缓存；无缓存时，Map Local 跳过并回到上游，脚本保留报文，均告警。首次命中可能等待下载，加载也计入用户脚本期限；有缓存则使用缓存并后台刷新。停止/重载取消下载、等待后台退出。清空抓包不删除缓存；目录和备份边界见 [应用生命周期](app.md#配置处理生命周期)。
 
 URL 脚本默认按资源身份及内容 SHA-256 缓存编译结果，命中磁盘或重新下载相同内容时复用；`debug: true` 每次重新编译。每个资源仅保留当前一份编译结果，随服务结束释放，重载后首次读取重新编译。新下载脚本只有编译及磁盘提交均成功才更新编译缓存；各次执行仍使用独立 Goja VM。
 
 ### 独立脚本与 Cron
 
-`experimental.scripts` 定义见 [script_config.go](libbox/httpdebug/script_config.go)，示例见 [examples/scripts.json](examples/scripts.json)。`enabled` 默认 false，HTTP/Cron 共最多 256 条、资源最多 256，JSON 最多 2 MiB。每条规则从 `source`、`resource`、`script_path` 中选一个：内联源码、字典资源引用、文件/URL 路径。源码须非空，不设单脚本大小上限；内联源码和内嵌资源计入配置 JSON 总额。校验编译内联代码和时间表达式，外部源码按[资源加载](#文件和-url-资源加载)在运行时处理。
+`experimental.scripts` 定义见 [script_config.go](libbox/httpdebug/script_config.go)，示例见 [examples/scripts.json](examples/scripts.json)。`enabled` 默认 false，HTTP/Cron、资源数量、源码和 JSON 不设固定配额。每条规则从 `source`、`resource`、`script_path` 中选一个：非空内联源码、字典资源引用、文件/URL 路径。校验编译内联代码和时间表达式，外部源码按[资源加载](#文件和-url-资源加载)在运行时处理。
 
-`ports`/`packages` 只限制被处理的 HTTP 流，默认端口同改写，不限制脚本主动请求。被拦截正文及脚本输出 `max_body_bytes` 默认 1 MiB，可设 1～33554432；`-1` 在 B-box 表示 32 MiB 硬上限，HTTP 规则可覆盖。主动 HTTP 客户端另有独立限额。
+`ports`/`packages` 只限制被处理的 HTTP 流，默认端口同改写，不限制脚本主动请求。被拦截正文及脚本输出 `max_body_bytes` 缺省、`0` 或 `-1` 不限制，正整数按字节限制，HTTP 规则可覆盖。主动 HTTP 客户端可独立配置限额。
 
 HTTP 规则指定 `pattern`、`phase`（request/response）、可选 `name`/`disabled`，每个方向只执行首条匹配脚本，失败不尝试下一条。HTTPS 必须另启 MITM 并匹配域名。[script.go](libbox/httpdebug/script.go) 提供：
 
@@ -207,13 +216,13 @@ HTTP 规则指定 `pattern`、`phase`（request/response）、可选 `name`/`dis
 - `$done()`/`$done({})` 保持当前报文并结束执行；请求可返回 url/headers/body/response/abort，以及 B-box 的 method；响应可返回 status/headers/body/abort。Mock response 支持 status/headers/body，状态码 200～999。`abort: true` 终止当前 HTTP/1 连接或 HTTP/2 流。
 - body 默认 UTF-8，`binary_body: true` 用 Uint8Array。替换当前 body 要求 requires_body，Mock response.body 不要求读取请求正文。
 - `full_headers: true` 以 `{field,value}` 数组保留重复头，返回值接受数组/对象，普通输入对象每字段只取首值。
-- 非空 `argument` 通过 `$argument` 提供；未配置或为空时不注入该全局，避免脚本把缺省参数当成空 JSON。`$script` 有 name/type/binaryBodyMode/startTime/sessionID，name 优先取配置名称，startTime 为 Unix 秒数，sessionID 每次执行独立生成。console.log/info/warn/error/debug 进入服务日志，对象按 JSON 输出，每次最多 10 条、正文最多 2 KiB；HTTP 脚本 `debug: true` 还将同一内容附到请求备注。
+- 非空 `argument` 通过 `$argument` 提供；未配置或为空时不注入该全局，避免脚本把缺省参数当成空 JSON。`$script` 有 name/type/binaryBodyMode/startTime/sessionID，name 优先取配置名称，startTime 为 Unix 秒数，sessionID 每次执行独立生成。console.log/info/warn/error/debug 进入服务日志，对象按 JSON 输出，不设每次执行的条数或单条截断配额；HTTP 脚本 `debug: true` 还将同一内容附到请求备注。
 
-HTTP/Cron `timeout_ms` 均默认 5000，范围 1～86400000；资源加载、等待解释器、网络、定时器和执行共享期限。每次独立 Goja VM，HTTP 最多 4 个解释器，Cron 独立 2 个；等待名额计入时限并记录原因。调用栈最多 256 层，JS 原生正则另设 200 毫秒匹配时限。Goja 并非 WebView 或进程级内存隔离。
+HTTP/Cron `timeout_ms` 均默认 5000，正整数使用可表示的毫秒期限，`-1` 不增加期限；资源加载、网络、定时器和执行共享调用方期限及服务取消。每次使用独立 Goja VM，不设固定解释器数量或 B-box 调用栈配额。JS 原生正则在回溯循环中检查同一 VM 的中断，不另加匹配时限；一个 VM 的取消不会影响共享编译代码的其他 VM。Goja 并非 WebView 或进程级内存隔离。
 
 Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`timeout_ms` 和源码字段。支持五段“分 时 日 月 周”或六段“秒 分 时 日 月 周”，范围、列表、步长及月份/星期名称；IANA 时区未指定时用服务启动时的 Android 时区，包含 tzdata。`$cronexp` 是原表达式，`$script.type` 为 cron，无 `$request`/`$response`。常规 HTTP 和 Cron 执行均不注入 `$trigger`。
 
-[调度器](libbox/httpdebug/script_cron.go) 只在本地服务启动成功后运行；重载/停止取消运行任务、丢弃队列、等待 worker 退出，抓包启停不重置调度。到期任务按配置顺序进入有界 FIFO，由 2 个 worker 处理；同任务已排队或运行时跳过重复到期并记日志，队列和运行数不超过启用任务数。排队不创建 VM、不预留正文预算、不消耗执行时限，出队才计时；预算不足跳过该次任务。设备休眠错过周期不补跑、不申请系统唤醒；必须调用 `$done`，异常及超时进入日志。
+[调度器](libbox/httpdebug/script_cron.go) 只在本地服务启动成功后运行；重载/停止取消任务并等待退出，抓包启停不重置调度。不同到期任务独立开始，不经过固定 worker 配额或排队；同任务仍在运行时跳过重复到期并记日志，防止自身重叠。设备休眠错过周期不补跑、不申请系统唤醒；必须调用 `$done`，异常及用户期限超时进入日志。
 
 #### 一元 gRPC 正文脚本
 
@@ -223,13 +232,13 @@ Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`ti
 
 校验输入和输出的消息数、标记和长度；压缩消息支持 `grpc-encoding: gzip/deflate`，同时检查压缩前后限额。脚本自己解析消息；`$utils.ungzip` 可处理 gzip，其他消息解码器由脚本提供。替换消息时必须更新四字节长度及压缩标记，返回未压缩消息应使用标记 0。HTTP 的 `Content-Encoding` 与消息的 `grpc-encoding` 分别处理。替换后保留 HTTP trailers（包括真实 `grpc-status`、`grpc-message` 和状态详情）及 gRPC-Web 尾帧；无需伪造成功状态。有 HTTP trailers 时去掉固定 Content-Length，由传输层正确结束消息。
 
-无消息、多个消息、损坏分帧、不支持的压缩或响应超限均跳过脚本、记录原因并保留原文；请求正文及解压消息超限仍返回 413。非法输出拒绝转发。`$done()`、异常等未提供替换正文时保留原有压缩和传输字节。读取沿用 15 秒正文期限及共享预算；误将长时间不结束的流式 RPC 声明为 unary 会触发读取超时，不能将此模式作为流式处理。SSE 和持续流式 RPC 的正文改写不在本次支持范围。
+无消息、多个消息、损坏分帧、不支持的压缩或响应超过用户限额时均跳过脚本、记录原因并保留原文；请求正文及解压消息超过用户限额仍返回 413。非法输出拒绝转发。`$done()`、异常等未提供替换正文时保留原有压缩和传输字节。读取使用当前请求的取消，不增加固定正文期限；声明为 unary 的调用必须等完整正文才能处理，不能将此模式作为流式处理。SSE 和持续流式 RPC 的正文改写不在本次支持范围。
 
 协议依据为 gRPC 官方 [HTTP/2 协议](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md) 和 [gRPC-Web 协议](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-WEB.md)。Surge 脚本行为对照官方 [HTTP 请求](https://manual.nssurge.com/scripting/http-request.html)、[HTTP 响应](https://manual.nssurge.com/scripting/http-response.html)及 [JavaScript API](https://manual.nssurge.com/scripting/api.html)。B-box 继续使用 sing-box JSON，不直接导入 `.sgmodule`，也不提供 WebView/Node、通知或完整 Surge 控制 API；`reject-200`/`reject-dict` 是迁移快捷动作，不将它们记为 Surge 官方 URL Rewrite 类型。
 
 #### 脚本解压工具
 
-[script_utils.go](libbox/httpdebug/script_utils.go) 向 HTTP/Cron 提供 `$utils.ungzip(Uint8Array)`，支持 TypedArray 子视图，成功返回 Uint8Array，参数无效、gzip 损坏、超限、预算不足或取消返回 null。解压输出最多 16 MiB，对齐 Surge iOS 的该接口限额；读取计入共享正文工作预算，成功结果的预留持有至当前 VM 结束，失败立即释放。它不增加任意文件或设备控制能力。
+[script_utils.go](libbox/httpdebug/script_utils.go) 向 HTTP/Cron 提供 `$utils.ungzip(Uint8Array)`，支持 TypedArray 子视图，成功返回 Uint8Array，参数无效、gzip 损坏或取消返回 null。不设固定输出容量，读取计入正文缓冲统计，成功结果的登记持有至当前 VM 结束，失败立即释放。它不增加任意文件或设备控制能力。
 
 #### 脚本 HTTP 客户端
 
@@ -238,38 +247,40 @@ HTTP 与 Cron 共用 [script_http.go](libbox/httpdebug/script_http.go)：`$httpC
 | 选项 | 行为 |
 | --- | --- |
 | `url` / `headers` / `body` | HTTP(S) URL，头接受对象或完整头数组；body 支持字符串、JSON 对象/数组、TypedArray 子视图；对象自动序列化并在缺少类型时设 application/json |
-| `timeout` | 单次请求秒数，默认 5，最大 86400，同时受脚本总时限约束 |
-| `auto-redirect` / `auto-cookie` | 默认 true；最多 10 次重定向，307/308 可重放正文；Cookie 在同次执行内共享，可分别关闭 |
+| `timeout` | 单次请求秒数，默认 5，接受可表示的正数或 `-1` 不增加期限，同时受脚本总期限约束 |
+| `auto-redirect` / `auto-cookie` | 默认 true；检查重定向循环，307/308 可重放正文；Cookie 在同次执行内共享，可分别关闭 |
 | `binary-mode` / `full-header-mode` | 默认 false；分别返回 Uint8Array 或保留重复响应头的 `{field,value}` 数组 |
 | `insecure` | 默认 false；true 仅关闭该客户端请求的 TLS 证书校验 |
 | `policy` | 当前实例中真实 outbound tag（含 selector）；未知 tag 回调报错，无直连回退。不支持 Surge `policy-descriptor`，会明确报错 |
 
-HTTP/Cron 默认允许经核心主动联网。`http_client.allowed_origins` 可限制精确 HTTP(S) origin：省略/null 不限制，显式 `[]` 禁止，格式化保留区别。最多 16 项，无通配符、凭据、非根路径、查询或片段；规范化大小写、末尾点及默认端口，不能用 Host 或重定向越过限制，每跳校验。允许列表与 MITM 域名独立。
+HTTP/Cron 默认允许经核心主动联网。`http_client.allowed_origins` 可限制精确 HTTP(S) origin：省略/null 不限制，显式 `[]` 禁止，格式化保留区别。不设条数配额，无通配符、凭据、非根路径、查询或片段；规范化大小写、末尾点及默认端口，不能用 Host 或重定向越过限制，每跳校验。允许列表与 MITM 域名独立。
 
-每次脚本最多 20 个并发请求，超过后异步回调报错；不再默认限制累计次数，`http_client.max_requests` 可显式设正整数，失败和被拒绝调用也计数。客户端 `max_body_bytes` 默认及最大 32 MiB，可设更小的输入/输出限额，与拦截正文限额独立。每次调用动态持有[正文预算](#json-配置中的-http-改写)直到回调结束，预算不足回调报错。`$done`、异常、超时、取消和停服结束在途网络、释放队列及预算。
+脚本不设固定并发请求数；`http_client.max_requests` 可显式设正整数限制累计调用，失败和被拒绝调用也计数。客户端 `max_body_bytes` 缺省、`0` 或 `-1` 不限制，正整数限制输入/输出，与拦截正文限额独立。准入及复制前检查见[正文记账](#json-配置中的-http-改写)，worker 与回调交接同一登记，待回调队列不按固定数量丢弃事件。`$done`、异常、超时、取消和停服结束在途网络并释放队列及登记。
 
 响应按 Content-Encoding 解码，传输字节及各层解码结果分别检查客户端限额，编码/层数/完整性见[共用解码器](#httphttps-请求调试)。未知、损坏、截断编码、超限或非 UTF-8（未设 binary-mode）回调报错，不返回部分正文。客户端不添加 Accept-Encoding，保留脚本显式值；解压成功移除 Content-Encoding/旧 Content-Length。HEAD/204/304 返回空正文并保留表示元数据。
 
-无 policy 时以 `b-box-scripts` 入站上下文重新匹配当前实例路由、使用其证书库，不新增监听器、不回退设备直连、不递归改写/脚本/记录。指定 policy 由同一实例的对应出站拨号。
+无 policy 时以 `b-box-scripts` 入站上下文重新匹配当前实例路由、使用其证书库，不新增监听器、不回退设备直连、不递归改写/脚本/记录。指定 policy 由同一实例的对应出站拨号；两种路径都在[共享路由生命周期](#出口-ip-和质量查询传输)登记，核心关闭前等待其退出。
 
 #### 脚本持久存储
 
-[script_storage.go](libbox/httpdebug/script_storage.go) 默认共享 `default` 命名空间；`storage_namespace` 可选 1～64 个 ASCII 字母、数字、点、下划线或连字符，首字符为字母/数字。规则只能用固定命名空间，不能枚举/切换；同名空间在本机配置及 HTTP/Cron 间共享，保留原显式命名空间兼容。
+[script_storage.go](libbox/httpdebug/script_storage.go) 默认共享 `default` 命名空间；`storage_namespace` 使用非空 ASCII 字母、数字、点、下划线或连字符，首字符为字母/数字。规则只能用固定命名空间，不能枚举/切换；同名空间在本机配置及 HTTP/Cron 间共享，保留原显式命名空间兼容。名称用于私有文件名，实际文件系统错误继续报告，不另设经验长度上限。
 
 - `$persistentStore.read(key)` 返回字符串，不存在为 null，空字符串有效；`write(value,key)` 成功为 true，字符串写入，null 删除。省略 key 按脚本身份生成，同一文件/URL 的 HTTP/Cron 共享；内联源码变化改变默认 key，规则改名/排序不改变。
-- 读取失败抛异常；配额、存储不可用或 I/O 写入失败为 false，首次失败记日志；非法类型抛异常。key 为 1～256 UTF-8 字节，单值最多 4 MiB；每空间最多 128 键、序列化 JSON 最多 32 MiB，所有空间最多 256 个、64 MiB；每次执行最多 64 次读写。旧合法字符串 key 继续兼容，不用作文件路径。
-- 写入持锁按最新数据查配额，同步临时文件并原子替换后才更新内存。等锁和提交前检查取消；每次调用独立原子化，read 后 write 不是事务，成功写入不因脚本异常/非法 `$done` 回滚。
-- 打开时校验版本、内容及限额，拒绝快照/专用目录符号链接；中断写入不提升为快照。移除规则不自动删数据，删除最后一键释放空间。目录、备份和清理见[应用生命周期](app.md#配置处理生命周期)。
+- 读取失败抛异常；存储不可用或 I/O 写入失败为 false，首次失败记日志；非法类型抛异常。key 为非空合法 UTF-8 字符串，不用作文件路径。不设调用次数、键/命名空间数量、键/值长度或空间容量配额。
+- 写入持锁读取最新数据，同步临时文件并原子替换后才更新内存。等锁和提交前检查取消；每次调用独立原子化，read 后 write 不是事务，成功写入不因脚本异常/非法 `$done` 回滚。
+- 打开时校验版本及内容，拒绝快照/专用目录符号链接；中断写入不提升为快照。移除规则不自动删数据，删除最后一键释放空间。目录、备份和清理见[应用生命周期](app.md#配置处理生命周期)。
 
 #### 脚本定时器
 
-[script_timers.go](libbox/httpdebug/script_timers.go) 提供 `setTimeout(function,delayMs,...args)`、`setInterval(function,delayMs,...args)` 和可互换句柄的 `clearTimeout`/`clearInterval`。回调须为函数，不执行字符串；delay 默认 0，可设 0～86400000 的有限数值，实际最小 1 毫秒。
+[script_timers.go](libbox/httpdebug/script_timers.go) 提供 `setTimeout(function,delayMs,...args)`、`setInterval(function,delayMs,...args)` 和可互换句柄的 `clearTimeout`/`clearInterval`。回调须为函数，不执行字符串；delay 默认 0，接受可表示为 duration 的非负有限毫秒数，实际最小调度间隔 1 毫秒。
 
-每次 VM 最多 64 个待执行定时器，不再限制累计注册/回调 128 次。顶层返回后，定时器和 HTTP 回调在同一事件循环运行，可调用 HTTP、存储和 `$done`。重复定时器从回调结束后计下一次，不补跑错过间隔；不延长执行时限、不跨执行/重启保存、不提供系统唤醒。无待执行事件也须在期限内调用 `$done`，它与 Cron 日历调度独立。
+待执行定时器、累计注册及回调次数不设固定配额。顶层返回后，定时器和 HTTP 回调在同一事件循环运行，可调用 HTTP、存储和 `$done`。重复定时器从回调结束后计下一次，不补跑错过间隔；不延长调用方期限、不跨执行/重启保存、不提供系统唤醒。无待执行事件也须调用 `$done`，它与 Cron 日历调度独立。
 
-上述语义对照 2026-11-05 的 Surge [HTTP Processing](https://manual.nssurge.com/http/overview.html)、[URL Rewrite](https://manual.nssurge.com/http/url-rewrite.html)、[Header Rewrite](https://manual.nssurge.com/http/header-rewrite.html)、[Body Rewrite](https://manual.nssurge.com/http/body-rewrite.html)、[Map Local](https://manual.nssurge.com/http/map-local.html)、[脚本概览](https://manual.nssurge.com/scripting/overview.html)、[请求](https://manual.nssurge.com/scripting/http-request.html)、[响应](https://manual.nssurge.com/scripting/http-response.html)、[Cron](https://manual.nssurge.com/scripting/cron.html)及 [JavaScript API](https://manual.nssurge.com/scripting/api.html)。B-box 使用 JSON 和 Goja，保留上述路径、正文、执行及存储限额；不导入 Surge INI，不提供 Node.js、通知、完整 WebView/Surge API，也不引入 Mihomo 覆写。
+上述语义对照 2026-11-05 的 Surge [HTTP Processing](https://manual.nssurge.com/http/overview.html)、[URL Rewrite](https://manual.nssurge.com/http/url-rewrite.html)、[Header Rewrite](https://manual.nssurge.com/http/header-rewrite.html)、[Body Rewrite](https://manual.nssurge.com/http/body-rewrite.html)、[Map Local](https://manual.nssurge.com/http/map-local.html)、[脚本概览](https://manual.nssurge.com/scripting/overview.html)、[请求](https://manual.nssurge.com/scripting/http-request.html)、[响应](https://manual.nssurge.com/scripting/http-response.html)、[Cron](https://manual.nssurge.com/scripting/cron.html)及 [JavaScript API](https://manual.nssurge.com/scripting/api.html)。B-box 使用 JSON 和 Goja，不沿用仅有 iOS/macOS 出处的固定容量配额；用户配置的正文限制及执行期限继续生效。不导入 Surge INI，不提供 Node.js、通知、完整 WebView/Surge API，也不引入 Mihomo 覆写。
 
 核心固定 [Goja a177d211bf606f6275674a35bc0d31d8ee0ee396](https://github.com/dop251/goja/tree/a177d211bf606f6275674a35bc0d31d8ee0ee396)、[regexp2/v2 v2.11.0](https://github.com/dlclark/regexp2/tree/v2.11.0)、[gojq v0.12.17](https://github.com/itchyny/gojq/tree/v0.12.17)、[timefmt-go v0.1.6](https://github.com/itchyny/timefmt-go/tree/v0.1.6) 和 [robfig/cron v3.0.1](https://github.com/robfig/cron/tree/v3.0.1)。setup-core 将最低 Go 版本设为 1.26.0，实际用 version.properties 的 go1.26.10；Goja 还引入 sourcemap、pprof 及 x/text v0.43.0。正文解码复用核心的 [brotli v1.1.0](https://github.com/andybalholm/brotli/tree/v1.1.0) 和 [klauspost/compress v1.19.1](https://github.com/klauspost/compress/tree/v1.19.1)。许可证随 Flutter assets 注册；统一测试和 Release 共用核心安装入口，三个上游基线不变。
+
+[patch_processing_runtimes.py](tools/patch_processing_runtimes.py) 核对固定版本，将 Goja/regexp2 复制到构建目录 `.core/.b-box/` 后应用取消补丁和 [Goja 扩展](libbox/goja/bbox_regexp_interrupt.go)、[regexp2 扩展](libbox/regexp2/bbox_context.go)，再设置模块替换；不修改共享模块缓存。升级依赖时须重新核对补丁位置、runner 隔离和 VM 中断行为。JS 正则字面量、构造器、`.compile`、match/replace 的取消与并行 VM 回归见 [script_admission_test.go](libbox/httpdebug/script_admission_test.go)。
 
 ### 旧抓包配置清理
 

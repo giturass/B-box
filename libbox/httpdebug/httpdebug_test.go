@@ -119,7 +119,7 @@ func waitComplete(t *testing.T, s *Store, count int) []Summary {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		page := s.Page(MaxEntries, "")
+		page := s.Page(0, "")
 		if len(page.Items) == count {
 			complete := true
 			for _, item := range page.Items {
@@ -131,7 +131,7 @@ func waitComplete(t *testing.T, s *Store, count int) []Summary {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("incomplete capture: %+v", s.Page(MaxEntries, ""))
+	t.Fatalf("incomplete capture: %+v", s.Page(0, ""))
 	return nil
 }
 
@@ -258,20 +258,20 @@ func TestSSEVisibleBeforeCompletionAndStop(t *testing.T) {
 	}
 }
 
-func TestStoreBoundsPersistenceClearAndCurl(t *testing.T) {
+func TestStoreRetentionPersistenceClearAndCurl(t *testing.T) {
 	_, store := testEngine(t, Config{})
 	req, _ := http.NewRequest("GET", "http://example.test/a'b", nil)
 	req.Proto = "HTTP/1.1"
-	for i := 0; i < MaxEntries+3; i++ {
+	for i := 0; i < 303; i++ {
 		id := store.begin(Metadata{Packages: []string{"com.test"}}, req, 16)
 		store.finish(id)
 	}
 	page := store.Page(20, "com.test")
-	if page.Total != MaxEntries || len(page.Items) != 20 {
+	if page.Total != 303 || len(page.Items) != 20 {
 		t.Fatalf("bad page: %d, %d", page.Total, len(page.Items))
 	}
 	reopened, err := OpenStore(store.directory)
-	if err != nil || reopened.Page(1, "").Total != MaxEntries {
+	if err != nil || reopened.Page(1, "").Total != 303 {
 		t.Fatalf("persistence: %v", err)
 	}
 	command, err := reopened.Curl(page.Items[0].ID)
@@ -309,7 +309,7 @@ func TestTLSRequiresAuthorityAndStoppedEngineRejectsHTTP(t *testing.T) {
 	}
 }
 
-func TestHARContentDecodingAndCompressionLimit(t *testing.T) {
+func TestHARContentDecodingPreservesSavedContent(t *testing.T) {
 	compress := func(body string) []byte {
 		var buffer bytes.Buffer
 		writer := gzip.NewWriter(&buffer)
@@ -321,22 +321,22 @@ func TestHARContentDecodingAndCompressionLimit(t *testing.T) {
 		}
 		return buffer.Bytes()
 	}
-	for _, body := range []string{"a decoded response", strings.Repeat("abc", previewLimit)} {
+	for _, body := range []string{"a decoded response", strings.Repeat("abc", 65536)} {
 		raw := compress(body)
 		message := Message{Headers: []Header{{"Content-Encoding", "gzip"}}, BodyComplete: true, BodyBytes: int64(len(raw))}
 		content := harContent(message, raw)
 		decoded, err := base64.StdEncoding.DecodeString(content["text"].(string))
-		if err != nil || string(decoded) != body[:min(len(body), previewLimit)] {
-			t.Fatal("HAR text is not the bounded decoded response", err)
+		if err != nil || string(decoded) != body {
+			t.Fatal("HAR text lost decoded content", err)
 		}
 		if content["_rawBody"] != base64.StdEncoding.EncodeToString(raw) {
 			t.Fatal("HAR lost the original compressed bytes")
 		}
-		if content["_truncated"] != (len(body) > previewLimit) {
-			t.Fatal("HAR did not label its decoded prefix")
+		if content["_truncated"] != false {
+			t.Fatal("HAR falsely marked complete decoded content as truncated")
 		}
-		if got := preview(message, raw); got.Encoding != "text" || len(got.Text) > previewLimit {
-			t.Fatalf("unbounded compressed preview: %+v", got)
+		if got := preview(message, raw); got.Encoding != "text" || got.Text != body || got.Truncated {
+			t.Fatalf("incomplete compressed preview: %+v", got)
 		}
 	}
 	message := Message{Headers: []Header{{"Content-Encoding", "unsupported"}}, BodyTruncated: true}

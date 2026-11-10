@@ -9,8 +9,6 @@ import (
 	"github.com/dop251/goja"
 )
 
-const maxScriptUngzipBytes = 16 * 1024 * 1024
-
 // Results may remain reachable in JavaScript until the invocation ends. Hold
 // every successful result's lease until VM cleanup, rather than only bounding
 // the transient decompressor. No host I/O or platform identity is fabricated.
@@ -32,7 +30,7 @@ func installScriptUtils(vm *goja.Runtime, ctx context.Context) func() {
 		}()
 		input := call.Argument(0)
 		data, ok := input.Export().([]byte)
-		if !ok || int64(len(data)) > MaxRewriteRequestBody || !lease.growWork(int64(len(data))) {
+		if !ok || !lease.growWork(int64(len(data))) {
 			return goja.Null()
 		}
 		reader, err := gzip.NewReader(bytes.NewReader(data))
@@ -40,7 +38,7 @@ func installScriptUtils(vm *goja.Runtime, ctx context.Context) func() {
 			return goja.Null()
 		}
 		defer reader.Close()
-		decoded, err := readScriptHTTPBody(scriptContextReader{ctx, reader}, maxScriptUngzipBytes, lease, int64(len(data)))
+		decoded, err := readScriptHTTPBody(scriptContextReader{ctx, reader}, 0, lease, int64(len(data)))
 		if err != nil || ctx.Err() != nil {
 			return goja.Null()
 		}

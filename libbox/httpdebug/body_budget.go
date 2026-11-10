@@ -2,18 +2,16 @@ package httpdebug
 
 import (
 	"io"
+	"math"
 	"net/http"
 	"sync"
 	"sync/atomic"
 )
 
-// A 32 MiB request must fit with the same eight-copy processing headroom.
-const maxBufferedBodyBytes = 384 * 1024 * 1024
-
-// Reserve headroom for the wire prefix, layered decoding, replacement and
-// script copies before reading. This bounds admitted body work, not arbitrary
-// JavaScript allocations or the entire process heap.
-var processingBodies = bodyBudget{limit: maxBufferedBodyBytes}
+// Track body buffers without imposing a device-independent memory quota.
+// A zero limit means unlimited. Per-message limits come from the user's config;
+// this counter is not a measurement of Goja allocations or process RSS.
+var processingBodies bodyBudget
 
 type bodyBudget struct {
 	limit int64
@@ -29,7 +27,7 @@ type bodyLease struct {
 func (b *bodyBudget) acquire(bytes int64) *bodyLease {
 	for {
 		used := b.used.Load()
-		if bytes <= 0 || bytes > b.limit-used {
+		if bytes < 0 || bytes > math.MaxInt64-used || b.limit > 0 && bytes > b.limit-used {
 			return nil
 		}
 		if b.used.CompareAndSwap(used, used+bytes) {
@@ -40,8 +38,8 @@ func (b *bodyBudget) acquire(bytes int64) *bodyLease {
 	}
 }
 
-func reserveBodyWork(limit int64) *bodyLease {
-	return processingBodies.acquire(8 * max(4096, limit+1))
+func reserveBodyWork(size int64) *bodyLease {
+	return processingBodies.acquire(size)
 }
 
 func (l *bodyLease) release() {
@@ -50,18 +48,24 @@ func (l *bodyLease) release() {
 	}
 }
 
-// A script client grows its reservation with the received bytes. Small
-// concurrent requests do not each reserve their entire 32 MiB maximum.
+// Grow the reservation before copying bytes into a host buffer. Small requests
+// do not reserve their configured maximum or an unmeasured copy multiplier.
 // The owning network worker finishes before the lease reaches the VM callback.
 func (l *bodyLease) growWork(size int64) bool {
-	needed := 8 * max(4096, size+1)
+	if size < 0 {
+		return false
+	}
+	if l == nil {
+		return true
+	}
+	needed := size
 	if needed <= l.bytes {
 		return true
 	}
 	delta := needed - l.bytes
 	for {
 		used := l.budget.used.Load()
-		if delta > l.budget.limit-used {
+		if delta > math.MaxInt64-used || l.budget.limit > 0 && delta > l.budget.limit-used {
 			return false
 		}
 		if l.budget.used.CompareAndSwap(used, used+delta) {

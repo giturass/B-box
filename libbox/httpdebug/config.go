@@ -13,14 +13,7 @@ import (
 	"strings"
 )
 
-const (
-	DefaultBodyLimit = 64 * 1024
-	MaxBodyLimit     = 1024 * 1024
-	MaxEntries       = 300
-	MaxStorageBytes  = 32 * 1024 * 1024
-	MaxHeaderBytes   = 64 * 1024
-	MaxConfigBytes   = 64 * 1024
-)
+const DefaultBodyLimit = 64 * 1024
 
 type Config struct {
 	Version      int      `json:"version"`
@@ -31,8 +24,8 @@ type Config struct {
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
-	if len(data) > MaxConfigBytes || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
-		return errors.New("capture settings must be an object of at most 64 KiB")
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return errors.New("capture settings must be an object")
 	}
 	type plain Config
 	var value plain
@@ -55,20 +48,17 @@ func (c *Config) validate() error {
 	if c.BodyLimit == 0 {
 		c.BodyLimit = DefaultBodyLimit
 	}
-	if c.BodyLimit < 0 || c.BodyLimit > MaxBodyLimit {
-		return errors.New("body limit must be between 1 and 1048576 bytes")
+	if c.BodyLimit < -1 {
+		return errors.New("body limit must be positive, or -1 for unlimited")
 	}
 	if len(c.Ports) == 0 {
 		c.Ports = []uint16{80, 443, 8080, 8443}
 	}
-	if len(c.Ports) > 32 || slices.Contains(c.Ports, 0) {
-		return errors.New("specify up to 32 ports between 1 and 65535")
-	}
-	if len(c.Packages) > 256 {
-		return errors.New("too many capture filters")
+	if slices.Contains(c.Ports, 0) {
+		return errors.New("ports must be between 1 and 65535")
 	}
 	for _, name := range c.Packages {
-		if name == "" || len(name) > 255 || strings.ContainsAny(name, " \t\r\n/\\") {
+		if name == "" || strings.ContainsAny(name, " \t\r\n/\\") {
 			return errors.New("invalid application package name")
 		}
 	}
@@ -169,13 +159,11 @@ type Header struct {
 	Value string `json:"value"`
 }
 
-// Limit recorded headers independently of the protocol parser's header limit.
+// Preserve all parsed header fields, including repeated values.
 func captureHeaders(h http.Header, host string) ([]Header, bool) {
 	result := make([]Header, 0)
-	size := 0
 	if host != "" {
 		result = append(result, Header{"Host", host})
-		size += len(host) + 4
 	}
 	keys := make([]string, 0, len(h))
 	for key := range h {
@@ -184,10 +172,6 @@ func captureHeaders(h http.Header, host string) ([]Header, bool) {
 	slices.Sort(keys)
 	for _, key := range keys {
 		for _, value := range h[key] {
-			size += len(key) + len(value)
-			if size > MaxHeaderBytes {
-				return result, true
-			}
 			result = append(result, Header{key, value})
 		}
 	}

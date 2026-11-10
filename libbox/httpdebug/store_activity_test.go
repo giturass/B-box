@@ -27,7 +27,7 @@ func TestActivitySummariesRetainAssociationsAndIndependentBodyCounts(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := reopened.Page(MaxEntries, "")
+	page := reopened.Page(0, "")
 	if len(page.Items) != 3 || ids[0] == ids[1] {
 		t.Fatalf("lost independent exchanges: %+v", page)
 	}
@@ -54,7 +54,7 @@ func TestActivitySummariesRetainAssociationsAndIndependentBodyCounts(t *testing.
 	}
 }
 
-func TestActivityHARSelectionDoesNotExpandAfterFilteringOrEviction(t *testing.T) {
+func TestActivityHARSelectionDoesNotExpandAfterFilteringOrClear(t *testing.T) {
 	store, request := bodyTestStore(t)
 	makeRecord := func(metadata Metadata, url string) string {
 		r := request.Clone(request.Context())
@@ -99,11 +99,14 @@ func TestActivityHARSelectionDoesNotExpandAfterFilteringOrEviction(t *testing.T)
 	if urls := readURLs([]string{}); len(urls) != 0 {
 		t.Fatalf("empty selection exported unrelated records: %v", urls)
 	}
-	for _, ids := range [][]string{{"../invalid"}, slices.Repeat([]string{first}, MaxEntries+1)} {
+	for _, ids := range [][]string{{"../invalid"}} {
 		var output bytes.Buffer
 		if err := store.WriteHARSelection(&output, ids); err == nil || output.Len() != 0 {
 			t.Fatalf("invalid selection wrote an export: %v %s", err, output.Bytes())
 		}
+	}
+	if urls := readURLs(slices.Repeat([]string{first}, 301)); !slices.Equal(urls, []string{"http://example.test/first"}) {
+		t.Fatalf("large selection did not deduplicate its IDs: %v", urls)
 	}
 	store.Clear()
 	makeRecord(Metadata{}, "/new-after-clear")

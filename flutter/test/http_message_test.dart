@@ -20,13 +20,21 @@ void main() {
     expect(formatCapturedJson('  { "empty" : [ ] }\r\n'), '{\n  "empty": []\n}');
   });
 
-  test('partial, invalid and excessively nested or expanded JSON stays raw', () {
+  test('partial and invalid JSON stays raw', () {
     for (final source in ['{"unfinished":', '[1,]', '{"line":"\n"}', '<html>body</html>', 'plain text']) {
       expect(formatCapturedJson(source), isNull, reason: source);
     }
-    expect(formatCapturedJson('${'[' * 65}0${']' * 65}'), isNull);
-    expect(formatCapturedJson('["${'a' * 65536}"]'), isNull);
-    expect(formatCapturedJson('${'[' * 64}${List.filled(3000, '0').join(',')}${']' * 64}'), isNull);
+
+  });
+
+
+  test('large and nested captured JSON can be formatted', () {
+    for (final source in ['${'[' * 65}0${']' * 65}', '["${'a' * 65536}"]',
+      '${'[' * 64}${List.filled(3000, '0').join(',')}${']' * 64}']) {
+      final formatted = formatCapturedJson(source);
+      expect(formatted, isNotNull);
+      expect(formatted!.replaceAll(RegExp(r'\s'), ''), source);
+    }
   });
 
   test('preview paging does not split a surrogate pair', () {

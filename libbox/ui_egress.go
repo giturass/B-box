@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/netip"
@@ -20,11 +21,7 @@ import (
 	M "github.com/sagernet/sing/common/metadata"
 )
 
-const uiIPTimeout = 6 * time.Second
 const uiIPStagger = 800 * time.Millisecond
-const uiIPConcurrency = 3
-const uiIPBodyLimit = 4096
-const uiQualityBodyLimit = 128 * 1024
 const uiProbeUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 type uiIPSource struct {
@@ -52,8 +49,7 @@ type UIEgressProbe struct {
 	closeClient func()
 	current     func() bool
 	onClose     func()
-	routeAccess sync.Mutex
-	routes      sync.WaitGroup
+	routes      *uiRouteLifecycle
 	once        sync.Once
 }
 
@@ -92,7 +88,7 @@ func (s *uiEgressProbeSet) close() {
 	}
 	for _, probe := range probes {
 		// DNS/dial setup must finish before its service instance is closed.
-		probe.routes.Wait()
+		probe.routes.wait()
 	}
 }
 
@@ -123,12 +119,15 @@ func newUIEgressProbe(current func() bool, route func(context.Context, net.Conn,
 	ctx, cancel := context.WithCancel(context.Background())
 	wrapped := NewHTTPClient().(*httpClient)
 	wrapped.ModernTLS()
+	wrapped.transport.TLSHandshakeTimeout = 0
+	wrapped.client.CheckRedirect = uiRedirectLoop
 	probe := &UIEgressProbe{
 		ctx:         ctx,
 		cancel:      cancel,
 		client:      &wrapped.client,
 		closeClient: wrapped.Close,
 		current:     current,
+		routes:      newUIRouteLifecycle(ctx),
 	}
 	// Each request owns its connection and deadline. A pooled connection
 	// must not survive the IP race and carry the subsequent quality lookup.
@@ -149,44 +148,23 @@ func newUIEgressProbe(current func() bool, route func(context.Context, net.Conn,
 		if route == nil {
 			return direct.DialContext(requestContext, network, address)
 		}
-		local, routed := net.Pipe()
-		stop := context.AfterFunc(requestContext, func() { local.Close(); routed.Close() })
-		probe.routeAccess.Lock()
-		if err := probe.ctx.Err(); err != nil {
-			probe.routeAccess.Unlock()
-			stop()
-			local.Close()
-			routed.Close()
-			return nil, err
-		}
-		probe.routes.Add(1)
-		probe.routeAccess.Unlock()
-		go func() {
-			defer probe.routes.Done()
-			onClose := func(error) { stop(); routed.Close() }
-			if err := requestContext.Err(); err != nil {
-				onClose(err)
-				return
-			}
-			route(requestContext, routed, address, onClose)
-		}()
-		return local, nil
+		return probe.routes.route(requestContext, func(ctx context.Context, conn net.Conn, onClose func(error)) {
+			route(ctx, conn, address, onClose)
+		})
 	}
 	return probe
 }
 
 func (p *UIEgressProbe) Close() {
 	p.once.Do(func() {
-		// Prevent a detached HTTP dial from registering after Wait starts.
-		p.routeAccess.Lock()
+		p.routes.close()
 		p.cancel()
-		p.routeAccess.Unlock()
 		p.closeClient()
 		if p.onClose != nil {
 			// Android can cancel a probe from the UI thread. Keep it registered
 			// until routing exits so concurrent service teardown still waits.
 			go func() {
-				p.routes.Wait()
+				p.routes.wait()
 				p.onClose()
 			}()
 		}
@@ -196,15 +174,19 @@ func (p *UIEgressProbe) Close() {
 // Get retains HTTP status so the quality lookup can distinguish throttling,
 // unavailable sources and responses without a declared address type.
 func (p *UIEgressProbe) Get(link string, timeoutMillis int64) (*UIHTTPResponse, error) {
-	if timeoutMillis < 1 || timeoutMillis > 8000 {
-		return nil, fmt.Errorf("invalid probe timeout")
+	if timeoutMillis != -1 && (timeoutMillis <= 0 || timeoutMillis > math.MaxInt64/int64(time.Millisecond)) {
+		return nil, fmt.Errorf("probe timeout must be positive and representable as a duration, or -1 for unlimited")
 	}
-	ctx, cancel := context.WithTimeout(p.ctx, time.Duration(timeoutMillis)*time.Millisecond)
+	ctx, cancel := context.WithCancel(p.ctx)
+	if timeoutMillis > 0 {
+		cancel()
+		ctx, cancel = context.WithTimeout(p.ctx, time.Duration(timeoutMillis)*time.Millisecond)
+	}
 	defer cancel()
-	return p.get(ctx, link, uiQualityBodyLimit)
+	return p.get(ctx, link)
 }
 
-func (p *UIEgressProbe) get(ctx context.Context, link string, limit int64) (*UIHTTPResponse, error) {
+func (p *UIEgressProbe) get(ctx context.Context, link string) (*UIHTTPResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -232,15 +214,12 @@ func (p *UIEgressProbe) get(ctx context.Context, link string, limit int64) (*UIH
 		return nil, err
 	}
 	defer response.Body.Close()
-	content, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	content, err := io.ReadAll(response.Body)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 	if err != nil {
 		return nil, err
-	}
-	if int64(len(content)) > limit {
-		return nil, fmt.Errorf("probe response exceeds size limit")
 	}
 	if !p.current() {
 		return nil, fmt.Errorf("service changed during egress check")
@@ -249,10 +228,8 @@ func (p *UIEgressProbe) get(ctx context.Context, link string, limit int64) (*UIH
 }
 
 func (p *UIEgressProbe) LookupOutboundIP() (string, error) {
-	ctx, cancel := context.WithTimeout(p.ctx, uiIPTimeout)
-	defer cancel()
-	source, info, err := lookupUIOutboundIP(ctx, uiIPSources, uiIPStagger, uiIPConcurrency, func(ctx context.Context, source uiIPSource) (*UIHTTPResponse, error) {
-		return p.get(ctx, source.URL, uiIPBodyLimit)
+	source, info, err := lookupUIOutboundIP(p.ctx, uiIPSources, uiIPStagger, func(ctx context.Context, source uiIPSource) (*UIHTTPResponse, error) {
+		return p.get(ctx, source.URL)
 	})
 	if err != nil {
 		return "", err
@@ -269,7 +246,7 @@ type uiIPAnswer struct {
 	info   map[string]any
 }
 
-func lookupUIOutboundIP(ctx context.Context, sources []uiIPSource, stagger time.Duration, concurrency int,
+func lookupUIOutboundIP(ctx context.Context, sources []uiIPSource, stagger time.Duration,
 	fetch func(context.Context, uiIPSource) (*UIHTTPResponse, error),
 ) (uiIPSource, map[string]any, error) {
 	ctx, cancel := context.WithCancel(ctx)
@@ -277,7 +254,7 @@ func lookupUIOutboundIP(ctx context.Context, sources []uiIPSource, stagger time.
 	answers := make(chan *uiIPAnswer, len(sources))
 	next, inFlight := 0, 0
 	start := func() {
-		if next >= len(sources) || inFlight >= concurrency {
+		if next >= len(sources) {
 			return
 		}
 		source := sources[next]

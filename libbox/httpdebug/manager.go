@@ -162,7 +162,7 @@ func (engine *Engine) captureState() State {
 		PlaintextConnections: engine.plaintextConnections.Load(), PlaintextBytes: engine.plaintextBytes.Load(),
 		ParsedRequests: engine.parsedRequests.Load(), FilteredRequests: engine.filteredRequests.Load(), RecordedRequests: engine.recordedRequests.Load(),
 		BodyBudgetReserved: processingBodies.used.Load(), BodyBudgetLimit: processingBodies.limit,
-		HTTPScriptsRunning: len(httpScriptSlots), CronScriptsRunning: len(cronScriptSlots)}
+		HTTPScriptsRunning: int(httpScriptsRunning.Load()), CronScriptsRunning: int(cronScriptsRunning.Load())}
 }
 
 func (engine *Engine) backend() string {

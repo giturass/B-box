@@ -42,4 +42,5 @@ runs:
       working-directory: .core
       run: |
         go mod edit -go=1.26.0 -require=github.com/dop251/goja@v0.0.0-20261102223426-a177d211bf60 -require=github.com/dlclark/regexp2/v2@v2.11.0 -require=github.com/itchyny/gojq@v0.12.17 -require=github.com/robfig/cron/v3@v3.0.1
+        python3 ../tools/patch_processing_runtimes.py .
         go mod tidy

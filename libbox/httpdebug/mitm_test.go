@@ -324,8 +324,12 @@ func TestMITMSelectionReplaysUnselectedAndNonHTTPClientHello(t *testing.T) {
 }
 
 func TestMITMHTTP2ConcurrentStreamsCancellationAndAuthority(t *testing.T) {
+	const parallel = 24
 	cert, roots := originCertificate(t, "origin.test", false)
 	waiting := make(chan struct{})
+	entered, release := make(chan struct{}, parallel), make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	defer unblock()
 	origin := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/waiting" {
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -333,6 +337,12 @@ func TestMITMHTTP2ConcurrentStreamsCancellationAndAuthority(t *testing.T) {
 			w.(http.Flusher).Flush()
 			close(waiting)
 			<-r.Context().Done()
+			return
+		}
+		entered <- struct{}{}
+		select {
+		case <-release:
+		case <-r.Context().Done():
 			return
 		}
 		io.WriteString(w, r.URL.Path)
@@ -344,6 +354,8 @@ func TestMITMHTTP2ConcurrentStreamsCancellationAndAuthority(t *testing.T) {
 	e, store, ca := mitmEngine(t, Config{})
 	e.mitm.H2 = true
 	client, _ := mitmClient(t, e, origin.Listener.Addr().String(), ca, roots, true)
+	client.Transport.(*http.Transport).MaxConnsPerHost = 1
+	client.Timeout = 10 * time.Second
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	request, _ := http.NewRequestWithContext(ctx, "GET", "https://origin.test/waiting", nil)
@@ -357,7 +369,7 @@ func TestMITMHTTP2ConcurrentStreamsCancellationAndAuthority(t *testing.T) {
 	}
 	<-waiting
 	var group sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for i := 0; i < parallel; i++ {
 		group.Add(1)
 		go func(i int) {
 			defer group.Done()
@@ -374,6 +386,16 @@ func TestMITMHTTP2ConcurrentStreamsCancellationAndAuthority(t *testing.T) {
 			}
 		}(i)
 	}
+	for range parallel {
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			unblock()
+			group.Wait()
+			t.Fatal("HTTP/2 streams waited for the former per-connection quota")
+		}
+	}
+	unblock()
 	group.Wait()
 	cancel()
 	response.Body.Close()
@@ -391,7 +413,7 @@ func TestMITMHTTP2ConcurrentStreamsCancellationAndAuthority(t *testing.T) {
 	if store.Page(1, "excluded.test").Total != 0 {
 		t.Fatal("cross-origin request recorded")
 	}
-	items := waitComplete(t, store, 9)
+	items := waitComplete(t, store, parallel+1)
 	ids := make(map[string]bool)
 	for _, item := range items {
 		detail, err := store.Detail(item.ID)

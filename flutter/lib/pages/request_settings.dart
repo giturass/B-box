@@ -1,4 +1,3 @@
-import 'package:flutter/services.dart';
 import '../widgets.dart';
 import '../components/form.dart';
 import 'configuration.dart';
@@ -12,7 +11,9 @@ class RequestSettingsPage extends StatefulWidget {
 
 class _RequestSettingsPageState extends State<RequestSettingsPage> {
   late final _ports = TextEditingController(text: (widget.initial['ports'] as List? ?? [80, 443, 8080, 8443]).join(', '));
-  late int _bodyKiB = ((widget.initial['bodyLimit'] as num? ?? 65536) / 1024).round();
+  late final _initialBodyLimit = (widget.initial['bodyLimit'] as num? ?? 65536).toInt();
+  late final _bodyLimit = TextEditingController(text: (_initialBodyLimit > 0 ? _initialBodyLimit : 65536).toString());
+  late bool _completeBodies = widget.initial['bodyLimit'] == -1;
   late List<String> _packages = (widget.initial['packages'] as List? ?? []).cast<String>().toList();
   late bool _extract = widget.initial['extractHosts'] == true;
   bool _busy = false, _dirty = false;
@@ -24,20 +25,22 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
     if (_busy || context.box.remote) return;
     setState(() { _busy = true; _error = null; });
     try {
-      final ports = _lines(_ports.text).map(int.parse).toList();
-      if (ports.isEmpty || ports.any((port) => port < 1 || port > 65535)) throw const FormatException('Ports must be between 1 and 65535');
+      final ports = _lines(_ports.text).map(int.tryParse).toList();
+      if (ports.isEmpty || ports.any((port) => port == null || port < 1 || port > 65535)) throw const FormatException('Ports must be between 1 and 65535');
+      final bodyLimit = _completeBodies ? -1 : int.tryParse(_bodyLimit.text.trim());
+      if (bodyLimit == null || !_completeBodies && bodyLimit < 1) throw const FormatException('Body limit must be a positive number of bytes');
       await context.box.call('capture.configure', {'revision': widget.source['revision'], 'config': {
         'version': 3, 'packages': _packages, 'ports': ports,
-        'bodyLimit': _bodyKiB * 1024,
+        'bodyLimit': bodyLimit,
         'extractHosts': _extract,
       }});
       if (mounted) { setState(() { _dirty = false; _busy = false; }); Navigator.pop(context); }
     } catch (error) {
-      if (mounted) setState(() { _error = error is FormatException ? context.tr('Ports must be between 1 and 65535') : BoxController.describe(error); _busy = false; });
+      if (mounted) setState(() { _error = error is FormatException ? context.tr(error.message) : BoxController.describe(error); _busy = false; });
     }
   }
 
-  @override void dispose() { _ports.dispose(); super.dispose(); }
+  @override void dispose() { _ports.dispose(); _bodyLimit.dispose(); super.dispose(); }
 
   Widget _field(TextEditingController controller, String label, {String? footer, String? hint, bool multiline = true}) => generateSection(
     title: context.tr(label), footer: footer == null ? null : context.tr(footer),
@@ -45,7 +48,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
       key: ValueKey(label), controller: controller, minLines: multiline ? 2 : 1, maxLines: multiline ? 4 : 2,
       keyboardType: multiline ? TextInputType.multiline : TextInputType.text,
       textInputAction: multiline ? TextInputAction.newline : TextInputAction.done,
-      inputFormatters: [LengthLimitingTextInputFormatter(65536)], autocorrect: false, enableSuggestions: false,
+      autocorrect: false, enableSuggestions: false,
       style: AppTextStyle.body.of(context),
       decoration: InputDecoration.collapsed(border: const NoInputBorder(), hintText: hint),
       onChanged: (_) => setState(() => _dirty = true),
@@ -68,11 +71,12 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
             final selected = await openPage<List<String>>(context, CaptureAppsPage(selected: _packages));
             if (selected != null && mounted) setState(() { _packages = selected; _dirty = true; });
           }),
-        ListItem.options(title: Text(context.tr('Body limit per message')), options: const [64, 128, 256, 1024], value: _bodyKiB,
-          textBuilder: (value) => '$value KiB', onChanged: (value) => setState(() { _bodyKiB = value; _dirty = true; })),
+        ListItem.toggle(title: Text(context.tr('Save complete bodies')), value: _completeBodies,
+          onChanged: (value) => setState(() { _completeBodies = value; _dirty = true; })),
       ]),
+      if (!_completeBodies) _field(_bodyLimit, 'Body limit per message (bytes)', multiline: false),
       _field(_ports, 'Capture ports', hint: '80, 443, 8080, 8443', multiline: false,
-        footer: 'Keeps up to 300 requests and 32 MiB. Large bodies keep a prefix. Port filters use the connection destination.'),
+        footer: 'Records stay until you clear them. Body limits affect saved content only. Port filters use the connection destination.'),
     ]));
   }
 }

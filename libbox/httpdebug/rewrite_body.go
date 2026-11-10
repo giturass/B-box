@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 )
 
@@ -22,7 +21,7 @@ type replayBody struct {
 // Buffer only messages selected for body processing. On an oversized response
 // or unsupported encoding, replay every consumed byte and keep streaming.
 // The wire and decoded sizes are independently bounded (including gzip bombs).
-func readRewriteBody(ctx context.Context, body *io.ReadCloser, encoding string, limit int64, response bool, note func(string)) ([]byte, bool, error) {
+func readRewriteBody(ctx context.Context, body *io.ReadCloser, encoding string, limit int64, response bool, note func(string), leases ...*bodyLease) ([]byte, bool, error) {
 	encodings, err := contentEncodings(encoding)
 	if err != nil {
 		note("Body processing skipped: " + err.Error() + "; original stream preserved")
@@ -32,19 +31,22 @@ func readRewriteBody(ctx context.Context, body *io.ReadCloser, encoding string, 
 		return []byte{}, true, nil
 	}
 	original := *body
-	readCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	stop := context.AfterFunc(readCtx, func() { original.Close() })
+	stop := context.AfterFunc(ctx, func() { original.Close() })
 	defer stop()
-	wire, err := readBodyPrefix(original, limit)
+	wire, err := readBodyPrefix(scriptContextReader{ctx, original}, limit)
 	*body = &replayBody{io.MultiReader(bytes.NewReader(wire), original), original}
 	if err != nil {
 		return nil, false, err
 	}
-	if readCtx.Err() != nil {
-		return nil, false, readCtx.Err()
+	if ctx.Err() != nil {
+		return nil, false, ctx.Err()
 	}
-	if int64(len(wire)) > limit {
+	var lease *bodyLease
+	if len(leases) > 0 {
+		lease = leases[0]
+	}
+	lease.growWork(int64(len(wire)))
+	if exceedsBodyLimit(int64(len(wire)), limit) {
 		if response {
 			note("Body processing skipped: response exceeds max_body_bytes; original stream preserved")
 			return nil, false, nil
@@ -52,6 +54,7 @@ func readRewriteBody(ctx context.Context, body *io.ReadCloser, encoding string, 
 		return nil, false, errRewriteSize
 	}
 	decoded, err := decodeContent(wire, encodings, limit)
+	lease.growWork(int64(len(wire)) + int64(len(decoded)))
 	if errors.Is(err, errRewriteSize) {
 		if response {
 			note("Body processing skipped: decoded response exceeds max_body_bytes; original stream preserved")
@@ -121,14 +124,14 @@ func normalizeResponseBody(request *http.Request, response *http.Response) {
 
 // Expand Go/RE2 replacement templates without allowing a small template and a
 // large capture to allocate an unbounded intermediate replacement string.
-func boundedReplace(re *rewriteRegexp, value, template string, limit int64, budgets ...*regexBudget) (string, error) {
-	var budget *regexBudget
+func boundedReplace(re *rewriteRegexp, value, template string, limit int64, budgets ...*regexContext) (string, error) {
+	var budget *regexContext
 	if len(budgets) > 0 {
 		budget = budgets[0]
 	}
 	var result strings.Builder
 	appendPart := func(part string) error {
-		if int64(result.Len())+int64(len(part)) > limit {
+		if exceedsBodyLimit(int64(result.Len())+int64(len(part)), limit) {
 			return errRewriteSize
 		}
 		result.WriteString(part)
@@ -169,6 +172,8 @@ func boundedReplace(re *rewriteRegexp, value, template string, limit int64, budg
 			index, err := strconv.Atoi(name)
 			if err != nil {
 				index = re.SubexpIndex(name)
+			} else {
+				index = re.captureIndex(index)
 			}
 			if index >= 0 && index < len(match)/2 && match[index*2] >= 0 {
 				if err := appendPart(value[match[index*2]:match[index*2+1]]); err != nil {
@@ -234,9 +239,7 @@ func (p *httpProgram) rewriteBody(phase, address string, data []byte, note func(
 				writeLog("warn", message)
 				continue
 			}
-			start := time.Now()
-			next, jqErr := rewriteJSONBody(p.regex.ctx, rule.jq, data, p.bodyLimit(phase), p.jqRemaining)
-			p.jqRemaining -= time.Since(start)
+			next, jqErr := rewriteJSONBody(p.regex.ctx, rule.jq, data, p.bodyLimit(phase))
 			if jqErr != nil {
 				message := rule.label + ": jq skipped: " + jqErr.Error()
 				note(message)

@@ -27,7 +27,7 @@ internal class BoxTerminalSettings(private val activity: BoxActivity) {
         val path = Settings.tailscaleSSHCustomFontPath
         if (path.isNotEmpty()) {
             val file = File(path)
-            require(file.isFile && file.length() <= 16 * 1024 * 1024) { "Imported terminal font is unavailable or too large" }
+            require(file.isFile) { "Imported terminal font is unavailable" }
             result["font"] = mapOf("name" to file.name, "content" to Base64.encodeToString(file.readBytes(), Base64.NO_WRAP))
         }
         return result
@@ -40,14 +40,14 @@ internal class BoxTerminalSettings(private val activity: BoxActivity) {
             val name = value[key] as? String ?: error("Invalid terminal theme")
             require(name.isEmpty() || name in GhosttyThemeStore.listThemes(activity, key == "darkTheme")) { "Unknown Ghostty theme" }
         }
-        for (key in listOf("lightConfig", "darkConfig")) require((value[key] as? String)?.length?.let { it <= 256 * 1024 } == true) { "Invalid terminal configuration" }
-        require(value["fontFollowTheme"] is Boolean && (value["fontFamily"] as? String)?.length?.let { it <= 128 } == true) { "Invalid terminal font options" }
+        for (key in listOf("lightConfig", "darkConfig")) require(value[key] is String) { "Invalid terminal configuration" }
+        require(value["fontFollowTheme"] is Boolean && value["fontFamily"] is String) { "Invalid terminal font options" }
         val size = value["fontSize"] as? Number ?: error("Invalid terminal font size")
         require(size.toDouble() == size.toInt().toDouble() && size.toInt() in 8..48) { "Font size must be 8–48" }
         value["font"]?.let { font ->
             require(font is Map<*, *> && font.keys == setOf("name", "content")) { "Invalid terminal font backup" }
             val name = font["name"] as? String ?: error("Invalid terminal font name")
-            require(name.length in 1..128 && name.none { it == '/' || it == '\\' || it.code < 32 } &&
+            require(name.isNotEmpty() && name.none { it == '/' || it == '\\' || it.code < 32 } &&
                 name.substringAfterLast('.').lowercase() in setOf("ttf", "otf", "ttc", "otc")) { "Invalid terminal font name" }
             fontBytes(font)
         }
@@ -55,10 +55,7 @@ internal class BoxTerminalSettings(private val activity: BoxActivity) {
 
     private fun fontBytes(font: Map<*, *>): ByteArray {
         val content = font["content"] as? String ?: error("Invalid terminal font content")
-        require(content.length <= 24 * 1024 * 1024) { "Terminal font exceeds 16 MiB" }
-        val bytes = Base64.decode(content, Base64.DEFAULT)
-        require(bytes.size <= 16 * 1024 * 1024) { "Terminal font exceeds 16 MiB" }
-        return bytes
+        return Base64.decode(content, Base64.DEFAULT)
     }
 
     suspend fun restoreBackup(value: Map<String, Any?>): File? {
@@ -154,7 +151,6 @@ internal class BoxTerminalSettings(private val activity: BoxActivity) {
                     }
                     "lightConfig", "darkConfig" -> {
                         val config = value as? String ?: error("Invalid configuration")
-                        require(config.length <= 256 * 1024) { "Configuration is too large" }
                         mapOf(key to config)
                     }
                     "fontFollowTheme" -> mapOf(key to (value as? Boolean ?: error("Invalid font option")))
@@ -165,7 +161,6 @@ internal class BoxTerminalSettings(private val activity: BoxActivity) {
                     }
                     "fontFamily" -> {
                         val name = value as? String ?: error("Invalid font")
-                        require(name.length <= 128) { "Invalid font" }
                         mapOf(key to name, "fontPath" to "", "fontFollowTheme" to false)
                     }
                     "fontPath" -> {

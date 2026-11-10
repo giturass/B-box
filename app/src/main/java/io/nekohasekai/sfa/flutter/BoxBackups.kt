@@ -41,11 +41,8 @@ internal class BoxBackups(
 
     suspend fun create(): Map<String, Any?> = ProfileContent.mutex.withLock {
         val origin = origin()
-        var size = 0L
         val profiles = ProfileManager.list().map { profile ->
             val file = File(profile.typed.path)
-            size += file.length()
-            require(size <= MAX_BYTES) { "Backup exceeds 64 MiB" }
             val content = file.readText()
             BoxProfiles.validate(content)
             profile.toWire() + mapOf("key" to profileKey(profile, origin), "content" to content)
@@ -55,16 +52,12 @@ internal class BoxBackups(
             "preferences" to readPreferences(), "settings" to editableSettings(),
             "terminal" to terminal.backupSnapshot(), "webdav" to webdav.snapshot(),
             "servers" to RemoteServerManager.list().map { mapOf("name" to it.name, "url" to it.url, "secret" to it.secret) })
-        encode(backup)
         backup
     }
 
-    fun encode(backup: Map<String, Any?>): ByteArray = JSONObject(backup).toString().toByteArray().also {
-        require(it.size <= MAX_BYTES) { "Backup exceeds 64 MiB" }
-    }
+    fun encode(backup: Map<String, Any?>): ByteArray = JSONObject(backup).toString().toByteArray()
 
     suspend fun read(bytes: ByteArray, scope: String): Map<String, Any?> {
-        require(bytes.size <= MAX_BYTES) { "Backup exceeds 64 MiB" }
         val backup = jsonObject(JSONObject(bytes.toString(Charsets.UTF_8)))
         validate(backup, scope)
         return backup
@@ -260,7 +253,6 @@ internal class BoxBackups(
     }
 
     companion object {
-        const val MAX_BYTES = 64 * 1024 * 1024
         private fun validUUID(value: Any?) = value is String && runCatching { UUID.fromString(value).toString() == value }.getOrDefault(false)
         private fun integer(value: Any?, minimum: Long): Boolean = value is Number && value.toDouble().isFinite() &&
             value.toDouble() == value.toLong().toDouble() && value.toLong() >= minimum && value.toDouble() <= 9007199254740991.0

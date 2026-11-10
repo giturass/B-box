@@ -6,27 +6,25 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"time"
 )
 
-// Keep this in sync with Android's ProfileContent validation limit.
-const uiProfileLimit = 16 * 1024 * 1024
-const uiProfileTimeout = 30 * time.Second
-
-// UIProfileGet bounds a subscription's entire download, including redirects and
-// the decoded response body. It retains the caller's subscription User-Agent,
-// URL authentication and the upstream HTTP client's normal redirect handling.
+// UIProfileGet retains the caller's subscription User-Agent and URL
+// authentication. Android uses UIHTTPTask.ProfileGet to propagate cancellation.
 func UIProfileGet(link, userAgent string) (*StringBox, error) {
-	return uiProfileGet(link, userAgent, uiProfileTimeout)
+	task := NewUIHTTPTask()
+	defer task.Close()
+	return task.ProfileGet(link, userAgent)
 }
 
-func uiProfileGet(link, userAgent string, timeout time.Duration) (*StringBox, error) {
+func (t *UIHTTPTask) ProfileGet(link, userAgent string) (*StringBox, error) {
+	return uiProfileGet(t.ctx, link, userAgent)
+}
+
+func uiProfileGet(ctx context.Context, link, userAgent string) (*StringBox, error) {
 	root, err := url.Parse(link)
 	if err != nil || root == nil || root.Hostname() == "" || (root.Scheme != "http" && root.Scheme != "https") {
 		return nil, fmt.Errorf("invalid HTTP or HTTPS subscription address")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, root.String(), nil)
 	if err != nil {
 		return nil, err
@@ -35,25 +33,20 @@ func uiProfileGet(link, userAgent string, timeout time.Duration) (*StringBox, er
 	client := NewHTTPClient().(*httpClient)
 	defer client.Close()
 	client.ModernTLS()
-	client.client.Timeout = timeout
+	client.transport.TLSHandshakeTimeout = 0
+	client.client.CheckRedirect = uiRedirectLoop
 	response, err := client.client.Do(request)
 	if err != nil {
 		return nil, err
 	}
 	defer response.Body.Close()
-	// Failed requests must not read an unbounded (or stalled) error body.
+	// A failed request does not need an error body to report the HTTP status.
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %s", response.Status)
 	}
-	if response.ContentLength > uiProfileLimit {
-		return nil, fmt.Errorf("Subscription exceeds 16 MiB")
-	}
-	content, err := io.ReadAll(io.LimitReader(response.Body, uiProfileLimit+1))
+	content, err := io.ReadAll(response.Body)
 	if err != nil {
 		return nil, err
-	}
-	if len(content) > uiProfileLimit {
-		return nil, fmt.Errorf("Subscription exceeds 16 MiB")
 	}
 	return wrapString(string(content)), nil
 }

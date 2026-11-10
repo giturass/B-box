@@ -23,11 +23,6 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-const (
-	maxScriptHTTPConcurrent = 20
-	maxScriptHTTPOrigins    = 16
-)
-
 type ScriptHTTPOptions struct {
 	// Omitted leaves network access unrestricted. An explicit empty list
 	// disables it; existing exact-origin restrictions remain enforced.
@@ -62,7 +57,7 @@ func ScriptPolicy(ctx context.Context) string {
 }
 
 func compileScriptHTTP(options *ScriptHTTPOptions, _ bool) (scriptHTTPPolicy, error) {
-	policy := scriptHTTPPolicy{unrestricted: true, maxBodyBytes: MaxRewriteRequestBody}
+	policy := scriptHTTPPolicy{unrestricted: true}
 	if options == nil {
 		return policy, nil
 	}
@@ -70,14 +65,10 @@ func compileScriptHTTP(options *ScriptHTTPOptions, _ bool) (scriptHTTPPolicy, er
 		return policy, errors.New("http_client.max_requests must be positive")
 	}
 	policy.maxRequests = options.MaxRequests
-	if options.MaxBodyBytes != 0 {
-		if options.MaxBodyBytes < 1 || options.MaxBodyBytes > MaxRewriteRequestBody {
-			return policy, errors.New("http_client.max_body_bytes must be 1..33554432")
-		}
-		policy.maxBodyBytes = options.MaxBodyBytes
-	}
-	if len(options.AllowedOrigins) > maxScriptHTTPOrigins {
-		return policy, errors.New("http_client supports at most 16 allowed_origins")
+	var err error
+	policy.maxBodyBytes, err = configuredBodyLimit(options.MaxBodyBytes)
+	if err != nil {
+		return policy, fmt.Errorf("http_client.max_body_bytes: %w", err)
 	}
 	policy.unrestricted = options.AllowedOrigins == nil
 	policy.origins = make(map[string]bool)
@@ -129,12 +120,9 @@ func installScriptHTTP(vm *goja.Runtime, parent context.Context, dial RewriteDia
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	stringify, _ := goja.AssertFunction(vm.Get("JSON").ToObject(vm).Get("stringify"))
 	limit := policy.maxBodyBytes
-	if limit == 0 {
-		limit = MaxRewriteRequestBody
-	}
 	var workers sync.WaitGroup
 	api := make(map[string]any)
-	calls, pending := 0, 0
+	calls := 0
 	for _, method := range []string{"get", "post", "put", "patch", "delete", "head", "options"} {
 		api[method] = func(call goja.FunctionCall) goja.Value {
 			callback, ok := goja.AssertFunction(call.Argument(1))
@@ -145,17 +133,31 @@ func installScriptHTTP(vm *goja.Runtime, parent context.Context, dial RewriteDia
 				panic(vm.NewGoError(errors.New("script HTTP event loop is unavailable")))
 			}
 			calls++
-			options, err := parseScriptHTTPRequest(vm, stringify, method, call.Argument(0), limit, policy)
+			var options scriptHTTPRequestOptions
+			err := ctx.Err()
 			if policy.maxRequests > 0 && calls > policy.maxRequests {
 				err = fmt.Errorf("script HTTP request limit exceeded (%d)", policy.maxRequests)
-			} else if pending >= maxScriptHTTPConcurrent {
-				err = errors.New("script HTTP concurrent request limit exceeded (20)")
 			} else if dial == nil {
 				err = errors.New("script HTTP requires the running local service")
 			}
+			// Admission precedes getters, JSON serialization and host body copies.
+			// The VM already owns its input; reserve the exact output length before
+			// copying it, then transfer this lease to the worker and callback.
+			lease := reserveBodyWork(0)
+			if err == nil && lease == nil {
+				err = errors.New("script HTTP body budget exhausted before parsing")
+			}
+			transferred := false
+			defer func() {
+				if !transferred {
+					lease.release()
+				}
+			}()
+			if err == nil {
+				options, err = parseScriptHTTPRequest(vm, stringify, method, call.Argument(0), limit, policy, lease)
+			}
 			enqueue := func(response *http.Response, body []byte, failure error, release func()) {
 				event := scriptHTTPEvent{release: release, call: func() error {
-					pending--
 					errorValue, responseValue, dataValue := goja.Value(goja.Null()), goja.Value(goja.Null()), goja.Value(goja.Undefined())
 					if failure != nil {
 						errorValue = vm.ToValue(failure.Error())
@@ -167,35 +169,29 @@ func installScriptHTTP(vm *goja.Runtime, parent context.Context, dial RewriteDia
 					_, callbackErr := callback(goja.Undefined(), errorValue, responseValue, dataValue)
 					return callbackErr
 				}}
-				select {
-				case loop.events <- event:
-				case <-ctx.Done():
+				if ctx.Err() != nil {
 					release()
+					return
 				}
+				loop.enqueue(event)
 			}
-			pending++
 			if err != nil {
 				event := scriptHTTPEvent{release: func() {}, call: func() error {
-					pending--
 					_, callbackErr := callback(goja.Undefined(), vm.ToValue(err.Error()), goja.Null(), goja.Undefined())
 					return callbackErr
 				}}
-				select {
-				case loop.events <- event:
-				default:
-					panic(vm.NewGoError(errors.New("script HTTP callback queue is full")))
-				}
+				loop.enqueue(event)
 				return goja.Undefined()
 			}
 			workers.Add(1)
+			transferred = true
 			go func() {
 				defer workers.Done()
-				lease := reserveBodyWork(int64(len(options.body)))
-				if lease == nil {
-					enqueue(nil, nil, errors.New("script HTTP skipped: global body budget exhausted"), func() {})
-					return
+				callCtx, stop := context.WithCancel(ctx)
+				if options.timeout > 0 {
+					stop()
+					callCtx, stop = context.WithTimeout(ctx, options.timeout)
 				}
-				callCtx, stop := context.WithTimeout(ctx, options.timeout)
 				defer stop()
 				if options.policy != "" {
 					callCtx = context.WithValue(callCtx, scriptPolicyKey{}, options.policy)
@@ -212,8 +208,10 @@ func installScriptHTTP(vm *goja.Runtime, parent context.Context, dial RewriteDia
 					if !options.redirect {
 						return http.ErrUseLastResponse
 					}
-					if len(via) >= 10 {
-						return errors.New("script HTTP redirect limit exceeded (10)")
+					for _, previous := range via {
+						if previous.URL.String() == request.URL.String() && previous.Method == request.Method {
+							return errors.New("script HTTP redirect loop")
+						}
 					}
 					return validateScriptHTTPDestination(request, policy)
 				}
@@ -228,24 +226,22 @@ func installScriptHTTP(vm *goja.Runtime, parent context.Context, dial RewriteDia
 		cancel()
 		workers.Wait()
 		if loop != nil {
-			for {
-				select {
-				case event := <-loop.events:
-					event.release()
-				default:
-					return
-				}
-			}
+			loop.releaseEvents()
 		}
 	}
 }
 
-func parseScriptHTTPRequest(vm *goja.Runtime, stringify goja.Callable, method string, value goja.Value, limit int64, policy scriptHTTPPolicy) (scriptHTTPRequestOptions, error) {
+func parseScriptHTTPRequest(vm *goja.Runtime, stringify goja.Callable, method string, value goja.Value, limit int64, policy scriptHTTPPolicy, leases ...*bodyLease) (scriptHTTPRequestOptions, error) {
 	options := scriptHTTPRequestOptions{method: strings.ToUpper(method), headers: make(http.Header), timeout: 5 * time.Second, redirect: true, cookie: true}
+	var bodyObject *goja.Object
 	if !missingScriptValue(value) && value.ExportType() == reflect.TypeFor[string]() {
 		options.url = value.String()
 	} else if object, ok := value.(*goja.Object); ok && object.ClassName() == "Object" {
+		bodyObject = object
 		for _, key := range object.Keys() {
+			if key == "body" {
+				continue // Do not invoke a body getter before validating the destination.
+			}
 			field := object.Get(key)
 			switch key {
 			case "url", "policy":
@@ -267,17 +263,15 @@ func parseScriptHTTPRequest(vm *goja.Runtime, stringify goja.Callable, method st
 				if err != nil {
 					return options, err
 				}
-			case "body":
-				// Process after headers, independently of object property order.
 			case "timeout":
 				if missingScriptValue(field) || field.ExportType() != reflect.TypeFor[int64]() && field.ExportType() != reflect.TypeFor[float64]() {
 					return options, errors.New("script HTTP timeout must be a number of seconds")
 				}
 				seconds := field.ToFloat()
-				if math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds <= 0 || seconds > 86400 {
-					return options, errors.New("script HTTP timeout must be greater than 0 and at most 86400 seconds")
+				if math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds <= 0 && seconds != -1 || seconds >= float64(math.MaxInt64)/float64(time.Second) {
+					return options, errors.New("script HTTP timeout must be positive and representable as a duration, or -1 for unlimited")
 				}
-				options.timeout = time.Duration(seconds * float64(time.Second))
+				options.timeout = time.Duration(max(seconds, 0) * float64(time.Second))
 			case "insecure", "auto-redirect", "auto-cookie", "binary-mode", "full-header-mode":
 				if missingScriptValue(field) || field.ExportType() != reflect.TypeFor[bool]() {
 					return options, fmt.Errorf("script HTTP %s must be a boolean", key)
@@ -298,18 +292,8 @@ func parseScriptHTTPRequest(vm *goja.Runtime, stringify goja.Callable, method st
 				return options, fmt.Errorf("unsupported script HTTP option %q", key)
 			}
 		}
-		if body := object.Get("body"); !missingScriptValue(body) {
-			var err error
-			options.body, err = scriptHTTPBody(vm, stringify, body, options.headers, limit)
-			if err != nil {
-				return options, err
-			}
-		}
 	} else {
 		return options, errors.New("script HTTP options must be a URL string or object")
-	}
-	if len(options.policy) > 256 {
-		return options, errors.New("script HTTP policy name is too long")
 	}
 	request, err := http.NewRequest(options.method, options.url, nil)
 	if err != nil {
@@ -325,12 +309,24 @@ func parseScriptHTTPRequest(vm *goja.Runtime, stringify goja.Callable, method st
 	if err = validateScriptHTTPDestination(request, policy); err != nil {
 		return options, err
 	}
+	if bodyObject != nil {
+		if body := bodyObject.Get("body"); !missingScriptValue(body) {
+			var lease *bodyLease
+			if len(leases) > 0 {
+				lease = leases[0]
+			}
+			options.body, err = scriptHTTPBody(vm, stringify, body, options.headers, limit, lease)
+			if err != nil {
+				return options, err
+			}
+		}
+	}
 	return options, nil
 }
 
-func scriptHTTPBody(vm *goja.Runtime, stringify goja.Callable, value goja.Value, header http.Header, limit int64) ([]byte, error) {
+func scriptHTTPBody(vm *goja.Runtime, stringify goja.Callable, value goja.Value, header http.Header, limit int64, lease *bodyLease) ([]byte, error) {
 	if value.ExportType() == reflect.TypeFor[string]() {
-		return decodeScriptBody(value, false, limit)
+		return decodeScriptBody(value, false, limit, lease)
 	}
 	if object, ok := value.(*goja.Object); ok {
 		kind := object.ExportType()
@@ -340,8 +336,11 @@ func scriptHTTPBody(vm *goja.Runtime, stringify goja.Callable, value goja.Value,
 				if buffer, ok := bufferValue.Export().(goja.ArrayBuffer); ok {
 					start, length := object.Get("byteOffset").ToInteger(), object.Get("byteLength").ToInteger()
 					data := buffer.Bytes()
-					if start < 0 || length < 0 || length > limit || start > int64(len(data))-length {
+					if start < 0 || length < 0 || exceedsBodyLimit(length, limit) || start > int64(len(data))-length {
 						return nil, errRewriteSize
+					}
+					if !lease.growWork(length) {
+						return nil, errors.New("script HTTP body: body budget exhausted before copying")
 					}
 					return bytesClone(data[start : start+length]), nil
 				}
@@ -355,7 +354,7 @@ func scriptHTTPBody(vm *goja.Runtime, stringify goja.Callable, value goja.Value,
 			if missingScriptValue(encoded) || encoded.ExportType() != reflect.TypeFor[string]() {
 				return nil, errors.New("script HTTP body is not JSON serializable")
 			}
-			body, err := decodeScriptBody(encoded, false, limit)
+			body, err := decodeScriptBody(encoded, false, limit, lease)
 			if err == nil && header.Get("Content-Type") == "" {
 				header.Set("Content-Type", "application/json")
 			}
@@ -418,20 +417,13 @@ func performScriptHTTPRequest(ctx context.Context, client *http.Client, options 
 	if err != nil {
 		return response, nil, fmt.Errorf("script HTTP response: %w", err)
 	}
-	if limit > 0 {
-		for _, encoding := range encodings {
-			if encoding != "identity" && !lease.growWork(limit) {
-				return response, nil, errors.New("script HTTP decompression: global body budget exhausted")
-			}
-		}
-		body, err = decodeContent(body, encodings, limit)
-	} else {
-		// Script resources have no source-size cap. Reserve each decoded layer
-		// as it grows, including intermediate compressed representations.
-		body, err = decodeContentWithReader(body, encodings, func(reader io.Reader) ([]byte, error) {
-			return readScriptHTTPBody(reader, 0, lease, int64(len(body)))
-		})
-	}
+	// Apply the user's limit to every layer, growing only with received data.
+	inputSize := int64(len(options.body)) + int64(len(body))
+	body, err = decodeContentWithReader(body, encodings, func(reader io.Reader) ([]byte, error) {
+		decoded, readErr := readScriptHTTPBody(scriptContextReader{ctx, reader}, limit, lease, inputSize)
+		inputSize += int64(len(decoded))
+		return decoded, readErr
+	})
 	if errors.Is(err, errRewriteSize) {
 		return response, nil, errors.New("script HTTP decoded response exceeds max_body_bytes")
 	}
@@ -452,21 +444,21 @@ func performScriptHTTPRequest(ctx context.Context, client *http.Client, options 
 	return response, body, nil
 }
 
-// A zero limit removes only the per-body cap, never the shared work budget.
+// A zero limit means no per-body cap. Check limits and reserve before each copy.
 func readScriptHTTPBody(reader io.Reader, limit int64, lease *bodyLease, inputSize int64) ([]byte, error) {
 	var body bytes.Buffer
 	buffer := make([]byte, 4096)
 	for {
 		readSize := int64(len(buffer))
-		if limit > 0 {
+		if limit > 0 && limit < math.MaxInt64 {
 			readSize = min(readSize, limit+1-int64(body.Len()))
 		}
 		n, err := reader.Read(buffer[:readSize])
 		if n > 0 {
 			if limit > 0 && int64(body.Len()+n) > limit {
-				return nil, errors.New("script HTTP response exceeds max_body_bytes")
+				return nil, fmt.Errorf("script HTTP response exceeds max_body_bytes: %w", errRewriteSize)
 			}
-			if !lease.growWork(max(inputSize, int64(body.Len()+n))) {
+			if !lease.growWork(inputSize + int64(body.Len()+n)) {
 				return nil, errors.New("script HTTP response: global body budget exhausted")
 			}
 			_, _ = body.Write(buffer[:n])

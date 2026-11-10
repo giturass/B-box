@@ -148,8 +148,8 @@ func TestScriptSourceLoadingRetainsSharedBodyBudget(t *testing.T) {
 				t.Fatal(err)
 			}
 			resources := testProcessingResources(t, t.TempDir(), profile, environment, nil)
-			budget := bodyBudget{limit: 8 * (16*1024 + 1)}
-			lease := budget.acquire(8 * 4096)
+			budget := bodyBudget{limit: 16*1024 + 1}
+			lease := budget.acquire(0)
 			_, err = resources.load(context.Background(), spec, lease, false)
 			lease.release()
 			if err == nil || !strings.Contains(err.Error(), "global body budget exhausted") {

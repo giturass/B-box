@@ -34,7 +34,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import java.io.ByteArrayOutputStream
 
 open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
     val serviceStatus = MutableStateFlow(Status.Stopped)
@@ -312,24 +311,14 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
         }
     }
 
-    fun readDocument(uri: Uri, maxBytes: Int = 16 * 1024 * 1024): Pair<String, ByteArray> {
+    fun readDocument(uri: Uri): Pair<String, ByteArray> {
         require(uri.scheme == "content" || uri.scheme == "file") { "Unsupported document URL" }
         val name = if (uri.scheme == "content") {
             contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
                 if (it.moveToFirst()) it.getString(0) else null
             }
         } else uri.lastPathSegment
-        val bytes = contentResolver.openInputStream(uri)?.use { input ->
-            val output = ByteArrayOutputStream()
-            val buffer = ByteArray(8192)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                require(output.size() + count <= maxBytes) { "Document exceeds ${maxBytes / 1024 / 1024} MiB" }
-                output.write(buffer, 0, count)
-            }
-            output.toByteArray()
-        } ?: error("Unable to read document")
+        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: error("Unable to read document")
         return (name ?: "Profile.json") to bytes
     }
 

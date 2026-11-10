@@ -71,6 +71,8 @@ func (s *CommandServer) activateUIProcessing(prepared *httpdebug.PreparedProcess
 		httpdebug.ActivateProcessing(nil, nil, nil)
 		return
 	}
+	routes := newUIRouteLifecycle(context.Background())
+	s.uiProcessingRoutes = routes
 	dial := func(ctx context.Context, address string) (net.Conn, error) {
 		if instance == nil || s.Instance() != instance {
 			return nil, errors.New("local service changed during script execution")
@@ -85,16 +87,17 @@ func (s *CommandServer) activateUIProcessing(prepared *httpdebug.PreparedProcess
 		metadata := adapter.InboundContext{Inbound: "b-box-scripts", Network: "tcp", Source: M.ParseSocksaddr("127.0.0.1:0"), Destination: destination}
 		routeCtx := adapter.WithContext(httpdebug.WithoutProcessing(ctx), &metadata)
 		if policy := httpdebug.ScriptPolicy(ctx); policy != "" {
-			outbound, found := instance.Box().Outbound().Outbound(policy)
-			if !found {
-				return nil, fmt.Errorf("script policy %q is not a configured sing-box outbound", policy)
-			}
-			return outbound.DialContext(routeCtx, "tcp", destination)
+			return routes.dial(routeCtx, func(ctx context.Context) (net.Conn, error) {
+				outbound, found := instance.Box().Outbound().Outbound(policy)
+				if !found {
+					return nil, fmt.Errorf("script policy %q is not a configured sing-box outbound", policy)
+				}
+				return outbound.DialContext(ctx, "tcp", destination)
+			})
 		}
-		local, routed := net.Pipe()
-		stop := context.AfterFunc(routeCtx, func() { local.Close(); routed.Close() })
-		go instance.Box().Router().RouteConnectionEx(routeCtx, routed, metadata, func(error) { stop(); routed.Close() })
-		return local, nil
+		return routes.route(routeCtx, func(ctx context.Context, conn net.Conn, onClose func(error)) {
+			instance.Box().Router().RouteConnectionEx(ctx, conn, metadata, onClose)
+		})
 	}
 	prepared.SetGatewayResolver(func() string {
 		if s.Instance() != instance {
@@ -119,4 +122,9 @@ func (s *CommandServer) activateUIProcessing(prepared *httpdebug.PreparedProcess
 	httpdebug.ActivateProcessing(prepared, dial, instance.UIRootPool())
 }
 
-func stopUIProcessing() { httpdebug.StopService() }
+func (s *CommandServer) stopUIProcessing() {
+	s.uiProcessingRoutes.close()
+	httpdebug.StopService()
+	s.uiProcessingRoutes.wait()
+	s.uiProcessingRoutes = nil
+}

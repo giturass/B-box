@@ -5,7 +5,6 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"compress/zlib"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,16 +14,11 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-const maxContentEncodingLayers = 3
-
 func contentEncodings(value string) ([]string, error) {
 	if strings.TrimSpace(value) == "" {
 		return nil, nil
 	}
 	encodings := strings.Split(value, ",")
-	if len(encodings) > maxContentEncodingLayers {
-		return nil, errors.New("Content-Encoding exceeds three layers")
-	}
 	for i, encoding := range encodings {
 		encodings[i] = strings.ToLower(strings.TrimSpace(encoding))
 		switch encodings[i] {
@@ -40,42 +34,25 @@ func contentEncoding(header http.Header) string {
 	return strings.Join(header.Values("Content-Encoding"), ",")
 }
 
-// A fixed-capacity read avoids ReadAll's growth allocations. The extra byte
-// distinguishes an exact-limit body from a prefix without consuming the stream.
+// Allocate as bytes arrive, not according to the configured maximum. Read one
+// extra byte only when a user limit is present so an oversized stream can replay.
 func readBodyPrefix(reader io.Reader, limit int64) ([]byte, error) {
-	data := make([]byte, limit+1)
-	n, empty := 0, 0
-	for n < len(data) {
-		count, err := reader.Read(data[n:])
-		n += count
-		if err != nil {
-			if err == io.EOF {
-				err = nil
-			}
-			return data[:n], err
-		}
-		if count == 0 {
-			empty++
-			if empty >= 100 {
-				return data[:n], io.ErrNoProgress
-			}
-		} else {
-			empty = 0
-		}
+	if limit > 0 && limit < int64(^uint64(0)>>1) {
+		reader = io.LimitReader(reader, limit+1)
 	}
-	return data[:n], nil
+	return io.ReadAll(reader)
 }
 
 // Each intermediate representation has the same limit as the final body.
 func decodeContent(body []byte, encodings []string, limit int64) ([]byte, error) {
 	data, err := decodeContentWithReader(body, encodings, func(reader io.Reader) ([]byte, error) {
 		data, err := readBodyPrefix(reader, limit)
-		if int64(len(data)) > limit {
+		if exceedsBodyLimit(int64(len(data)), limit) {
 			err = errRewriteSize
 		}
 		return data, err
 	})
-	if err == nil && int64(len(data)) > limit {
+	if err == nil && exceedsBodyLimit(int64(len(data)), limit) {
 		err = errRewriteSize
 	}
 	return data, err
@@ -108,6 +85,7 @@ func decodeContentWithReader(body []byte, encodings []string, read func(io.Reade
 		case "br":
 			reader = brotli.NewReader(bytes.NewReader(data))
 		case "zstd":
+			// RFC 9659 section 3 limits HTTP zstd frames to an 8 MiB window.
 			var decoder *zstd.Decoder
 			decoder, err = zstd.NewReader(bytes.NewReader(data), zstd.WithDecoderConcurrency(1),
 				zstd.WithDecoderLowmem(true), zstd.WithDecoderMaxMemory(8*1024*1024),

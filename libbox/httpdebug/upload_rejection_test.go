@@ -98,7 +98,7 @@ func TestRejectedHTTP1UploadDoesNotWaitForRemainingBody(t *testing.T) {
 				if dials.Load() != 0 || processingBodies.used.Load() != 0 {
 					t.Fatal("rejected upload reached upstream or retained its body budget")
 				}
-				items := saved.Page(MaxEntries, "").Items
+				items := saved.Page(0, "").Items
 				if len(items) != 1 || !items[0].Complete || items[0].Error == "" {
 					t.Fatalf("rejected request did not finish recording: %+v", items)
 				}

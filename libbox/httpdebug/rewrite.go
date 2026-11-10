@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"golang.org/x/net/http/httpguts"
 )
@@ -21,8 +20,7 @@ type httpProgram struct {
 	*RewriteProgram
 	scripts        *ScriptProgram
 	environment    scriptEnvironment
-	regex          *regexBudget
-	jqRemaining    time.Duration
+	regex          *regexContext
 	candidates     []string
 	matched        map[*rewriteRegexp]string
 	connectionHost string
@@ -52,8 +50,7 @@ func (p *httpProgram) prepareMatcher(request *http.Request, address string) {
 	if p.regex != nil {
 		return
 	}
-	p.regex = newRegexBudget(request.Context())
-	p.jqRemaining = 500 * time.Millisecond
+	p.regex = newRegexContext(request.Context())
 	p.matched = make(map[*rewriteRegexp]string)
 	p.candidates = []string{address}
 	base := *request.URL
@@ -179,7 +176,7 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 			}
 			replacement = strings.ReplaceAll(replacement, gatewayPlaceholder, gateway)
 		}
-		next, err := boundedReplace(rule.pattern, matched, replacement, 8192, p.regex)
+		next, err := boundedReplace(rule.pattern, matched, replacement, 0, p.regex)
 		if err != nil {
 			return nil, err
 		}
@@ -208,7 +205,7 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 		if matched == "" {
 			continue
 		}
-		next, err := boundedReplace(rule.pattern, matched, rule.options.Replacement, 8192, p.regex)
+		next, err := boundedReplace(rule.pattern, matched, rule.options.Replacement, 0, p.regex)
 		if err != nil {
 			return nil, err
 		}
@@ -227,14 +224,7 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 	available := false
 	// Even a header-only request script may generate a bounded mock body.
 	if needsBody && eligible || script != nil && !script.options.RequiresBody {
-		limit := int64(0)
-		if bodyRules {
-			limit = p.bodyLimit("request")
-		}
-		if script != nil {
-			limit = max(limit, script.options.MaxBodyBytes)
-		}
-		lease = reserveBodyWork(limit)
+		lease = reserveBodyWork(0)
 		if lease == nil {
 			note("Body processing skipped: global body budget exhausted; original stream preserved")
 		}
@@ -246,7 +236,7 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 			limit = script.options.MaxBodyBytes
 		}
 		var err error
-		data, available, err = readRewriteBody(request.Context(), &request.Body, encoding, limit, false, note)
+		data, available, err = readRewriteBody(request.Context(), &request.Body, encoding, limit, false, note, lease)
 		if err != nil {
 			return nil, err
 		}
@@ -413,11 +403,7 @@ func (p *httpProgram) response(request *http.Request, response *http.Response, i
 	var data []byte
 	available := false
 	if needsBody && eligible {
-		budgetLimit := p.limit
-		if script != nil {
-			budgetLimit = max(budgetLimit, script.options.MaxBodyBytes)
-		}
-		lease = reserveBodyWork(budgetLimit)
+		lease = reserveBodyWork(0)
 		if lease == nil {
 			note("Body processing skipped: global body budget exhausted; original stream preserved")
 		} else {
@@ -426,7 +412,7 @@ func (p *httpProgram) response(request *http.Request, response *http.Response, i
 				limit = script.options.MaxBodyBytes
 			}
 			var err error
-			data, available, err = readRewriteBody(request.Context(), &response.Body, encoding, limit, true, note)
+			data, available, err = readRewriteBody(request.Context(), &response.Body, encoding, limit, true, note, lease)
 			if err != nil {
 				return err
 			}
@@ -449,7 +435,7 @@ func (p *httpProgram) response(request *http.Request, response *http.Response, i
 		}
 	}
 	if script != nil {
-		if script.options.RequiresBody && (!available || int64(len(data)) > script.options.MaxBodyBytes) {
+		if script.options.RequiresBody && (!available || exceedsBodyLimit(int64(len(data)), script.options.MaxBodyBytes)) {
 			note(script.label + ": skipped unavailable or oversized response body")
 		} else {
 			result, err := runHTTPScript(request, response, script, id, data, p.environment, note)
@@ -526,7 +512,7 @@ func (p *httpProgram) rewriteHeader(phase, address string, header http.Header, h
 			values = append([]string(nil), values...)
 			for i, value := range values {
 				var err error
-				values[i], err = boundedReplace(rule.regex, value, rule.options.Replacement, MaxHeaderBytes, p.regex)
+				values[i], err = boundedReplace(rule.regex, value, rule.options.Replacement, 0, p.regex)
 				if err != nil {
 					return err
 				}
@@ -543,15 +529,6 @@ func (p *httpProgram) rewriteHeader(phase, address string, header http.Header, h
 			header[key] = values
 		}
 		note(rule.label)
-	}
-	size := 0
-	for name, values := range header {
-		for _, value := range values {
-			size += len(name) + len(value)
-		}
-	}
-	if size > MaxHeaderBytes {
-		return errors.New("rewritten headers exceed 64 KiB")
 	}
 	return nil
 }

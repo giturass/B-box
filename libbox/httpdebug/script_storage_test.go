@@ -71,87 +71,52 @@ func TestScriptStoragePersistsIsolatesAndDeletes(t *testing.T) {
 	}
 }
 
-func TestScriptStorageEnforcesBytesKeysNamespacesAndTotalQuota(t *testing.T) {
-	t.Run("entry and namespace bytes", func(t *testing.T) {
+func TestScriptStoragePersistsBeyondFormerQuotas(t *testing.T) {
+	t.Run("values and bytes", func(t *testing.T) {
 		store := testScriptStore(t)
-		for _, test := range []struct{ key, value string }{
-			{"", "value"}, {strings.Repeat("中", 86), "value"},
-			{"large", strings.Repeat("x", maxScriptStorageValueBytes+1)},
-			{"unicode", strings.Repeat("中", maxScriptStorageValueBytes/3+1)},
-		} {
-			if err := store.write(context.Background(), "ns", test.key, &test.value); err == nil {
-				t.Fatal("accepted oversized or invalid entry")
-			}
-		}
-		value := strings.Repeat("v", maxScriptStorageValueBytes)
-		for _, key := range []string{"a", "b", "c", "e", "f", "g", "h"} {
-			storeScriptValue(t, store, "ns", key, value)
-		}
-		before := store.totalBytes
-		if err := store.write(context.Background(), "ns", "d", &value); err == nil || store.totalBytes != before {
-			t.Fatal("namespace quota failure changed stored bytes")
-		}
-		expectScriptValue(t, store, "ns", "d", "", false)
-		storeScriptValue(t, store, "ns", "a", "smaller")
-		storeScriptValue(t, store, "ns", "d", value)
-		if store.totalBytes > maxScriptStorageBytes {
-			t.Fatal("overwrite did not account for the previous value")
-		}
-	})
-	t.Run("keys", func(t *testing.T) {
-		store := testScriptStore(t)
-		for i := 0; i < maxScriptStorageKeys; i++ {
-			storeScriptValue(t, store, "ns", fmt.Sprint(i), "v")
-		}
-		value := "rejected"
-		if err := store.write(context.Background(), "ns", "extra", &value); err == nil {
-			t.Fatal("key quota bypassed")
-		}
-		storeScriptValue(t, store, "ns", "0", "overwrite at capacity")
-		if err := store.write(context.Background(), "ns", "1", nil); err != nil {
-			t.Fatal(err)
-		}
-		storeScriptValue(t, store, "ns", "extra", "reclaimed")
-	})
-	t.Run("namespaces", func(t *testing.T) {
-		store := testScriptStore(t)
-		for i := 0; i < maxScriptStorageNamespaces; i++ {
-			storeScriptValue(t, store, fmt.Sprint(i), "key", "v")
-		}
-		value := "rejected"
-		if err := store.write(context.Background(), "extra", "key", &value); err == nil {
-			t.Fatal("namespace quota bypassed")
-		}
-		if err := store.write(context.Background(), "0", "key", nil); err != nil {
-			t.Fatal(err)
-		}
-		storeScriptValue(t, store, "extra", "key", "reclaimed")
-	})
-	t.Run("global bytes", func(t *testing.T) {
-		store := testScriptStore(t)
-		value := strings.Repeat("v", maxScriptStorageValueBytes)
-		rejected := ""
-		for i := 0; i < maxScriptStorageNamespaces; i++ {
-			name := fmt.Sprint(i)
-			if err := store.write(context.Background(), name, "key", &value); err != nil {
-				if !strings.Contains(err.Error(), "byte quota") {
-					t.Fatal(err)
-				}
-				rejected = name
-				break
-			}
-		}
-		if rejected == "" || store.totalBytes > maxScriptStorageTotalBytes {
-			t.Fatal("global quota bypassed")
+		// Two snapshots cross the former 4 MiB value, 32 MiB namespace and
+		// 64 MiB aggregate limits with only two atomic writes.
+		value := strings.Repeat("v", 33*1024*1024)
+		key := strings.Repeat("中", 100)
+		for _, namespace := range []string{"first", strings.Repeat("n", 65)} {
+			storeScriptValue(t, store, namespace, key, value)
 		}
 		reopened, err := openScriptStore(store.directory)
-		if err != nil || reopened.totalBytes != store.totalBytes {
-			t.Fatal("global quota was not reconstructed from disk", err)
+		if err != nil || reopened.totalBytes != store.totalBytes || reopened.totalBytes <= 64*1024*1024 {
+			t.Fatal("large storage snapshots did not reopen", err)
 		}
-		if err = reopened.write(context.Background(), "0", "key", nil); err != nil {
+		for _, namespace := range []string{"first", strings.Repeat("n", 65)} {
+			expectScriptValue(t, reopened, namespace, key, value, true)
+		}
+		before := reopened.totalBytes
+		storeScriptValue(t, reopened, "first", key, "smaller")
+		if reopened.totalBytes >= before {
+			t.Fatal("overwrite retained the old byte count")
+		}
+	})
+	t.Run("keys and namespaces", func(t *testing.T) {
+		store := testScriptStore(t)
+		for i := range 129 {
+			storeScriptValue(t, store, "keys", fmt.Sprint(i), "value")
+		}
+		for i := range 257 {
+			storeScriptValue(t, store, fmt.Sprint(i), "key", "value")
+		}
+		reopened, err := openScriptStore(store.directory)
+		if err != nil {
 			t.Fatal(err)
 		}
-		storeScriptValue(t, reopened, rejected, "key", value)
+		for i := range 129 {
+			expectScriptValue(t, reopened, "keys", fmt.Sprint(i), "value", true)
+		}
+		for i := range 257 {
+			expectScriptValue(t, reopened, fmt.Sprint(i), "key", "value", true)
+		}
+		for _, test := range []struct{ key, value string }{{"", "value"}, {"\xff", "value"}, {"key", "\xff"}} {
+			if err := reopened.write(context.Background(), "keys", test.key, &test.value); err == nil {
+				t.Fatal("invalid storage text accepted")
+			}
+		}
 	})
 }
 
@@ -236,7 +201,7 @@ func TestScriptStorageRejectsCorruptionAndSymlinksWithoutDataLoss(t *testing.T) 
 		`{"version":1,"values":{"key":null}}`,
 		`{"version":1,"values":{"key":"old"},"unknown":true}`,
 		`{"version":1,"values":{"key":"old"}} {}`,
-		strings.Repeat(" ", maxScriptStorageBytes+1),
+		" ",
 	} {
 		directory := t.TempDir()
 		path := filepath.Join(directory, "ns.json")
@@ -276,10 +241,10 @@ func TestScriptStorageRejectsCorruptionAndSymlinksWithoutDataLoss(t *testing.T) 
 	}
 }
 
-func TestPersistentStoreAPIIsScopedSharedWithCronAndBounded(t *testing.T) {
+func TestPersistentStoreAPIIsScopedSharedWithCronAndHasNoCallQuota(t *testing.T) {
 	store := testScriptStore(t)
 	run := func(namespace, source string) error {
-		rule := httpAPIScript(t, HTTPScript{StorageNamespace: namespace, Source: source})
+		rule := httpAPIScript(t, HTTPScript{StorageNamespace: namespace, Source: source, TimeoutMS: 10000})
 		request, _ := http.NewRequest("GET", "http://intercepted.test/", nil)
 		_, err := runHTTPScript(request, nil, rule, "test", nil, scriptEnvironment{storage: store}, func(string) {})
 		return err
@@ -307,10 +272,10 @@ func TestPersistentStoreAPIIsScopedSharedWithCronAndBounded(t *testing.T) {
 		if(!$persistentStore.write('own') || $persistentStore.read()!=='own') throw Error('implicit key'); $done();`); err != nil {
 		t.Fatal(err)
 	}
-	if err := run("shared", `if($persistentStore.write('x'.repeat(4194305),'key')) throw Error('value quota'); $done();`); err != nil {
+	if err := run("shared", `if(!$persistentStore.write('x'.repeat(4194305),'large') || $persistentStore.read('large').length!==4194305) throw Error('large value'); $done();`); err != nil {
 		t.Fatal(err)
 	}
-	if err := run("shared", `for(let i=0;i<64;i++) $persistentStore.read('key'); if($persistentStore.write('bad','key')) throw Error('operation quota'); $done();`); err != nil {
+	if err := run("shared", `for(let i=0;i<129;i++) if($persistentStore.read('key')!=='cron') throw Error('read'); if(!$persistentStore.write('saved','after-many-reads')) throw Error('write'); $done();`); err != nil {
 		t.Fatal(err)
 	}
 	expectScriptValue(t, store, "shared", "key", "cron", true)

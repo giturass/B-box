@@ -1,0 +1,44 @@
+diff --git a/regexp.go b/regexp.go
+--- a/regexp.go
++++ b/regexp.go
+@@ -32,6 +32,7 @@
+ 	// suppressed.
+ 	MatchTimeout time.Duration
+ 
++	cancelCheck func() error
+ 	// read-only after Compile
+ 	pattern string       // as passed to Compile
+ 	options RegexOptions // options
+diff --git a/runner.go b/runner.go
+--- a/runner.go
++++ b/runner.go
+@@ -200,7 +200,7 @@
+ 		}
+ 
+ 		if findFirstChar(r) {
+-			if !r.ignoreTimeout {
++			if !r.ignoreTimeout || r.re.cancelCheck != nil {
+ 				if err := r.CheckTimeout(); err != nil {
+ 					return nil, err
+ 				}
+@@ -252,7 +252,7 @@
+ 			r.dumpState()
+ 		}
+ 
+-		if !r.ignoreTimeout {
++		if !r.ignoreTimeout || r.re.cancelCheck != nil {
+ 			if err := r.CheckTimeout(); err != nil {
+ 				return err
+ 			}
+@@ -2745,6 +2745,11 @@
+ }
+ 
+ func (r *Runner) CheckTimeout() error {
++	if r.re.cancelCheck != nil {
++		if err := r.re.cancelCheck(); err != nil {
++			return err
++		}
++	}
+ 	if r.ignoreTimeout || !r.deadline.reached() {
+ 		return nil
+ 	}

@@ -43,7 +43,16 @@ func TestSurgeEmbeddedResourceReferenceKeepsContentType(t *testing.T) {
 
 func testProcessingResources(t *testing.T, directory, profile string, environment scriptEnvironment, specs []*processingResource) *processingResources {
 	t.Helper()
-	resources := newProcessingResources(context.Background(), directory, profile, environment.dial, environment.roots, specs)
+	var resources *processingResources
+	if specs == nil {
+		// These tests drive loads/refresh explicitly. Lifecycle tests pass specs
+		// to exercise the real startup cleanup and background refresh workers.
+		ctx, cancel := context.WithCancel(context.Background())
+		resources = &processingResources{ctx: ctx, cancel: cancel, directory: filepath.Join(directory, "resource-cache"),
+			profileDirectory: profile, dial: environment.dial, roots: environment.roots, states: make(map[string]*resourceState)}
+	} else {
+		resources = newProcessingResources(context.Background(), directory, profile, environment.dial, environment.roots, specs)
+	}
 	t.Cleanup(resources.Close)
 	return resources
 }
@@ -140,13 +149,19 @@ func TestSurgeMapLocalReadsProfileFilesAndRejectsEscapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = file.Truncate(MaxLocalResourceBytes + 1)
+	err = file.Truncate(15*1024*1024 + 1)
 	file.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response, err := program.request(request, "test", request.URL.String(), func(string) {}); err != nil || response != nil {
-		t.Fatal("oversized file became a resource", err)
+	response, err = program.request(request, "test", request.URL.String(), func(string) {})
+	if err != nil || response == nil {
+		t.Fatal("file beyond the former 15 MiB cap was not served", err)
+	}
+	size, err := io.Copy(io.Discard, response.Body)
+	response.Body.Close()
+	if err != nil || size != 15*1024*1024+1 {
+		t.Fatal("large file resource was truncated", size, err)
 	}
 	if processingBodies.used.Load() != 0 {
 		t.Fatal("local resource retained capacity")
@@ -161,7 +176,7 @@ func TestSurgeURLResourcesCacheDeduplicateAndSurviveOfflineReload(t *testing.T) 
 	}))
 	defer origin.Close()
 	directory := t.TempDir()
-	spec, err := compileProcessingResource("http://resource.test/mock.json", MaxLocalResourceBytes, false, 86400, false)
+	spec, err := compileProcessingResource("http://resource.test/mock.json", 0, false, 86400, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +310,7 @@ func TestSurgeLocalScriptCacheDebugReloadAndLoadFailurePassthrough(t *testing.T)
 	}
 	content, _ := json.Marshal(ScriptsConfig{HTTP: []HTTPScript{{RewriteMatch: RewriteMatch{Pattern: "."}, Phase: "request", ScriptPath: "missing.js"}}})
 	scripts := scriptProgram(t, string(content))
-	program := &httpProgram{RewriteProgram: &RewriteProgram{limit: MaxBodyLimit}, scripts: scripts, environment: scriptEnvironment{resources: resources}}
+	program := &httpProgram{RewriteProgram: &RewriteProgram{limit: (1024 * 1024)}, scripts: scripts, environment: scriptEnvironment{resources: resources}}
 	request, _ := http.NewRequest("POST", "http://example.test/", strings.NewReader("original"))
 	response, err := program.request(request, "test", request.URL.String(), func(string) {})
 	if err != nil || response != nil {

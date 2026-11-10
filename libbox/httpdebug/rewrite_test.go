@@ -62,7 +62,7 @@ func TestRewriteConfigValidation(t *testing.T) {
 		`{"scripts":[{"pattern":".","phase":"request","source":"$done()","script_path":"https://example.com/x.js"}]}`,
 		`{"map_local":[{"pattern":".","resource":"missing"}]}`,
 		`{"map_local":[{"pattern":".","data_type":"base64","data":"%%%"}]}`,
-		`{"max_body_bytes":10485761}`, `{"ports":[0]}`,
+		`{"max_body_bytes":-2}`, `{"ports":[0]}`,
 	} {
 		var config RewriteConfig
 		if err := json.Unmarshal([]byte(invalid), &config); err == nil {

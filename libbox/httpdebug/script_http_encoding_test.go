@@ -36,7 +36,7 @@ func runCronHTTPResponseScript(t *testing.T, origin *httptest.Server, limit int6
 	if dials.Load() != 1 {
 		t.Fatalf("expected one routed request, got %d", dials.Load())
 	}
-	if processingBodies.used.Load() != 0 || len(cronScriptSlots) != 0 {
+	if processingBodies.used.Load() != 0 || cronScriptsRunning.Load() != 0 {
 		t.Fatal("Cron HTTP retained body or interpreter capacity")
 	}
 }
