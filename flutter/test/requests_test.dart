@@ -362,6 +362,11 @@ void main() {
     expect(json(calls.lastWhere((call) => call.method == 'capture.detail').arguments)['id'], 'two');
     await chooseMessage(tester, 'Connection');
     await showDetailItem(tester, find.text('Related captured requests').last);
+    final detailPage = find.byType(RequestDetailPage).last;
+    final detailList = find.descendant(of: detailPage, matching: find.byType(ListView)).first;
+    final detailTitle = find.descendant(of: detailPage, matching: find.text('Request details')).last;
+    expect(tester.getTopLeft(detailList).dy, greaterThanOrEqualTo(tester.getBottomLeft(detailTitle).dy),
+      reason: 'Scrolled connection information must stay below the shared toolbar.');
     await capture(tester, 'unified-related-requests');
     await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
     await tester.tap(find.text('Close underlying connection').last); await tester.pumpAndSettle();
@@ -425,6 +430,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Show more').hitTestable(), findsOneWidget,
       reason: 'The pagination button must scroll clear of the docked search field.');
+    final list = find.descendant(of: find.byType(RequestsPage), matching: find.byType(ListView)).first;
+    expect(tester.getTopLeft(list).dy, greaterThanOrEqualTo(tester.getBottomLeft(find.text('Requests').last).dy),
+      reason: 'Scrolled request rows must stay below the shared toolbar.');
     await capture(tester, 'requests-pagination');
     await tester.tap(find.text('Show more'));
     await tester.pumpAndSettle();

@@ -94,54 +94,57 @@ class _RequestsPageState extends State<RequestsPage> {
         ],
       ],
       // Join and filter all bounded summaries first; paginate the unified result.
-      body: Builder(builder: (context) => ListView.builder(
-        padding: EdgeInsets.only(top: context.contentTopPadding, bottom: 24 + context.bottomInset),
-        itemCount: entries.length + 2,
-        itemBuilder: (context, index) {
-          if (index == 0) return Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Padding(padding: const EdgeInsets.only(bottom: 12), child: Wrap(spacing: 8, runSpacing: 8, children: [
-              for (final option in ['All', 'Active', if (!box.remote) 'Captured', 'Finished']) Semantics(selected: option == filter, button: true,
-                child: PressSurface(key: ValueKey('activity-filter-$option'), shape: AppShape.full,
-                  fill: option == filter ? context.colorScheme.primary : context.raisedSurfaceLevel.colorOf(context.colorScheme),
-                  onPressed: () => setState(() { _filter = option; _limit = 50; }),
-                  child: Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    child: Text(context.tr(option), style: context.listSubtitleStyle.copyWith(
-                      color: option == filter ? context.colorScheme.onPrimary : context.colorScheme.onSurface))),
-                )),
-            ])),
-            if (box.remote) Padding(padding: const EdgeInsets.only(bottom: 12),
-              child: Text(context.tr('HTTP debugging is only available for the local service'), style: context.listSubtitleStyle))
-            else ...[
-              generateGroup([
-                ListItem.toggle(key: const ValueKey('capture-toggle'), title: Text(context.tr('Capture requests')),
-                  subtitle: Text(context.tr(active ? 'Capturing new requests and streams' : 'Capture stopped')), value: active,
-                  onChanged: _busy || snapshot == null || !box.running || box.transitioning ? null : (_) => _act(active ? 'capture.stop' : 'capture.start')),
-              ]),
-              if (!box.running) Padding(padding: const EdgeInsets.all(12), child: Text(context.tr('Start the local service before capturing requests'))),
-              if (snapshot != null) Padding(padding: const EdgeInsets.all(12), child: Text(
-                '${page['total'] ?? 0} ${context.tr('Captured')} · ${bytes(page['storedBytes'] as num? ?? 0)} / 32 MiB', style: context.listSubtitleStyle)),
-              if ((page['error'] as String? ?? '').isNotEmpty) Text(page['error'].toString(), style: TextStyle(color: context.colorScheme.error)),
-              if (error != null) ErrorState(error, retry: refresh),
-              if (snapshot == null && error == null) const Center(child: ActivityIndicator()),
-            ],
-            if ((box.remote || snapshot != null) && entries.isEmpty) EmptyState(query.isNotEmpty ? 'No results' : _filter == 'Captured' ? 'No captured requests' : 'No network activity',
-              message: box.remote || query.isNotEmpty ? null : _filter == 'Captured'
-                ? 'Configure MITM domains and trust the CA to record HTTPS or TLS/TCP. Recording starts with new requests or streams. Reconnect the target app if its connection was not already intercepted. Stopping recording keeps existing connections running.'
-                : 'Recent connections appear while the service is running. Capture saves HTTP messages and decrypted TLS streams separately.'),
-          ]));
-          if (index > entries.length) return list.length > entries.length
-            ? TextButton(onPressed: () => setState(() => _limit += 50), child: Text(context.tr('Show more')))
-            : const SizedBox.shrink();
-          final entry = entries[index - 1];
-          void open() => openPage(context, RequestDetailPage(id: entry.capture?['id']?.toString(), connection: entry.connection));
-          return Padding(key: ValueKey(entry.key), padding: const EdgeInsets.only(bottom: recordListGap), child: entry.capture != null
-            ? _RequestRecord(item: entry.capture!, onOpen: open, onKeyword: _keywords.add)
-            : ConnectionRecord(connection: entry.connection!, onOpen: open, onKeyword: _keywords.add,
-                onClose: entry.active && box.running ? () {
-                  if (session == box.sessionRevision) box.act('connections.close', {'id': entry.connectionId});
-                } : null));
-        },
-      )),
+      body: Builder(builder: (context) {
+        final inset = context.appBarInset, gap = context.contentTopPadding - inset;
+        return Padding(padding: EdgeInsets.only(top: inset), child: ListView.builder(
+          padding: EdgeInsets.only(top: gap > 0 ? gap : 0, bottom: 24 + context.bottomInset),
+          itemCount: entries.length + 2,
+          itemBuilder: (context, index) {
+            if (index == 0) return Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Padding(padding: const EdgeInsets.only(bottom: 12), child: Wrap(spacing: 8, runSpacing: 8, children: [
+                for (final option in ['All', 'Active', if (!box.remote) 'Captured', 'Finished']) Semantics(selected: option == filter, button: true,
+                  child: PressSurface(key: ValueKey('activity-filter-$option'), shape: AppShape.full,
+                    fill: option == filter ? context.colorScheme.primary : context.raisedSurfaceLevel.colorOf(context.colorScheme),
+                    onPressed: () => setState(() { _filter = option; _limit = 50; }),
+                    child: Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      child: Text(context.tr(option), style: context.listSubtitleStyle.copyWith(
+                        color: option == filter ? context.colorScheme.onPrimary : context.colorScheme.onSurface))),
+                  )),
+              ])),
+              if (box.remote) Padding(padding: const EdgeInsets.only(bottom: 12),
+                child: Text(context.tr('HTTP debugging is only available for the local service'), style: context.listSubtitleStyle))
+              else ...[
+                generateGroup([
+                  ListItem.toggle(key: const ValueKey('capture-toggle'), title: Text(context.tr('Capture requests')),
+                    subtitle: Text(context.tr(active ? 'Capturing new requests and streams' : 'Capture stopped')), value: active,
+                    onChanged: _busy || snapshot == null || !box.running || box.transitioning ? null : (_) => _act(active ? 'capture.stop' : 'capture.start')),
+                ]),
+                if (!box.running) Padding(padding: const EdgeInsets.all(12), child: Text(context.tr('Start the local service before capturing requests'))),
+                if (snapshot != null) Padding(padding: const EdgeInsets.all(12), child: Text(
+                  '${page['total'] ?? 0} ${context.tr('Captured')} · ${bytes(page['storedBytes'] as num? ?? 0)} / 32 MiB', style: context.listSubtitleStyle)),
+                if ((page['error'] as String? ?? '').isNotEmpty) Text(page['error'].toString(), style: TextStyle(color: context.colorScheme.error)),
+                if (error != null) ErrorState(error, retry: refresh),
+                if (snapshot == null && error == null) const Center(child: ActivityIndicator()),
+              ],
+              if ((box.remote || snapshot != null) && entries.isEmpty) EmptyState(query.isNotEmpty ? 'No results' : _filter == 'Captured' ? 'No captured requests' : 'No network activity',
+                message: box.remote || query.isNotEmpty ? null : _filter == 'Captured'
+                  ? 'Configure MITM domains and trust the CA to record HTTPS or TLS/TCP. Recording starts with new requests or streams. Reconnect the target app if its connection was not already intercepted. Stopping recording keeps existing connections running.'
+                  : 'Recent connections appear while the service is running. Capture saves HTTP messages and decrypted TLS streams separately.'),
+            ]));
+            if (index > entries.length) return list.length > entries.length
+              ? TextButton(onPressed: () => setState(() => _limit += 50), child: Text(context.tr('Show more')))
+              : const SizedBox.shrink();
+            final entry = entries[index - 1];
+            void open() => openPage(context, RequestDetailPage(id: entry.capture?['id']?.toString(), connection: entry.connection));
+            return Padding(key: ValueKey(entry.key), padding: const EdgeInsets.only(bottom: recordListGap), child: entry.capture != null
+              ? _RequestRecord(item: entry.capture!, onOpen: open, onKeyword: _keywords.add)
+              : ConnectionRecord(connection: entry.connection!, onOpen: open, onKeyword: _keywords.add,
+                  onClose: entry.active && box.running ? () {
+                    if (session == box.sessionRevision) box.act('connections.close', {'id': entry.connectionId});
+                  } : null));
+          },
+        ));
+      }),
     );
   }
 }
@@ -213,6 +216,18 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
     if (mounted) context.box.messages.add(context.tr('Copied'));
   }
 
+  Widget _page({required List<Widget> children, List<IconButtonData> actions = const [],
+      List<PopupMenuItem> menuItems = const [], bool loading = false}) => Scaffold(
+    title: context.tr('Request details'), iconActions: actions, menuItems: menuItems, isLoading: loading,
+    body: Builder(builder: (context) {
+      final inset = context.appBarInset, gap = context.contentTopPadding - inset;
+      // Scrolling connection rows must not paint beneath the floating title.
+      return Padding(padding: EdgeInsets.only(top: inset), child: ListView(
+        padding: EdgeInsets.fromLTRB(16, gap > 0 ? gap : 0, 16, 24 + context.bottomInset), children: children,
+      ));
+    }),
+  );
+
   Widget _headers(Json message, bool response) {
     final headers = rows(message['headers']);
     return generateSection(title: context.tr(response ? 'Response headers' : 'Request headers'), actions: [
@@ -242,12 +257,12 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
 
   @override Widget build(BuildContext context) {
     final box = context.watchBox(BoxAspect.connections);
-    if (widget.id != null && box.remote) return const BoxPage(title: 'Request details', children: [EmptyState('HTTP debugging is only available for the local service')]);
-    if (_session != box.sessionRevision) return const BoxPage(title: 'Request details', children: [EmptyState('Session changed; reopen this activity from the current list')]);
+    if (widget.id != null && box.remote) return _page(children: const [EmptyState('HTTP debugging is only available for the local service')]);
+    if (_session != box.sessionRevision) return _page(children: const [EmptyState('Session changed; reopen this activity from the current list')]);
     if (widget.id == null) {
       final id = widget.connection!['id'].toString();
       final present = _resolveConnection(id), connection = _cachedConnection!;
-      return BoxDataSubscription(data: BoxData.connections, child: BoxPage(title: 'Request details', actions: [
+      return BoxDataSubscription(data: BoxData.connections, child: _page(actions: [
         IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr('Copy'), onPressed: () => _copy(
           connectionValues(connection).entries.map((e) => '${context.tr(e.key)}: ${e.value ?? '—'}').join('\n'))),
         IconButtonData(glyph: AppGlyphs.close, tooltip: context.tr('Close this connection'),
@@ -284,7 +299,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
         if ((detail?['error'] as String? ?? '').isNotEmpty) 'Error': detail?['error'],
         if ((detail?['note'] as String? ?? '').isNotEmpty) 'Note': detail?['note'],
       };
-      return BoxPage(title: 'Request details', loading: _busy, actions: [
+      return _page(loading: _busy, actions: [
         IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr('Copy URL'), onPressed: detail == null ? null : () => _copy(request['url']?.toString() ?? '')),
         IconButtonData(glyph: AppGlyphs.arrowDown, tooltip: context.tr('Export cURL'), onPressed: detail == null || _busy || request['bodyComplete'] != true || request['bodyTruncated'] == true || request['headersTruncated'] == true || rows(request['trailers']).isNotEmpty || request['trailersTruncated'] == true || domainOnly || metadata['rawTCP'] == true ? null : () async {
           setState(() => _busy = true);
