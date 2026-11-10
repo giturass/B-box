@@ -1,3 +1,5 @@
+import 'package:flutter/services.dart' show TextInputAction;
+
 import '../widgets.dart';
 import '../components/form.dart';
 import 'configuration.dart';

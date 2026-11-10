@@ -202,7 +202,7 @@ func TestUISurgeProcessingFieldsSurviveFormattingWithoutLoadingResources(t *test
 	content := `{
 		"experimental": {
 			"http_rewrite": {
-				"enabled": true, "max_request_body_bytes": 33554432, "max_response_body_bytes": 10485760,
+				"enabled": true, "max_request_body_bytes": 33554433, "max_response_body_bytes": 10485761,
 				"resources": {"mock": {"data_type":"file", "data":"mock.json", "update_interval":60}},
 				"map_local": [{"pattern":"(?<=/)mock$","resource":"mock","status":999}],
 				"url_rewrite": [{"pattern":"/ws$","action":"header","replacement":"ws://example.test/socket"}],
@@ -237,7 +237,7 @@ func TestUISurgeProcessingFieldsSurviveFormattingWithoutLoadingResources(t *test
 		t.Fatal("formatting restricted a default network client")
 	}
 	rewrite := options.Experimental.HTTPRewrite
-	if rewrite.MaxRequestBodyBytes != 33554432 || rewrite.MaxResponseBodyBytes != 10485760 ||
+	if rewrite.MaxRequestBodyBytes != 33554433 || rewrite.MaxResponseBodyBytes != 10485761 ||
 		rewrite.BodyRewrite[0].JQ == nil || *rewrite.BodyRewrite[0].JQ != ".ok=true" || rewrite.MapLocal[0].Status != 999 {
 		t.Fatal("formatting changed body limits, jq or mock status")
 	}
@@ -253,8 +253,8 @@ func TestUISurgeProcessingFieldsSurviveFormattingWithoutLoadingResources(t *test
 	for _, invalid := range []string{
 		strings.Replace(content, `"jq":".ok=true"`, `"jq":".ok=true","regex":"x"`, 1),
 		strings.Replace(content, "missing.js", "../outside.js", 1),
-		strings.Replace(content, "33554432", "33554433", 1),
-		strings.Replace(content, "10485760", "10485761", 1),
+		strings.Replace(content, "33554433", "-2", 1),
+		strings.Replace(content, "10485761", "-2", 1),
 	} {
 		if err := CheckConfig(invalid); err == nil {
 			t.Fatal("invalid processing extension bypassed full config validation")
