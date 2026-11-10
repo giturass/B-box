@@ -153,7 +153,7 @@
     "lib/pages/tools.dart": {
       "source": "lib/views/tools.dart",
       "sourceSHA256": "aa81cb38649ba5f4c7f48c5a29ad4993fac0362ad1857e937af77f4093d572f9",
-      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools. Uses tool-specific state notifications and shares a visibility-controlled native detail subscription with endpoint pages. Migrated to the v0.9.3 prism_ui types and presentation. Settings and About are under the dashboard Settings entry; Tools lists connections and requests, logs, terminal, network diagnostics, remote control and available endpoints, and omits the three report entries. Network diagnostics immediately follows terminal and opens network quality and STUN tests."
+      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools. Uses tool-specific state notifications and shares a visibility-controlled native detail subscription with endpoint pages. Migrated to the v0.9.3 prism_ui types and presentation. Settings and About are under the dashboard Settings entry; Tools lists connections and requests, logs, terminal, network diagnostics, remote control and available endpoints, and omits the three report entries. Logs uses AppGlyphs.code, while Terminal uses the command-prompt shape from AppGlyphs.logs. Network diagnostics immediately follows terminal and opens network quality and STUN tests."
     },
     "lib/pages/settings.dart": {
       "source": "lib/views/tools.dart",

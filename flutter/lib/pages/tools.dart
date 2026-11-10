@@ -15,8 +15,8 @@ class ToolsPage extends StatelessWidget {
       generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.connections), title: Text(context.tr('Connections and requests')),
           widget: const RequestsPage()),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Logs')), widget: const LogsPage()),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Terminal')), widget: const TerminalPage()),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Logs')), widget: const LogsPage()),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Terminal')), widget: const TerminalPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.speed), title: Text(context.tr('Network diagnostics')), widget: const NetworkDiagnosticsPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(context.tr('Remote control')), widget: const RemotePage()),
       ]),
