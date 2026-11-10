@@ -183,7 +183,7 @@ func TestHTTPStreamingBodiesHeadersAndOriginalRoute(t *testing.T) {
 		if len(d.RequestBody) != 32 || len(d.ResponseBody) != 32 || !d.Request.BodyTruncated || !d.Response.BodyComplete {
 			t.Fatalf("limits/completion: %+v", d.Exchange)
 		}
-		if d.Metadata.ConnectionID != "http-client-1" || d.Metadata.Outbound != "selected-proxy" || d.Metadata.UID != 1234 {
+		if item.ConnectionID != "http-client-1" || d.Metadata.ConnectionID != item.ConnectionID || d.Metadata.Outbound != "selected-proxy" || d.Metadata.UID != 1234 {
 			t.Fatal("route metadata lost")
 		}
 		cookies := 0

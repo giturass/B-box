@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/widgets.dart';
-import 'package:b_box_ui/pages/connections.dart';
+import 'package:b_box_ui/pages/requests.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('connection subscriptions are released when their page closes', (tester) async {
+  testWidgets('the unified page releases connection subscriptions and capture polling when closed', (tester) async {
     final visibility = <bool>[];
     final captureCalls = <MethodCall>[];
     final events = StreamController<dynamic>.broadcast();
@@ -20,17 +20,20 @@ void main() {
     await tester.pumpWidget(BoxApp(controller: box));
     await tester.pumpAndSettle();
     final context = tester.element(find.byType(HomePage));
-    openPage(context, const ConnectionsPage());
+    openPage(context, const RequestsPage());
     await tester.pumpAndSettle();
     expect(visibility, [true]);
-    expect(captureCalls, isEmpty);
-    expect(find.byKey(const ValueKey('capture-toggle')), findsNothing);
-    final pageContext = tester.element(find.byType(ConnectionsPage));
+    expect(captureCalls.map((call) => call.method), ['capture.snapshot']);
+    expect(find.byKey(const ValueKey('capture-toggle')), findsOneWidget);
+    final pageContext = tester.element(find.byType(RequestsPage));
     pageContext.safeNestedPop();
     await tester.pumpAndSettle();
     await tester.pump();
-    expect(find.byType(ConnectionsPage), findsNothing);
+    expect(find.byType(RequestsPage), findsNothing);
     expect(visibility, [true, false]);
+    final reads = captureCalls.length;
+    await tester.pump(const Duration(seconds: 8));
+    expect(captureCalls.length, reads);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
     await events.close();

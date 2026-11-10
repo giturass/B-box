@@ -18,7 +18,7 @@
 
 清单中 `files` 和 `adaptedFiles` 的本地路径相对 `flutter/`，`adaptedNativeFiles` 的本地路径相对仓库根目录；`source`/`sources` 指向各自固定参考提交内的上游路径。`prismUi.files` 相对其 `localPath`，其中的适配文件和许可资源相对 `flutter/`。清单记录逐文件哈希和改动来源，本文维护使用说明，两者一并保留。
 
-请求/MITM 功能独立参考 FlClash `dev` 的 [`63aa150e23288558074d877f745a6d3b5f6418f6`](https://github.com/chen08209/FlClash/tree/63aa150e23288558074d877f745a6d3b5f6418f6)，相关提交为 [`f54486102172566e7342d7f5c138663c3c5dec0b`](https://github.com/chen08209/FlClash/commit/f54486102172566e7342d7f5c138663c3c5dec0b) 的 MITM 应用侧设计和 [`1a7556d30a38707f39abfba4b7d6a6b8f57774ed`](https://github.com/chen08209/FlClash/commit/1a7556d30a38707f39abfba4b7d6a6b8f57774ed) 的请求/连接整合。该 dev 源码的 `FEATURE_MITM` 默认关闭，公开 core 不提供完整 MITM 实现；B-box 自行实现 sing-box 路由上的 TLS 接管，不能把上游页面当成可用核心。采用证书信任、报文展示和 CA 模块设计，保留 B-box 的独立连接页。该补充参考与 v0.9.3 UI、Android 上游和核心基线分别维护。
+请求/MITM 功能独立参考 FlClash `dev` 的 [`63aa150e23288558074d877f745a6d3b5f6418f6`](https://github.com/chen08209/FlClash/tree/63aa150e23288558074d877f745a6d3b5f6418f6)，相关提交为 [`f54486102172566e7342d7f5c138663c3c5dec0b`](https://github.com/chen08209/FlClash/commit/f54486102172566e7342d7f5c138663c3c5dec0b) 的 MITM 应用侧设计和 [`1a7556d30a38707f39abfba4b7d6a6b8f57774ed`](https://github.com/chen08209/FlClash/commit/1a7556d30a38707f39abfba4b7d6a6b8f57774ed) 的请求/连接整合。该 dev 源码的 `FEATURE_MITM` 默认关闭，公开 core 不提供完整 MITM 实现；B-box 自行实现 sing-box 路由上的 TLS 接管，不能把上游页面当成可用核心。采用证书信任、报文展示和 CA 模块设计；统一请求查看器的交互参考 Surge [近期请求说明](https://kb.nssurge.com/surge-knowledge-base/zh/guidelines/troubleshooting)及[近期/活动请求 API](https://manual.nssurge.com/tools/http-api.html)，以 B-box 的真实连接和抓取记录实现。该补充参考与 v0.9.3 UI、Android 上游和核心基线分别维护。
 
 FlClash 应用层组件位于 [flutter/lib/ui](flutter/lib/ui)，共享控件以本地包 [flutter/packages/prism_ui](flutter/packages/prism_ui) 使用，保留原始源码与 shader，不再依赖旧 `material_ui`/`cupertino_ui`。原始许可见 [FlClash GPL](flutter/assets/licenses/LICENSE)、[prism_ui LICENSE](flutter/packages/prism_ui/LICENSE) 和 [NOTICE](flutter/packages/prism_ui/NOTICE)。Prism 内置的 shapes、sliver list、resizable navigator 的 MIT 声明另从源文件头提取至 [应用许可资源](flutter/assets/licenses)，与 HCT/Flutter 的 Apache/BSD 及 SDK、插件许可一起在 [许可证页](flutter/lib/pages/licenses.dart) 展示。该页面按包名列出、搜索并打开可选中的完整正文。
 
@@ -45,7 +45,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 | 系统 HTTP 代理 | [system_proxy_panel.dart](flutter/lib/components/system_proxy_panel.dart) | 采用参考版 VPN 卡片的布局、状态徽章和紧凑开关，使用 B-box 自有的大陆轮廓地球字形；开关接入内核上报状态及既有 Android 桥接 |
 | 外观与关于 | [appearance.dart](flutter/lib/pages/appearance.dart)、[about.dart](flutter/lib/pages/about.dart) | 复用主题预览、调色和版本/许可布局，保持 B-box 品牌及其 Release 来源 |
 | 备份 | [backup.dart](flutter/lib/pages/backup.dart)、[form.dart](flutter/lib/components/form.dart) | 复用本地/远程分区、WebDAV 表单、连通状态、恢复范围及策略，后端使用 `bbox-1` 格式 |
-| 请求调试 | [requests.dart](flutter/lib/pages/requests.dart)、[request_settings.dart](flutter/lib/pages/request_settings.dart)、[mitm_certificate.dart](flutter/lib/pages/mitm_certificate.dart)、[capture_domains.dart](flutter/lib/pages/capture_domains.dart) | 请求列表/详情、本机筛选、独立 MITM 与证书、TCP 流、域名选择及 HAR/cURL 导出；复用共享列表、表单和导航 |
+| 请求与连接 | [requests.dart](flutter/lib/pages/requests.dart)、[connection_record.dart](flutter/lib/components/connection_record.dart)、[request_settings.dart](flutter/lib/pages/request_settings.dart)、[mitm_certificate.dart](flutter/lib/pages/mitm_certificate.dart)、[capture_domains.dart](flutter/lib/pages/capture_domains.dart) | 统一网络活动列表与详情、连接管理、本机录制、独立 MITM 与证书、TCP 流、域名选择及 HAR/cURL 导出；复用共享列表、表单和导航 |
 
 记录组件使用 [record.dart](flutter/lib/components/record.dart) 中 `RecordTone` 的标签前景色和容器色；首页拖动浮层使用 [dashboard_editor.dart](flutter/lib/components/dashboard_editor.dart) 的 `DashboardShadows.e2` 阴影。应用层已移除未调用的强调色和一级阴影辅助实现，适配差异记录在来源清单；像素比较的独立状态参考渲染器继续保留自己使用的阴影实现。
 
@@ -60,11 +60,13 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 - 出站模式只显示内核提供的值。规则、全局、直连使用参考版字形，名称和选中态忽略大小写，排列和切换参数保留内核原值。系统 HTTP 代理卡片按内核能力显示，支持首页编辑中的排序、移除和重新添加；能力暂不可用时保留顺序和隐藏偏好。卡片沿用参考版 VPN 卡片的 48 像素徽章、加粗标题、启用/禁用副标题及紧凑开关；启用时徽章为主题色六瓣形，禁用时为低强调圆形。卡片和首页编辑列表共用 [system_proxy_glyph.dart](flutter/lib/components/system_proxy_glyph.dart) 中的大陆轮廓地球字形，使用共享 Glyph 的线宽与圆角；全局出站模式保留参考版经纬线球体字形。
 - 服务按钮的暂停图形表示停止服务，不新增暂停核心能力。远程会话、启停过渡和不可用操作必须反映真实状态。
 - 工具页远程控制紧跟终端；终端设置在终端内，仪表盘编辑在首页工具栏。设置依次为外观、常规、访问控制、备份与恢复；配置相关入口统一在配置的“编辑”页，具体排列见 [配置页与内核差异](#配置页与内核差异)。
-- 工具页依次提供独立的“请求”和“连接”入口。连接页默认显示活动连接，可切换已关闭/全部，并按速度、创建时间及上下行总量排序；连接订阅不查询请求记录。请求列表沿用连接页的卡片、左右边距、行间距和字形，支持搜索，每批加载 50 条，最多显示内核保留的 300 条。抓取开关等待原生确认，停止抓取或停服后保留请求历史；远程会话的请求页显示不可用，连接页继续展示远端连接。
-- 请求页空态说明从新 HTTP 请求/TCP 流开始记录，启停不关闭已有连接；需要重新连接的范围及停止时的记录冻结语义由 [核心录制生命周期](libbox.md#httphttps-请求调试) 维护，中英文文案同步。
+- 工具页以“请求”作为连接和抓取记录的唯一入口，默认显示全部网络活动。顶部可筛选全部、活动、抓取记录及已结束；活动 HTTP 请求按记录是否完成判断，已结束包括完成的请求和关闭的连接。已完成请求不会把仍存活的 keep-alive 连接标为关闭：活动筛选中没有进行中请求代表它时，仍显示连接行。远程会话展示远端连接及管理操作，隐藏抓取筛选和本机操作，说明 HTTP 调试仅支持本地。
+- 普通 TCP/UDP、未解密 HTTPS 以连接信息展示；已记录 HTTP 请求、TLS/TCP 流和仅域名记录分别成行。一条连接的多个 HTTP/1.1 请求或 HTTP/2 流保留独立行，以精确 `connectionId` 关联；当前筛选结果已有请求代表该连接时省略连接行，不以目标地址或旧抓包 ID 猜测关联。缺少父连接和旧版无关联记录仍可搜索、查看及导出。
+- 搜索覆盖 URL、方法、状态、协议、应用、路由及来源/目标等已观测字段，支持可删除关键词；默认按创建时间排序，也保留速度、上传和下载排序。请求行显示自身正文计数，连接行显示核心连接流量及速率；请求速度未知，不复制父连接速率或相加统计。一轮读取至多 300 条有界抓取摘要，合并、筛选和排序后每次展开 50 条，连接数量沿用当前内核快照，不受抓取存储条数限制。
+- 关闭录制仍可查看内核的近期连接元数据，HTTP 报文及解密流的保存由显式录制控制，MITM 由配置单独控制。抓取开关等待原生确认，停止抓取或停服后保留请求历史。空态说明从新 HTTP 请求/TCP 流开始记录；需要重新连接的范围及停止时的记录冻结语义由 [核心录制生命周期](libbox.md#httphttps-请求调试) 维护，中英文文案同步。
 - 请求详情使用同一点击复制行及反馈，长 URL、头部与 Cookie 分行显示；右上角菜单切换请求、响应和 Cookies，请求与响应 Cookie 分组展示，保留重复 `Set-Cookie`、空值、值中的等号及属性，点击 Cookie 复制该条原文。
 - 抓包设置只提供记录应用、原始目标端口、正文限额和可见域名提取，保存检查本机修订，失败保留草稿。MITM 独立提供配置及证书设置，默认关闭；域名、排除项及协议选项遵循 [MITM 配置](libbox.md#独立-mitm-配置)。证书页显示有效期、公钥 SHA-256、用户/系统信任和私钥可用性，提供 CRT/系统模块导出与 Android 设置入口；打开页面不生成证书，生成是明确操作，重新生成需确认，返回前台可刷新信任。远程会话隔离与平台边界见 [app.md](app.md#请求抓取与-mitm)。
-- 请求菜单提供抓包设置、当前搜索的 HAR 导出和清空请求；只显示请求录制状态，移除“配置中的 HTTP 改写已生效”提示及抓包日志功能。运行错误和脚本 console 输出进入应用现有日志，见 [libbox.md](libbox.md#httphttps-请求调试)。
+- 请求菜单提供排序、关闭全部活动连接、抓包设置、当前筛选结果的 HAR 导出和清空抓取记录。HAR 使用所有匹配 HTTP 记录的 ID，包含尚未展开的分页；不把普通连接、仅域名或 TLS/TCP 当成 HTTP 导出。关闭连接、停止录制和清空抓取记录分别调用各自操作，清空不关闭连接。页面只显示录制状态；运行错误和脚本 console 输出进入应用现有日志，见 [libbox.md](libbox.md#httphttps-请求调试)。
 - 请求详情保留重复头部、Cookie、正文状态及 trailers，显示出站/规则、应用及来源/目标地址，字段支持复制。已有记录中保存过的 PID/socket 字段仍可读，缺失值保持未知。域名观察与握手失败标为“仅域名”，不能导出 cURL；请求正文/头部不完整、截断或含 trailers 也不能导出 cURL。TLS/TCP 详情分别显示两个方向的原始字节，不显示 HTTP 状态、头部和 Cookies，禁用 cURL；正常完成的流显示“已完成”。页面复用现有共享组件，没有修改 FlClash 直接导入文件。
 - 常规服务页使用即时应用的开关，保存和重启期间显示进度并禁用开关，底部没有“应用服务设置”按钮；启动确认及失败恢复见 [app.md](app.md#配置服务应用与备份)。
 - 日志页默认选择“跟随配置”，显示内核上报的日志级别及更严重的记录；菜单同时显示当前级别，仍可手动选择“全部”或单一级别，手动筛选不会被后续状态更新覆盖。搜索、暂停和导出沿用同一筛选结果；默认级别尚未收到时保留已接收记录。日志来源及本地重载同步见 [app.md](app.md#配置服务应用与备份)。
@@ -78,11 +80,11 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 [data_subscription.dart](flutter/lib/components/data_subscription.dart) 按页面活动状态、TickerMode 和应用生命周期合并内存、日志、连接、工具详情、诊断出站及内网 IP 可见性请求；页面与详情共享一个原生请求，最后一个可见消费者退出时释放。内网 IP 请求决定热点补查频率，认证及来件通知保留独立订阅，具体边界见 [Android 桥接](app.md#界面替换与-android-桥接)和[采样规则](app.md#配置服务应用与备份)。日志增量保留既有记录对象，暂停快照独立于后续追加和淘汰，恢复可见时重新同步原生缓冲。
 
-连接增量按 ID 合并，未变化的行保留原对象；[connection_list.dart](flutter/lib/common/connection_list.dart) 缓存搜索元数据和筛选结果，集合及排序值未变化时复用顺序，计数变化仍更新行内容。列表与详情共用可见性订阅，恢复时接收完整快照；相同排序值按 ID 保持稳定顺序。
+连接增量按 ID 合并；[network_activity.dart](flutter/lib/common/network_activity.dart) 将连接和抓取 ID 放在不同的行身份空间，缓存搜索元数据、记录对象和筛选结果。集合及排序值未变化时复用顺序，计数变化仍更新行内容，相同排序值按行 ID 保持稳定。列表与统一详情共用连接可见性订阅，恢复时接收完整快照；会话切换处理见 [Android 桥接](app.md#请求抓取与-mitm)。
 
-[capture_poll.dart](flutter/lib/components/capture_poll.dart) 仅在本地请求列表/未完成详情活动、TickerMode 开启且应用前台时每两秒查询；调用不重叠，筛选变化合并刷新，忽略旧筛选或会话的迟到结果。已完成详情保留当前页面快照并停止定时查询，手动刷新或重新可见/返回前台时重新读取一次。隐藏页面停止轮询，后台录制继续随服务运行。请求列表在共享页面内部读取上下间距，末尾“显示更多”按钮可滚动到固定搜索栏上方。页面为 B-box 业务代码，没有修改 FlClash 直接导入文件。
+[capture_poll.dart](flutter/lib/components/capture_poll.dart) 仅在本地请求列表、关联记录或未完成详情活动、TickerMode 开启且应用前台时每两秒查询；调用不重叠，忽略旧会话的迟到结果，跨会话变化合并在同一帧时仍通过会话代次失效旧读取。统一列表在已取得的摘要上即时筛选，迟到摘要也使用当前搜索条件。已完成详情保留当前页面快照并停止定时查询，手动刷新或重新可见/返回前台时重新读取一次。隐藏页面停止轮询，后台录制继续随服务运行。请求列表在共享页面内部读取上下间距，末尾“显示更多”按钮可滚动到固定搜索栏上方。页面为 B-box 业务代码，没有修改 FlClash 直接导入文件。
 
-请求详情在记录带有原始连接 ID 时显示可复制的“连接 ID”，缺省时不显示该行；详情及导出继续使用请求自身 ID。两个 ID 的来源、关联及保留规则见 [核心请求调试](libbox.md#httphttps-请求调试)。
+普通连接和抓取记录使用同一个详情页。普通连接显示状态、来源/目标、规则、出站、进程及流量，并列出关联抓取记录；请求详情在有原始连接 ID 时显示可复制 ID 和“查看连接”，菜单可切换连接信息与请求、响应、Cookies。连接信息下的关联记录以请求自身 ID 打开详情；仅域名记录不显示 HTTP 报文菜单。连接已淘汰时保留本页最后观测信息或请求中保存的元数据，标明当前连接不可用并禁用关闭操作。请求菜单的“关闭底层连接”需明确确认会中断共享连接上的所有请求。详情和 cURL 始终使用请求自身 ID；两个 ID 的来源、关联及保留规则见 [核心请求调试](libbox.md#httphttps-请求调试)。
 
 [captured_body.dart](flutter/lib/components/captured_body.dart) 将正文预览放在等宽、自动折行、有界滚动的卡片中，展示内容类型、保存/总字节数及 Base64、截断、未完成状态。完整 JSON 可切换格式化与原文；[http_message.dart](flutter/lib/common/http_message.dart) 仅调整 JSON 字符串外的空白，保留数值字面量、重复键及转义，无法解析或超过格式化限额时显示原文。长预览分批展开，边界不拆开 UTF-16 代理对；复制始终使用内核返回的原始预览，不受当前格式或已展开长度影响，也不代表未保存的完整正文。
 
@@ -151,7 +153,7 @@ MITM 页面直接编辑 HTTPS、域名及排除项、HTTP/2、服务器证书校
 
 [profiles_test.dart](flutter/test/profiles_test.dart) 覆盖新建与二进制导入的内容/元数据、添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、自动更新校验、选中配置定位、列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、排序冲突及远程会话隔离。[navigation_test.dart](flutter/test/navigation_test.dart) 另输出配置编辑与排序弹层在窄屏、大字号和宽屏下的截图；这些是布局回归产物，配置页尚未声明与上游逐像素一致。
 
-[proxies_test.dart](flutter/test/proxies_test.dart) 集中验证自动组禁止手选、延迟测试目标、分组切换、列表折叠及视口外节点定位。[connections_test.dart](flutter/test/connections_test.dart) 检查连接页不请求抓取数据且关闭后释放订阅；[status_panel_test.dart](flutter/test/status_panel_test.dart) 将启动按钮的独立无障碍点击入口与配置可用性、实际桥接调用一起验证。
+[proxies_test.dart](flutter/test/proxies_test.dart) 集中验证自动组禁止手选、延迟测试目标、分组切换、列表折叠及视口外节点定位。[connections_test.dart](flutter/test/connections_test.dart) 检查统一请求页关闭后释放连接订阅并停止抓取轮询；[status_panel_test.dart](flutter/test/status_panel_test.dart) 将启动按钮的独立无障碍点击入口与配置可用性、实际桥接调用一起验证。
 
 配置测试另覆盖本地时间的未知占位及原生元数据事件刷新；[code_editor_test.dart](flutter/test/code_editor_test.dart) 对照实际 `RenderEditable` 检查行号在折行、宽度/字号变化及滚动后的对齐，并覆盖空行、末尾换行和替换内容。[intranet_panel_test.dart](flutter/test/intranet_panel_test.dart) 检查大字号下复制按钮的尺寸与位置，以及运行/停服/远程会话的复制内容；这些几何断言不代替实机视觉验收。
 
@@ -159,13 +161,13 @@ MITM 页面直接编辑 HTTPS、域名及排除项、HTTP/2、服务器证书校
 
 [logs_test.dart](flutter/test/logs_test.dart) 覆盖本地/远程日志状态的默认阈值、保留更严重的记录、手动筛选及恢复跟随配置，并检查暂停、搜索、导出和清空；实际内核级别与配置重载由 Android 仪器测试覆盖。
 
-[state_updates_test.dart](flutter/test/state_updates_test.dart) 检查高频数据只重建对应订阅者、服务状态仍通知、应用根部不随遥测/工具进度变化重建且外观设置继续生效，并覆盖日志增量淘汰、暂停快照、连接增量对象复用/重置及启动响应不覆盖早到事件。[data_subscription_test.dart](flutter/test/data_subscription_test.dart) 对各类数据检查卡片/详情共享订阅、隐藏页面、TickerMode、前后台和销毁时的订阅切换。[connection_list_test.dart](flutter/test/connection_list_test.dart) 覆盖搜索、过滤、各类排序和增量更新；[capture_poll_test.dart](flutter/test/capture_poll_test.dart) 检查完成详情停轮询、手动刷新和前台恢复。测试验证通知和调用行为，实际 PSS/RSS、CPU 和帧耗时仍需在同设备、同配置下测量。
+[state_updates_test.dart](flutter/test/state_updates_test.dart) 检查高频数据只重建对应订阅者、服务状态仍通知、应用根部不随遥测/工具进度变化重建且外观设置继续生效，并覆盖日志增量淘汰、暂停快照、连接增量对象复用/重置及启动响应不覆盖早到事件。[data_subscription_test.dart](flutter/test/data_subscription_test.dart) 对各类数据检查卡片/详情共享订阅、隐藏页面、TickerMode、前后台和销毁时的订阅切换。[connection_list_test.dart](flutter/test/connection_list_test.dart) 和 [network_activity_test.dart](flutter/test/network_activity_test.dart) 覆盖搜索、过滤、排序、增量复用、一对多关联、无关联/淘汰历史、分页前去重及连接与请求计量隔离；[capture_poll_test.dart](flutter/test/capture_poll_test.dart) 检查完成详情停轮询、手动刷新、前台恢复和同帧会话切换。测试验证通知和调用行为，实际 PSS/RSS、CPU 和帧耗时仍需在同设备、同配置下测量。
 
 上述增量、订阅与轮询优化的源码 SHA、统一 Actions 结果和未覆盖范围见 [界面刷新与存储优化验证](app.md#界面刷新与存储优化验证)。
 
 [access_test.dart](flutter/test/access_test.dart) 覆盖进入托管页面不扫描、加载期间接收最新托管选择、显示范围与隐藏选择保留、保存失败后重试、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。它验证交互和调用行为，不代替实机加载耗时或视觉验收。
 
-[requests_test.dart](flutter/test/requests_test.dart) 覆盖独立工具入口、远程隔离、本机设置修订、MITM 域名选择、端口、启动确认及后台轮询/迟到结果；证书测试检查无配置时从抓包设置经 MITM 页进入证书、明确生成、取消导出、活跃 MITM 禁止重生成、远程切换和信任刷新。其他回归包括 HAR 搜索、停止抓取时的历史分页与搜索重置、TCP 流完成/导出限制、既有 socket 元数据、报文菜单、字段/Cookie 复制及正文格式/Unicode 展开；分页检查“显示更多”可实际点击并加载下一批，请求页不订阅连接。窄屏、大字号深色及宽屏测试运行后将截图写入 build/screenshots/requests/，包含独立配置、请求设置、证书、请求列表、分页按钮及报文详情；桥接替身不能代替实际 TLS 或系统安装验收。
+[requests_test.dart](flutter/test/requests_test.dart) 覆盖统一工具入口、混合列表和活动筛选、关联详情、底层连接关闭确认、历史保留、同名远端的会话隔离、HAR 选中 ID、本机设置修订、MITM 域名选择、端口、启动确认及后台轮询/迟到结果；证书测试检查无配置时从抓包设置经 MITM 页进入证书、明确生成、取消导出、活跃 MITM 禁止重生成、远程切换和信任刷新。其他回归包括停止抓取时的历史分页与搜索重置、TCP 流完成/导出限制、既有 socket 元数据、报文菜单、字段/Cookie 复制及正文格式/Unicode 展开；分页检查“显示更多”可实际点击并展开下一批。窄屏、大字号深色及宽屏测试运行后将截图写入 build/screenshots/requests/，包含独立配置、请求设置、证书、统一列表、关联记录、分页按钮及报文详情；桥接替身不能代替实际 TLS 或系统安装验收。
 
 配置页面将滚动视口放在共享标题下方，避免文字穿过标题；测试核对几何位置与 320 宽、1.3 倍字号深色主题。配置约定见 [MITM 配置](libbox.md#独立-mitm-配置)，当前截图检查范围记录在本节末尾。
 

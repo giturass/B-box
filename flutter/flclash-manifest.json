@@ -397,9 +397,11 @@
           "sourceSHA256": "78f44bbe580b2dea58f93ae5754ecd5abb7a1ee2f94cee06915c52ed893bb5de",
           "usage": "design",
           "localPaths": [
-            "flutter/lib/pages/requests.dart"
+            "flutter/lib/pages/requests.dart",
+            "flutter/lib/common/network_activity.dart",
+            "flutter/lib/components/connection_record.dart"
           ],
-          "changes": "Reference for HTTP exchange information. B-box keeps bounded libbox request and TLS/TCP stream records with independent exchange IDs and an optional original sing-box connection UUID. Connections remains a separate page. Requests shows recording controls without a profile-rewrite banner or dedicated capture logs."
+          "changes": "Reference for HTTP exchange information. B-box combines current sing-box connections and bounded capture summaries in one request viewer, following Surge's documented recent/active request model. Independent exchange IDs and optional original connection UUIDs support one-to-many association, filtered deduplication and historical requests without a live parent. Body counts remain separate from socket traffic; recording and MITM retain independent controls. No profile-rewrite banner or dedicated capture logs."
         },
         {
           "source": "lib/features/connection/detail_tabs.dart",
@@ -408,7 +410,7 @@
           "localPaths": [
             "flutter/lib/pages/requests.dart"
           ],
-          "changes": "Reference for per-message navigation. B-box uses its record menu and copyable rows with route/application metadata, observed endpoints and trailers; raw TLS/TCP streams have two body directions without HTTP header/cookie menus or cURL export."
+          "changes": "Reference for per-message navigation. B-box shares a detail page between ordinary connections and captured records, with copyable connection metadata, related exchanges and request/response/cookie menus. Expired parents retain observed information without an active close action; closing a captured request's underlying socket explicitly confirms interruption of every request on it. Raw TLS/TCP streams have two body directions without HTTP header/cookie menus or cURL export; domain-only observations have no HTTP message menus."
         },
         {
           "source": "lib/common/constant.dart",

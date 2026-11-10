@@ -1,5 +1,5 @@
 import 'package:b_box_ui/box.dart';
-import 'package:b_box_ui/common/connection_list.dart';
+import 'package:b_box_ui/common/network_activity.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -11,28 +11,28 @@ void main() {
   };
 
   test('search, filters and all sort choices follow connection deltas without changing old rows', () {
-    final cache = ConnectionList();
+    final cache = ActivityList();
     var source = [connection('a', 20), connection('b', 10, closed: true)];
-    List<Json> select({String query = '', String filter = 'All', String sort = 'Speed'}) =>
-      cache.select(source, query: query, filter: filter, sort: sort);
+    List<ActivityEntry> select({String query = '', String filter = 'All', String sort = 'Speed'}) =>
+      cache.select(source, const [], query: query, filter: filter, sort: sort);
     final original = select();
-    expect(original.map((entry) => entry['id']), ['a', 'b']);
+    expect(original.map((entry) => entry.connection!['id']), ['a', 'b']);
     expect(identical(select(), original), isTrue);
-    expect(select(query: 'TCP COM.A').single['id'], 'a');
-    expect(select(filter: 'Active').single['id'], 'a');
-    expect(select(filter: 'Closed').single['id'], 'b');
-    expect(select(sort: 'Created').map((entry) => entry['id']), ['b', 'a']);
-    expect(select(sort: 'Upload').map((entry) => entry['id']), ['a', 'b']);
-    expect(select(sort: 'Download').map((entry) => entry['id']), ['b', 'a']);
+    expect(select(query: 'TCP COM.A').single.connection!['id'], 'a');
+    expect(select(filter: 'Active').single.connection!['id'], 'a');
+    expect(select(filter: 'Finished').single.connection!['id'], 'b');
+    expect(select(sort: 'Created').map((entry) => entry.connection!['id']), ['b', 'a']);
+    expect(select(sort: 'Upload').map((entry) => entry.connection!['id']), ['a', 'b']);
+    expect(select(sort: 'Download').map((entry) => entry.connection!['id']), ['b', 'a']);
     select(sort: 'Created');
     source = [{...source[0], 'upload': 5}, {...source[1], 'upload': 50}];
-    expect(select(sort: 'Created').map((entry) => entry['id']), ['b', 'a']);
-    expect(select(sort: 'Created').first['upload'], 50);
-    expect(select().map((entry) => entry['id']), ['b', 'a']);
-    expect(original.first['upload'], 20);
+    expect(select(sort: 'Created').map((entry) => entry.connection!['id']), ['b', 'a']);
+    expect(select(sort: 'Created').first.connection!['upload'], 50);
+    expect(select().map((entry) => entry.connection!['id']), ['b', 'a']);
+    expect(original.first.connection!['upload'], 20);
     source = [{...source[0], 'destination': 'new.test:443', 'process': {'packages': ['org.changed']}}];
     expect(select(query: 'com.a'), isEmpty);
-    expect(select(query: 'new.test org.changed').single['id'], 'a');
+    expect(select(query: 'new.test org.changed').single.connection!['id'], 'a');
     source = [];
     expect(select(), isEmpty);
   });

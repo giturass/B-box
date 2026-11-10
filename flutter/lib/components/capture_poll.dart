@@ -22,12 +22,26 @@ class _CapturePollState extends State<CapturePoll> with WidgetsBindingObserver {
   Object? _error;
   bool _visible = false, _loading = false, _queued = false;
   int _generation = 0;
+  int? _session;
 
   @override void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); }
   @override void didChangeDependencies() {
     super.didChangeDependencies();
-    _box = context.box;
+    final box = context.box;
+    final changed = !identical(_box, box) || _session != box.sessionRevision;
+    final wasVisible = _visible;
+    _box = box;
+    _session = box.sessionRevision;
+    if (changed) {
+      _generation++;
+      _timer?.cancel();
+      _value = null;
+      _error = null;
+    }
     _sync();
+    // A local -> remote -> local change can be coalesced into one Flutter
+    // frame. Invalidate the old call even if visibility never became false.
+    if (changed && wasVisible && _visible) _refresh();
   }
   @override void didUpdateWidget(CapturePoll oldWidget) {
     super.didUpdateWidget(oldWidget);

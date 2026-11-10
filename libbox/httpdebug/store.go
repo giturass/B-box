@@ -71,18 +71,27 @@ type Detail struct {
 }
 
 type Summary struct {
-	ID         string   `json:"id"`
-	StartedAt  int64    `json:"startedAt"`
-	DurationMS int64    `json:"durationMs"`
-	Complete   bool     `json:"complete"`
-	Method     string   `json:"method"`
-	URL        string   `json:"url"`
-	Protocol   string   `json:"protocol"`
-	Status     int      `json:"status"`
-	Packages   []string `json:"packages"`
-	Bytes      int64    `json:"bytes"`
-	Error      string   `json:"error,omitempty"`
-	DomainOnly bool     `json:"domainOnly,omitempty"`
+	ID            string   `json:"id"`
+	ConnectionID  string   `json:"connectionId,omitempty"`
+	StartedAt     int64    `json:"startedAt"`
+	DurationMS    int64    `json:"durationMs"`
+	Complete      bool     `json:"complete"`
+	Method        string   `json:"method"`
+	URL           string   `json:"url"`
+	OriginalURL   string   `json:"originalUrl,omitempty"`
+	Protocol      string   `json:"protocol"`
+	Status        int      `json:"status"`
+	Packages      []string `json:"packages"`
+	Source        string   `json:"source"`
+	Destination   string   `json:"destination"`
+	Inbound       string   `json:"inbound"`
+	Outbound      string   `json:"outbound"`
+	Rule          string   `json:"rule"`
+	Bytes         int64    `json:"bytes"`
+	RequestBytes  int64    `json:"requestBytes"`
+	ResponseBytes int64    `json:"responseBytes"`
+	Error         string   `json:"error,omitempty"`
+	DomainOnly    bool     `json:"domainOnly,omitempty"`
 }
 
 type Page struct {
@@ -563,9 +572,13 @@ func (s *Store) Page(limit int, query string) Page {
 		if !r.Complete {
 			duration = max(0, time.Now().UnixMilli()-r.StartedAt)
 		}
-		page.Items = append(page.Items, Summary{ID: id, StartedAt: r.StartedAt, DurationMS: duration, Complete: r.Complete,
-			Method: r.Request.Method, URL: r.Request.URL, Protocol: r.Request.Protocol, Status: r.Response.Status,
-			Packages: r.Metadata.Packages, Bytes: r.Request.BodyBytes + r.Response.BodyBytes, Error: r.Error, DomainOnly: r.DomainOnly})
+		page.Items = append(page.Items, Summary{ID: id, ConnectionID: r.Metadata.ConnectionID,
+			StartedAt: r.StartedAt, DurationMS: duration, Complete: r.Complete,
+			Method: r.Request.Method, URL: r.Request.URL, OriginalURL: r.OriginalURL, Protocol: r.Request.Protocol, Status: r.Response.Status,
+			Packages: r.Metadata.Packages, Source: r.Metadata.Source, Destination: r.Metadata.Destination,
+			Inbound: r.Metadata.Inbound, Outbound: r.Metadata.Outbound, Rule: r.Metadata.Rule,
+			Bytes: r.Request.BodyBytes + r.Response.BodyBytes, RequestBytes: r.Request.BodyBytes, ResponseBytes: r.Response.BodyBytes,
+			Error: r.Error, DomainOnly: r.DomainOnly})
 	}
 	return page
 }

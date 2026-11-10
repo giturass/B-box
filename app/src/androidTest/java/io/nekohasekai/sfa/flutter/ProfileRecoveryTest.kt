@@ -280,6 +280,18 @@ class ProfileRecoveryTest {
                         checkNotNull(result)
                     }
                     val metadata = detail.getJSONObject("metadata")
+                    val summary = JSONObject(Libbox.listUICapture(10, "origin.test")).getJSONArray("items").getJSONObject(0)
+                    assertEquals(metadata.optString("connectionId"), summary.optString("connectionId"))
+                    assertEquals(metadata.getString("outbound"), summary.getString("outbound"))
+                    assertEquals(detail.getJSONObject("request").getLong("bodyBytes"), summary.getLong("requestBytes"))
+                    assertEquals(detail.getJSONObject("response").getLong("bodyBytes"), summary.getLong("responseBytes"))
+                    val har = File.createTempFile("activity-selection-", ".har", activity.cacheDir)
+                    try {
+                        Libbox.exportUICaptureHARSelection(har.absolutePath, JSONArray().put(detail.getString("id")).toString())
+                        assertEquals(if (raw) 0 else 1, JSONObject(har.readText()).getJSONObject("log").getJSONArray("entries").length())
+                        Libbox.exportUICaptureHARSelection(har.absolutePath, "[]")
+                        assertEquals(0, JSONObject(har.readText()).getJSONObject("log").getJSONArray("entries").length())
+                    } finally { har.delete() }
                     assertEquals("MITM", metadata.getString("captureSource"))
                     assertEquals("mitm-in", metadata.getString("inbound"))
                     assertEquals("mitm-route", metadata.getString("outbound"))

@@ -21,6 +21,7 @@ internal fun DashboardUiState.toWire(): Map<String, Any?> = mapOf(
     "systemProxyAvailable" to (systemProxyVisible && RemoteControlManager.remoteServer.value == null),
     "systemProxy" to systemProxyEnabled,
     "remote" to RemoteControlManager.remoteServer.value?.displayName,
+    "remoteId" to RemoteControlManager.remoteServer.value?.id,
     "remoteConnected" to RemoteControlManager.isConnected.value,
     "deprecated" to deprecatedNotes.map { mapOf("message" to it.message, "url" to it.migrationLink) },
 )

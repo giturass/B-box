@@ -88,18 +88,49 @@ func binaryPreview(body []byte, truncated bool) Preview {
 
 func (s *Store) WriteHAR(output io.Writer, query string) error {
 	page := s.Page(MaxEntries, query)
+	ids := make([]string, 0, len(page.Items))
+	for _, summary := range page.Items {
+		if !summary.DomainOnly && summary.Protocol != "TLS/TCP" {
+			ids = append(ids, summary.ID)
+		}
+	}
+	return s.writeHAR(output, ids)
+}
+
+// A unified activity view searches connection metadata as well as HTTP fields.
+// Export exactly its selected exchanges, even if the filter or store changes
+// while the document picker is open. An empty selection never means all records.
+func (s *Store) WriteHARSelection(output io.Writer, ids []string) error {
+	if len(ids) > MaxEntries {
+		return errors.New("too many requests selected for HAR export")
+	}
+	selected := make([]string, 0, len(ids))
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if !validID(id) {
+			return errors.New("invalid request ID in HAR selection")
+		}
+		if !seen[id] {
+			selected = append(selected, id)
+			seen[id] = true
+		}
+	}
+	return s.writeHAR(output, selected)
+}
+
+func (s *Store) writeHAR(output io.Writer, ids []string) error {
 	if _, err := io.WriteString(output, `{"log":{"version":"1.2","creator":{"name":"B-box","version":"1"},"entries":[`); err != nil {
 		return err
 	}
 	first := true
-	for _, summary := range page.Items {
-		if summary.DomainOnly || summary.Protocol == "TLS/TCP" {
-			continue
-		} // SNI observations and TCP streams are not HTTP exchanges.
-		detail, err := s.Detail(summary.ID)
+	for _, id := range ids {
+		detail, err := s.Detail(id)
 		if err != nil {
 			continue
 		} // An evicted record is never replaced with invented data.
+		if detail.DomainOnly || detail.Metadata.RawTCP || detail.Request.Protocol == "TLS/TCP" {
+			continue
+		} // SNI observations and TCP streams are not HTTP exchanges.
 		entry := harEntry(detail)
 		if !first {
 			if _, err := io.WriteString(output, ","); err != nil {

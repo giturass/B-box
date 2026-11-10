@@ -46,6 +46,7 @@ class BoxController extends ChangeNotifier {
   int systemAccentColor = 0xff007aff;
   int sampleRevision = 0;
   int profilesRevision = 0;
+  int sessionRevision = 0;
   bool _disposed = false;
   bool ready = false;
   bool lanChanging = false;
@@ -97,6 +98,16 @@ class BoxController extends ChangeNotifier {
   });
 
   bool get remote => dashboard['remote'] != null;
+  Object? get connectionTarget => dashboard['remoteId'] ?? dashboard['remote'];
+
+  void _setDashboard(Json value) {
+    if (connectionTarget != (value['remoteId'] ?? value['remote'])) {
+      sessionRevision++;
+      _connectionsById.clear();
+      connections = [];
+    }
+    dashboard = value;
+  }
   bool get running => remote
       ? dashboard['remoteConnected'] == true
       : dashboard['status'] == 'Started';
@@ -171,7 +182,7 @@ class BoxController extends ChangeNotifier {
       version = result['version'] as String;
       coreVersion = result['coreVersion'] as String;
       systemAccentColor = (result['systemAccentColor'] as num?)?.toInt() ?? 0xff007aff;
-      if (unchanged('dashboard')) dashboard = json(result['dashboard']);
+      if (unchanged('dashboard')) _setDashboard(json(result['dashboard']));
       if (unchanged('profiles')) profiles = rows(result['profiles']);
       if (unchanged('settings')) settings = json(result['settings']);
       if (unchanged('preferences')) preferences = json(result['preferences']);
@@ -287,7 +298,10 @@ class BoxController extends ChangeNotifier {
         Json state(Json data) => Map.fromEntries(data.entries.where((entry) => !counters.contains(entry.key)));
         aspects = const DeepCollectionEquality().equals(state(dashboard), state(nextDashboard))
           ? const [BoxAspect.traffic] : const [BoxAspect.state, BoxAspect.traffic];
-        dashboard = nextDashboard;
+        if (connectionTarget != (nextDashboard['remoteId'] ?? nextDashboard['remote'])) {
+          aspects = const [BoxAspect.state, BoxAspect.traffic, BoxAspect.connections];
+        }
+        _setDashboard(nextDashboard);
       case 'profiles': profilesRevision++; _profileStats.clear(); profiles = rows(value);
       case 'groups': groups = rows(value);
       case 'connections':

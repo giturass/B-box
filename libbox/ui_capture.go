@@ -2,6 +2,7 @@ package libbox
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"sync"
 
@@ -77,11 +78,33 @@ func ExportUICaptureHAR(path, query string) error {
 	if err != nil {
 		return err
 	}
+	return exportUICaptureHAR(path, func(file *os.File) error { return store.WriteHAR(file, query) })
+}
+
+func ExportUICaptureHARSelection(path, idsJSON string) error {
+	if len(idsJSON) > 32*1024 {
+		return errors.New("HAR selection is too large")
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(idsJSON), &ids); err != nil {
+		return err
+	}
+	if ids == nil {
+		return errors.New("missing HAR request selection")
+	}
+	store, err := httpdebug.Saved()
+	if err != nil {
+		return err
+	}
+	return exportUICaptureHAR(path, func(file *os.File) error { return store.WriteHARSelection(file, ids) })
+}
+
+func exportUICaptureHAR(path string, write func(*os.File) error) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	err = store.WriteHAR(file, query)
+	err = write(file)
 	closeErr := file.Close()
 	if err != nil {
 		return err

@@ -75,6 +75,10 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 
 没有跟踪器的流、跟踪前的 QUIC 域名观察和旧记录可缺省该字段；旧 `captureId` 不作为连接 ID。关联以字符串随记录保存，连接关闭或从连接历史淘汰不删除请求记录，后者仍按自身限额清理；启停抓包接口不接收连接 ID。
 
+[列表摘要](libbox/httpdebug/store.go) 也返回可选 `connectionId`、来源/目标、入站、出站、规则、应用及改写前 URL，供统一请求查看器直接关联、搜索和展示，无需逐条读取详情或正文。`requestBytes`/`responseBytes` 为该请求两个方向的实际正文计数，`bytes` 为二者之和；它们不是保存前缀大小或底层连接流量。旧记录的缺省关联保持缺省。
+
+`ExportUICaptureHARSelection(path, idsJSON)` 接收最多 300 个请求 ID，按选择顺序去重导出，空数组导出空 HAR；校验 ID、条数及 32 KiB 参数上限。选择后的淘汰记录跳过，不以新记录或整份历史替换；仅域名和 TLS/TCP 继续排除。原有按搜索文本的 HAR 绑定保留。详情与 cURL 使用请求 ID，关闭连接仍使用连接 UUID，两者不能交换。界面筛选及分页规则见 [统一查看器](flclash.md#导航与交互约定)。
+
 资源与完整性边界：
 
 - 不设固定的接管连接总数上限；每条 HTTP/2 仍最多 16 个并发流。ClientHello 检查最多 64 KiB/5 秒，[tls_selection.go](libbox/httpdebug/tls_selection.go) 跟踪探测、待交接与正式处理的生命周期，调用取消及服务停止会回收尚未交接的连接。拨号和握手仍受超时及会话取消约束。
@@ -323,6 +327,8 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 [script_cron_queue_test.go](libbox/httpdebug/script_cron_queue_test.go) 通过阻塞路由拨号控制真实脚本的完成顺序，覆盖同批任务的 FIFO 执行、新触发不能越过旧等待任务、排队/运行时重复触发不扩大队列、等待不消耗执行超时、单次超时后继续执行、256 条配置上限及停服时取消/丢弃队列和资源释放。由同一 `httpdebug -race` 入口运行。
 
 连接关联回归还包括 [路由测试](libbox/route/httpdebug_test.go) 从真实流量跟踪器取得 UUID、穿过嗅探缓存、清空连接历史后重新打开请求存储，以及无跟踪器的 HTTP；[改写测试](libbox/httpdebug/rewrite_test.go) 检查跨目标改写仍保留原始连接 ID，[TCP 测试](libbox/httpdebug/mitm_tcp_test.go) 检查 TLS/TCP 关联，[迁移测试](libbox/httpdebug/store_migration_test.go) 检查旧记录不将 `captureId` 误认为连接 ID。
+
+[store_activity_test.go](libbox/httpdebug/store_activity_test.go) 覆盖摘要关联的持久化、独立正文计数、改写前 URL、旧记录缺省，以及 HAR 选择的去重、顺序、空选择、非法输入、非 HTTP 排除和淘汰后不扩大导出范围。真实 HTTP/1.1 复用连接的测试同时检查摘要与详情的关联一致；Android 路由测试调用新生成的 HAR 选择绑定，覆盖 HTTP 和 TLS/TCP 的导出边界。这些用例由现有统一工作流执行，实际运行结果在 [应用验证记录](app.md#验证与历史记录) 中维护。
 
 [ui_capture_test.go](libbox/ui_capture_test.go) 覆盖本地设置及 schema/退役字段；[路由测试](libbox/route/httpdebug_test.go) 通过真实 TLS 握手核对原选定出站、SNI 与 DNS 映射隔离、端口覆写、CONNECT 确认顺序、证书库及未匹配流的字节回放。[mitm_tcp_test.go](libbox/httpdebug/mitm_tcp_test.go) 覆盖 TLS/TCP 二进制、混合 ALPN、服务器先发、半关闭及记录/导出边界；[script_cron_test.go](libbox/httpdebug/script_cron_test.go) 覆盖独立 HTTP 脚本、Cron 语法/时区/DST、回调、证书校验和调度生命周期；[ui_processing_test.go](libbox/ui_processing_test.go) 验证扩展 schema 及迁移；[store_migration_test.go](libbox/httpdebug/store_migration_test.go) 覆盖旧文件清理、请求保留和符号链接隔离。Android 真正的 Keystore/gomobile 签名与模块打包由 [平台测试](app.md#验证与历史记录) 覆盖；Linux 测试不能代替 Android 系统 CA 模块或目标应用的实机验收。获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py)，它不构建 Android 绑定。
 

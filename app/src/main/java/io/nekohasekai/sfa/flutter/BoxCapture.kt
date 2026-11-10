@@ -176,6 +176,11 @@ internal class BoxCapture(private val activity: BoxActivity) {
                         val domains = JSONArray(Libbox.extractUICaptureHosts((args["query"] as? String).orEmpty().take(1024)))
                         file.writeText(List(domains.length()) { domains.getString(it) }.joinToString("\n", postfix = "\n"))
                     }
+                    args.containsKey("ids") -> {
+                        val ids = args["ids"] as? List<*> ?: error("Missing HAR request selection")
+                        require(ids.size <= 300 && ids.all { it is String }) { "Invalid HAR request selection" }
+                        Libbox.exportUICaptureHARSelection(file.absolutePath, JSONArray(ids).toString())
+                    }
                     else -> Libbox.exportUICaptureHAR(file.absolutePath, (args["query"] as? String).orEmpty().take(1024))
                 }
                 activity.contentResolver.openOutputStream(destination, "wt")?.use { output ->

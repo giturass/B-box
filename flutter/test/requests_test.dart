@@ -121,7 +121,7 @@ void main() {
 
   Future<void> showDetailItem(WidgetTester tester, Finder finder) async {
     await dismissCopyFeedback(tester);
-    final scrollable = find.descendant(of: find.byType(RequestDetailPage), matching: find.byType(Scrollable)).first;
+    final scrollable = find.descendant(of: find.byType(RequestDetailPage).last, matching: find.byType(Scrollable)).first;
     if (finder.evaluate().isEmpty) {
       tester.state<ScrollableState>(scrollable).position.jumpTo(0);
       await tester.pumpAndSettle();
@@ -139,13 +139,18 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('Requests precedes Connections in Tools and is isolated from remote sessions', (tester) async {
+  testWidgets('Tools has one Requests entry and remote sessions show only their connections', (tester) async {
     await mount(tester, remote: true);
     await tester.tap(find.text('Tools').last);
     await tester.pumpAndSettle();
-    expect(tester.getTopLeft(find.text('Requests')).dy, lessThan(tester.getTopLeft(find.text('Connections')).dy));
+    expect(find.text('Requests'), findsOneWidget);
+    expect(find.text('Connections'), findsNothing);
     await tester.tap(find.text('Requests'));
     await tester.pumpAndSettle();
+    events.add({'type': 'connections', 'value': [{'id': 'remote', 'displayDestination': 'remote.test:443', 'network': 'tcp'}]});
+    await tester.pumpAndSettle();
+    expect(find.text('remote.test:443'), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-toggle')), findsNothing);
     expect(find.text('HTTP debugging is only available for the local service'), findsOneWidget);
     expect(calls.where((call) => call.method.startsWith('capture.')), isEmpty);
     expect(tester.takeException(), isNull);
@@ -279,27 +284,136 @@ void main() {
     await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
     await tester.tap(find.text('Export HAR').last); await tester.pumpAndSettle();
     final exports = calls.where((call) => call.method == 'capture.export').map((call) => json(call.arguments)).toList();
-    expect(exports.single, {'format': 'har', 'query': 'api.test'});
+    expect(exports.single, {'format': 'har', 'ids': ['saved']});
     expect(find.text('Capture statistics'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('one list filters multiplexed requests and keeps capture and connection actions independent', (tester) async {
+    await mount(tester);
+    snapshot['state'] = {'active': true};
+    snapshot['page'] = {'total': 2, 'items': [
+      {'id': 'one', 'connectionId': 'shared', 'startedAt': 20, 'url': 'https://api.test/one', 'method': 'GET', 'protocol': 'HTTP/2.0', 'complete': true, 'status': 200},
+      {'id': 'two', 'connectionId': 'shared', 'startedAt': 21, 'url': 'https://api.test/two', 'method': 'GET', 'protocol': 'HTTP/2.0', 'complete': false, 'status': 200},
+    ]};
+    events.add({'type': 'connections', 'value': [
+      {'id': 'shared', 'displayDestination': 'api.test:443', 'network': 'tcp', 'createdAt': 1, 'uploadTotal': 10000},
+      {'id': 'udp', 'displayDestination': 'udp.test:123', 'network': 'udp', 'createdAt': 2},
+    ]});
+    await tester.pumpAndSettle();
+    extra = (call) async {
+      if (call.method == 'capture.snapshot') return snapshot;
+      if (call.method == 'capture.stop') {
+        snapshot['state'] = {'active': false};
+        snapshot['page'] = {'total': 2, 'items': [for (final item in rows(json(snapshot['page'])['items'])) {...item, 'complete': true}]};
+      }
+      if (call.method == 'capture.clear') snapshot['page'] = {'total': 0, 'items': []};
+      return null;
+    };
+    await open(tester, const RequestsPage());
+    expect(find.byKey(const ValueKey('connection:shared')), findsNothing);
+    expect(find.text('https://api.test/one'), findsOneWidget);
+    expect(find.text('https://api.test/two'), findsOneWidget);
+    await capture(tester, 'unified-http2-and-connections');
+    await tester.tap(find.byKey(const ValueKey('activity-filter-Active')));
+    await tester.pumpAndSettle();
+    expect(find.text('https://api.test/one'), findsNothing);
+    expect(find.text('https://api.test/two'), findsOneWidget);
+    expect(find.text('udp.test:123'), findsOneWidget);
+    await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
+    await tester.tap(find.text('Export HAR').last); await tester.pumpAndSettle();
+    expect(json(calls.lastWhere((call) => call.method == 'capture.export').arguments), {'format': 'har', 'ids': ['two']});
+    await tester.tap(find.text('Capture requests')); await tester.pumpAndSettle();
+    expect(find.text('Capture stopped'), findsOneWidget);
+    expect(find.text('api.test:443'), findsOneWidget, reason: 'The keep-alive socket remains active when recording stops.');
+    await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
+    await tester.tap(find.text('Clear captured requests').last); await tester.pumpAndSettle();
+    await tester.tap(find.text('Clear').last); await tester.pumpAndSettle();
+    expect(calls.where((call) => call.method == 'capture.clear'), hasLength(1));
+    expect(calls.where((call) => call.method.startsWith('connections.close')), isEmpty);
+    expect(find.text('api.test:443'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the shared detail follows request IDs and retains history after its connection expires', (tester) async {
+    await mount(tester);
+    final connection = <String, dynamic>{'id': 'shared', 'displayDestination': 'api.test:443', 'network': 'tcp',
+      'outbound': 'selected-node', 'uploadTotal': 10000, 'downloadTotal': 20000};
+    events.add({'type': 'connections', 'value': [connection]});
+    await tester.pumpAndSettle();
+    snapshot['page'] = {'total': 3, 'items': [
+      for (final id in ['one', 'two', 'unrelated']) {'id': id, 'connectionId': id == 'unrelated' ? 'other' : 'shared',
+        'url': 'https://api.test/$id', 'method': 'GET', 'protocol': 'HTTP/2.0', 'status': 200, 'complete': true},
+    ]};
+    extra = (call) async {
+      if (call.method == 'capture.snapshot') return snapshot;
+      if (call.method == 'capture.detail') return {
+        'id': json(call.arguments)['id'], 'complete': true, 'metadata': {'connectionId': 'shared', 'outbound': 'selected-node'},
+        'request': {'url': 'https://api.test/${json(call.arguments)['id']}', 'method': 'GET', 'protocol': 'HTTP/2.0', 'bodyComplete': true},
+        'response': {'status': 200},
+      };
+      return null;
+    };
+    await open(tester, RequestDetailPage(connection: connection));
+    final related = find.byKey(const ValueKey('related:two'));
+    await showDetailItem(tester, related);
+    expect(find.byKey(const ValueKey('related:unrelated')), findsNothing);
+    await tester.tap(related); await tester.pumpAndSettle();
+    expect(json(calls.lastWhere((call) => call.method == 'capture.detail').arguments)['id'], 'two');
+    await chooseMessage(tester, 'Connection');
+    await showDetailItem(tester, find.text('Related captured requests').last);
+    await capture(tester, 'unified-related-requests');
+    await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
+    await tester.tap(find.text('Close underlying connection').last); await tester.pumpAndSettle();
+    expect(calls.where((call) => call.method == 'connections.close'), isEmpty);
+    expect(find.text('Close the underlying connection? All requests using it will be interrupted.'), findsOneWidget);
+    await tester.tap(find.text('Close').last); await tester.pumpAndSettle();
+    expect(json(calls.lastWhere((call) => call.method == 'connections.close').arguments)['id'], 'shared');
+    events.add({'type': 'connections', 'value': []});
+    await tester.pumpAndSettle();
+    await showDetailItem(tester, find.text('No longer in recent connections').last);
+    final scaffold = tester.widget<Scaffold>(find.descendant(of: find.byType(RequestDetailPage).last, matching: find.byType(Scaffold)).first);
+    expect(scaffold.menuItems.singleWhere((item) => item.label == 'Close underlying connection').onPressed, isNull);
+    await tester.tap(find.byTooltip('Export cURL').last); await tester.pumpAndSettle();
+    expect(json(calls.lastWhere((call) => call.method == 'capture.export').arguments), {'format': 'curl', 'id': 'two'});
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('remote switches discard late local summaries and invalidate details even for equal server names', (tester) async {
+    await mount(tester);
+    await open(tester, const RequestsPage());
+    final slow = Completer<dynamic>();
+    extra = (call) async => call.method == 'capture.snapshot' ? slow.future : null;
+    await tester.tap(find.byTooltip('Refresh').last); await tester.pump();
+    events.add({'type': 'dashboard', 'value': {'status': 'Started', 'remote': 'Server', 'remoteId': 1, 'remoteConnected': true}});
+    await tester.pumpAndSettle();
+    final remote = <String, dynamic>{'id': 'remote', 'displayDestination': 'remote.test:443', 'network': 'tcp'};
+    events.add({'type': 'connections', 'value': [remote]});
+    slow.complete({...snapshot, 'page': {'total': 1, 'items': [{'id': 'local', 'url': 'https://local-private.test/'}]}});
+    await tester.pumpAndSettle();
+    expect(find.text('https://local-private.test/'), findsNothing);
+    expect(find.text('remote.test:443'), findsOneWidget);
+    final reads = calls.where((call) => call.method.startsWith('capture.')).length;
+    await tester.tap(find.text('remote.test:443')); await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 6));
+    expect(calls.where((call) => call.method.startsWith('capture.')).length, reads);
+    events.add({'type': 'dashboard', 'value': {'status': 'Started', 'remote': 'Server', 'remoteId': 2, 'remoteConnected': true}});
+    await tester.pumpAndSettle();
+    expect(find.text('Session changed; reopen this activity from the current list'), findsOneWidget);
+    expect(box.connections, isEmpty);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('request history keeps search and pagination available after capture stops', (tester) async {
     await mount(tester);
-    extra = (call) async {
-      if (call.method != 'capture.snapshot') return null;
-      final args = json(call.arguments);
-      final query = args['query'] as String;
-      if (query.isEmpty) return snapshot;
-      final limit = args['limit'] as int;
-      return {'state': {'active': false}, 'page': {'total': 51, 'items': [
-        for (var index = 0; index < (limit < 51 ? limit : 51); index++) {
+    snapshot['page'] = {'total': 102, 'items': [
+      for (final query in ['match', 'other'])
+        for (var index = 0; index < 51; index++) {
           'id': '$query-$index', 'url': 'https://$query-$index.test/request',
-          'method': 'GET', 'protocol': 'HTTP/1.1', 'startedAt': 1700000000100,
+          'method': 'GET', 'protocol': 'HTTP/1.1', 'startedAt': 1700000000100 - index,
           'status': 200, 'complete': true,
         },
-      ]}};
-    };
+    ]};
     await open(tester, const RequestsPage());
     Scaffold scaffold() => tester.widget<Scaffold>(find.descendant(of: find.byType(RequestsPage), matching: find.byType(Scaffold)).first);
     scaffold().searchState!.onSearch('match');
@@ -314,16 +428,17 @@ void main() {
     await capture(tester, 'requests-pagination');
     await tester.tap(find.text('Show more'));
     await tester.pumpAndSettle();
-    expect(json(calls.lastWhere((call) => call.method == 'capture.snapshot').arguments), {'query': 'match', 'limit': 100});
+    expect(json(calls.lastWhere((call) => call.method == 'capture.snapshot').arguments), {'query': '', 'limit': 300});
     await tester.scrollUntilVisible(find.text('https://match-50.test/request'), 240, scrollable: scrollable);
     expect(find.text('Show more'), findsNothing);
     scaffold().searchState!.onSearch('other');
     await tester.pumpAndSettle();
     tester.state<ScrollableState>(scrollable).position.jumpTo(0);
     await tester.pumpAndSettle();
-    expect(json(calls.lastWhere((call) => call.method == 'capture.snapshot').arguments), {'query': 'other', 'limit': 50});
+    expect(json(calls.lastWhere((call) => call.method == 'capture.snapshot').arguments), {'query': '', 'limit': 300});
     expect(find.text('https://other-0.test/request'), findsOneWidget);
-    expect(calls.where((call) => ['capture.start', 'capture.stop', 'connections.visible'].contains(call.method)), isEmpty);
+    expect(calls.where((call) => ['capture.start', 'capture.stop'].contains(call.method)), isEmpty);
+    expect(calls.where((call) => call.method == 'connections.visible'), isNotEmpty);
     expect(tester.takeException(), isNull);
   });
 
@@ -397,7 +512,7 @@ void main() {
     snapshot['state'] = {'active': true};
     started.complete(null);
     await tester.pumpAndSettle();
-    expect(find.text('Capturing new connections'), findsOneWidget);
+    expect(find.text('Capturing new requests and streams'), findsOneWidget);
     snapshot['state'] = {'active': false};
     events.add({'type': 'dashboard', 'value': {'status': 'Stopped'}});
     await tester.pumpAndSettle();
@@ -434,6 +549,22 @@ void main() {
     expect(find.text('Cookies'), findsNothing);
     expect(find.text('Request'), findsOneWidget);
     expect(find.text('Response'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('domain observations keep saved metadata without HTTP message controls', (tester) async {
+    await mount(tester);
+    extra = (call) async => call.method == 'capture.detail' ? {
+      'id': 'domain', 'domainOnly': true, 'complete': true,
+      'metadata': {'connectionId': 'expired', 'outbound': 'observed-node'},
+      'request': {'url': 'tls://observed.test:443', 'method': 'TLS', 'protocol': 'TLS', 'bodyComplete': true},
+    } : snapshot;
+    await open(tester, const RequestDetailPage(id: 'domain'));
+    final scaffold = tester.widget<Scaffold>(find.descendant(of: find.byType(RequestDetailPage), matching: find.byType(Scaffold)).first);
+    expect(scaffold.iconActions.last.onPressed, isNull);
+    expect(scaffold.menuItems.any((item) => ['Request', 'Response', 'Cookies'].contains(item.label)), isFalse);
+    expect(find.byType(CapturedBody), findsNothing);
+    expect(find.text('observed-node'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -487,7 +618,7 @@ void main() {
     await chooseMessage(tester, 'Response');
     await showDetailItem(tester, find.text('X-Response'));
     expect(find.text('X-Response'), findsOneWidget);
-    expect(calls.where((call) => call.method == 'connections.visible'), isEmpty);
+    expect(calls.where((call) => call.method == 'connections.visible'), isNotEmpty);
     expect(tester.takeException(), isNull);
   });
 
@@ -552,7 +683,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('polling stops in the background and late replies do not replace filters', (tester) async {
+  testWidgets('polling stops in the background and late summaries use the latest local filter', (tester) async {
     await mount(tester);
     await open(tester, const RequestsPage());
     final firstCount = calls.where((call) => call.method == 'capture.snapshot').length;
@@ -569,16 +700,19 @@ void main() {
     final slow = Completer<dynamic>();
     extra = (call) async {
       if (call.method != 'capture.snapshot') return null;
-      final query = json(call.arguments)['query'];
-      if (query == 'old') return slow.future;
-      return {...snapshot, 'page': {'items': [{'id': 'new', 'url': 'https://new.example/', 'method': 'GET', 'status': 200}], 'total': 1}};
+      return slow.future;
     };
     Scaffold scaffold() => tester.widget<Scaffold>(find.descendant(of: find.byType(RequestsPage), matching: find.byType(Scaffold)).first);
+    scaffold().iconActions.first.onPressed!();
+    await tester.pump();
     scaffold().searchState!.onSearch('old');
     await tester.pump();
     scaffold().searchState!.onSearch('new');
     await tester.pump();
-    slow.complete({...snapshot, 'page': {'items': [{'id': 'old', 'url': 'https://old.example/', 'method': 'GET'}], 'total': 1}});
+    slow.complete({...snapshot, 'page': {'items': [
+      {'id': 'old', 'url': 'https://old.example/', 'method': 'GET'},
+      {'id': 'new', 'url': 'https://new.example/', 'method': 'GET', 'status': 200},
+    ], 'total': 2}});
     await tester.pumpAndSettle();
     expect(find.text('https://new.example/'), findsOneWidget);
     expect(find.text('https://old.example/'), findsNothing);
@@ -609,8 +743,17 @@ void main() {
       expect(saved['ports'], [80, 443, 8443]);
       expect(saved.containsKey('decryptBypassHosts'), isFalse);
       expect(tester.takeException(), isNull);
-      snapshot['page'] = {'items': [{'id': 'long', 'url': 'https://example.test/${'long-path/' * 30}',
-        'method': 'POST', 'status': 200, 'protocol': 'HTTP/2.0', 'packages': ['com.example.long.app.name'], 'bytes': 65536, 'durationMs': 120}], 'total': 1};
+      snapshot['page'] = {'items': [
+        {'id': 'long', 'connectionId': 'http2', 'startedAt': 1700000000002, 'url': 'https://example.test/${'long-path/' * 30}',
+          'method': 'POST', 'status': 200, 'protocol': 'HTTP/2.0', 'packages': ['com.example.long.app.name'], 'bytes': 65536, 'durationMs': 120},
+        {'id': 'second', 'connectionId': 'http2', 'startedAt': 1700000000001, 'url': 'https://api.test/second',
+          'method': 'GET', 'status': 204, 'protocol': 'HTTP/2.0', 'complete': true},
+      ], 'total': 2};
+      events.add({'type': 'connections', 'value': [
+        {'id': 'http2', 'displayDestination': 'example.test:443', 'network': 'tcp', 'createdAt': 1700000000000},
+        {'id': 'udp', 'displayDestination': 'ntp.example.test:123', 'network': 'udp', 'createdAt': 1700000000000},
+      ]});
+      await tester.pumpAndSettle();
       await open(tester, const RequestsPage());
       expect(tester.takeException(), isNull);
       expect(find.textContaining('https://example.test/'), findsOneWidget);
