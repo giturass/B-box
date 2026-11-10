@@ -231,6 +231,29 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### Android 协议、资源导入与正文读取修复验证
+
+2026-11-11，验证源码为 `d3a1f178d6d2375291b698d7200ef9ab8ff98260`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42914488877)，最终全部 8 个 job 通过。HTTP/2 默认值与关闭后的透传、Android 本地资源导入、正文分页及流式导出的当前行为分别见 [MITM 配置](libbox.md#独立-mitm-配置)、[配置处理生命周期](#配置处理生命周期)和[核心正文读取](libbox.md#httphttps-请求调试)。后续只补充验证记录的 Markdown 提交不改变上述源码。
+
+- 匹配版本核心的 Android ingress-discard、`TestUI`、路由/HTTP/订阅 race、完整 `experimental/httpdebug` race 和路由接入回归通过；Root CA namespace 回归通过。新增用例使用只提供 h2 的 TLS 客户端交换 gRPC 消息，检查双方 ALPN 和 trailers，覆盖默认启用、显式关闭时原样回放及配置格式化保留 false；正文用例覆盖有界读取、UTF-8/二进制分页、分层解码、损坏压缩尾部、完整 HAR/cURL 流式导出，以及追加/清空期间的文件快照。
+- Flutter 分析、234 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 79 条 info、0 条 warning/error。实际查看的资源导入、正文首末页截图见 [界面验证记录](flclash.md#验证与升级参考版本)。
+- 已读取 `native-unit-tests` 的 13 份 XML，56 项 JVM 测试全部通过，无失败、错误或跳过；`play` Kotlin 编译和 x86_64 应用/仪器测试 APK 构建通过。
+
+已逐项核对以下 Artifact 的 `results.json` 与 `native-tests.txt`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 39 项原生测试通过，无失败或跳过；页大小为实际读取值。
+
+| 环境与结果产物 | 实际页大小 | 采集来源 |
+| --- | --- | --- |
+| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/42914488877/artifacts/13809339472) | 4096 字节 | `/proc/self/smaps` |
+| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/42914488877/artifacts/13808953705) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/42914488877/artifacts/13809622635) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/42914488877/artifacts/13809817032) | 16384 字节 | `getconf` |
+
+四组的 `localResourceImportsKeepRevisionsRecoverFailuresAndCleanCancelledCopies`、`profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 与 `routedMITMUsesKeystoreAndTheOriginalOutbound` 均成功，覆盖真实文档流导入、重名与修订冲突、应用失败恢复、读取失败和阻塞复制取消后的清理。
+
+API 24 [首轮](https://github.com/giturass/B-box/actions/runs/42914488877/job/130178021124) UI smoke 通过，原生测试因系统重启中断；`native-logcat.txt` 记录 `system_server` 的 `android.display` 线程在 `memcpy` 中发生 SIGSEGV，仪器测试返回 `System has crashed`。仅重跑该 job 后 UI/native 全部通过，见 [第二次运行](https://github.com/giturass/B-box/actions/runs/42914488877/attempts/2)；复用同一源码和测试 APK，首轮中断不记为通过。
+
+本机仅执行差异、Go 格式、源码约束、示例 JSON 及文档链接等静态检查，编译和 Go/Flutter/JVM/Android 测试均在 Actions 运行。未测量 ARM64 实机 PSS/RSS 或大响应的内存与耗时，也未验证第三方证书固定应用、真实 Root CA 模块安装或运行签名 ARM64 Release/R8 构建；本轮未发布 APK。
+
 ### 路由、正文准入与资源缓存修复验证
 
 2026-11-11，验证源码为 `6414cea3bfca092b8f5c146552f6c76738cb4bf1`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42848220348)，全部 8 个 job 通过。后续补充本记录的 Markdown 提交不改变验证源码。共享路由关闭、正文准入及资源缓存回收的当前行为分别见 [路由生命周期](libbox.md#出口-ip-和质量查询传输)、[正文记账](libbox.md#json-配置中的-http-改写)和[资源加载](libbox.md#文件和-url-资源加载)；本次同时取消审计中缺少 Android 容量测量依据的固定配额，不以 Surge iOS/macOS 数值作为 Android 容量依据。

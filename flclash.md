@@ -144,6 +144,15 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ## 验证与升级参考版本
 
+2026-11-11，本地资源导入与正文分页的验证源码为 `d3a1f178d6d2375291b698d7200ef9ab8ff98260`，对应 [Actions 42914488877](https://github.com/giturass/B-box/actions/runs/42914488877)。Flutter 分析、234 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 79 条 info、0 条 warning/error。用例覆盖脚本/改写资源导入的修订、取消与会话隔离，以及正文按页读取、替换、页内复制、失败重试和迟到结果丢弃。
+
+实际查看本次 [newui-validation](https://github.com/giturass/B-box/actions/runs/42914488877/artifacts/13809760403) 中以下截图，路径相对 `build/screenshots/`：
+
+- `requests/resource-import-scripts.png`、`requests/resource-import-http_rewrite.png`：320 宽、1.3 倍字号深色页面中，导入按钮、资源名称、JSON 编辑入口和应用内备份说明可读，无布局溢出。
+- `requests/body-first-page.png`、`requests/body-last-page.png`：360 宽浅色详情中，正文在卡片内滚动，页码、下一页/上一页和复制按钮可见；翻页后的短正文与前一页分开显示。
+
+截图使用测试桥接数据，只覆盖这些布局情景；真实文档流、核心协议及 Android 结果见 [应用验证](app.md#android-协议资源导入与正文读取修复验证)。未测量 ARM64 实机 PSS/RSS 或大响应的性能，后续只补充记录的 Markdown 提交不改变上述验证源码。
+
 2026-11-10，正文保留方式、WebDAV 长输入及表单滚动边界的验证源码为 `6414cea3bfca092b8f5c146552f6c76738cb4bf1`，对应 [Actions 42848220348](https://github.com/giturass/B-box/actions/runs/42848220348)。Flutter 分析、232 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 80 条 info、0 条 warning/error。完整正文切换、任意正数字节限制、超过旧条数范围的搜索/导出，以及超过旧长度限制的 WebDAV 输入和失败重试均由本次用例覆盖。
 
 实际查看本次 `newui-validation` 中以下截图，路径相对 `build/screenshots/`：
