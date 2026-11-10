@@ -227,6 +227,27 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### 统一请求查看器验证
+
+2026-11-10，验证源码为 `3922cd606f520f6581bd4fd0a7d211a68a24ca23`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42760227283)，全部 8 个 job 通过。后续补充本记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。统一列表、筛选和详情的交互约定见 [flclash.md](flclash.md#导航与交互约定)，关联摘要及 HAR 选择绑定见 [libbox.md](libbox.md#httphttps-请求调试)。
+
+- 核心扩展、HTTP/MITM race、路由与 Root CA 回归通过；新增存储测试覆盖关联元数据、双向正文计数及显式 HAR 选择的去重、顺序、空集、淘汰和非法 ID。
+- Flutter 分析、229 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 80 条 info、0 条 warning/error。统一列表的一对多关联、活动筛选、历史保留、同名远端隔离、分页及标题栏避让均有回归；实际查看的截图见 [界面验证记录](flclash.md#验证与升级参考版本)。
+- 已读取 `native-unit-tests` 的 13 份 XML，56 项 JVM 测试全部通过，无失败、错误或跳过；`play` 编译及 x86_64 应用/仪器测试 APK 构建通过。
+
+已逐项核对以下 Artifact 的 `results.json`、`native-tests.txt` 和 `mitm-origin.json`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 37 项原生测试通过，没有原生失败或跳过；页大小为实际读取值。
+
+| 环境与结果产物 | 实际页大小 | 采集来源 |
+| --- | --- | --- |
+| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/42760227283/artifacts/13738122098) | 4096 字节 | `/proc/self/smaps` |
+| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/42760227283/artifacts/13738097681) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/42760227283/artifacts/13738067865) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/42760227283/artifacts/13738321407) | 16384 字节 | `getconf` |
+
+`ProfileRecoveryTest.routedMITMUsesKeystoreAndTheOriginalOutbound` 使用实际 libbox，核对 HTTPS/TLS 流详情与摘要的连接 ID、原出站及正文计数，并调用生成的 `ExportUICaptureHARSelection` 绑定检查所选 HTTP 记录、TCP 排除及空选择导出。四份独立服务器报告均包含 `/probe?raw=1;2`、`/http-no-alpn` 和预期的二进制 TLS/TCP 请求。
+
+本机只完成差异、源码约束、Go 格式及文档链接/锚点等静态检查，编译与 Go/Flutter/JVM/设备测试均在 Actions 运行。本轮未运行签名 ARM64 Release/R8、ARM64 实机或第三方应用信任验收；模拟器客户端显式信任测试 CA，不能代替目标应用的实际抓取验证。
+
 ### 特权增强移除验证
 
 2026-11-09，最终验证源码为 `95a6f002170628911e2687af6e2dd39b3691bb3e`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42570495902)，全部 8 个 job 通过。后续补充本记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。通用 Room 持久化、Root/Shizuku 和 MITM CA 回归继续保留。

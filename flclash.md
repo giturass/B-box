@@ -141,6 +141,14 @@ MITM 页面直接编辑 HTTPS、域名及排除项、HTTP/2、服务器证书校
 
 ## 验证与升级参考版本
 
+2026-11-10，统一请求查看器的验证源码为 `3922cd606f520f6581bd4fd0a7d211a68a24ca23`，对应 [Actions 42760227283](https://github.com/giturass/B-box/actions/runs/42760227283)。Flutter 分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；本次实际查看 `newui-validation` 中以下截图：
+
+- `requests/unified-http2-and-connections.png`、`requests/unified-related-requests.png`：同一 HTTP/2 连接的多个请求独立展示，普通 UDP 连接和关联请求可见；滚动后的连接信息不进入标题栏。
+- `requests/requests-pagination.png`：滚动内容避让标题栏，“显示更多”位于固定搜索栏上方；测试实际点击后展开下一批记录。
+- `requests/360-1.4-dark-list.png`、`requests/360-1.4-dark-details.png`、`requests/360-1.4-dark-body.png`，以及 `requests/800-1.0-light-list.png`、`requests/800-1.0-light-details.png`：窄屏大字号筛选可换行，详情和正文可滚动，宽屏侧面页布局正常。
+
+截图使用测试桥接数据，不代替真实 TLS、第三方应用或 ARM64 实机验收；核心和 Android 的实际验证记录见 [应用验证](app.md#统一请求查看器验证)。后续仅补充验证记录的 Markdown 提交不改变上述源码。
+
 2026-11-05，FlClash v0.9.3 / Prism UI 升级的验证源码为 `d9254711ccf34cda547d2f2287b0e0a508e861a6`。对应 [Actions 41982716632](https://github.com/giturass/B-box/actions/runs/41982716632) 的 Flutter 分析、215 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 78 条 info、0 条 warning/error。后续只记录结果的 Markdown 提交不改变验证源码，Android 与核心复核见 [应用验证记录](app.md#prism-ui-升级验证)。
 
 [newui.yml](.github/workflows/newui.yml) 在各分支代码推送时自动运行，统一包含核心、Flutter、JVM 和 Android smoke；[setup-flutter](.github/actions/setup-flutter/action.yml) 固定 SDK 和依赖锁文件。Flutter 测试按功能组织，覆盖导航、配置编辑、首页编辑、代理列表、备份、外观、关于、终端设置、模式、内网 IP 和 IP 查询/缓存；[verify_newui.py](tools/verify_newui.py) 核验 FlClash/prism_ui 文件哈希、许可、适配目标和退役依赖等源码约束。截图/像素比较仍由同一测试入口运行，截图与验证 AAR 分别上传到 `newui-validation` 和 `flutter-aar-arm64`。手动 Release 构建独立准备所需的 Flutter Release AAR，不依赖测试运行，见 [构建与发布](app.md#构建与发布)。
