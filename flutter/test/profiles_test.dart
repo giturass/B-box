@@ -117,6 +117,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Last updated Just now'), findsOneWidget);
     expect(find.byTooltip('Last updated: ${localDate(updatedAt)}'), findsOneWidget);
+    final updateTime = find.text('Last updated Just now');
+    await Scrollable.ensureVisible(tester.element(updateTime), alignment: .5);
+    await tester.pumpAndSettle();
+    await tester.tap(updateTime);
+    await tester.pumpAndSettle();
+    expect(find.text('Last updated: ${localDate(updatedAt)}'), findsOneWidget);
     await _profiles(tester);
     final localCard = find.byWidgetPredicate((w) => w is ProfileCard && w.profile['id'] == 2);
     expect(find.descendant(of: localCard, matching: find.text('Just now')), findsOneWidget);

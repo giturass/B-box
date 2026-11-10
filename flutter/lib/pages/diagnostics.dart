@@ -1,6 +1,16 @@
 import '../widgets.dart';
 import '../components/data_subscription.dart';
 
+class NetworkDiagnosticsPage extends StatelessWidget {
+  const NetworkDiagnosticsPage({super.key});
+  @override Widget build(BuildContext context) => BoxPage(title: 'Network diagnostics', children: [
+    generateSection(items: [
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.speed), title: Text(context.tr('Network quality')), widget: const DiagnosticsPage(quality: true)),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(context.tr('STUN test')), widget: const DiagnosticsPage(quality: false)),
+    ]),
+  ]);
+}
+
 class DiagnosticsPage extends StatefulWidget {
   const DiagnosticsPage({super.key, required this.quality});
   final bool quality;

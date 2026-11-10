@@ -29,8 +29,11 @@ void main() {
     final box = BoxController(channel: channel, events: events.stream);
     await tester.pumpWidget(BoxApp(controller: box));
     await tester.pumpAndSettle();
-    openPage(tester.element(find.byType(HomePage)), const GeneralSettingsPage());
+    await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle();
+    expect(find.byType(SettingsPage), findsOneWidget);
+    expect(find.text('General'), findsNothing);
+    expect(find.text('Allow VPN bypass'), findsNothing);
     await tester.tap(find.text('Service'));
     await tester.pumpAndSettle();
     expect(find.byType(ServiceSettingsPage), findsOneWidget);

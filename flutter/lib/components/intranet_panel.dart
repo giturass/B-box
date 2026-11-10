@@ -51,13 +51,13 @@ class IntranetPanel extends StatelessWidget {
       PanelTitle('Intranet IP', AppGlyphs.devices, trailing: Transform.translate(
         offset: const Offset(8, 0), child: SizedBox(width: 32, child: OverflowBox(
         fit: OverflowBoxFit.deferToChild, minHeight: 32, maxHeight: 32,
-        child: IconButton(tooltip: context.tr('Copy'), padding: EdgeInsets.zero, iconSize: 18,
+        child: Tooltip(message: context.tr('Copy'), triggerMode: TooltipTriggerMode.tap, child: IconButton(padding: EdgeInsets.zero, iconSize: 18,
         style: ButtonStyle.from(minimumSize: const Size.square(32), fixedSize: const Size.square(32),
           tapTargetSize: TapTargetSize.shrinkWrap, foregroundColor: context.colorScheme.onSurfaceVariant),
         icon: const GlyphIcon(AppGlyphs.copy, size: 18), onPressed: copy == null ? null : () {
           final text = box.lanCopyText;
           if (text != null) _copy(context, text);
-        }))))),
+        })))))),
       const SizedBox(height: 12),
       PressRegion(onTap: () => openForm(context, const IntranetDetails()), child: SizedBox(
         height: AppTextStyle.title1.leading * MediaQuery.textScalerOf(context).scale(1),

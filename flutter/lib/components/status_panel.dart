@@ -212,7 +212,8 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
               onRefresh: !box.transitioning && !box.remote && !_checking && !_qualityChecking ? _retry : null),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               SizedBox(height: AppTextStyle.title2.leading * scale, child: Align(alignment: AlignmentDirectional.centerStart,
-                child: ip != null ? Tooltip(message: context.tr('Outbound IP details'), child: FocusRing(shape: AppShape.xs, standsOff: true,
+                child: ip != null ? Tooltip(message: context.tr('Outbound IP details'), triggerMode: TooltipTriggerMode.manual,
+                  child: FocusRing(shape: AppShape.xs, standsOff: true,
                   child: PressRegion(onTap: () => openForm(context, EgressDetails(info: info!, updates: _detailsRevision)),
                     shape: AppShape.xs, overlay: PressRegion.focusOverlay,
                     child: _IpText(ip: ip, style: ipStyle))))
@@ -222,11 +223,12 @@ class _StatusPanelState extends State<StatusPanel> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 4),
               SizedBox(height: 28, child: ClipRect(child: _error != null && ip == null
-                ? Align(alignment: AlignmentDirectional.centerStart, child: Tooltip(message: _error!, child: Text(context.tr('Tap icon to retry'), maxLines: 1, overflow: TextOverflow.ellipsis, style: _statusLabelStyle(context))))
+                ? Align(alignment: AlignmentDirectional.centerStart, child: Tooltip(message: _error!, triggerMode: TooltipTriggerMode.tap,
+                    child: Text(context.tr('Tap icon to retry'), maxLines: 1, overflow: TextOverflow.ellipsis, style: _statusLabelStyle(context))))
                 : Wrap(spacing: 6, runSpacing: 28, children: [
                     if (loading) ...[const SkeletonPill(width: 48, height: 28), const SkeletonPill(width: 72, height: 28)]
                     else ...[
-                      Tooltip(message: _qualityError == null ? '' : context.tr('IP quality unavailable'),
+                      Tooltip(message: _qualityError == null ? '' : context.tr('IP quality unavailable'), triggerMode: TooltipTriggerMode.tap,
                         child: DashboardChip(label: context.tr(info?['type'] as String? ?? 'Unknown type'), large: true)),
                       if (info?['quality'] != null) DashboardChip(label: '${context.tr('Quality')} ${context.tr(info!['quality'] as String)}', large: true,
                         tone: info['quality'] == 'Good' ? DashboardChipTone.ok : info['quality'] == 'Risky' ? DashboardChipTone.warn : DashboardChipTone.idle),
@@ -261,7 +263,7 @@ class _IpText extends StatelessWidget {
     if (width * .75 <= constraints.maxWidth) {
       return FittedBox(fit: BoxFit.scaleDown, alignment: AlignmentDirectional.centerStart, child: Text(ip, maxLines: 1, style: style));
     }
-    return TooltipText(text: Text(ip, maxLines: 1, overflow: TextOverflow.ellipsis, style: style));
+    return Text(ip, maxLines: 1, overflow: TextOverflow.ellipsis, style: style);
   });
 }
 
@@ -293,7 +295,8 @@ class _CountryBadgeState extends State<_CountryBadge> with SingleTickerProviderS
     final color = widget.active ? context.colorScheme.onSurface : context.colorScheme.onSurfaceVariant;
     final enabled = widget.onRefresh != null;
     final background = Color.alphaBlend(color.withValues(alpha: enabled && _hovered ? .08 : 0), SurfaceLevel.inset.colorOf(context.colorScheme));
-    return Tooltip(message: context.tr('Retry'), child: Semantics(button: true, label: context.tr('Retry'), enabled: enabled,
+    return Tooltip(message: context.tr('Retry'), triggerMode: TooltipTriggerMode.tap,
+      child: Semantics(button: true, label: context.tr('Retry'), enabled: enabled,
       child: PressRegion(onTap: widget.onRefresh, onHover: (value) => setState(() => _hovered = value), onFocusChange: (value) => setState(() => _focused = value),
         child: ElasticPress(enabled: enabled, child: AnimatedBuilder(animation: _turn, builder: (_, child) => ShapeBadge(
           shape: MaterialShapes.clover4Leaf, color: background, size: 48,

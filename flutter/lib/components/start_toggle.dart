@@ -98,6 +98,7 @@ class _StartToggleState extends State<StartToggle>
     final stateDuration = context.motionDuration(_stateDuration);
     return Tooltip(
       message: tooltip,
+      triggerMode: TooltipTriggerMode.tap,
       child: Semantics(
         container: true,
         button: true,

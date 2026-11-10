@@ -62,10 +62,12 @@ String profileUpdateLabel(int? milliseconds, DateTime now, {required bool chines
 }
 
 class ProfileUpdateTime extends StatefulWidget {
-  const ProfileUpdateTime({super.key, required this.milliseconds, this.style, this.showLabel = false});
+  const ProfileUpdateTime({super.key, required this.milliseconds, this.style, this.showLabel = false,
+    this.tooltipTriggerMode = TooltipTriggerMode.longPress});
   final int? milliseconds;
   final TextStyle? style;
   final bool showLabel;
+  final TooltipTriggerMode tooltipTriggerMode;
   @override State<ProfileUpdateTime> createState() => _ProfileUpdateTimeState();
 }
 
@@ -100,6 +102,7 @@ class _ProfileUpdateTimeState extends State<ProfileUpdateTime> with WidgetsBindi
     final date = (widget.milliseconds ?? 0) <= 0 ? context.tr('Unknown') : localDate(widget.milliseconds);
     return Tooltip(
       message: '${context.tr('Last updated')}: $date',
+      triggerMode: widget.tooltipTriggerMode,
       child: Text(widget.showLabel ? '${context.tr('Last updated')} $age' : age,
         maxLines: 1, overflow: TextOverflow.ellipsis,
         style: widget.style ?? AppTextStyle.footnote.of(context).toLighter),

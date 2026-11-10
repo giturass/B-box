@@ -131,7 +131,7 @@ void main() {
     dashboard.events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 1}});
     await tester.pumpAndSettle();
     expect(dashboard.ids, hasLength(1));
-    final start = find.bySemanticsLabel('Start');
+    final start = find.bySemanticsLabel('Start').hitTestable();
     expect(start, findsOneWidget);
     await tester.tap(start);
     await tester.pumpAndSettle();
@@ -144,6 +144,9 @@ void main() {
     await dashboard.mount(tester);
     await tester.pumpAndSettle();
     expect(find.text('Check failed'), findsOneWidget);
+    await tester.tap(find.text('Tap icon to retry'));
+    await _advance(tester);
+    expect(find.text('IP check failed'), findsOneWidget);
     dashboard.failIP = false;
     dashboard.autoQuality = true;
     await tester.tap(find.byTooltip('Retry'));
@@ -260,6 +263,9 @@ void main() {
     expect(find.text('203.0.113.9'), findsOneWidget);
     expect(find.text('Check failed'), findsNothing);
     expect(find.text('Unknown type'), findsOneWidget);
+    await tester.tap(find.text('Unknown type'));
+    await _advance(tester);
+    expect(find.text('IP quality unavailable'), findsOneWidget);
     await tester.tap(find.text('203.0.113.9'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('IP quality unavailable'), 250,

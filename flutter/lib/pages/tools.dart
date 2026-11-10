@@ -2,10 +2,8 @@ import '../widgets.dart';
 import '../components/data_subscription.dart';
 import 'requests.dart';
 import 'logs.dart';
-import 'settings.dart';
-import 'diagnostics.dart';
+import 'settings.dart' show RemotePage;
 import 'endpoints.dart';
-import 'reports.dart';
 import 'terminal.dart';
 
 class ToolsPage extends StatelessWidget {
@@ -20,27 +18,10 @@ class ToolsPage extends StatelessWidget {
         ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Terminal')), widget: const TerminalPage()),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(context.tr('Remote control')), widget: const RemotePage()),
       ]),
-      generateSection(title: context.tr('Settings'), items: [
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.paintbrush), title: Text(context.tr('Appearance')), widget: const AppearancePage()),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.settings), title: Text(context.tr('General')), widget: const GeneralSettingsPage()),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.appsList), title: Text(context.tr('Access control')), widget: const AccessPage()),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.cloudSync), title: Text(context.tr('Backup and restore')), widget: const BackupPage()),
-      ]),
-      generateSection(title: context.tr('Network diagnostics'), items: [
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.speed), title: Text(context.tr('Network quality')), widget: const DiagnosticsPage(quality: true)),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(context.tr('STUN test')), widget: const DiagnosticsPage(quality: false)),
-      ]),
-      generateSection(title: context.tr('Reports'), items: [
-        for (final kind in ['crash', 'oom', 'power'])
-          ListItem.open(leading: const GlyphIcon(AppGlyphs.profiles), title: Text(context.tr(reportTitle(kind))), widget: ReportsPage(kind: kind)),
-      ]),
       if (box.running) generateSection(title: context.tr('Endpoints'), items: [
         for (final kind in ['tailscale', 'openvpn', 'openconnect', 'usbip'])
           if (rows(box.toolState[kind]).isNotEmpty)
             ListItem.open(leading: const GlyphIcon(AppGlyphs.devices), title: Text(endpointName(kind)), widget: EndpointsPage(kind: kind)),
-      ]),
-      generateSection(title: context.tr('Other'), items: [
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.info), title: Text(context.tr('About')), widget: const AboutPage()),
       ]),
     ]));
   }

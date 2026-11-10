@@ -10,7 +10,6 @@ import 'package:b_box_ui/pages/requests.dart';
 import 'package:b_box_ui/pages/logs.dart';
 import 'package:b_box_ui/pages/settings.dart';
 import 'package:b_box_ui/pages/diagnostics.dart';
-import 'package:b_box_ui/pages/reports.dart';
 import 'package:b_box_ui/pages/profiles.dart';
 import 'package:b_box_ui/pages/proxies.dart';
 import 'package:b_box_ui/components/navigation_bar.dart';
@@ -160,24 +159,63 @@ void main() {
       await tester.pumpAndSettle();
       for (final (label, page) in <(String, Widget)>[
         ('Requests', const RequestsPage()), ('Logs', const LogsPage()),
-        ('Appearance', const AppearancePage()), ('Access', const AccessPage()),
-        ('Service', const ServiceSettingsPage()), ('Core', const CoreSettingsPage()),
-        ('Remote', const RemotePage()), ('Backup', const BackupPage()),
-        ('Quality', const DiagnosticsPage(quality: true)), ('STUN', const DiagnosticsPage(quality: false)),
-        ('Reports', const ReportsPage(kind: 'crash')), ('About', const AboutPage()),
+        ('Remote', const RemotePage()),
       ]) {
         final closed = openPage(rootContext, page);
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull, reason: label);
         await capture(label);
-        if (label == 'Appearance' && size.width < 600) {
-          await expectClearTrailingToolbar(tester, boundaryKey, find.byWidget(page));
-        }
         tester.element(find.byWidget(page)).safeNestedPop();
         await tester.pumpAndSettle();
         await closed;
         expect(find.byWidget(page), findsNothing, reason: '$label closes within the new UI');
       }
+      await tester.tap(find.byTooltip('Settings'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsPage), findsOneWidget);
+      expect(find.text('General'), findsNothing);
+      expect(find.text('Allow VPN bypass'), findsNothing);
+      expect(find.text('Core version'), findsNothing);
+      await capture('Settings');
+      for (final (label, title, page) in <(String, String, Widget)>[
+        ('Appearance', 'Appearance', const AppearancePage()),
+        ('Service', 'Service', const ServiceSettingsPage()), ('Core', 'Core', const CoreSettingsPage()),
+        ('Access', 'Access control', const AccessPage()),
+        ('Network-diagnostics', 'Network diagnostics', const NetworkDiagnosticsPage()),
+        ('Backup', 'Backup and restore', const BackupPage()), ('About', 'About', const AboutPage()),
+      ]) {
+        final entry = find.descendant(of: find.byType(SettingsPage), matching: find.text(title));
+        await Scrollable.ensureVisible(tester.element(entry), alignment: .5);
+        await tester.pumpAndSettle();
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+        expect(find.byWidget(page), findsOneWidget, reason: '$title opens from Settings');
+        expect(tester.takeException(), isNull, reason: label);
+        await capture(label);
+        if (label == 'Appearance' && size.width < 600) {
+          await expectClearTrailingToolbar(tester, boundaryKey, find.byWidget(page));
+        }
+        if (page is CoreSettingsPage) expect(find.text('Power reports'), findsNothing);
+        if (page is NetworkDiagnosticsPage) {
+          for (final (diagnosticLabel, diagnosticTitle, quality) in [('Quality', 'Network quality', true), ('STUN', 'STUN test', false)]) {
+            await tester.tap(find.descendant(of: find.byType(NetworkDiagnosticsPage), matching: find.text(diagnosticTitle)));
+            await tester.pumpAndSettle();
+            expect(tester.widget<DiagnosticsPage>(find.byType(DiagnosticsPage)).quality, quality);
+            expect(tester.takeException(), isNull, reason: diagnosticLabel);
+            await capture(diagnosticLabel);
+            tester.element(find.byType(DiagnosticsPage)).safeNestedPop();
+            await tester.pumpAndSettle();
+            expect(find.byType(NetworkDiagnosticsPage), findsOneWidget);
+          }
+        }
+        tester.element(find.byWidget(page)).safeNestedPop();
+        await tester.pumpAndSettle();
+        expect(find.byType(SettingsPage), findsOneWidget, reason: '$label returns to Settings');
+      }
+      tester.element(find.byType(SettingsPage)).safeNestedPop();
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsPage), findsNothing);
+      expect(find.byTooltip('Settings').hitTestable(), findsOneWidget);
       for (final (label, page) in <(String, Widget)>[
         ('Profile-edit', const ProfileForm(initial: {'id': 1, 'name': 'Primary sing-box profile',
           'remote': true, 'url': 'https://example.org/config.json', 'autoUpdate': true, 'interval': 60})),

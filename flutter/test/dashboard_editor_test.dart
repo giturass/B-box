@@ -3,6 +3,7 @@ import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/components/dashboard_editor.dart';
 import 'package:b_box_ui/components/status_panel.dart';
+import 'package:b_box_ui/components/start_toggle.dart';
 import 'package:b_box_ui/pages/tools.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -27,6 +28,7 @@ void main() {
         'hiddenCards': ['Connections', 'Memory', 'Intranet IP'],
       });
       final systemProxy = card == 'System HTTP proxy';
+      final ip = scenario == 'failed-save' ? '2001:db8:1234:5678:9abc:def0:1234:5678' : '203.0.113.1';
       if (systemProxy && scenario != 'add-remove') preferences['dashboardCards'] = [
         'Status', card, 'Network speed', 'Outbound mode', 'Current profile', 'Proxy groups',
       ];
@@ -43,7 +45,7 @@ void main() {
           case 'ready': return {'version': 'test', 'coreVersion': 'test', 'preferences': preferences,
             'profiles': [{'id': 1, 'name': 'Local profile', 'remote': false}],
             'dashboard': dashboard};
-          case 'dashboard.egress': return {'ip': '203.0.113.1', 'country': 'CN', 'type': 'Residential'};
+          case 'dashboard.egress': return {'ip': ip, 'country': 'CN', 'type': 'Residential'};
           case 'systemProxy.set':
             dashboard['systemProxy'] = json(call.arguments)['enabled'];
             events.add({'type': 'dashboard', 'value': dashboard});
@@ -73,9 +75,19 @@ void main() {
         await advance();
         expect(control.hitTestable(), findsOneWidget);
       }
-      await tester.tap(find.byTooltip('Dashboard cards'));
+      expect(find.byTooltip('Settings').hitTestable(), findsOneWidget);
+      expect(find.byTooltip('Dashboard cards'), findsNothing);
+      final editTarget = switch (scenario) {
+        'reorder' => systemProxy ? find.text(card) : find.byType(StartToggle),
+        'failed-save' => find.text(ip),
+        _ => find.text('Status'),
+      };
+      await tester.longPress(editTarget);
       await advance();
       expect(find.byType(DashboardEditor), findsOneWidget);
+      expect(find.byType(EgressDetails), findsNothing);
+      expect(calls.where((call) => ['service.start', 'service.stop', 'systemProxy.set'].contains(call.method)), isEmpty,
+        reason: 'Entering the editor with a long press must not activate the card or its controls.');
       expect(tester.state(find.byType(StatusPanel)), same(status));
       expect(find.byTooltip('Remove Status'), findsNothing);
       expect(find.byTooltip('Remove Connections'), findsNothing);
@@ -180,7 +192,7 @@ void main() {
         expect(find.text('Dashboard cards'), findsNothing);
         await tester.tap(find.text('Dashboard').last);
         await tester.pumpAndSettle();
-        await tester.tap(find.byTooltip('Dashboard cards'));
+        await tester.longPress(find.text('Status'));
         await advance();
         expect(find.byType(DashboardEditor), findsOneWidget);
         expect(find.byTooltip('Done').hitTestable(), findsOneWidget);

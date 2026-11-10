@@ -26,7 +26,7 @@
     "lib/components/profile_panel.dart": {
       "source": "lib/views/dashboard/widgets/profiles.dart",
       "sourceSHA256": "b7be96228167a2e4e13506df4a1b6cb031ab313e4fa6edee299d5d26e321539d",
-      "changes": "Mobile profile summary, update and profile-switch controls. Shows compact Room update times with full-date tooltips for local and remote profiles, retaining an unknown placeholder when absent. Remote sessions omit local profile metadata. Counts describe the actual sing-box configuration, with unavailable remote counts left unknown. Each count or loading placeholder is centered above its label. Disable the profile-switch control during native service start/stop transitions. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Mobile profile summary, update and profile-switch controls. Shows compact Room update times with full-date tooltips for local and remote profiles, retaining an unknown placeholder when absent. Remote sessions omit local profile metadata. Counts describe the actual sing-box configuration, with unavailable remote counts left unknown. Each count or loading placeholder is centered above its label. Disable the profile-switch control during native service start/stop transitions. Migrated to the v0.9.3 prism_ui types and presentation. Dashboard timestamps and control hints use tap triggers, leaving long presses for card editing."
     },
     "lib/pages/profile_details.dart": {
       "source": "lib/views/dashboard/widgets/profile_detail.dart",
@@ -41,7 +41,7 @@
     "lib/components/start_toggle.dart": {
       "source": "lib/views/dashboard/widgets/current_outbound.dart",
       "sourceSHA256": "1fb47cc2e4274dc940ba9876c1736410183bbdf867d9d863b46a0e3b8db77974",
-      "changes": "Flutter presentation preserved; application state and actions use B-box callbacks. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Flutter presentation preserved; application state and actions use B-box callbacks. Migrated to the v0.9.3 prism_ui types and presentation. The tooltip uses a tap trigger so long presses reach dashboard editing while ordinary taps retain the service action."
     },
     "lib/components/shape_badge.dart": {
       "source": "lib/views/dashboard/widgets/card.dart",
@@ -56,7 +56,7 @@
     "lib/pages/dashboard.dart": {
       "source": "lib/views/dashboard/widgets/traffic.dart",
       "sourceSHA256": "0d9b65b6ec78bb81df7eea3f262ef0e6e109698db39094e446af168989202413",
-      "changes": "NetworkSpeedCard and SpeedTile layout adapted to sing-box traffic samples; traffic tiles subscribe independently from other dashboard cards. Other cards use B-box capability state. The capability-gated SystemProxyPanel uses the shared editable card order and visibility preferences. Migrated to the v0.9.3 prism_ui types and presentation. The v0.9.3 traffic tiles use a 1.45 aspect ratio minimum and draw the chart behind the figures below the title."
+      "changes": "NetworkSpeedCard and SpeedTile layout adapted to sing-box traffic samples; traffic tiles subscribe independently from other dashboard cards. Other cards use B-box capability state. The capability-gated SystemProxyPanel uses the shared editable card order and visibility preferences. Migrated to the v0.9.3 prism_ui types and presentation. The v0.9.3 traffic tiles use a 1.45 aspect ratio minimum and draw the chart behind the figures below the title. The toolbar opens Settings; a standard long press on any card enters the existing in-place editor, preserving tap actions and card keys."
     },
     "lib/pages/proxies.dart": {
       "source": "lib/views/proxies/card.dart",
@@ -106,7 +106,7 @@
     "lib/components/status_panel.dart": {
       "source": "lib/views/dashboard/widgets/current_outbound.dart",
       "sourceSHA256": "1fb47cc2e4274dc940ba9876c1736410183bbdf867d9d863b46a0e3b8db77974",
-      "changes": "Mobile header, intrinsic runtime column, caption/figure styles, readable IP fitting, country badge states and decoration clipping retained. Reads native sing-box session and routed IP/quality data; route observation excludes traffic and memory notifications. Unavailable stopped/remote data stays explicit. Migrated to the v0.9.3 prism_ui types and presentation. No FlClash private MITM/root-access border is inferred from B-box root settings."
+      "changes": "Mobile header, intrinsic runtime column, caption/figure styles, readable IP fitting, country badge states and decoration clipping retained. Reads native sing-box session and routed IP/quality data; route observation excludes traffic and memory notifications. Unavailable stopped/remote data stays explicit. Migrated to the v0.9.3 prism_ui types and presentation. No FlClash private MITM/root-access border is inferred from B-box root settings. IP details remain a tap action with a hover/accessibility hint; truncated IP text no longer adds a full-address tooltip. Query error and retry hints use tap triggers so long presses belong to card editing."
     },
     "lib/components/memory_panel.dart": {
       "source": "lib/views/dashboard/widgets/memory_info.dart",
@@ -122,7 +122,7 @@
           "sourceSHA256": "0b2e8ec0da7adaf98e2e8ce135eadff9e9c1ab7907e8aff9fee4cfcf2cbaf664"
         }
       ],
-      "changes": "Mobile LAN IP, sharing switch, cookie/circle Wi-Fi badge, adaptive row and compact switch track from intranet_ip.dart/card.dart. Copy retains DashboardIconButton's fixed 32px square, 18px glyph, zero padding, surface-variant foreground and 8px right translation. Sharing changes native sing-box proxy inbound listen fields with independent ports and existing authentication/TLS. Copy expands actual running binds to device endpoints; stopped and remote sessions retain device IP copying. Card and details share visibility ownership for native callback-driven refresh and hotspot fallback checks. The details Edit action opens the unified profile editing page. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Mobile LAN IP, sharing switch, cookie/circle Wi-Fi badge, adaptive row and compact switch track from intranet_ip.dart/card.dart. Copy retains DashboardIconButton's fixed 32px square, 18px glyph, zero padding, surface-variant foreground and 8px right translation. Sharing changes native sing-box proxy inbound listen fields with independent ports and existing authentication/TLS. Copy expands actual running binds to device endpoints; stopped and remote sessions retain device IP copying. Card and details share visibility ownership for native callback-driven refresh and hotspot fallback checks. The details Edit action opens the unified profile editing page. Migrated to the v0.9.3 prism_ui types and presentation. The dashboard copy tooltip wraps the existing button with a tap trigger, preserving copying and leaving long presses for card editing."
     },
     "lib/components/system_proxy_panel.dart": {
       "source": "lib/views/dashboard/widgets/network_takeover.dart",
@@ -153,7 +153,12 @@
     "lib/pages/tools.dart": {
       "source": "lib/views/tools.dart",
       "sourceSHA256": "aa81cb38649ba5f4c7f48c5a29ad4993fac0362ad1857e937af77f4093d572f9",
-      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools. Uses tool-specific state notifications and shares a visibility-controlled native detail subscription with endpoint pages. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools. Uses tool-specific state notifications and shares a visibility-controlled native detail subscription with endpoint pages. Migrated to the v0.9.3 prism_ui types and presentation. Settings, diagnostics and About moved under the dashboard Settings entry; Tools retains requests, logs, terminal, remote control and available endpoints, and omits the three report entries."
+    },
+    "lib/pages/settings.dart": {
+      "source": "lib/views/tools.dart",
+      "sourceSHA256": "aa81cb38649ba5f4c7f48c5a29ad4993fac0362ad1857e937af77f4093d572f9",
+      "changes": "Settings sections and shared navigation rows moved from the adapted Tools page into the dashboard Settings entry. Service and Core are direct entries with their own option pages, without the General wrapper. Network diagnostics follows Access control and opens a secondary list for network quality and STUN; About is included here. The power report switch is omitted, while native settings, service restart confirmation and failure recovery remain unchanged."
     },
     "lib/pages/about.dart": {
       "source": "lib/views/about.dart",
@@ -258,7 +263,7 @@
           "sourceSHA256": "a539e15957a3cdb3f4cb2a1718aaa12bc2d398ebf08f949cca4b4812b1245439"
         }
       ],
-      "changes": "Profile row height, title strut, selected badge, updating transition and compact update-age labels retained. Uses Room timestamps for local content saves and remote subscription updates; missing timestamps show unknown. Refresh is scoped to visible/resumed pages. Does not invent subscription quotas or expiry badges absent from the native model. Accept a disabled selection callback while retaining the profile metadata and context menu. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Profile row height, title strut, selected badge, updating transition and compact update-age labels retained. Uses Room timestamps for local content saves and remote subscription updates; missing timestamps show unknown. Refresh is scoped to visible/resumed pages. Does not invent subscription quotas or expiry badges absent from the native model. Accept a disabled selection callback while retaining the profile metadata and context menu. Migrated to the v0.9.3 prism_ui types and presentation. The shared timestamp accepts a configurable tooltip trigger so the dashboard can use taps while the profile list retains its existing interaction."
     },
     "lib/main.dart": {
       "source": "lib/application.dart",

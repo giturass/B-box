@@ -18,25 +18,27 @@ class _ProfilePanelState extends State<ProfilePanel> {
       ? openForm(context, const AddProfilePage()) : openForm(context, ProfileDetailsPage(profile: profile)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         PanelTitle('Profile', AppGlyphs.profiles, trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-          if (profile?['remote'] == true) SizedBox.square(dimension: 26, child: _updating ? const Center(child: ActivityIndicator(size: 18)) : IconButton(
-            padding: EdgeInsets.zero, tooltip: context.tr('Update'), icon: const GlyphIcon(AppGlyphs.sync, size: 18), onPressed: () async {
+          if (profile?['remote'] == true) SizedBox.square(dimension: 26, child: _updating ? const Center(child: ActivityIndicator(size: 18))
+            : Tooltip(message: context.tr('Update'), triggerMode: TooltipTriggerMode.tap, child: IconButton(
+            padding: EdgeInsets.zero, icon: const GlyphIcon(AppGlyphs.sync, size: 18), onPressed: () async {
               setState(() => _updating = true);
               await box.act('profiles.update', {'id': profile!['id']});
               if (mounted) setState(() => _updating = false);
-            })),
+            }))),
           const GlyphIcon(AppGlyphs.chevronForward, size: 18),
         ])),
         const SizedBox(height: 12),
         Row(children: [
           Flexible(child: EmojiText(name?.toString() ?? context.tr('Add profile'), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyle.headline.of(context, emphasized: true))),
-          if (!box.remote && box.profiles.length > 1) SizedBox.square(dimension: 32, child: IconButton(padding: EdgeInsets.zero,
-            tooltip: context.tr('Switch profile'), icon: const GlyphIcon(AppGlyphs.swap, size: 18),
-            onPressed: box.transitioning ? null : () => openForm(context, const ProfilesPage(picker: true)))),
+          if (!box.remote && box.profiles.length > 1) SizedBox.square(dimension: 32,
+            child: Tooltip(message: context.tr('Switch profile'), triggerMode: TooltipTriggerMode.tap, child: IconButton(padding: EdgeInsets.zero,
+              icon: const GlyphIcon(AppGlyphs.swap, size: 18),
+              onPressed: box.transitioning ? null : () => openForm(context, const ProfilesPage(picker: true))))),
         ]),
         if (profile != null || box.remote) ...[
           Row(spacing: 12, children: [
             Expanded(child: profile == null ? const SizedBox.shrink() : ProfileUpdateTime(
-              milliseconds: (profile['updatedAt'] as num?)?.toInt(), style: label, showLabel: true)),
+              milliseconds: (profile['updatedAt'] as num?)?.toInt(), style: label, showLabel: true, tooltipTriggerMode: TooltipTriggerMode.tap)),
             Text(context.tr(box.remote || profile?['remote'] == true ? 'Remote' : 'Local'), style: label),
           ]),
           const SizedBox(height: 14),

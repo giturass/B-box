@@ -1,4 +1,9 @@
 import '../widgets.dart';
+import 'appearance.dart';
+import 'access.dart';
+import 'about.dart';
+import 'backup.dart';
+import 'diagnostics.dart';
 
 export 'appearance.dart';
 export 'access.dart';
@@ -19,12 +24,17 @@ class NativeToggle extends StatelessWidget {
   }
 }
 
-class GeneralSettingsPage extends StatelessWidget {
-  const GeneralSettingsPage({super.key});
-  @override Widget build(BuildContext context) => BoxPage(title: 'General', children: [
+class SettingsPage extends StatelessWidget {
+  const SettingsPage({super.key});
+  @override Widget build(BuildContext context) => BoxPage(title: 'Settings', children: [
     generateSection(items: [
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.paintbrush), title: Text(context.tr('Appearance')), widget: const AppearancePage()),
       ListItem.open(leading: const GlyphIcon(AppGlyphs.vpn), title: Text(context.tr('Service')), widget: const ServiceSettingsPage()),
       ListItem.open(leading: const GlyphIcon(AppGlyphs.cpu), title: Text(context.tr('Core')), widget: const CoreSettingsPage()),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.appsList), title: Text(context.tr('Access control')), widget: const AccessPage()),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.speed), title: Text(context.tr('Network diagnostics')), widget: const NetworkDiagnosticsPage()),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.cloudSync), title: Text(context.tr('Backup and restore')), widget: const BackupPage()),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.info), title: Text(context.tr('About')), widget: const AboutPage()),
     ]),
   ]);
 }
@@ -58,7 +68,6 @@ class CoreSettingsPage extends StatelessWidget {
           return number >= 10 && number <= 4096 ? null : '10–4096 MiB';
         },
         onChanged: (value) { if (value != null) context.box.setSetting('oomMemoryLimitMB', int.parse(value)); }),
-      const NativeToggle('Power reports', 'powerReportEnabled'),
     ]),
   ]);
 }
