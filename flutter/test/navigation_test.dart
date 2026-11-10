@@ -185,15 +185,17 @@ void main() {
         ('Backup', 'Backup and restore', const BackupPage()), ('About', 'About', const AboutPage()),
       ]) {
         final entry = find.descendant(of: find.byType(SettingsPage), matching: find.text(title));
+        final destination = find.byType(page.runtimeType);
         await Scrollable.ensureVisible(tester.element(entry), alignment: .5);
         await tester.pumpAndSettle();
+        expect(entry.hitTestable(), findsOneWidget);
         await tester.tap(entry);
         await tester.pumpAndSettle();
-        expect(find.byWidget(page), findsOneWidget, reason: '$title opens from Settings');
+        expect(destination, findsOneWidget, reason: '$title opens from Settings');
         expect(tester.takeException(), isNull, reason: label);
         await capture(label);
         if (label == 'Appearance' && size.width < 600) {
-          await expectClearTrailingToolbar(tester, boundaryKey, find.byWidget(page));
+          await expectClearTrailingToolbar(tester, boundaryKey, destination);
         }
         if (page is CoreSettingsPage) expect(find.text('Power reports'), findsNothing);
         if (page is NetworkDiagnosticsPage) {
@@ -208,7 +210,7 @@ void main() {
             expect(find.byType(NetworkDiagnosticsPage), findsOneWidget);
           }
         }
-        tester.element(find.byWidget(page)).safeNestedPop();
+        tester.element(destination).safeNestedPop();
         await tester.pumpAndSettle();
         expect(find.byType(SettingsPage), findsOneWidget, reason: '$label returns to Settings');
       }

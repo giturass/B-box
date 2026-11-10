@@ -192,7 +192,11 @@ void main() {
         expect(find.text('Dashboard cards'), findsNothing);
         await tester.tap(find.text('Dashboard').last);
         await tester.pumpAndSettle();
-        await tester.longPress(find.text('Status'));
+        final statusTitle = find.text('Status');
+        await Scrollable.ensureVisible(tester.element(statusTitle), alignment: .5);
+        await tester.pumpAndSettle();
+        expect(statusTitle.hitTestable(), findsOneWidget);
+        await tester.longPress(statusTitle);
         await advance();
         expect(find.byType(DashboardEditor), findsOneWidget);
         expect(find.byTooltip('Done').hitTestable(), findsOneWidget);
