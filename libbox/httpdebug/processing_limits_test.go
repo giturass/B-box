@@ -126,8 +126,14 @@ func TestCaptureRetainsLargeBodiesAndAllRecordsUntilClear(t *testing.T) {
 		t.Fatal("capture history was evicted", page.Total)
 	}
 	detail, err := reopened.Detail(id)
-	if err != nil || !bytes.Equal(detail.RequestBody, body) || detail.Request.BodyTruncated || detail.RequestPreview.Truncated {
+	if err != nil || detail.Request.CapturedBytes != int64(len(body)) ||
+		detail.RequestPreview.Text != string(body[:BodyPageSize]) || !detail.RequestPreview.HasMore ||
+		detail.Request.BodyTruncated || detail.RequestPreview.Truncated {
 		t.Fatal("unlimited captured body changed on reopen", err)
+	}
+	last, err := reopened.BodyPage(id, false, int64(len(body)-BodyPageSize), false)
+	if err != nil || last.Text != string(body[len(body)-BodyPageSize:]) || last.HasMore || last.Truncated {
+		t.Fatal("the final saved body page is unavailable", err)
 	}
 	var output bytes.Buffer
 	if err := reopened.WriteHARSelection(&output, ids); err != nil {

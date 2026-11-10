@@ -70,8 +70,13 @@ func (e *Engine) SelectTLS(ctx context.Context, conn net.Conn, metadata Metadata
 	metadata.RawTCP = e.mitm.TCP && (len(protos) == 0 || slices.ContainsFunc(protos, func(proto string) bool {
 		return proto != "h2" && proto != "http/1.1"
 	}))
-	if len(protos) > 0 && !metadata.RawTCP && !slices.Contains(protos, "h2") && !slices.Contains(protos, "http/1.1") {
+	if len(protos) > 0 && !metadata.RawTCP && !slices.Contains(protos, "http/1.1") && !(e.mitm.H2 && slices.Contains(protos, "h2")) {
 		metadata.ProcessingReason = "TLS passed through: non-HTTP ALPN and TCP decryption disabled"
+		if slices.Contains(protos, "h2") {
+			// Native gRPC clients require h2. Disabling HTTP/2 MITM cannot turn
+			// their connection into HTTP/1.1; leave the original TLS handshake intact.
+			metadata.ProcessingReason = "TLS passed through: client requires HTTP/2 but HTTP/2 MITM is disabled"
+		}
 		writeLog("debug", metadata.ProcessingReason+"; connection="+metadata.ConnectionID+" host="+metadata.Host)
 		return replay, metadata, false
 	}
@@ -142,10 +147,7 @@ func (e *Engine) openMITM(ctx context.Context, raw net.Conn, metadata Metadata, 
 				}
 			}
 			if len(hello.SupportedProtos) > 0 && len(offered) == 0 {
-				if !slices.Contains(hello.SupportedProtos, "h2") {
-					return nil, errors.New("non-HTTP TLS must be passed through")
-				}
-				offered = []string{"http/1.1"}
+				return nil, errors.New("unsupported client ALPN must be passed through")
 			}
 			if !metadata.RawTCP {
 				// A known HTTP connection can use either HTTP version upstream,

@@ -1,6 +1,7 @@
 package io.nekohasekai.sfa.flutter
 
 import android.os.Build
+import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModelProvider
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
@@ -40,6 +41,7 @@ import java.io.Closeable
 import java.io.DataInputStream
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -67,12 +69,13 @@ class ProfileRecoveryTest {
             val generated = if (createdCA) authority.generate(authority.snapshot()["revision"] as String) else authority.snapshot()
             val caFile = File(activity.noBackupFilesDir, "http-debug/mitm-authority.json")
             val createdAlias = if (createdCA) JSONObject(caFile.readText()).getString("alias") else null
-            val profileDirectory = File(profiles.get(id).typed.path).parentFile!!
-            val fileResource = File(profileDirectory, "rewrite-$id-${UUID.randomUUID()}.json")
-            val scriptResource = File(profileDirectory, "rewrite-$id-${UUID.randomUUID()}.js")
+            val importedFiles = mutableListOf<File>()
             try {
-                fileResource.writeText("""{"message":"word word"}""")
-                scriptResource.writeText("${'$'}done({body:${'$'}response.body.replace('paired-jq','from-file-script')});")
+                val (fileName, fileResource) = importResourceDocument(activity, profiles, id, "http_rewrite", ".json",
+                    """{"message":"word word"}""").also { importedFiles.add(it.second) }
+                val (scriptName, _) = importResourceDocument(activity, profiles, id, "scripts", ".js",
+                    "${'$'}done({body:${'$'}response.body.replace('paired-jq','from-file-script')});").also { importedFiles.add(it.second) }
+                val imported = JSONObject(profiles.read(id)).getJSONObject("experimental")
                 val certificate = authority.publicCertificate(generated["revision"] as String)
                 val trustStore = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("mitm", certificate) }
                 val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(trustStore) }
@@ -107,8 +110,9 @@ class ProfileRecoveryTest {
                         "map_remote":[{"pattern":"^http://source\\.test:80/remote$","replacement":"http://mapped.test:$originPort/profile.json"}],
                         "body_rewrite":[{"pattern":"/remote$","phase":"response","regex":"old","replacement":"static"}]
                     }""")
+                    extension.put("resources", imported.getJSONObject("http_rewrite").getJSONObject("resources"))
                     extension.getJSONArray("map_local").put(JSONObject().put("pattern", "/file$")
-                        .put("data_type", "file").put("data", fileResource.name).put("status", 999))
+                        .put("resource", fileName).put("status", 999))
                     extension.getJSONArray("body_rewrite")
                         .put(JSONObject().put("pattern", "/file$").put("phase", "response")
                             .put("regex", "(?<=:\")([a-z]+) \\1(?=\")").put("replacement", "paired"))
@@ -119,7 +123,8 @@ class ProfileRecoveryTest {
                         .put(JSONObject().put("pattern", "/remote$").put("phase", "response").put("requires_body", true)
                             .put("source", "${'$'}done({body:${'$'}response.body.replace('static','script')});"))
                         .put(JSONObject().put("pattern", "/file$").put("phase", "response").put("requires_body", true)
-                            .put("script_path", scriptResource.name).put("debug", true)))
+                            .put("resource", scriptName).put("debug", true)))
+                        .put("resources", imported.getJSONObject("scripts").getJSONObject("resources"))
                     val config = JSONObject("""{
                         "inbounds":[{"type":"mixed","tag":"rewrite-in","listen":"127.0.0.1","listen_port":$proxyPort}],
                         "outbounds":[{"type":"direct","tag":"original"},{"type":"direct","tag":"mapped"}],
@@ -177,8 +182,7 @@ class ProfileRecoveryTest {
                 withContext(Dispatchers.Main) { activity.stopService() }
                 withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
                 createdAlias?.let { KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry(it) }; caFile.delete() }
-                fileResource.delete()
-                scriptResource.delete()
+                importedFiles.forEach { it.delete() }
             }
         }
     }
@@ -280,6 +284,11 @@ class ProfileRecoveryTest {
                         checkNotNull(result)
                     }
                     val metadata = detail.getJSONObject("metadata")
+                    val bodyPage = JSONObject(Libbox.readUICaptureBody(detail.getString("id"), true, 0, false))
+                    assertEquals(detail.getJSONObject("responsePreview").getString("text"), bodyPage.getString("text"))
+                    assertFalse(bodyPage.getBoolean("hasMore"))
+                    assertFalse(detail.has("requestBody"))
+                    assertFalse(detail.has("responseBody"))
                     val summary = JSONObject(Libbox.listUICapture(10, "origin.test")).getJSONArray("items").getJSONObject(0)
                     assertEquals(metadata.optString("connectionId"), summary.optString("connectionId"))
                     assertEquals(metadata.getString("outbound"), summary.getString("outbound"))
@@ -291,6 +300,12 @@ class ProfileRecoveryTest {
                         assertEquals(if (raw) 0 else 1, JSONObject(har.readText()).getJSONObject("log").getJSONArray("entries").length())
                         Libbox.exportUICaptureHARSelection(har.absolutePath, "[]")
                         assertEquals(0, JSONObject(har.readText()).getJSONObject("log").getJSONArray("entries").length())
+                        if (raw) {
+                            assertTrue(runCatching { Libbox.exportUICaptureCurlFile(har.absolutePath, detail.getString("id")) }.isFailure)
+                        } else {
+                            Libbox.exportUICaptureCurlFile(har.absolutePath, detail.getString("id"))
+                            assertEquals(Libbox.exportUICaptureCurl(detail.getString("id")), har.readText())
+                        }
                     } finally { har.delete() }
                     assertEquals("MITM", metadata.getString("captureSource"))
                     assertEquals("mitm-in", metadata.getString("inbound"))
@@ -1035,6 +1050,105 @@ class ProfileRecoveryTest {
                 }
             }
         }
+    }
+
+    private suspend fun importResourceDocument(
+        activity: BoxActivity, profiles: BoxProfiles, id: Long, section: String, suffix: String, content: String,
+    ): Pair<String, File> {
+        val document = File.createTempFile("resource-document-", suffix, activity.cacheDir)
+        try {
+            document.writeText(content)
+            val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.cache", document)
+            assertEquals("content", uri.scheme)
+            val name = activity.documentName(uri)
+            assertEquals(document.name, name)
+            val prepared = activity.contentResolver.openInputStream(uri)!!.use {
+                profiles.prepareResource(id, section, BoxProfiles.revision(profiles.read(id)), name, it)
+            }
+            return prepared.use {
+                val result = profiles.commitResource(it)
+                assertFalse(it.pending.exists())
+                assertEquals(content, it.destination.readText())
+                val imported = result["importedResource"] as Map<*, *>
+                assertEquals(it.destination.name, imported["path"])
+                imported["name"] as String to it.destination
+            }
+        } finally { document.delete() }
+    }
+
+    @Test fun localResourceImportsKeepRevisionsRecoverFailuresAndCleanCancelledCopies() = withRunningProfile { activity, profiles, id ->
+        val directory = File(profiles.get(id).typed.path).parentFile!!
+        val importedFiles = mutableListOf<File>()
+        suspend fun prepare(name: String = "same.js", owner: BoxProfiles = profiles): BoxProfiles.PreparedResource =
+            "new resource".byteInputStream().use {
+                owner.prepareResource(id, "scripts", BoxProfiles.revision(profiles.read(id)), name, it)
+            }
+        try {
+            profiles.writeContent(id, """{"outbounds":[{"type":"direct","tag":"kept"}],"experimental":{"scripts":{"resources":{"same.js":{"data":"old"}}}}}""",
+                BoxProfiles.revision(profiles.read(id)))
+            prepare().use { resource ->
+                val saved = profiles.commitResource(resource)
+                importedFiles.add(resource.destination)
+                assertEquals("same.js (2)", (saved["importedResource"] as Map<*, *>)["name"])
+                val content = JSONObject(profiles.read(id))
+                assertEquals("kept", content.getJSONArray("outbounds").getJSONObject(0).getString("tag"))
+                assertEquals("old", content.getJSONObject("experimental").getJSONObject("scripts")
+                    .getJSONObject("resources").getJSONObject("same.js").getString("data"))
+            }
+            prepare("stale.js").use { resource ->
+                val newer = JSONObject(profiles.read(id)).put("log", JSONObject().put("level", "warn")).toString()
+                profiles.writeContent(id, newer, BoxProfiles.revision(profiles.read(id)))
+                assertTrue(runCatching { profiles.commitResource(resource) }.isFailure)
+                assertEquals(newer, profiles.read(id))
+                assertFalse(resource.destination.exists())
+            }
+            val previous = profiles.read(id)
+            val applications = mutableListOf<Boolean>()
+            val failing = BoxProfiles { recover ->
+                applications.add(recover)
+                if (!recover) error("Injected resource apply failure")
+                withContext(Dispatchers.Main) { activity.applyProfile(recover = true) }
+            }
+            prepare("failed.js", failing).use { resource ->
+                assertTrue(runCatching { failing.commitResource(resource) }.isFailure)
+                assertFalse(resource.destination.exists())
+                assertEquals(previous, profiles.read(id))
+                assertEquals(listOf(false, true), applications)
+                assertEquals(Status.Started, activity.serviceStatus.value)
+            }
+            fun files() = directory.listFiles().orEmpty().map { it.name }.toSet()
+            val beforeCopy = files()
+            val unreadable = object : InputStream() {
+                override fun read(): Int = throw IOException("Document read failed")
+            }
+            assertTrue(runCatching {
+                unreadable.use { profiles.prepareResource(id, "scripts", BoxProfiles.revision(previous), "unreadable.js", it) }
+            }.isFailure)
+            assertEquals(beforeCopy, files())
+
+            val reading = CountDownLatch(1)
+            val closed = CountDownLatch(1)
+            val blocked = object : InputStream() {
+                override fun read(): Int {
+                    reading.countDown()
+                    check(closed.await(10, TimeUnit.SECONDS)) { "Resource stream was not closed on cancellation" }
+                    throw IOException("Document closed")
+                }
+                override fun close() { closed.countDown() }
+            }
+            coroutineScope {
+                val copy = async(Dispatchers.IO) {
+                    blocked.use { profiles.prepareResource(id, "scripts", BoxProfiles.revision(previous), "cancelled.js", it).close() }
+                }
+                try {
+                    assertTrue(reading.await(5, TimeUnit.SECONDS))
+                    copy.cancel()
+                    withTimeout(5_000) { copy.join() }
+                } finally { blocked.close() }
+            }
+            assertEquals(beforeCopy, files())
+            assertEquals(previous, profiles.read(id))
+        } finally { importedFiles.forEach { it.delete() } }
     }
 
     private fun withRunningProfile(

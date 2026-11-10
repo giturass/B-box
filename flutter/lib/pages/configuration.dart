@@ -87,6 +87,27 @@ class ProfileConfigStore extends ChangeNotifier {
     finally { saving = false; if (!_disposed) notifyListeners(); }
   }
 
+  Future<String?> importResource(String section) async {
+    if (_disposed || !ready || saving || loading || box.remote) return null;
+    final session = box.sessionRevision;
+    saving = true;
+    error = null;
+    notifyListeners();
+    try {
+      final result = await box.call('profiles.importResource', {'id': profile['id'], 'revision': revision, 'section': section});
+      if (result == null || _disposed || box.remote || box.sessionRevision != session) return null;
+      final data = json(result);
+      if (!_disposed) _receive(data);
+      return json(data['importedResource'])['name'] as String?;
+    } catch (failure) {
+      if (!_disposed && !box.remote && box.sessionRevision == session) {
+        error = BoxController.describe(failure);
+        box.report(failure);
+      }
+      return null;
+    } finally { saving = false; if (!_disposed) notifyListeners(); }
+  }
+
   @override void dispose() { _disposed = true; super.dispose(); }
 }
 
@@ -185,9 +206,8 @@ class HttpRewriteConfigPage extends StatelessWidget {
             widget: ConfigListPage(store: store, title: title, path: [...path, key], initial: {'pattern': pattern, 'disabled': true, ...initial})),
       ], footer: context.tr('New example rules are disabled. Edit their pattern and content, then set disabled to false.')),
       generateSection(items: [
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Embedded rewrite resources')),
-          widget: ConfigValueEditor(title: 'Embedded rewrite resources', initial: store.value([...path, 'resources']) ?? const {},
-            onSave: (value) => store.set([...path, 'resources'], value, expectedRevision: revision, rethrowFailure: true))),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Rewrite resources')),
+          widget: ProcessingResourcesPage(store: store, section: 'http_rewrite')),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit HTTP rewrite options')),
           widget: ConfigValueEditor(title: 'HTTP rewriting', initial: store.value(path) ?? const {'enabled': false},
             onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
@@ -233,7 +253,7 @@ class MitmConfigPage extends StatelessWidget {
         ListItem.open(key: const ValueKey('mitm-hosts'), leading: const GlyphIcon(AppGlyphs.dns), title: Text(context.tr('Decryption domains')),
           widget: MitmHostsEditor(store: store)),
         ListItem.toggle(key: const ValueKey('mitm-h2'), title: Text(context.tr('MITM over HTTP/2')),
-          value: store.value([...path, 'h2']) == true,
+          value: store.value([...path, 'h2']) != false,
           onChanged: store.saving ? null : (value) => store.set([...path, 'h2'], value)),
         ListItem.toggle(key: const ValueKey('mitm-skip-server-cert-verify'), title: Text(context.tr('Skip server certificate verification')),
           value: store.value([...path, 'skip_server_cert_verify']) == true,
@@ -246,7 +266,7 @@ class MitmConfigPage extends StatelessWidget {
       ]),
       if (store != null && store.ready) generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit MITM options')),
-          widget: ConfigValueEditor(title: 'MITM configuration', initial: store.value(path) ?? const {'enabled': false, 'hosts': [], 'tcp': false, 'h2': false, 'skip_server_cert_verify': false, 'block_quic': true},
+          widget: ConfigValueEditor(title: 'MITM configuration', initial: store.value(path) ?? const {'enabled': false, 'hosts': [], 'tcp': false, 'h2': true, 'skip_server_cert_verify': false, 'block_quic': true},
             onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
       ]),
     ]);
@@ -317,13 +337,45 @@ class ScriptsConfigPage extends StatelessWidget {
       ], footer: context.tr('Cron accepts five fields, or six with seconds first. The default timezone follows the device when the service starts.')),
       ListFooter(text: context.tr('Cron runs while the local service is running. Missed intervals are not replayed.')),
       generateSection(items: [
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Embedded script resources')),
-          widget: ConfigValueEditor(title: 'Embedded script resources', initial: store.value([...path, 'resources']) ?? const {},
-            onSave: (value) => store.set([...path, 'resources'], value, expectedRevision: revision, rethrowFailure: true))),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Script resources')),
+          widget: ProcessingResourcesPage(store: store, section: 'scripts')),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit script options')),
           widget: ConfigValueEditor(title: 'Scripts', initial: store.value(path) ?? const {'enabled': false},
             onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
       ], footer: context.tr('New example rules are disabled. Edit their pattern and content, then set disabled to false.')),
+    ]);
+  });
+}
+
+class ProcessingResourcesPage extends StatelessWidget {
+  const ProcessingResourcesPage({super.key, required this.store, required this.section});
+  final ProfileConfigStore store;
+  final String section;
+
+  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) {
+    if (context.box.remote) return const BoxPage(title: 'Resources', children: [EmptyState('Disconnect remote session to edit local profiles')]);
+    final path = ['experimental', section, 'resources'];
+    final resources = json(store.value(path));
+    final revision = store.revision;
+    return ProcessingConfigScaffold(title: 'Resources', store: store, children: [
+      generateSection(items: [
+        ListItem(key: const ValueKey('import-processing-resource'), title: Text(context.tr('Import local resource')),
+          onTap: store.saving ? null : () async {
+            final name = await store.importResource(section);
+            if (context.mounted && name != null) context.box.messages.add('${context.tr('Resource imported')}: $name');
+          }),
+      ], footer: context.tr('Imported files stay on this device and are not included in profile exports or backups. Use the resource name in the resource field of a rule.')),
+      if (resources.isNotEmpty) generateSection(items: [
+        for (final entry in resources.entries)
+          ListItem.open(title: Text(entry.key), subtitle: Text(json(entry.value)['data_type']?.toString() ?? 'text'),
+            widget: ConfigValueEditor(title: entry.key, initial: entry.value,
+              onSave: (value) => store.set([...path, entry.key], value, expectedRevision: revision, rethrowFailure: true))),
+      ]),
+      generateSection(items: [
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit resources JSON')),
+          widget: ConfigValueEditor(title: 'Resources', initial: resources,
+            onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
+      ]),
     ]);
   });
 }

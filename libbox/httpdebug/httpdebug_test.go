@@ -176,7 +176,7 @@ func TestHTTPStreamingBodiesHeadersAndOriginalRoute(t *testing.T) {
 		t.Fatal("HTTP/1.1 requests on one connection shared an exchange ID")
 	}
 	for _, item := range items {
-		d, err := store.Detail(item.ID)
+		d, err := store.detailWithBodies(item.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -245,7 +245,7 @@ func TestSSEVisibleBeforeCompletionAndStop(t *testing.T) {
 	if len(page.Items) != 1 || page.Items[0].Complete {
 		t.Fatal("stream visibility/completion incorrect")
 	}
-	d, _ := store.Detail(page.Items[0].ID)
+	d, _ := store.detailWithBodies(page.Items[0].ID)
 	if !strings.Contains(string(d.ResponseBody), "first") {
 		t.Fatal("stream body not visible")
 	}
@@ -278,7 +278,7 @@ func TestStoreRetentionPersistenceClearAndCurl(t *testing.T) {
 	if err != nil || !strings.Contains(command, "'\"'\"'") {
 		t.Fatalf("unsafe cURL quoting: %q, %v", command, err)
 	}
-	if _, err := reopened.Detail("../../outside"); err == nil {
+	if _, err := reopened.detailWithBodies("../../outside"); err == nil {
 		t.Fatal("invalid id accepted")
 	}
 	keep := filepath.Join(store.directory, "unrelated")
@@ -324,7 +324,7 @@ func TestHARContentDecodingPreservesSavedContent(t *testing.T) {
 	for _, body := range []string{"a decoded response", strings.Repeat("abc", 65536)} {
 		raw := compress(body)
 		message := Message{Headers: []Header{{"Content-Encoding", "gzip"}}, BodyComplete: true, BodyBytes: int64(len(raw))}
-		content := harContent(message, raw)
+		content := harContentForTest(t, message, raw, false)
 		decoded, err := base64.StdEncoding.DecodeString(content["text"].(string))
 		if err != nil || string(decoded) != body {
 			t.Fatal("HAR text lost decoded content", err)
@@ -335,16 +335,17 @@ func TestHARContentDecodingPreservesSavedContent(t *testing.T) {
 		if content["_truncated"] != false {
 			t.Fatal("HAR falsely marked complete decoded content as truncated")
 		}
-		if got := preview(message, raw); got.Encoding != "text" || got.Text != body || got.Truncated {
+		if got := previewForTest(t, message, raw); got.Encoding != "text" || got.Text != body[:min(len(body), BodyPageSize)] ||
+			got.HasMore != (len(body) > BodyPageSize) || got.Truncated {
 			t.Fatalf("incomplete compressed preview: %+v", got)
 		}
 	}
 	message := Message{Headers: []Header{{"Content-Encoding", "unsupported"}}, BodyTruncated: true}
-	content := harContent(message, []byte{0, 1, 2})
+	content := harContentForTest(t, message, []byte{0, 1, 2}, false)
 	if _, ok := content["text"]; ok {
 		t.Fatal("unknown content encoding was represented as decoded HAR text")
 	}
-	if got := preview(message, []byte{0, 1, 2}); got.Encoding != "base64" || !got.Truncated {
+	if got := previewForTest(t, message, []byte{0, 1, 2}); got.Encoding != "base64" || !got.Truncated {
 		t.Fatal("binary preview lost truncation state")
 	}
 }
@@ -401,7 +402,7 @@ func TestWebSocketUpgradeForwardsFramesAndStops(t *testing.T) {
 	}
 	e.Close()
 	item := waitComplete(t, store, 1)[0]
-	detail, err := store.Detail(item.ID)
+	detail, err := store.detailWithBodies(item.ID)
 	if err != nil || detail.Response.Status != 101 || len(detail.ResponseBody) != 0 || detail.Note == "" {
 		t.Fatal("WebSocket payload was mistaken for an HTTP body", err)
 	}
@@ -424,7 +425,7 @@ func TestMissingBodyNeverExportsAsACompleteRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	detail, err := reopened.Detail(id)
+	detail, err := reopened.detailWithBodies(id)
 	if err != nil || !detail.Request.BodyTruncated || detail.Request.CapturedBytes != 0 {
 		t.Fatal("restart did not reconcile the missing body file", err)
 	}

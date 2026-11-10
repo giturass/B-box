@@ -34,6 +34,14 @@ func TestUIHTTPRewriteSchemaValidationAndFormatting(t *testing.T) {
 	if !mitm.H2 || !mitm.SkipServerCertVerify || mitm.BlockQUIC {
 		t.Fatalf("formatting changed MITM options: %+v", mitm)
 	}
+	disabled, err := FormatConfig(strings.Replace(content, `"h2":true`, `"h2":false`, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabledOptions, err := parseConfig(baseContext(nil), disabled.Value)
+	if err != nil || disabledOptions.Experimental.MITM.H2 || !strings.Contains(disabled.Value, `"h2": false`) {
+		t.Fatal("explicit HTTP/2 opt-out disappeared during full profile formatting", err)
+	}
 	schema, err := GenerateConfigSchema()
 	if err != nil || !strings.Contains(schema.Value, `"http_rewrite"`) || !strings.Contains(schema.Value, `"requires_body"`) {
 		t.Fatalf("extension missing from schema: %v", err)

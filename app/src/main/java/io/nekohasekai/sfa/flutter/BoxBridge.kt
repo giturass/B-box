@@ -34,6 +34,7 @@ import io.nekohasekai.sfa.vendor.PerAppProxyScanner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -324,6 +325,30 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 withContext(Dispatchers.IO) {
                     val (name, bytes) = activity.readDocument(uri)
                     profiles.decode(bytes, name)
+                }
+            }
+            "profiles.importResource" -> {
+                val session = CommandTarget.localSession()
+                val profileId = id()
+                val section = string("section")
+                val revision = string("revision")
+                val uri = activity.pickDocument() ?: return null
+                var prepared: BoxProfiles.PreparedResource? = null
+                try {
+                    withContext(Dispatchers.IO) {
+                        CommandTarget.requireLocalSession(session)
+                        val name = activity.documentName(uri, "resource")
+                        activity.contentResolver.openInputStream(uri)?.use { input ->
+                            prepared = profiles.prepareResource(profileId, section, revision, name, input)
+                        } ?: error("Unable to read resource document")
+                    }
+                    localProfiles(session) {
+                        val saved = profiles.commitResource(checkNotNull(prepared)) { CommandTarget.requireLocalSession(session) }
+                        publishProfiles()
+                        saved
+                    }
+                } finally {
+                    withContext(NonCancellable + Dispatchers.IO) { prepared?.close() }
                 }
             }
             "profiles.scan" -> withContext(Dispatchers.Default) { qrScanner.scan(string("session"), string("text")) }

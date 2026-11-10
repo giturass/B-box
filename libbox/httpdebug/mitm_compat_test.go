@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -15,7 +16,57 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/net/http2"
 )
+
+func TestDefaultMITMAcceptsHTTP2OnlyGRPCClient(t *testing.T) {
+	cert, roots := originCertificate(t, "origin.test", false)
+	frame := []byte{0, 0, 0, 0, 3, 1, 2, 3}
+	origin := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor != 2 || r.Header.Get("Content-Type") != "application/grpc" {
+			t.Error("gRPC did not reach the HTTP/2 origin")
+		}
+		w.Header().Set("Content-Type", "application/grpc")
+		w.Header().Set("Trailer", "Grpc-Status")
+		io.Copy(w, r.Body)
+		w.Header().Set("Grpc-Status", "0")
+	}))
+	origin.EnableHTTP2 = true
+	origin.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
+	origin.StartTLS()
+	defer origin.Close()
+	e, store, ca := mitmEngine(t, Config{})
+	if err := json.Unmarshal([]byte("{\"enabled\":true,\"hosts\":[\"origin.test\"]}"), e.mitm); err != nil {
+		t.Fatal(err)
+	}
+	// Android grpc-okhttp only offers h2. Exercise ClientHello selection and
+	// the actual request without supplying an explicit h2 configuration value.
+	client, _, _ := selectedMITMClient(t, e, origin.Listener.Addr().String(), ca, roots, []string{"h2"})
+	if client.ConnectionState().NegotiatedProtocol != "h2" {
+		t.Fatal("default MITM downgraded an HTTP/2-only client")
+	}
+	connection, err := (&http2.Transport{}).NewClientConn(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	request, _ := http.NewRequest("POST", "https://origin.test/service/Unary", bytes.NewReader(frame))
+	request.Header.Set("Content-Type", "application/grpc")
+	response, err := connection.RoundTrip(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil || !bytes.Equal(body, frame) || response.ProtoMajor != 2 || response.Trailer.Get("Grpc-Status") != "0" {
+		t.Fatal("HTTP/2-only gRPC request was not preserved", err)
+	}
+	detail, err := store.Detail(waitComplete(t, store, 1)[0].ID)
+	if err != nil || detail.Metadata.TLS.ALPN != "h2" || detail.Metadata.TLS.UpstreamALPN == nil || *detail.Metadata.TLS.UpstreamALPN != "h2" {
+		t.Fatal("missing HTTP/2 negotiation metadata", err)
+	}
+}
 
 // Exercise the real ClientHello selection, including its unknown-ALPN path.
 func selectedMITMClient(t *testing.T, e *Engine, origin string, ca, roots *x509.CertPool, protos []string) (*tls.Conn, *atomic.Int32, <-chan error) {
@@ -96,7 +147,7 @@ func TestMITMNoALPNHTTPUsesRewritesScriptsAndHTTPExports(t *testing.T) {
 				t.Fatalf("connection was redialed or requests were not parsed: dials=%d requests=%d", dials.Load(), e.parsedRequests.Load())
 			}
 			for _, item := range waitComplete(t, store, 2) {
-				detail, err := store.Detail(item.ID)
+				detail, err := store.detailWithBodies(item.ID)
 				if err != nil || detail.Metadata.RawTCP || detail.Metadata.ConnectionID != "selected-client" ||
 					detail.Metadata.Outbound != "original-route" || detail.Metadata.TLS.ALPN != "" ||
 					detail.Metadata.TLS.UpstreamALPN == nil || *detail.Metadata.TLS.UpstreamALPN != "" {
@@ -173,7 +224,7 @@ func TestMITMClientFirstRawTLSReplaysBytesAndHalfCloses(t *testing.T) {
 					t.Fatal(err)
 				}
 				item := waitComplete(t, store, 1)[0]
-				detail, err := store.Detail(item.ID)
+				detail, err := store.detailWithBodies(item.ID)
 				if err != nil || !detail.Metadata.RawTCP || !bytes.Equal(detail.RequestBody, payload) ||
 					!bytes.Equal(detail.ResponseBody, payload) || !detail.Request.BodyComplete || !detail.Response.BodyComplete ||
 					e.parsedRequests.Load() != 0 || dials.Load() != 1 {
@@ -216,7 +267,7 @@ func TestMITMHTTP2OptionSeparatesClientAndOriginVersions(t *testing.T) {
 					if (response.ProtoMajor == 2) != (enabled && clientH2) || dials.Load() != 1 {
 						t.Fatalf("HTTP/2 setting or connection reuse failed: %s, %d dials", response.Proto, dials.Load())
 					}
-					detail, _ := store.Detail(waitComplete(t, store, 1)[0].ID)
+					detail, _ := store.detailWithBodies(waitComplete(t, store, 1)[0].ID)
 					wantClient, wantUpstream := "http/1.1", "http/1.1"
 					if enabled && clientH2 {
 						wantClient = "h2"

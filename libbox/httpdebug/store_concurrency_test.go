@@ -53,12 +53,12 @@ func TestStoreBodyHandlesCloseAtEveryRetentionBoundary(t *testing.T) {
 				t.Fatalf("descriptor remained open after %s: %v", boundary, err)
 			}
 			if boundary == "clear" {
-				if _, err := s.Detail(id); !errors.Is(err, os.ErrNotExist) {
+				if _, err := s.detailWithBodies(id); !errors.Is(err, os.ErrNotExist) {
 					t.Fatalf("removed record reappeared: %v", err)
 				}
 				return
 			}
-			detail, err := s.Detail(id)
+			detail, err := s.detailWithBodies(id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -111,7 +111,7 @@ func TestStoreSlowBodyWriteDoesNotBlockOtherRecordsOrClear(t *testing.T) {
 		s.appendBody(other, false, []byte("independent"))
 		s.bodyComplete(other, false)
 		s.finish(other)
-		detail, err := s.Detail(other)
+		detail, err := s.detailWithBodies(other)
 		if err == nil && string(detail.RequestBody) != "independent" {
 			err = errors.New("unrelated body was corrupted")
 		}
@@ -158,7 +158,7 @@ func TestStoreDetailsRemainConsistentDuringConcurrentBodyWrites(t *testing.T) {
 		}()
 	}
 	for range 50 {
-		detail, err := s.Detail(id)
+		detail, err := s.detailWithBodies(id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -171,7 +171,7 @@ func TestStoreDetailsRemainConsistentDuringConcurrentBodyWrites(t *testing.T) {
 	}
 	writers.Wait()
 	s.finish(id)
-	detail, err := s.Detail(id)
+	detail, err := s.detailWithBodies(id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestStoreCompletionWaitsForPendingBodyAccounting(t *testing.T) {
 		t.Fatal("body write did not start")
 	}
 	s.finish(id)
-	detail, err := s.Detail(id)
+	detail, err := s.detailWithBodies(id)
 	if err != nil || detail.Complete || s.Page(1, "").Items[0].Complete {
 		t.Fatalf("completion published before the pending write: %+v, %v", detail, err)
 	}
@@ -223,7 +223,7 @@ func TestStoreCompletionWaitsForPendingBodyAccounting(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("finishing writer did not return")
 	}
-	detail, err = s.Detail(id)
+	detail, err = s.detailWithBodies(id)
 	if err != nil || !detail.Complete || s.pendingBytes != 0 || s.records[id].pendingBytes != 0 {
 		t.Fatalf("final completion or reservation accounting was lost: %+v, %v", detail, err)
 	}

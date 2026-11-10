@@ -217,7 +217,7 @@ func testBboxHTTPDebugConnectionID(t *testing.T, directory string) {
 			t.Fatal(err)
 		}
 		if detail.Metadata.ConnectionID != connectionID.String() || detail.ID == connectionID.String() ||
-			!detail.Complete || string(detail.ResponseBody) != "ok" {
+			!detail.Complete || detail.ResponsePreview.Encoding != "text" || detail.ResponsePreview.Text != "ok" {
 			t.Fatalf("original connection association or retained request lost: %+v", detail)
 		}
 	}

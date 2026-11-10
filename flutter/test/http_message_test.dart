@@ -37,12 +37,10 @@ void main() {
     }
   });
 
-  test('preview paging does not split a surrogate pair', () {
-    final source = '${'a' * 16383}😀tail';
-    expect(capturedTextPrefix(source, 16384), 'a' * 16383);
-    expect(capturedTextPrefix(source, 16385), '${'a' * 16383}😀');
-    expect(capturedTextPrefix(source, 32768), source);
-    expect(capturedTextPrefix(source, 0), '');
+  test('body-page formatting falls back before allocating excessive indentation', () {
+    final source = '${'[' * 2048}0${']' * 2048}';
+    expect(formatCapturedJson(source, maxOutputLength: 65536), isNull);
+    expect(formatCapturedJson('{"ok":true}', maxOutputLength: 65536), '{\n  "ok": true\n}');
   });
 
   test('request cookies keep repeated names, empty values and embedded equals', () {

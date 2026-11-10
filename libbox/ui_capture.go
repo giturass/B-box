@@ -59,9 +59,19 @@ func ReadUICapture(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// The UI needs bounded previews; raw captured bodies go into file exports.
-	detail.RequestBody, detail.ResponseBody = nil, nil
 	return captureJSON(detail)
+}
+
+func ReadUICaptureBody(id string, response bool, offset int64, raw bool) (string, error) {
+	store, err := httpdebug.Saved()
+	if err != nil {
+		return "", err
+	}
+	page, err := store.BodyPage(id, response, offset, raw)
+	if err != nil {
+		return "", err
+	}
+	return captureJSON(page)
 }
 
 func ClearUICapture() error {
@@ -78,7 +88,7 @@ func ExportUICaptureHAR(path, query string) error {
 	if err != nil {
 		return err
 	}
-	return exportUICaptureHAR(path, func(file *os.File) error { return store.WriteHAR(file, query) })
+	return exportUICaptureFile(path, func(file *os.File) error { return store.WriteHAR(file, query) })
 }
 
 func ExportUICaptureHARSelection(path, idsJSON string) error {
@@ -93,10 +103,10 @@ func ExportUICaptureHARSelection(path, idsJSON string) error {
 	if err != nil {
 		return err
 	}
-	return exportUICaptureHAR(path, func(file *os.File) error { return store.WriteHARSelection(file, ids) })
+	return exportUICaptureFile(path, func(file *os.File) error { return store.WriteHARSelection(file, ids) })
 }
 
-func exportUICaptureHAR(path string, write func(*os.File) error) error {
+func exportUICaptureFile(path string, write func(*os.File) error) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
@@ -107,6 +117,14 @@ func exportUICaptureHAR(path string, write func(*os.File) error) error {
 		return err
 	}
 	return closeErr
+}
+
+func ExportUICaptureCurlFile(path, id string) error {
+	store, err := httpdebug.Saved()
+	if err != nil {
+		return err
+	}
+	return exportUICaptureFile(path, func(file *os.File) error { return store.WriteCurl(file, id) })
 }
 
 func ExportUICaptureCurl(id string) (string, error) {

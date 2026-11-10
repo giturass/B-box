@@ -82,12 +82,12 @@ func TestBodyEncodingsAgreeAcrossRewritingPreviewAndHAR(t *testing.T) {
 			}
 			headers, _ := captureHeaders(header, "")
 			message := Message{Headers: headers, BodyComplete: true, BodyBytes: int64(len(wire))}
-			if got := preview(message, wire); got.Text != "old" || got.Encoding != "text" || got.Truncated {
+			if got := previewForTest(t, message, wire); got.Text != "old" || got.Encoding != "text" || got.Truncated {
 				t.Fatalf("preview disagrees with body decoding: %+v", got)
 			}
 			for _, content := range []map[string]any{
-				harContent(message, wire),
-				harEntry(&Detail{Exchange: Exchange{Request: message}, RequestBody: wire})["request"].(map[string]any)["postData"].(map[string]any),
+				harContentForTest(t, message, wire, false),
+				harContentForTest(t, message, wire, true),
 			} {
 				decoded, err := base64.StdEncoding.DecodeString(content["text"].(string))
 				if content["_encoding"] == "" {

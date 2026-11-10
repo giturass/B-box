@@ -90,9 +90,13 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 - [recording.go](libbox/httpdebug/recording.go) 将记录策略与服务处理引擎分开。启停记录不替换引擎或关闭已有 HTTP、SSE、WebSocket、TLS/TCP 连接；停止时封存已有前缀和当时的完整性状态，迟到正文、响应及 EOF 不再更新该记录。重新开启从已有拦截连接的新 HTTP 请求或新 TCP 流开始记录，不能补录正在传输的旧流；尚未被接管的连接需由应用重新建立。服务停止/重载才关闭旧处理连接，记录不会自动恢复。
 - 抓包端口默认 80、443、8080、8443，端口、应用和 MITM 主机列表不设条数配额；按原始目标端口筛选。应用列表为空表示不限；未知归属不能匹配指定应用，共享 UID 使用同一归属结果。这些设置只限制记录，不改变配置中的解密或处理范围。
 - 请求条数、磁盘总量、头部和 trailers 不设固定配额。每方向正文默认保留 64 KiB，用户可填写任意可表示的正整数字节数，`-1` 保存完整正文；旧记录的截断标记保留。存储失败、截断、未完成和流错误分别保留。
-- 正文处理、预览和 HAR 共用 [content_encoding.go](libbox/httpdebug/content_encoding.go)，支持 identity、gzip/x-gzip、deflate（zlib/raw）、br 和 zstd，合并重复头后按应用顺序逆序解码。处理阶段对每层应用用户配置的限额；预览/HAR 使用全部已保存内容，不另设解码字节或编码层数上限。不支持的编码或二进制使用 Base64，HAR 请求/响应均保留原始保存内容与完整性标志。HAR 用 `_trailers` 保存尾部字段，耗时仅为总时长。cURL 仅允许完整、未截断且无 trailers 的 HTTP 请求；TLS/TCP 流和仅域名记录不进入 HAR，也不能导出 cURL。
+- 正文处理、预览和 HAR 使用相同的 Content-Encoding 解析，支持 identity、gzip/x-gzip、deflate（zlib/raw）、br 和 zstd，合并重复头后按应用顺序逆序解码。处理阶段沿用 [content_encoding.go](libbox/httpdebug/content_encoding.go) 的逐层用户限额；预览和导出通过 [content_reader.go](libbox/httpdebug/content_reader.go) 串联流式解码器，不将完整正文或中间层装入内存。HAR 请求/响应保留原始保存内容与完整性标志，用 `_trailers` 保存尾部字段，耗时仅为总时长。cURL 仅允许完整、未截断且无 trailers 的 HTTP 请求；TLS/TCP 流和仅域名记录不进入 HAR，也不能导出 cURL。
 
-[store.go](libbox/httpdebug/store.go) 为每条记录的两个方向按需保留正文文件句柄，方向内串行写入，EOF、用户正文限额、完成和清空均释放句柄；达到前缀上限后继续累计实际转发字节。正文写入在索引锁外执行，完成标志等待在途写入提交计数，迟到写入不能重建已清理记录；元数据沿用原子替换。详情在锁内复制元数据并打开文件，随后在锁外只读取该快照已保存的字节数并解码，保留并发追加及清空期间的快照一致性。列表 `limit=0` 返回全部摘要，界面分页不限制可搜索或导出的历史。
+[store.go](libbox/httpdebug/store.go) 为每条记录的两个方向按需保留正文文件句柄，方向内串行写入，EOF、用户正文限额、完成和清空均释放句柄；达到前缀上限后继续累计实际转发字节。正文写入在索引锁外执行，完成标志等待在途写入提交计数，迟到写入不能重建已清理记录；元数据沿用原子替换。详情、正文页和导出在锁内复制元数据并打开文件，随后在锁外通过受快照字节数约束的 SectionReader 读取，保留并发追加及清空期间的快照一致性。列表 `limit=0` 返回全部摘要，界面分页不限制可搜索或导出的历史。
+
+[body_preview.go](libbox/httpdebug/body_preview.go) 将每方向详情限制为首个 16 KiB 正文页；`ReadUICaptureBody(id, response, offset, raw)` 按需读取后续页。`offset` / `nextOffset` 是所选字节表示的偏移，UTF-8 边界保留完整字符；`hasMore` 表示仍可翻页，与保存或解码的 `truncated` 分开。支持的编码默认查看解码后字节，二进制页以 Base64 表示；编码不可用时首个页回退到原始保存字节，返回 `source: raw` 及原因，后续沿用该来源。普通文件页直接定位，压缩内容为到达指定偏移从头流式解码并丢弃前缀，不缓存之前的正文页。16 KiB 是读取窗口，不改变用户的抓取保留范围。
+
+[export.go](libbox/httpdebug/export.go) 的 HAR 逐条、逐字段写入；解码大小及请求文本编码通过一次流式扫描确定，第二次流式写出完整保存内容，保留压缩原文 `_rawBody`。文本转义和 Base64 编码均分块进行，解码错误保留前缀、原文及错误标记。`ExportUICaptureCurlFile(path, id)` 直接流式生成脚本文件；旧 `ExportUICaptureCurl` 字符串绑定只为已有调用者保留，Android 文件导出使用新绑定。正文页、HAR 和 cURL 不共享全量正文数组。此边界对应 [Android 进程内存管理](https://developer.android.com/topic/performance/memory-overview)；它不是设备容量测量或新的抓取配额。
 
 `extractHosts` 额外保存可见 TLS/QUIC 名称，标为“仅域名”；它不启用解密、阻断 QUIC 或恢复 ECH 隐藏的名称。域名导出对当前搜索条件下的保留记录去重。保存记录在停服后仍可读取。
 
@@ -112,9 +116,11 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 | `hosts` | 支持域名、IP、`*` / `?` 通配符、`-` 排除前缀及 `:port`（`:0` 匹配所有端口）；按顺序取首个匹配项，排除项应放在前面。空列表不解密任何连接，非法项拒绝保存 |
 | `ports` / `packages` | 额外限定原始目的端口及应用，与 `hosts` 取交集；为空时不增加该项限制 |
 | `tcp` | 默认 false；开启后支持非 HTTP TLS 字节流，无 ALPN 时先识别 HTTP/1.x 请求，其他内容按 TCP 转发 |
-| `h2` | 默认 false；开启后允许 HTTP/2 MITM，客户端与上游分别协商 HTTP 版本；关闭时使用 HTTP/1.1 |
+| `h2` | 默认 true；客户端与上游分别协商 HTTP 版本。显式 false 保留在格式化结果中；关闭时仅接管可使用 HTTP/1.1 的 HTTP 客户端，只提供 h2 的连接原样透传 |
 | `skip_server_cert_verify` | 默认 false；开启后跳过 MITM 上游服务器证书校验 |
 | `block_quic` | 默认 true；在 MITM 启用且命中域名/端口/应用时，拒绝已观测的 QUIC 连接以促使应用改用 TCP；显式 false 在配置格式化后保留 |
+
+HTTP/2 默认值按 Android 客户端兼容性选择，不沿用 Surge 的默认关闭策略。[gRPC Android](https://grpc.io/docs/platforms/android/java/quickstart/) 的 [OkHttp TLS 传输](https://github.com/grpc/grpc-java/blob/v1.85.1/okhttp/src/main/java/io/grpc/okhttp/OkHttpTlsUpgrader.java) 只接受 h2；关闭 h2 时，ClientHello 选择阶段直接回放这类连接，不向它宣告 HTTP/1.1，也不将它转成原始 TCP 解密。已有显式 false 配置继续生效。
 
 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.go) 按 Surge [Host List](https://manual.nssurge.com/profile/host-list.html) 和 [MITM](https://manual.nssurge.com/http/mitm.html) 的规则匹配。未写端口的项默认匹配 443；名称来自实际 TLS/QUIC SNI 时，未写端口的项可匹配其他端口，显式端口仍按原始目标端口判断。IPv6 端口写为 `[2001:db8::1]:8443`；支持 `<ip-address>`、`<ipv4-address>`、`<ipv6-address>` 和 `<simple-hostname>`。例如 `["-private.example.com", "*.example.com:0"]` 排除前项命中的连接后匹配其他子域。
 
@@ -195,7 +201,7 @@ HTTP/1 请求处理错误立即终止后续正文读取并关闭连接，避免�
 
 ### 文件和 URL 资源加载
 
-[processing_resources.go](libbox/httpdebug/processing_resources.go) 供 Map Local 和脚本共用。`data_type: "file"` 的 `data` 为相对实际配置文件目录的路径或 HTTP(S) URL；文件和脚本源码不设固定容量上限。文件读取、下载及每层解压随实际大小[登记正文缓冲](#json-配置中的-http-改写)。拒绝绝对本地路径、目录逃逸及非普通文件。校验、编辑、格式化、导入及备份不读这些文件、不下载或执行代码，缺失资源在运行时处理。配置导出仅携带引用，不打包实际文件或下载缓存。
+[processing_resources.go](libbox/httpdebug/processing_resources.go) 供 Map Local 和脚本共用。`data_type: "file"` 的 `data` 为相对实际配置文件目录的路径或 HTTP(S) URL；文件和脚本源码不设固定容量上限。文件读取、下载及每层解压随实际大小[登记正文缓冲](#json-配置中的-http-改写)。拒绝绝对本地路径、目录逃逸及非普通文件。配置 JSON 的校验、编辑、格式化、导入及备份不读取其引用的文件，不下载或执行代码，缺失资源在运行时处理。Android 的主动本地资源导入负责复制用户选择的文档并写入相对引用，见 [应用导入流程](app.md#配置处理生命周期)。配置导出仅携带引用，不打包实际文件或下载缓存。
 
 本地 Map Local 每次命中重新读，按后缀推断 MIME，显式 Content-Type 优先；内嵌资源引用继承其 data_type。本地脚本编译结果默认缓存到服务结束，`debug: true` 每次重新读/编译。URL 资源在服务成功激活后经当前核心路由自动下载、后台刷新，默认 86400 秒；资源 `update_interval` 或脚本 `script_update_interval` 接受可表示为 duration 的正整数秒。下载由调用方及服务取消，不另加固定期限；检测重复 URL/方法的重定向循环。同资源合并并发下载，不同资源独立刷新，同一身份使用最短配置间隔，不递归改写/脚本。
 

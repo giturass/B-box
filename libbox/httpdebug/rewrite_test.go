@@ -114,7 +114,7 @@ func TestRewritePipelineAndRecordedMessages(t *testing.T) {
 		t.Fatalf("response headers: %v", response.Header)
 	}
 	items := waitComplete(t, store, 1)
-	detail, err := store.Detail(items[0].ID)
+	detail, err := store.detailWithBodies(items[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestRewriteRemoteUsesMappedDialAndVerifiesTLS(t *testing.T) {
 			if originalDials.Load() != 0 || mappedDials.Load() != 1 {
 				t.Fatalf("wrong dialers: %d/%d", originalDials.Load(), mappedDials.Load())
 			}
-			detail, err := store.Detail(waitComplete(t, store, 1)[0].ID)
+			detail, err := store.detailWithBodies(waitComplete(t, store, 1)[0].ID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -264,7 +264,7 @@ func TestRewriteOversizedAndStreamingResponsesAreUnchanged(t *testing.T) {
 			if err != nil || !bytes.Equal(body, got) {
 				t.Fatalf("passthrough corrupted %s: got %d, expected %d: %v", encoding, len(got), len(body), err)
 			}
-			detail, _ := store.Detail(waitComplete(t, store, 1)[0].ID)
+			detail, _ := store.detailWithBodies(waitComplete(t, store, 1)[0].ID)
 			if !strings.Contains(detail.Note, "skipped") {
 				t.Fatalf("missing skip reason: %s", detail.Note)
 			}

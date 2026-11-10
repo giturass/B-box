@@ -13,9 +13,17 @@ import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.utils.CommandTarget
 import io.nekohasekai.sfa.utils.HTTPClient
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
+import java.io.Closeable
 import java.io.File
+import java.io.InputStream
 import java.net.URI
 import java.util.Date
 import java.util.UUID
@@ -60,6 +68,99 @@ internal class BoxProfiles(
 
     suspend fun writeContent(id: Long, content: String, expectedRevision: String): Map<String, Any?> = mutex.withLock {
         writeContentLocked(id, content, expectedRevision)
+    }
+
+    internal data class PreparedResource(
+        val id: Long, val profilePath: String, val revision: String, val section: String,
+        val name: String, val pending: File, val destination: File,
+    ) : Closeable {
+        override fun close() { pending.delete() }
+    }
+
+    /** Copy a document incrementally, without holding the configuration or bridge operation lock. */
+    suspend fun prepareResource(id: Long, section: String, expectedRevision: String, name: String, input: InputStream): PreparedResource {
+        require(section in setOf("scripts", "http_rewrite")) { "Invalid resource section" }
+        val profilePath = mutex.withLock {
+            val path = get(id).typed.path
+            require(revision(File(path).readText()) == expectedRevision) { "Configuration changed; reload it before saving" }
+            path
+        }
+        val displayName = name.substringAfterLast('/').substringAfterLast('\\').ifBlank { "resource" }
+        val extension = displayName.substringAfterLast('.', "").takeIf { it.matches(Regex("[A-Za-z0-9]+")) }
+        val directory = File(profilePath).parentFile ?: error("Profile directory is unavailable")
+        val destination = File(directory, "resource-${UUID.randomUUID()}${extension?.let { ".$it" }.orEmpty()}")
+        val pending = File.createTempFile(".resource-", ".pending", directory)
+        try {
+            coroutineScope {
+                val copying = async(Dispatchers.IO) {
+                    val context = currentCoroutineContext()
+                    try {
+                        pending.outputStream().use { output ->
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            while (true) {
+                                context.ensureActive()
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                output.write(buffer, 0, count)
+                            }
+                            context.ensureActive()
+                            output.fd.sync()
+                        }
+                    } catch (failure: Exception) {
+                        // A provider can report IOException when cancellation
+                        // closes its stream. Preserve coroutine cancellation.
+                        context.ensureActive()
+                        throw failure
+                    }
+                }
+                try {
+                    copying.await()
+                } catch (cancelled: CancellationException) {
+                    // Closing also releases a provider pipe blocked in read().
+                    runCatching { input.close() }.onFailure(cancelled::addSuppressed)
+                    throw cancelled
+                }
+            }
+            return PreparedResource(id, profilePath, expectedRevision, section, displayName, pending, destination)
+        } catch (failure: Exception) {
+            pending.delete()
+            throw failure
+        }
+    }
+
+    suspend fun commitResource(resource: PreparedResource, beforeCommit: () -> Unit = {}): Map<String, Any?> = mutex.withLock {
+        beforeCommit()
+        currentCoroutineContext().ensureActive()
+        val profile = get(resource.id)
+        require(profile.typed.path == resource.profilePath) { "Profile changed; reload it before saving" }
+        val profileFile = File(resource.profilePath)
+        val previous = profileFile.readText()
+        require(revision(previous) == resource.revision) { "Configuration changed; reload it before saving" }
+        val root = JSONObject(previous)
+        val experimental = root.optJSONObject("experimental") ?: JSONObject().also { root.put("experimental", it) }
+        val section = experimental.optJSONObject(resource.section) ?: JSONObject().also { experimental.put(resource.section, it) }
+        val resources = section.optJSONObject("resources") ?: JSONObject().also { section.put("resources", it) }
+        var name = resource.name
+        var suffix = 2
+        while (resources.has(name)) name = "${resource.name} (${suffix++})"
+        resources.put(name, JSONObject().put("data_type", "file").put("data", resource.destination.name))
+        val content = root.toString()
+        validate(content)
+        currentCoroutineContext().ensureActive()
+        beforeCommit()
+        require(!resource.destination.exists() && resource.pending.renameTo(resource.destination)) { "Unable to save resource file" }
+        try {
+            ProfileContent.replaceLocked(profile, content, expectedRevision = resource.revision,
+                beforeSave = { beforeCommit(); beforeApply() }, applySelected = applySelected)
+            configLocked(resource.id) + mapOf("importedResource" to mapOf("name" to name, "path" to resource.destination.name))
+        } catch (failure: Exception) {
+            // A failed recovery can leave the new config on disk. Keep its resource
+            // until that state is repaired, instead of breaking it a second time.
+            if (runCatching { !profileFile.readText().contains(resource.destination.name) }.getOrDefault(false)) {
+                resource.destination.delete()
+            }
+            throw failure
+        }
     }
 
     suspend fun setLanProxy(id: Long, expectedRevision: String, enabled: Boolean, initialPort: Int): Map<String, Any?> = mutex.withLock {

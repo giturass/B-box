@@ -673,7 +673,7 @@ void main() {
     String body() => tester.widget<SelectableText>(find.byKey(const ValueKey('captured-body-text'))).data!;
     expect(body(), contains('\n  "id": 123456789012345678901234567890,'));
     await capture(tester, 'json-formatted');
-    await tester.tap(find.byTooltip('Copy body preview'));
+    await tester.tap(find.byTooltip('Copy current body page'));
     await tester.pumpAndSettle();
     expect(copied.last, raw);
     await tester.tap(find.byTooltip('Show original'));
@@ -690,7 +690,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(body(), '{"partial":');
     expect(find.byTooltip('Show original'), findsNothing);
-    expect(find.text('Only a limited body preview was saved or decoded.'), findsOneWidget);
+    expect(find.text('Body could not be fully decoded.'), findsOneWidget);
     data.value = {'text': 'AAECAw==', 'encoding': 'base64'};
     await tester.pumpAndSettle();
     expect(body(), 'AAECAw==');
@@ -699,29 +699,145 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('body expansion keeps Unicode intact and copies beyond the visible prefix', (tester) async {
+  testWidgets('body pages load from the bridge, replace content and copy only the current page', (tester) async {
     await mount(tester);
-    final text = '${'a' * 16383}😀${'b' * 100}';
-    await open(tester, BoxPage(title: 'Request details', children: [CapturedBody(
-      message: const {'bodyComplete': false, 'bodyTruncated': true},
-      preview: {'text': text, 'encoding': 'text', 'truncated': true},
-    )]));
+    final firstText = 'a' * 16383, lastText = '😀tail';
+    final first = {'text': firstText, 'encoding': 'text', 'source': 'decoded', 'offset': 0, 'nextOffset': 16383, 'hasMore': true};
+    final last = {'text': lastText, 'encoding': 'text', 'source': 'decoded', 'offset': 16383, 'nextOffset': 16391, 'hasMore': false};
+    var pending = Completer<Json>();
+    var reject = false;
+    extra = (call) async {
+      if (call.method == 'capture.detail') return {
+        'id': 'paged', 'complete': true, 'metadata': {},
+        'request': {'url': 'https://api.test/large', 'method': 'GET', 'protocol': 'HTTP/2', 'bodyComplete': true},
+        'response': {'bodyComplete': true, 'bodyTruncated': false, 'capturedBytes': 16391, 'bodyBytes': 16391},
+        'responsePreview': first,
+      };
+      if (call.method == 'capture.body') {
+        if (reject) throw PlatformException(code: 'capture', message: 'Saved capture was cleared');
+        if (json(call.arguments)['offset'] == 0) return first;
+        return pending.future;
+      }
+      return null;
+    };
+    await open(tester, const RequestDetailPage(id: 'paged'));
+    await showDetailItem(tester, find.byKey(const ValueKey('captured-body-text')));
     String body() => tester.widget<SelectableText>(find.byKey(const ValueKey('captured-body-text'))).data!;
-    expect(body(), 'a' * 16383);
-    expect(find.text('Body stream is incomplete'), findsOneWidget);
-    await tester.tap(find.byTooltip('Copy body preview'));
+    expect(body(), firstText);
+    expect(find.text('Captured body was truncated.'), findsNothing);
+    expect(find.text('Body could not be fully decoded.'), findsNothing);
+    await tester.ensureVisible(find.byTooltip('Copy current body page'));
+    await tester.tap(find.byTooltip('Copy current body page'));
     await tester.pumpAndSettle();
-    expect(copied.last, text);
-    await tester.ensureVisible(find.text('Show more'));
-    await tester.tap(find.text('Show more'));
+    expect(copied.last, firstText);
+    await showDetailItem(tester, find.text('Next page'));
+    await capture(tester, 'body-first-page');
+    await tester.tap(find.text('Next page'));
+    await tester.pump();
+    expect(tester.widget<TextButton>(find.widgetWithText(TextButton, 'Next page')).onPressed, isNull);
+    expect(body(), firstText);
+    expect(json(calls.lastWhere((call) => call.method == 'capture.body').arguments),
+      {'id': 'paged', 'direction': 'response', 'offset': 16383, 'source': 'decoded'});
+    pending.complete(last);
     await tester.pumpAndSettle();
-    expect(body(), text);
-    await tester.ensureVisible(find.text('Show less'));
-    await tester.tap(find.text('Show less'));
+    expect(body(), lastText);
+    expect(find.text('Next page'), findsNothing);
+    await tester.ensureVisible(find.byTooltip('Copy current body page'));
+    await tester.tap(find.byTooltip('Copy current body page'));
     await tester.pumpAndSettle();
-    expect(body(), 'a' * 16383);
+    expect(copied.last, lastText);
+    await showDetailItem(tester, find.text('Previous page'));
+    await capture(tester, 'body-last-page');
+    await tester.tap(find.text('Previous page'));
+    await tester.pumpAndSettle();
+    expect(body(), firstText);
+    expect(json(calls.lastWhere((call) => call.method == 'capture.body').arguments)['offset'], 0);
+    reject = true;
+    await showDetailItem(tester, find.text('Next page'));
+    await tester.tap(find.text('Next page'));
+    await tester.pumpAndSettle();
+    expect(body(), firstText);
+    expect(find.text('Saved capture was cleared'), findsOneWidget);
+    reject = false;
+    pending = Completer<Json>();
+    await tester.ensureVisible(find.text('Next page'));
+    await tester.tap(find.text('Next page'));
+    await tester.pump();
+    events.add({'type': 'dashboard', 'value': {'status': 'Started', 'remote': 'Server', 'remoteConnected': true}});
+    await tester.pumpAndSettle();
+    events.add({'type': 'dashboard', 'value': {'status': 'Started'}});
+    await tester.pumpAndSettle();
+    pending.complete({...last, 'text': 'late body from the previous session'});
+    await tester.pumpAndSettle();
+    expect(find.text('late body from the previous session'), findsNothing);
+    expect(find.text('Session changed; reopen this activity from the current list'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  for (final section in ['scripts', 'http_rewrite']) {
+    testWidgets('$section imports resources with revision, cancellation and remote-session guards', (tester) async {
+      await mount(tester, dark: true, size: const Size(320, 900), scale: 1.3);
+      final root = {'outbounds': [{'type': 'direct', 'tag': 'kept'}]};
+      var content = jsonEncode(root), revision = 'before';
+      Json wire() => {'formatted': content, 'revision': revision};
+      final pending = Completer<Json>();
+      var cancelled = false, reject = false;
+      extra = (call) async {
+        if (call.method == 'profiles.config') return wire();
+        if (call.method == 'profiles.importResource') {
+          expect(json(call.arguments), {'id': 7, 'revision': revision, 'section': section});
+          if (reject) throw PlatformException(code: 'config', message: 'Configuration changed; reload it before saving');
+          if (cancelled) return null;
+          return pending.future;
+        }
+        return null;
+      };
+      final store = ProfileConfigStore(box, {'id': 7, 'name': 'Profile'});
+      addTearDown(store.dispose);
+      await store.load();
+      await open(tester, ProcessingResourcesPage(store: store, section: section));
+      final importButton = find.byKey(const ValueKey('import-processing-resource'));
+      await tester.tap(importButton);
+      await tester.pump();
+      expect(store.saving, isTrue);
+      expect(tester.widget<ListItem>(importButton).onTap, isNull);
+      final filename = section == 'scripts' ? 'script.js' : 'mock.json';
+      content = jsonEncode({...root, 'experimental': {section: {'resources': {
+        filename: {'data_type': 'file', 'data': 'resource-fixture.${section == 'scripts' ? 'js' : 'json'}'},
+      }}}});
+      revision = 'after';
+      pending.complete({...wire(), 'importedResource': {'name': filename}});
+      await tester.pumpAndSettle();
+      expect(store.saving, isFalse);
+      expect(store.revision, revision);
+      expect(store.root['outbounds'], root['outbounds']);
+      expect(find.text(filename), findsOneWidget);
+      final notice = find.text('Resource imported: $filename');
+      if (notice.evaluate().isNotEmpty) {
+        await tester.fling(notice, const Offset(0, -120), 1000);
+        await tester.pumpAndSettle();
+      }
+      await capture(tester, 'resource-import-$section');
+      final beforeCancel = jsonEncode(store.root);
+      cancelled = true;
+      await tester.tap(importButton);
+      await tester.pumpAndSettle();
+      expect(jsonEncode(store.root), beforeCancel);
+      expect(store.revision, 'after');
+      reject = true;
+      await tester.tap(importButton);
+      await tester.pumpAndSettle();
+      expect(jsonEncode(store.root), beforeCancel);
+      expect(store.error, 'Configuration changed; reload it before saving');
+      events.add({'type': 'dashboard', 'value': {'status': 'Started', 'remote': 'Server', 'remoteConnected': true}});
+      await tester.pumpAndSettle();
+      expect(importButton, findsNothing);
+      final count = calls.where((call) => call.method == 'profiles.importResource').length;
+      expect(await store.importResource(section), isNull);
+      expect(calls.where((call) => call.method == 'profiles.importResource'), hasLength(count));
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('polling stops in the background and late summaries use the latest local filter', (tester) async {
     await mount(tester);
@@ -824,7 +940,7 @@ void main() {
       await showDetailItem(tester, find.text('Response headers'));
       await capture(tester, '$label-headers');
       await showDetailItem(tester, find.text('Body'));
-      expect(find.text('Only a limited body preview was saved or decoded.'), findsOneWidget);
+      expect(find.text('Captured body was truncated.'), findsOneWidget);
       expect(find.text('Body stream is incomplete'), findsOneWidget);
       await capture(tester, '$label-body');
       await tester.tap(find.byTooltip('More').last);

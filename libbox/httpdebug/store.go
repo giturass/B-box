@@ -64,8 +64,6 @@ type bodyFile struct {
 
 type Detail struct {
 	Exchange
-	RequestBody     []byte  `json:"requestBody"`
-	ResponseBody    []byte  `json:"responseBody"`
 	RequestPreview  Preview `json:"requestPreview"`
 	ResponsePreview Preview `json:"responsePreview"`
 }
@@ -570,13 +568,43 @@ func (s *Store) Page(limit int, query string) Page {
 	return page
 }
 
-func (s *Store) Detail(id string) (*Detail, error) {
-	var files [2]*os.File
+type bodySnapshot struct {
+	Exchange
+	files [2]*os.File
+}
+
+func (d *bodySnapshot) close() {
+	for _, file := range d.files {
+		if file != nil {
+			file.Close()
+		}
+	}
+}
+
+func (d *bodySnapshot) message(response bool) Message {
+	if response {
+		return d.Response
+	}
+	return d.Request
+}
+
+func (d *bodySnapshot) reader(response bool) io.Reader {
+	i := 0
+	if response {
+		i = 1
+	}
+	if d.files[i] == nil {
+		return strings.NewReader("")
+	}
+	return io.NewSectionReader(d.files[i], 0, d.message(response).CapturedBytes)
+}
+
+func (s *Store) snapshot(id string) (*bodySnapshot, error) {
+	detail := new(bodySnapshot)
+	ok := false
 	defer func() {
-		for _, file := range files {
-			if file != nil {
-				file.Close()
-			}
+		if !ok {
+			detail.close()
 		}
 	}()
 	s.mu.Lock()
@@ -585,7 +613,7 @@ func (s *Store) Detail(id string) (*Detail, error) {
 		s.mu.Unlock()
 		return nil, os.ErrNotExist
 	}
-	detail := &Detail{Exchange: *record}
+	detail.Exchange = *record
 	detail.bodies = nil
 	if !detail.Complete {
 		detail.DurationMS = max(0, time.Now().UnixMilli()-detail.StartedAt)
@@ -605,12 +633,12 @@ func (s *Store) Detail(id string) (*Detail, error) {
 			s.mu.Unlock()
 			return nil, err
 		}
-		files[i] = file
+		detail.files[i] = file
 	}
 	// Opening under the index lock pins the files across Clear. Read only
 	// the captured prefix in this snapshot, even if a writer appends concurrently.
 	s.mu.Unlock()
-	for i, file := range files {
+	for i, file := range detail.files {
 		if file == nil {
 			continue
 		}
@@ -618,19 +646,34 @@ func (s *Store) Detail(id string) (*Detail, error) {
 		if i == 1 {
 			message = &detail.Response
 		}
-		data, err := io.ReadAll(io.LimitReader(file, message.CapturedBytes))
+		info, err := file.Stat()
 		if err != nil {
 			return nil, err
 		}
-		message.BodyTruncated = message.BodyTruncated || int64(len(data)) < message.CapturedBytes || int64(len(data)) < message.BodyBytes
-		message.CapturedBytes = int64(len(data))
-		if i == 0 {
-			detail.RequestBody = data
-		} else {
-			detail.ResponseBody = data
-		}
+		message.CapturedBytes = min(message.CapturedBytes, info.Size())
+		message.BodyTruncated = message.BodyTruncated || message.CapturedBytes < message.BodyBytes
 	}
-	detail.RequestPreview = preview(detail.Request, detail.RequestBody)
-	detail.ResponsePreview = preview(detail.Response, detail.ResponseBody)
+	ok = true
 	return detail, nil
+}
+
+func (s *Store) Detail(id string) (*Detail, error) {
+	snapshot, err := s.snapshot(id)
+	if err != nil {
+		return nil, err
+	}
+	defer snapshot.close()
+	return snapshot.detail()
+}
+
+func (d *bodySnapshot) detail() (*Detail, error) {
+	request, err := readBodyPage(d.Request, func() io.Reader { return d.reader(false) }, 0, false)
+	if err != nil {
+		return nil, err
+	}
+	response, err := readBodyPage(d.Response, func() io.Reader { return d.reader(true) }, 0, false)
+	if err != nil {
+		return nil, err
+	}
+	return &Detail{Exchange: d.Exchange, RequestPreview: request, ResponsePreview: response}, nil
 }

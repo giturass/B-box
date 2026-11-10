@@ -336,7 +336,10 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
               _cookies(json(detail['response']), true),
             ] else ...[
               if (metadata['rawTCP'] != true) _headers(message, response),
-              CapturedBody(key: ValueKey('body-$_part'), message: message, preview: preview),
+              CapturedBody(key: ValueKey('body-${widget.id}-$_part'), message: message, preview: preview,
+                loadPage: (offset, source) async => json(await box.call('capture.body', {
+                  'id': widget.id, 'direction': response ? 'response' : 'request', 'offset': offset, 'source': source,
+                }))),
               if (rows(message['trailers']).isNotEmpty) generateSection(title: context.tr('Trailers'), items: [
                 for (final trailer in rows(message['trailers'])) DetailRow.text(title: trailer['name']?.toString() ?? '', value: trailer['value']?.toString() ?? '', stacked: true),
               ], footer: message['trailersTruncated'] == true ? context.tr('Headers truncated') : null),

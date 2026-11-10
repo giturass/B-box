@@ -8,7 +8,7 @@
         "api.example.net:8443"
       ],
       "tcp": true,
-      "h2": false,
+      "h2": true,
       "skip_server_cert_verify": false,
       "block_quic": true
     }

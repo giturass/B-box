@@ -16,7 +16,7 @@ type MITMConfig struct {
 	Ports                []uint16 `json:"ports,omitempty"`
 	Packages             []string `json:"packages,omitempty"`
 	TCP                  bool     `json:"tcp,omitempty"`
-	H2                   bool     `json:"h2,omitempty"`
+	H2                   bool     `json:"h2"`
 	SkipServerCertVerify bool     `json:"skip_server_cert_verify,omitempty"`
 	// Keep explicit false when formatting a profile: omission means true.
 	BlockQUIC bool `json:"block_quic"`
@@ -27,7 +27,7 @@ func (c *MITMConfig) UnmarshalJSON(data []byte) error {
 		return errors.New("mitm must be an object")
 	}
 	type plain MITMConfig
-	value := plain{BlockQUIC: true}
+	value := plain{H2: true, BlockQUIC: true}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&value); err != nil {

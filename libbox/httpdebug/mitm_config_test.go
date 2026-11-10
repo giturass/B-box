@@ -62,9 +62,9 @@ func TestMITMHostListOrderWildcardsAndPorts(t *testing.T) {
 	}
 }
 
-func TestMITMDefaultsAndExplicitQUICOptOutSurviveFormatting(t *testing.T) {
+func TestMITMDefaultsAndExplicitProtocolOptOutSurviveFormatting(t *testing.T) {
 	config := mitmConfig(t, `{"enabled":true,"hosts":["-private.test","*"]}`)
-	if config.H2 || config.SkipServerCertVerify || !config.BlockQUIC {
+	if !config.H2 || config.SkipServerCertVerify || !config.BlockQUIC {
 		t.Fatalf("incorrect MITM defaults: %+v", config)
 	}
 	e, _ := testEngine(t, Config{})
@@ -73,13 +73,13 @@ func TestMITMDefaultsAndExplicitQUICOptOutSurviveFormatting(t *testing.T) {
 		e.RejectQUIC(Metadata{Host: "", Port: 443}) {
 		t.Fatal("default QUIC blocking did not follow the observed SNI Host List")
 	}
-	config = mitmConfig(t, `{"enabled":true,"hosts":["*"],"h2":true,"skip_server_cert_verify":true,"block_quic":false}`)
+	config = mitmConfig(t, `{"enabled":true,"hosts":["*"],"h2":false,"skip_server_cert_verify":true,"block_quic":false}`)
 	data, err := json.Marshal(config)
-	if err != nil || !strings.Contains(string(data), `"block_quic":false`) {
+	if err != nil || !strings.Contains(string(data), `"block_quic":false`) || !strings.Contains(string(data), `"h2":false`) {
 		t.Fatalf("explicit false disappeared: %s %v", data, err)
 	}
 	config = mitmConfig(t, string(data))
-	if !config.H2 || !config.SkipServerCertVerify || config.BlockQUIC {
+	if config.H2 || !config.SkipServerCertVerify || config.BlockQUIC {
 		t.Fatalf("formatting changed MITM options: %+v", config)
 	}
 	e.mitm = config

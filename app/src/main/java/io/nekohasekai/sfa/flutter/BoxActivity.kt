@@ -311,15 +311,20 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
         }
     }
 
-    fun readDocument(uri: Uri): Pair<String, ByteArray> {
+    fun documentName(uri: Uri, fallback: String = "Profile.json"): String {
         require(uri.scheme == "content" || uri.scheme == "file") { "Unsupported document URL" }
         val name = if (uri.scheme == "content") {
             contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
                 if (it.moveToFirst()) it.getString(0) else null
             }
         } else uri.lastPathSegment
+        return name ?: fallback
+    }
+
+    fun readDocument(uri: Uri): Pair<String, ByteArray> {
+        val name = documentName(uri)
         val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: error("Unable to read document")
-        return (name ?: "Profile.json") to bytes
+        return name to bytes
     }
 
     override fun onServiceStatusChanged(status: Status) {

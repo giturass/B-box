@@ -58,7 +58,7 @@ func TestRecordingTogglesKeepHTTP1AndHTTP2Connections(t *testing.T) {
 				get()
 				items := waitComplete(t, saved, i+1)
 				for _, item := range items {
-					detail, _ := saved.Detail(item.ID)
+					detail, _ := saved.detailWithBodies(item.ID)
 					if detail.Metadata.ConnectionID != "mitm-client-1" {
 						t.Fatal("recording toggle required a new TLS connection")
 					}
@@ -106,7 +106,7 @@ func TestStoppingRecordingFreezesAnSSERecordWithoutDisconnecting(t *testing.T) {
 	}
 	Stop()
 	item := waitComplete(t, saved, 1)[0]
-	before, _ := saved.Detail(item.ID)
+	before, _ := saved.detailWithBodies(item.ID)
 	if before.Response.BodyComplete || !strings.Contains(before.Note, "Recording stopped") {
 		t.Fatal("stopped streaming record was labelled complete")
 	}
@@ -123,7 +123,7 @@ func TestStoppingRecordingFreezesAnSSERecordWithoutDisconnecting(t *testing.T) {
 	}
 	response.Body.Close()
 	e.Close()
-	after, _ := saved.Detail(item.ID)
+	after, _ := saved.detailWithBodies(item.ID)
 	if saved.Page(10, "").Total != 1 || string(after.ResponseBody) != string(before.ResponseBody) ||
 		after.Response.BodyBytes != before.Response.BodyBytes || after.Response.BodyComplete || after.DurationMS != before.DurationMS {
 		t.Fatal("late stream updates mutated the frozen record")

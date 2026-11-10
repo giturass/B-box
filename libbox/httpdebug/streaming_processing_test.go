@@ -68,7 +68,7 @@ func TestGRPCStreamsBeforeUploadCompletionAndPreservesTrailers(t *testing.T) {
 	if got.response.Trailer.Get("Grpc-Status") != "0" {
 		t.Fatal("gRPC trailers were lost")
 	}
-	detail, err := saved.Detail(waitComplete(t, saved, 1)[0].ID)
+	detail, err := saved.detailWithBodies(waitComplete(t, saved, 1)[0].ID)
 	if err != nil || !bytes.Equal(detail.RequestBody, frame) || !bytes.Equal(detail.ResponseBody, frame) || !detail.Response.BodyComplete {
 		t.Fatal("gRPC capture lost bytes or completion", err)
 	}

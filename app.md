@@ -120,13 +120,17 @@ post-fs-data 只做不等待的早期注入；[service.sh](app/src/main/assets/m
 
 Root/eBPF 采集器、目标 TLS 库发现、FD 会话和手动函数偏移已移除。[IRootService](app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl) 的事务 10 退役，不复用；原 2/3 空缺保持，普通 Root/Shizuku、VPN 授权、自动重定向和 Shell 能力保留。
 
-HAR/cURL、域名、CRT 和模块导出使用 Android 文档选择器，取消返回 false，写入失败不报告成功；证书在选择文件后再次检查修订。请求导出的私有临时文件用后删除。抓包日志页面、缓冲和 `capture.logs` / `capture.logs.clear` 平台方法已移除；运行错误及脚本 console 输出使用现有服务日志，Android 证书清理/抓包准备异常使用普通 Android 日志。
+正文详情只跨桥接传首个页，`capture.body` 按需读取指定方向、偏移和表示的后续页；协议及完整性字段见 [核心正文读取](libbox.md#httphttps-请求调试)。HAR/cURL、域名、CRT 和模块导出使用 Android 文档选择器，取消返回 false，写入失败不报告成功；证书在选择文件后再次检查修订。HAR 与 cURL 由原生绑定流式写入私有临时文件，再复制到用户选择的文档，用后删除临时文件，不经 JNI、JSONObject 或 Flutter 传递完整正文字符串。抓包日志页面、缓冲和 `capture.logs` / `capture.logs.clear` 平台方法已移除；运行错误及脚本 console 输出使用现有服务日志，Android 证书清理/抓包准备异常使用普通 Android 日志。
 
 ### 配置处理生命周期
 
 `experimental.mitm`、`experimental.scripts` 和 `experimental.http_rewrite` 相互独立；字段、迁移及执行范围由 [libbox.md](libbox.md#独立-mitm-配置) 维护。规则与资源随原始 JSON 编辑、分项配置编辑、分享、订阅更新及配置备份保存，本机记录设置、CA 与记录继续留在设备私有目录。
 
 [BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 启动/重载时调用 `NeedsUIMITMCA`，只有启用且非空的 MITM 域名配置要求 CA。OverrideOptions 的 ProcessingDirectory/MitmCertificate/MitmSigner 传入私有路径、公钥证书及 Keystore 回调，ScriptTimezone 传入设备时区，ProcessingProfileDirectory 传入当前实际配置文件的父目录，供相对文件资源解析。缺少所需 CA 时明确失败，不自动生成或安装。
+
+脚本及 HTTP 改写的资源页通过 `profiles.importResource` 打开现有 Android 文档选择器，使用 ContentResolver 流式复制用户选择的文件。根据 [Android 应用专属存储](https://developer.android.com/training/data-storage/app-specific) 的访问边界，导入文件写入当前配置实际父目录，生成独立文件名并保留有效后缀，再向对应 `resources` 字典写入 `data_type: file` 和相对路径；重名资源加名称后缀，保留原条目。它不依赖 WorkingDirectoryProvider 暴露的外部文件目录，也不把 `content://` 当作 Go 文件路径。
+
+复制在配置和桥接操作锁外完成，先写同目录暂存文件并同步；取消关闭正在读取的文档流并清理暂存。提交时重新核对本地会话、配置身份和内容修订，完整校验 JSON 后重命名文件，再沿用 ProfileContent 的原子保存、服务确认及失败恢复。恢复后确认资源未被配置引用才删除新文件；无法确认恢复状态时保留文件，避免再次破坏配置。导入只登记资源，规则通过资源名称引用；分享、配置导出及备份继续不打包这些本机文件，界面明确说明这一点。
 
 libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理、启动核心，成功后才激活 MITM/改写/脚本、Cron 和外部资源刷新。脚本及资源下载使用已启动实例的路由和证书库，`policy` 查找该实例的真实出站，网关模板读取该实例默认接口的网关；配置校验和预览不读取外部源码、不联网或执行脚本。重载/停止先关闭共享路由准入，再取消在途网络及定时器，等待调度/刷新、异步路由和显式出站拨号退出后才关闭核心；手动抓包启停不会重建调度。默认联网、可选限制及失败语义见 [脚本 HTTP 客户端](libbox.md#脚本-http-客户端)。
 
@@ -140,7 +144,7 @@ libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理�
 
 CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期间不能轮换密钥；活跃 MITM 或手动抓包拒绝重新生成。界面入口及状态展示见 [flclash.md](flclash.md#配置页与内核差异)。
 
-`ProfileRecoveryTest.profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 使用实际 gomobile、Keystore、mixed CONNECT 和 HTTP 服务器，覆盖平级 MITM/脚本与改写、HTTPS 离线 Mock、跨域映射重新匹配路由、响应改写、停记录后继续处理及应用失败恢复；资源用例通过实际配置目录加载文件与脚本，检查 999 状态、MIME、后查找/内部反向引用 → jq → 脚本的顺序及本地文件更新。`independentCronUsesRoutingAndStopsWithTheService` 覆盖定时路由请求、抓包启停、非法 Cron 保存拒绝及移除配置后不再请求。这些测试由 [统一 smoke 矩阵](#验证与历史记录) 运行，实际结果见验证记录。
+`ProfileRecoveryTest.profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 使用实际 gomobile、Keystore、mixed CONNECT 和 HTTP 服务器，覆盖平级 MITM/脚本与改写、HTTPS 离线 Mock、跨域映射重新匹配路由、响应改写、停记录后继续处理及应用失败恢复；资源用例先通过实际 `content://` 文档流完成本地文件和脚本导入，再检查 999 状态、MIME、后查找/内部反向引用 → jq → 脚本的顺序及本地文件更新。`localResourceImportsKeepRevisionsRecoverFailuresAndCleanCancelledCopies` 覆盖重名资源、修订冲突、应用失败恢复、文档读取失败和阻塞读取期间取消后的清理。`independentCronUsesRoutingAndStopsWithTheService` 覆盖定时路由请求、抓包启停、非法 Cron 保存拒绝及移除配置后不再请求。这些测试由 [统一 smoke 矩阵](#验证与历史记录) 运行，实际结果见验证记录。
 
 `httpScriptsUseRoutedClientTimersAndPersistentNamespaces` 使用仅当前路由可解析、也匹配脚本范围的 HTTP 目标，检查异步回调及防递归、定时器、磁盘快照、规则改名/重载/清空记录后保留值、命名空间隔离、默认联网及显式空允许列表禁止联网。Go 回归补充四种前后查找、数字/命名反向引用及 Unicode 位置、jq 失败透传、用户正文限额、并发 HTTP/VM、原生正则取消、重定向/Cookie/二进制、资源清理/刷新/损坏缓存/关闭取消。大样本越过旧阈值只证明不再因该阈值拒绝，不代表 Android 容量测量。新用例以当前源码的 Actions 为准，此前记录不替代本次验收。
 

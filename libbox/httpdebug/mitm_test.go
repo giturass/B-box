@@ -191,7 +191,7 @@ func TestMITMHTTP1AndHTTP2UseVerifiedConnectionAndPreserveMessages(t *testing.T)
 					t.Fatal("HTTPS requests on one connection shared an exchange ID")
 				}
 				for _, item := range items {
-					detail, err := store.Detail(item.ID)
+					detail, err := store.detailWithBodies(item.ID)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -283,7 +283,7 @@ func TestMITMClientPinningFailureClosesVerifiedUpstream(t *testing.T) {
 }
 
 func TestMITMSelectionReplaysUnselectedAndNonHTTPClientHello(t *testing.T) {
-	for _, kind := range []string{"empty-list", "unselected", "non-http"} {
+	for _, kind := range []string{"empty-list", "unselected", "non-http", "h2-disabled", "h2-disabled-tcp"} {
 		t.Run(kind, func(t *testing.T) {
 			config := Config{}
 			protos := []string{"http/1.1"}
@@ -291,6 +291,11 @@ func TestMITMSelectionReplaysUnselectedAndNonHTTPClientHello(t *testing.T) {
 				protos = []string{"mqtt"}
 			}
 			e, store, _ := mitmEngine(t, config)
+			if strings.HasPrefix(kind, "h2-disabled") {
+				protos = []string{"h2"}
+				e.mitm.H2 = false
+				e.mitm.TCP = kind == "h2-disabled-tcp"
+			}
 			if kind == "empty-list" {
 				e.mitm.Hosts = nil
 			}
@@ -315,6 +320,10 @@ func TestMITMSelectionReplaysUnselectedAndNonHTTPClientHello(t *testing.T) {
 			}
 			if err := <-completed; err != nil {
 				t.Fatal("passthrough client failed:", err)
+			}
+			if strings.HasPrefix(kind, "h2-disabled") && (client.ConnectionState().NegotiatedProtocol != "h2" ||
+				!strings.Contains(metadata.ProcessingReason, "HTTP/2 MITM is disabled")) {
+				t.Fatal("HTTP/2-only passthrough changed ALPN or lost its reason")
 			}
 			if store.Page(1, "").Total != 0 || e.tlsOpened.Load() != 0 {
 				t.Fatal("bypassed traffic was intercepted")
@@ -416,7 +425,7 @@ func TestMITMHTTP2ConcurrentStreamsCancellationAndAuthority(t *testing.T) {
 	items := waitComplete(t, store, parallel+1)
 	ids := make(map[string]bool)
 	for _, item := range items {
-		detail, err := store.Detail(item.ID)
+		detail, err := store.detailWithBodies(item.ID)
 		if err != nil {
 			t.Fatal(err)
 		}

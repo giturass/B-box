@@ -115,7 +115,7 @@ func TestMITMTCPPreservesBinaryStreamsServerFirstAndHalfClose(t *testing.T) {
 			if err = <-finished; err != nil {
 				t.Fatal(err)
 			}
-			detail, err := store.Detail(waitComplete(t, store, 1)[0].ID)
+			detail, err := store.detailWithBodies(waitComplete(t, store, 1)[0].ID)
 			if err != nil {
 				t.Fatal(err)
 			}

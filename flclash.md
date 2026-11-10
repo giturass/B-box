@@ -87,7 +87,9 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 普通连接和抓取记录使用同一个详情页。普通连接显示状态、来源/目标、规则、出站、进程及流量，并列出关联抓取记录；请求详情在有原始连接 ID 时显示可复制 ID 和“查看连接”，菜单可切换连接信息与请求、响应、Cookies。连接信息下的关联记录以请求自身 ID 打开详情；仅域名记录不显示 HTTP 报文菜单。连接已淘汰时保留本页最后观测信息或请求中保存的元数据，标明当前连接不可用并禁用关闭操作。请求菜单的“关闭底层连接”需明确确认会中断共享连接上的所有请求。详情和 cURL 始终使用请求自身 ID；两个 ID 的来源、关联及保留规则见 [核心请求调试](libbox.md#httphttps-请求调试)。
 
-[captured_body.dart](flutter/lib/components/captured_body.dart) 将正文预览放在等宽、自动折行、有界滚动的卡片中，展示内容类型、保存/总字节数及 Base64、截断、未完成状态。完整 JSON 可切换格式化与原文；[http_message.dart](flutter/lib/common/http_message.dart) 仅调整 JSON 字符串外的空白，保留数值字面量、重复键及转义，无法解析时显示原文，不另加字符数、嵌套或输出配额。长预览分批展开，边界不拆开 UTF-16 代理对；复制始终使用内核返回的原始预览，不受当前格式或已展开长度影响，也不代表未保存的完整正文。
+[captured_body.dart](flutter/lib/components/captured_body.dart) 将正文页放在等宽、自动折行、有界滚动的卡片中，展示内容类型、保存/总字节数及 Base64、截断、未完成状态。上一页/下一页按需调用原生正文读取，替换当前正文，不在 Dart 中持有完整响应或累计已读页面；页大小、UTF-8 边界和原始/解码字节语义见 [核心正文读取](libbox.md#httphttps-请求调试)。仍有下一页不显示截断警告；复制按钮明确为“复制本页正文”，使用当前页原文，不受格式化切换影响。加载失败保留当前页，切换会话后丢弃迟到结果。
+
+单页内完整 JSON 可切换格式化与原文；[http_message.dart](flutter/lib/common/http_message.dart) 仅调整字符串外的空白，保留数值字面量、重复键及转义。正文页格式化在生成缩进前检查输出长度，超过 64 KiB 的展示窗口或内容无效时保留原文；这只约束派生显示文本，不截断保存内容或导出。
 
 ### 配置页与内核差异
 
@@ -113,9 +115,9 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 配置“编辑”页依次直接提供“日志”、“网络”、“DNS”、“路由规则”、“规则集”、“MITM”、“HTTP 改写”和“脚本”，末尾单独保留一个“打开配置内容”入口，元数据表单仅保留元数据字段和更新时间。各分项打开时读取该配置的最新内容，由 [configuration.dart](flutter/lib/pages/configuration.dart) 复用共享分组、规则列表、排序及 JSON 表单；原始 JSON 入口独立于分项加载。内网详情的“编辑”入口复用同一配置编辑页。
 
-MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、服务器证书校验、“解密TCP”和 QUIC 回退设置；证书入口独立于配置加载。页面顶部不显示配置名或解密说明，TCP 和 QUIC 开关仅显示标题。域名入口只显示标题，完整域名及排除项在二级编辑器查看和修改，保留输入顺序及通配符、端口后缀，新增抓取域名追加在列表末尾。端口、应用等额外筛选通过同页 JSON 编辑入口修改，见 [MITM 配置](libbox.md#独立-mitm-配置)。HTTP 改写页面依次显示 URL Rewrite、Header Rewrite、Body Rewrite（含 jq）、Map Local / API Mock、Map Remote，下方提供资源及完整 JSON 编辑入口；脚本独立编辑启用状态、HTTP、Cron 和资源。前后查找/反向引用、文件/URL 资源及独立正文限额通过完整 JSON 表单配置，字段及运行行为见 [libbox.md](libbox.md#json-配置中的-http-改写)。新建规则/任务示例默认禁用。
+MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、服务器证书校验、“解密TCP”和 QUIC 回退设置；证书入口独立于配置加载。页面顶部不显示配置名或解密说明，TCP 和 QUIC 开关仅显示标题。域名入口只显示标题，完整域名及排除项在二级编辑器查看和修改，保留输入顺序及通配符、端口后缀，新增抓取域名追加在列表末尾。端口、应用等额外筛选通过同页 JSON 编辑入口修改，见 [MITM 配置](libbox.md#独立-mitm-配置)。HTTP 改写页面依次显示 URL Rewrite、Header Rewrite、Body Rewrite（含 jq）、Map Local / API Mock、Map Remote，下方提供资源及完整 JSON 编辑入口；脚本独立编辑启用状态、HTTP、Cron 和资源。脚本及改写资源页提供“导入本地资源”、已有资源的 JSON 编辑及整个资源字典编辑；导入期间禁用重复提交，取消保留原配置，成功后显示可供规则引用的资源名，失败显示原因。文件位置、修订检查和备份边界见 [Android 导入流程](app.md#配置处理生命周期)。前后查找/反向引用、URL 资源及独立正文限额通过完整 JSON 表单配置，字段及运行行为见 [libbox.md](libbox.md#json-配置中的-http-改写)。新建规则/任务示例默认禁用。
 
-所有修改通过 ProfileConfigStore.set 保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
+字段修改通过 ProfileConfigStore.set，本地资源导入通过独立桥接；二者均保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
 
 [configuration_test.dart](flutter/test/configuration_test.dart) 验证三种配置及 Cron 草稿通过独立路径保存，HTTP/2、证书校验及 QUIC 显式关闭选项正确保存，关闭改写保留 MITM/脚本，校验失败保留内容；[requests_test.dart](flutter/test/requests_test.dart) 覆盖空域名、有序域名/排除项选择、旧记录设置清理、无改写横幅/抓包日志入口及 TCP 详情。生成的独立配置截图为 requests/independent-mitm-config.png、requests/independent-scripts-cron.png；结果按实际源码 SHA 记录。
 
@@ -186,11 +188,11 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 [access_test.dart](flutter/test/access_test.dart) 覆盖进入托管页面不扫描、加载期间接收最新托管选择、显示范围与隐藏选择保留、保存失败后重试、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。它验证交互和调用行为，不代替实机加载耗时或视觉验收。
 
-[requests_test.dart](flutter/test/requests_test.dart) 覆盖统一工具入口、混合列表和活动筛选、关联详情、底层连接关闭确认、历史保留、同名远端的会话隔离、HAR 选中 ID、本机设置修订、MITM 域名选择、端口、启动确认及后台轮询/迟到结果；证书测试检查无配置时从抓包设置经 MITM 页进入证书、明确生成、取消导出、活跃 MITM 禁止重生成、远程切换和信任刷新。其他回归包括停止抓取时的历史分页与搜索重置、TCP 流完成/导出限制、既有 socket 元数据、报文菜单、字段/Cookie 复制及正文格式/Unicode 展开；分页检查“显示更多”可实际点击并展开下一批。窄屏、大字号深色及宽屏测试运行后将截图写入 build/screenshots/requests/，包含独立配置、请求设置、证书、统一列表、关联记录、分页按钮及报文详情；桥接替身不能代替实际 TLS 或系统安装验收。
+[requests_test.dart](flutter/test/requests_test.dart) 覆盖统一工具入口、混合列表和活动筛选、关联详情、底层连接关闭确认、历史保留、同名远端的会话隔离、HAR 选中 ID、本机设置修订、MITM 域名选择、端口、启动确认及后台轮询/迟到结果；证书测试检查无配置时从抓包设置经 MITM 页进入证书、明确生成、取消导出、活跃 MITM 禁止重生成、远程切换和信任刷新。其他回归包括停止抓取时的历史分页与搜索重置、TCP 流完成/导出限制、既有 socket 元数据、报文菜单、字段/Cookie 复制、正文格式及 Unicode 分页；历史列表检查“显示更多”可实际点击，正文检查原生翻页、页内复制、失败重试及会话切换。资源页另检查导入、取消、修订失败和远程会话禁用。窄屏、大字号深色及宽屏测试运行后将截图写入 build/screenshots/requests/，包含独立配置、请求设置、证书、统一列表、关联记录、分页按钮及报文详情；桥接替身不能代替实际 TLS 或系统安装验收。
 
 配置页面和共享表单将滚动视口放在共享标题下方，避免文字穿过标题；测试核对配置页 320 宽、1.3 倍字号深色主题，以及抓包设置 360 宽浅色/1.4 倍深色、800 宽浅色的滚动前后几何位置。配置约定见 [MITM 配置](libbox.md#独立-mitm-配置)，当前截图检查范围记录在本节末尾。
 
-[http_message_test.dart](flutter/test/http_message_test.dart) 检查 JSON 数值/重复键/转义保真、无效内容回退、超过旧格式化阈值的正文，以及重复 Cookie、空值、等号和 Expires 逗号。[requests_test.dart](flutter/test/requests_test.dart) 另覆盖完整正文/任意字节限制和超过旧条数范围的搜索导出。请求正文不完整或截断时不提供 cURL 导出。
+[http_message_test.dart](flutter/test/http_message_test.dart) 检查 JSON 数值/重复键/转义保真、无效内容回退、正文页缩进输出过大时回退原文，以及重复 Cookie、空值、等号和 Expires 逗号。[requests_test.dart](flutter/test/requests_test.dart) 另覆盖完整正文/任意字节限制和超过旧条数范围的搜索导出。请求正文不完整或截断时不提供 cURL 导出。
 
 [status_panel_parity_test.dart](flutter/test/status_panel_parity_test.dart) 与冻结的 [flclash_status_reference.dart](flutter/test/support/flclash_status_reference.dart) 比较像素，覆盖中英文、深浅主题、0.8/1.0/1.4 字号比例、IPv6、查询等待/失败、组织/ASN 回退及质量等级；停止按钮另行比较。停服状态包含无配置首次启动和设备网络查询的成功/等待/失败情况。
 

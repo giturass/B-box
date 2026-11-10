@@ -97,7 +97,7 @@ func TestUnaryGRPCHTTP2RewritingPreservesTrailers(t *testing.T) {
 		response.Trailer.Get("Grpc-Message") != "kept%20status" || response.Trailer.Get("Grpc-Status-Details-Bin") != "CAc=" || response.Trailer.Get("X-Response-End") != "kept" {
 		t.Fatalf("gRPC response or trailers: %v %v %v", actual, response.Trailer, err)
 	}
-	detail, err := saved.Detail(waitComplete(t, saved, 1)[0].ID)
+	detail, err := saved.detailWithBodies(waitComplete(t, saved, 1)[0].ID)
 	if err != nil || !bytes.Equal(detail.RequestBody, want) || !bytes.Equal(detail.ResponseBody, want) || len(detail.Response.Trailers) != 4 {
 		t.Fatal("capture lost rewritten frames or RPC trailers", err)
 	}

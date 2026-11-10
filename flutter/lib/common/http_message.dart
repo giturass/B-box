@@ -42,7 +42,7 @@ List<CapturedCookie> capturedCookies(Iterable<Map<String, dynamic>> headers, {re
 
 /// Adds whitespace without rewriting numbers, duplicate keys or string escapes.
 /// Invalid JSON stays in its raw view.
-String? formatCapturedJson(String text) {
+String? formatCapturedJson(String text, {int? maxOutputLength}) {
   final source = text.trim();
   if (!(source.startsWith('{') || source.startsWith('['))) return null;
   final output = StringBuffer();
@@ -50,8 +50,13 @@ String? formatCapturedJson(String text) {
   var quoted = false, escaped = false;
   var previous = '';
   bool whitespace(String char) => char == ' ' || char == '\t' || char == '\n' || char == '\r';
-  void newLine() => output.write('\n${'  ' * depth}');
+  bool newLine() {
+    if (maxOutputLength != null && output.length + 1 + depth * 2 > maxOutputLength) return false;
+    output.write('\n${'  ' * depth}');
+    return true;
+  }
   for (var index = 0; index < source.length; index++) {
+    if (maxOutputLength != null && output.length > maxOutputLength) return null;
     final char = source[index];
     if (quoted) {
       output.write(char);
@@ -74,15 +79,15 @@ String? formatCapturedJson(String text) {
           output.write(char);
           var next = index + 1;
           while (next < source.length && whitespace(source[next])) { next++; }
-          if (next < source.length && source[next] != (char == '{' ? '}' : ']')) newLine();
+          if (next < source.length && source[next] != (char == '{' ? '}' : ']') && !newLine()) return null;
         case '}' || ']':
           depth--;
           if (depth < 0) return null;
-          if (previous != '{' && previous != '[') newLine();
+          if (previous != '{' && previous != '[' && !newLine()) return null;
           output.write(char);
         case ',':
           output.write(char);
-          newLine();
+          if (!newLine()) return null;
         case ':':
           output.write(': ');
         default:
@@ -91,19 +96,11 @@ String? formatCapturedJson(String text) {
       previous = char;
     }
   }
-  if (quoted || depth != 0) return null;
+  if (quoted || depth != 0 || maxOutputLength != null && output.length > maxOutputLength) return null;
   try {
     jsonDecode(source);
   } on FormatException {
     return null;
   }
   return output.toString();
-}
-
-String capturedTextPrefix(String text, int limit) {
-  if (text.length <= limit) return text;
-  var end = limit;
-  if (end > 0 && text.codeUnitAt(end - 1) >= 0xd800 && text.codeUnitAt(end - 1) <= 0xdbff &&
-      text.codeUnitAt(end) >= 0xdc00 && text.codeUnitAt(end) <= 0xdfff) end--;
-  return text.substring(0, end);
 }

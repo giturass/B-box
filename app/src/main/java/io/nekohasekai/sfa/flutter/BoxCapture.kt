@@ -81,6 +81,17 @@ internal class BoxCapture(private val activity: BoxActivity) {
                             List(domains.length()) { domains.getString(it) }
                         }
                         "capture.detail" -> jsonObject(JSONObject(Libbox.readUICapture(args["id"] as? String ?: error("Missing request ID"))))
+                        "capture.body" -> {
+                            val direction = args["direction"] as? String
+                            require(direction == "request" || direction == "response") { "Invalid body direction" }
+                            val offset = (args["offset"] as? Number)?.toLong() ?: error("Missing body offset")
+                            require(offset >= 0) { "Invalid body offset" }
+                            val source = args["source"] as? String ?: "decoded"
+                            require(source == "decoded" || source == "raw") { "Invalid body source" }
+                            jsonObject(JSONObject(Libbox.readUICaptureBody(
+                                args["id"] as? String ?: error("Missing request ID"), direction == "response", offset, source == "raw",
+                            )))
+                        }
                         else -> error("Unknown capture operation")
                     }
                 }
@@ -171,7 +182,7 @@ internal class BoxCapture(private val activity: BoxActivity) {
             val file = File.createTempFile("export-", ".tmp", directory)
             try {
                 when {
-                    args["format"] == "curl" -> file.writeText(Libbox.exportUICaptureCurl(args["id"] as? String ?: error("Missing request ID")))
+                    args["format"] == "curl" -> Libbox.exportUICaptureCurlFile(file.absolutePath, args["id"] as? String ?: error("Missing request ID"))
                     args["format"] == "domains" -> {
                         val domains = JSONArray(Libbox.extractUICaptureHosts((args["query"] as? String).orEmpty()))
                         file.writeText(List(domains.length()) { domains.getString(it) }.joinToString("\n", postfix = "\n"))
