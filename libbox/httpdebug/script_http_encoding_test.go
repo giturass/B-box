@@ -60,6 +60,8 @@ func TestCronHTTPClientDecodesCompressedResponses(t *testing.T) {
 		{"comma-separated", []string{"gzip", "br"}, []string{"gzip, br"}, nil},
 		{"repeated-fields", []string{"gzip", "br", "zstd"}, []string{"gzip", "br", "zstd"}, nil},
 		{"mixed-case-identity", []string{"gzip", "br"}, []string{" GZip , identity", " BR "}, nil},
+		{"four-layers-with-identity", []string{"gzip"}, []string{"gzip, identity", "identity, identity"}, nil},
+		{"four-compressed-layers", []string{"gzip", "br", "gzip", "zstd"}, []string{"gzip, br", "gzip, zstd"}, nil},
 		{"empty-gzip", []string{"gzip"}, []string{"gzip"}, []byte{}},
 		{"exact-decoded-limit", []string{"gzip"}, []string{"gzip"}, bytes.Repeat([]byte("a"), limit)},
 		{"exact-wire-limit", nil, nil, bytes.Repeat([]byte("a"), limit)},
@@ -134,7 +136,6 @@ func TestCronHTTPClientRejectsInvalidCompressedResponses(t *testing.T) {
 	}{
 		{"unknown", []string{"future"}, []byte("valid UTF-8"), limit, "unsupported Content-Encoding"},
 		{"unknown-repeated", []string{"gzip", "future"}, gzipBody, limit, "unsupported Content-Encoding"},
-		{"too-many-layers", []string{"gzip, identity", "identity, identity"}, gzipBody, limit, "three layers"},
 		{"invalid-gzip", []string{"gzip"}, []byte("valid UTF-8"), limit, "decompression failed"},
 		{"empty-gzip-stream", []string{"gzip"}, nil, limit, "decompression failed"},
 		{"truncated-gzip", []string{"gzip"}, gzipBody[:len(gzipBody)-4], limit, "decompression failed"},

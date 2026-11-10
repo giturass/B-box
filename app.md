@@ -100,7 +100,7 @@ MITM 配置、证书设置及 HTTP 脚本/Cron 的入口见 [配置编辑](flcla
 
 [BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 提供本地请求启停、筛选、列表/详情、域名、HAR/cURL 导出以及 CA 管理。开始抓包需本地服务已 Started；记录设置准备完成后，在配置互斥区复核服务实例、运行配置和当前选择，再调用该服务的抓包绑定；解密设置与证书来自已启动配置。启动失败、返回期间取消或状态确认失败会回收本次已启动会话。切换远程会话停止本地抓包，远程会话拒绝读取或操作本机记录与证书。核心协议、路由、限额和停止行为见 [libbox.md](libbox.md#httphttps-请求调试)。
 
-统一请求查看器通过原有 `capture.snapshot` 读取有界摘要，并与当前连接订阅合并；UI 行为见 [flclash.md](flclash.md#导航与交互约定)。`capture.export` 的 HAR 操作可携带显式 `ids`，桥接校验数组及条数后调用 `ExportUICaptureHARSelection`；旧的 `query` 形式继续支持，正文、文件选择取消和导出失败语义保持不变。[BoxWire.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxWire.kt) 在仪表盘消息中提供远程服务器 ID，Flutter 按目标变化清空连接视图并递增会话代次，隔离迟到抓取结果和旧详情操作，同名远程服务器也分别处理。远程页面只订阅远端连接，不能查看或操作本机抓取历史。
+统一请求查看器通过原有 `capture.snapshot` 读取全部保留摘要，并与当前连接订阅合并；UI 行为见 [flclash.md](flclash.md#导航与交互约定)。`capture.export` 的 HAR 操作可携带显式 `ids`，桥接校验数组及字符串元素后调用 `ExportUICaptureHARSelection`，不另设选择条数上限；旧的 `query` 形式继续支持，正文、文件选择取消和导出失败语义保持不变。[BoxWire.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxWire.kt) 在仪表盘消息中提供远程服务器 ID，Flutter 按目标变化清空连接视图并递增会话代次，隔离迟到抓取结果和旧详情操作，同名远程服务器也分别处理。远程页面只订阅远端连接，不能查看或操作本机抓取历史。
 
 [CaptureSettings.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureSettings.kt) 将 version 3 的应用/端口、域名提取和正文限额保存到私有 `noBackupFilesDir/http-debug/settings.json`，正文可保存完整内容或使用用户填写的字节限制。多个 Activity 共用互斥锁，保存检查修订并使用 AtomicFile，读取先恢复中断写入，不另设设置或迁移文件容量配额。抓包期间不能改记录设置。version 0～2 原子迁移保留记录筛选，删除旧 HTTPS、解密包含/排除、QUIC、库路径、函数偏移及本机改写/脚本字段，新保存拒绝这些字段；不会将旧本机解密策略提升为配置。配置和备份不携带抓包设置、记录或 CA。其他旧扩展清理见 [核心兼容说明](libbox.md#旧抓包配置清理)。
 
@@ -195,7 +195,7 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 模拟器镜像名称依据 [Google SDK 系统镜像清单](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml)；16 KiB 测试方式见 [Android 官方文档](https://developer.android.com/guide/practices/page-sizes)。smoke 读取设备实际页大小，普通镜像要求 4096、`ps16k` 要求 16384，不能仅凭镜像名称记录通过。所有矩阵均为临时 x86_64 模拟器，不代表 ARM64 实机或系统 CA 模块安装已验收。
 
-该原生套件还覆盖超限订阅在 URL 导入、手动及自动更新时保留原数据和服务；备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、慢速响应与限额边界由 [核心订阅测试](libbox/ui_profile_test.go) 覆盖。
+该原生套件还覆盖超过旧 16 MiB 阈值的订阅完成 URL 导入、手动及自动更新并保留服务状态，以及协程取消阻塞中的原生下载；备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、大正文、取消和重定向循环由 [核心订阅测试](libbox/ui_profile_test.go) 覆盖。
 
 模拟器统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、远程 JSON 导入、VPN 授权、启停、实际内核分组及进程重启后配置保留；原生组运行全部仪器测试并拒绝零测试结果。`build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。每组测试在应用启动前持续采集 main/system/crash/events 日志，结束后保存 Activity 和内存状态，API 30+ 另保存该应用的系统退出记录；`am start -W` 的输出单独保存，避免启动过程被末尾日志截断。启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
 

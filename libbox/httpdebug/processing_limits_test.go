@@ -58,11 +58,11 @@ func TestProcessingConfigurationHasNoFormerCountOrSizeCaps(t *testing.T) {
 	}
 }
 
-func TestRewriteRegexAcceptsLongPatternsDenseAndSparseGroups(t *testing.T) {
+func TestRewriteRegexAcceptsLongPatternsAndManyGroups(t *testing.T) {
 	for _, test := range []struct{ pattern, input, replacement, want string }{
 		{strings.Repeat("a", 4097), strings.Repeat("a", 4097), "matched", "matched"},
 		{strings.Repeat("(a)", 40) + "(?=!)", strings.Repeat("a", 40) + "!", "$40", "a!"},
-		{`(?<100000>a)(?=!)`, "a!", "${100000}", "a!"},
+		{`(?<head>h)` + strings.Repeat("(a)", 38) + `(?<tail>z)(?=!)`, "h" + strings.Repeat("a", 38) + "z!", "${head}:$1:${tail}:$40", "h:h:z:z!"},
 	} {
 		re, err := compileRewritePattern(test.pattern)
 		if err != nil {

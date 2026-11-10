@@ -163,7 +163,7 @@ class _BackupPageState extends State<BackupPage> {
                 ])), trailing: TonalButton(label: context.tr('Edit'), onPressed: _locked ? null : _edit)),
               ListItem.input(title: Text(context.tr('File')), subtitle: Text(account['fileName'] as String),
                 dialogTitle: context.tr('File'), value: account['fileName'] as String, resetValue: defaultBackupFileName,
-                maxLength: 128, validator: (value) => backupFileIssue(value) == null ? null : context.tr('Invalid backup file name'), onChanged: _fileName),
+                validator: (value) => backupFileIssue(value) == null ? null : context.tr('Invalid backup file name'), onChanged: _fileName),
               ListItem(key: const ValueKey('remote-backup'), title: Text(context.tr('Backup')), onTap: () => _backup(true)),
               ListItem(key: const ValueKey('remote-restore'), title: Text(context.tr('Restore')), onTap: context.box.remote ? null : () => _restore(true)),
             ],
@@ -183,7 +183,7 @@ class _BackupPageState extends State<BackupPage> {
   }
 }
 
-String? backupFileIssue(String? value) => value == null || value.isEmpty || value.length > 128 ||
+String? backupFileIssue(String? value) => value == null || value.isEmpty ||
   value == '.' || value == '..' || value.runes.any((rune) => rune < 32 || rune == 47 || rune == 92) ? 'Invalid backup file name' : null;
 
 class RestoreScopeDialog extends StatelessWidget {
@@ -217,10 +217,9 @@ class _WebDAVFormState extends State<WebDAVForm> {
     try {
       final uri = Uri.tryParse(_uri.text.trim());
       if (uri == null || !['http', 'https'].contains(uri.scheme) || uri.host.isEmpty || uri.userInfo.isNotEmpty ||
-          uri.hasQuery || uri.hasFragment || _uri.text.length > 4096) return 'Enter a WebDAV HTTP or HTTPS directory address';
+          uri.hasQuery || uri.hasFragment) return 'Enter a WebDAV HTTP or HTTPS directory address';
       if (uri.hasPort && (uri.port <= 0 || uri.port > 65535)) return 'Enter a WebDAV HTTP or HTTPS directory address';
     } catch (_) { return 'Enter a WebDAV HTTP or HTTPS directory address'; }
-    if (_user.text.length > 4096 || _password.text.length > 4096) return 'Invalid WebDAV credentials';
     return null;
   }
 
@@ -257,12 +256,12 @@ class _WebDAVFormState extends State<WebDAVForm> {
           FormRow(title: context.tr('Address'), invalid: issue == 'Enter a WebDAV HTTP or HTTPS directory address',
             trailing: FormRowTextField(controller: _uri, hintText: context.tr('Required'), keyboardType: TextInputType.url,
               textInputAction: TextInputAction.next, autocorrect: false, enableSuggestions: false,
-              inputFormatters: [LengthLimitingTextInputFormatter(4096)], onChanged: _changed)),
+              onChanged: _changed)),
           FormRow(title: context.tr('Account'), trailing: FormRowTextField(controller: _user, hintText: context.tr('Optional'),
             textInputAction: TextInputAction.next, autocorrect: false, enableSuggestions: false,
-            inputFormatters: [LengthLimitingTextInputFormatter(4096)], onChanged: _changed)),
+            onChanged: _changed)),
           FormRow(title: context.tr('Password'), trailing: FormRowSecretTextField(controller: _password, hintText: context.tr('Optional'),
-            textInputAction: TextInputAction.done, inputFormatters: [LengthLimitingTextInputFormatter(4096)],
+            textInputAction: TextInputAction.done,
             onChanged: _changed, onFieldSubmitted: (_) => _save())),
         ]),
         if (widget.initial != null) generateSection(items: [FormRow(title: context.tr('Delete'),

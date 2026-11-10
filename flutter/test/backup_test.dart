@@ -128,8 +128,11 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('WebDAV form validates its directory URL and preserves edits after failed save and canceled dismissal', (tester) async {
+  testWidgets('WebDAV form validates its directory URL and preserves long inputs after failed save and canceled dismissal', (tester) async {
     final calls = <MethodCall>[];
+    final directory = 'https://dav.example.test/'.padRight(4097, 'a');
+    final user = 'account'.padRight(4097, 'u');
+    final password = 'synthetic'.padRight(4097, 'p');
     var reject = true;
     await _mount(tester, (call) async {
       calls.add(call);
@@ -147,9 +150,9 @@ void main() {
     expect(find.text('Enter a WebDAV HTTP or HTTPS directory address'), findsOneWidget);
     expect(calls.where((call) => call.method == 'webdav.set'), isEmpty);
     final fields = find.byType(TextFormField);
-    await tester.enterText(fields.at(0), 'https://dav.example.test/directory');
-    await tester.enterText(fields.at(1), 'account');
-    await tester.enterText(fields.at(2), 'synthetic');
+    await tester.enterText(fields.at(0), directory);
+    await tester.enterText(fields.at(1), user);
+    await tester.enterText(fields.at(2), password);
     await tester.tap(find.byTooltip('Save'));
     await tester.pumpAndSettle();
     expect(find.text('Synthetic account save failed'), findsOneWidget);
@@ -160,15 +163,15 @@ void main() {
     await tester.pumpAndSettle();
     await dismissed;
     expect(find.byType(WebDAVForm), findsOneWidget);
-    expect(tester.widget<TextFormField>(fields.at(0)).controller!.text, 'https://dav.example.test/directory');
+    expect(tester.widget<TextFormField>(fields.at(0)).controller!.text, directory);
     reject = false;
     await tester.tap(find.byTooltip('Save'));
     await tester.pumpAndSettle();
     expect(find.byType(WebDAVForm), findsNothing);
     expect(json(calls.lastWhere((call) => call.method == 'webdav.set').arguments)['value'], {
-      'uri': 'https://dav.example.test/directory', 'user': 'account', 'password': 'synthetic', 'fileName': defaultBackupFileName,
+      'uri': directory, 'user': user, 'password': password, 'fileName': defaultBackupFileName,
     });
-    expect(find.text('account'), findsOneWidget);
+    expect(find.text(user), findsOneWidget);
     expect(calls.where((call) => call.method == 'webdav.check'), hasLength(1));
     expect(tester.takeException(), isNull);
   });

@@ -193,7 +193,7 @@
     "lib/pages/backup.dart": {
       "source": "lib/views/backup_and_restore.dart",
       "sourceSHA256": "a0ab41a3c2a3337914b4d29dcc37b8c534989bcbee7c7971a23bf550c359f4a5",
-      "changes": "Remote/local sections, WebDAV form, connectivity indicator, restore scopes and strategy adapted to bbox-1 backups with cancellable transfers and no fixed byte quota. Waits for native writes and preserves edits on error. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Remote/local sections, WebDAV form, connectivity indicator, restore scopes and strategy adapted to bbox-1 backups with cancellable transfers and no fixed byte quota or input length caps. Waits for native writes and preserves edits on error. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/common/ip_quality.dart": {
       "source": "lib/common/ip_quality.dart",
