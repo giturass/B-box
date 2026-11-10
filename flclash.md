@@ -45,7 +45,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 | 系统 HTTP 代理 | [system_proxy_panel.dart](flutter/lib/components/system_proxy_panel.dart) | 采用参考版 VPN 卡片的布局、状态徽章和紧凑开关，使用 B-box 自有的大陆轮廓地球字形；开关接入内核上报状态及既有 Android 桥接 |
 | 外观与关于 | [appearance.dart](flutter/lib/pages/appearance.dart)、[about.dart](flutter/lib/pages/about.dart) | 复用主题预览、调色和版本/许可布局，保持 B-box 品牌及其 Release 来源 |
 | 备份 | [backup.dart](flutter/lib/pages/backup.dart)、[form.dart](flutter/lib/components/form.dart) | 复用本地/远程分区、WebDAV 表单、连通状态、恢复范围及策略，后端使用 `bbox-1` 格式 |
-| 请求与连接 | [requests.dart](flutter/lib/pages/requests.dart)、[connection_record.dart](flutter/lib/components/connection_record.dart)、[request_settings.dart](flutter/lib/pages/request_settings.dart)、[mitm_certificate.dart](flutter/lib/pages/mitm_certificate.dart)、[capture_domains.dart](flutter/lib/pages/capture_domains.dart) | 统一网络活动列表与详情、连接管理、本机录制、独立 MITM 与证书、TCP 流、域名选择及 HAR/cURL 导出；复用共享列表、表单和导航 |
+| 连接与请求 | [requests.dart](flutter/lib/pages/requests.dart)、[connection_record.dart](flutter/lib/components/connection_record.dart)、[request_settings.dart](flutter/lib/pages/request_settings.dart)、[mitm_certificate.dart](flutter/lib/pages/mitm_certificate.dart)、[capture_domains.dart](flutter/lib/pages/capture_domains.dart) | 统一网络活动列表与详情、连接管理、本机录制、独立 MITM 与证书、TCP 流、域名选择及 HAR/cURL 导出；复用共享列表、表单和导航 |
 
 记录组件使用 [record.dart](flutter/lib/components/record.dart) 中 `RecordTone` 的标签前景色和容器色；首页拖动浮层使用 [dashboard_editor.dart](flutter/lib/components/dashboard_editor.dart) 的 `DashboardShadows.e2` 阴影。应用层已移除未调用的强调色和一级阴影辅助实现，适配差异记录在来源清单；像素比较的独立状态参考渲染器继续保留自己使用的阴影实现。
 
@@ -60,8 +60,8 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 - 出站模式只显示内核提供的值。规则、全局、直连使用参考版字形，名称和选中态忽略大小写，排列和切换参数保留内核原值。系统 HTTP 代理卡片按内核能力显示，支持首页编辑中的排序、移除和重新添加；能力暂不可用时保留顺序和隐藏偏好。卡片沿用参考版 VPN 卡片的 48 像素徽章、加粗标题、启用/禁用副标题及紧凑开关；启用时徽章为主题色六瓣形，禁用时为低强调圆形。卡片和首页编辑列表共用 [system_proxy_glyph.dart](flutter/lib/components/system_proxy_glyph.dart) 中的大陆轮廓地球字形，使用共享 Glyph 的线宽与圆角；全局出站模式保留参考版经纬线球体字形。
 - 服务按钮的暂停图形表示停止服务，不新增暂停核心能力。远程会话、启停过渡和不可用操作必须反映真实状态。
 - 仪表盘右上角使用设置按钮，打开 [设置页](flutter/lib/pages/settings.dart)，依次显示外观、服务、内核、访问控制、网络诊断、备份与恢复和关于。服务与内核的具体选项各自保留在二级页面，不再经过“常规”；内核页不显示电量报告开关。网络诊断紧跟访问控制，二级页显示网络质量与 STUN 测试。
-- 工具页保留请求、日志、终端、远程控制及按能力显示的端点；远程控制紧跟终端，终端设置仍在终端内。工具页不再展示设置、关于或崩溃/内存/电量报告入口。配置相关入口统一在配置的“编辑”页，具体排列见 [配置页与内核差异](#配置页与内核差异)。
-- 工具页以“请求”作为连接和抓取记录的唯一入口，默认显示全部网络活动。顶部可筛选全部、活动、抓取记录及已结束；活动 HTTP 请求按记录是否完成判断，已结束包括完成的请求和关闭的连接。已完成请求不会把仍存活的 keep-alive 连接标为关闭：活动筛选中没有进行中请求代表它时，仍显示连接行。远程会话展示远端连接及管理操作，隐藏抓取筛选和本机操作，说明 HTTP 调试仅支持本地。
+- 工具页保留连接与请求、日志、终端、远程控制及按能力显示的端点；远程控制紧跟终端，终端设置仍在终端内。工具页不再展示设置、关于或崩溃/内存/电量报告入口。配置相关入口统一在配置的“编辑”页，具体排列见 [配置页与内核差异](#配置页与内核差异)。
+- 工具页以“连接与请求”作为连接和抓取记录的唯一入口，入口只显示标题，页面标题与入口一致，默认显示全部网络活动。顶部可筛选全部、活动、抓取记录及已结束；活动 HTTP 请求按记录是否完成判断，已结束包括完成的请求和关闭的连接。已完成请求不会把仍存活的 keep-alive 连接标为关闭：活动筛选中没有进行中请求代表它时，仍显示连接行。远程会话展示远端连接及管理操作，隐藏抓取筛选和本机操作，说明 HTTP 调试仅支持本地。
 - 普通 TCP/UDP、未解密 HTTPS 以连接信息展示；已记录 HTTP 请求、TLS/TCP 流和仅域名记录分别成行。一条连接的多个 HTTP/1.1 请求或 HTTP/2 流保留独立行，以精确 `connectionId` 关联；当前筛选结果已有请求代表该连接时省略连接行，不以目标地址或旧抓包 ID 猜测关联。缺少父连接和旧版无关联记录仍可搜索、查看及导出。
 - 搜索覆盖 URL、方法、状态、协议、应用、路由及来源/目标等已观测字段，支持可删除关键词；默认按创建时间排序，也保留速度、上传和下载排序。请求行显示自身正文计数，连接行显示核心连接流量及速率；请求速度未知，不复制父连接速率或相加统计。一轮读取至多 300 条有界抓取摘要，合并、筛选和排序后每次展开 50 条，连接数量沿用当前内核快照，不受抓取存储条数限制。
 - 关闭录制仍可查看内核的近期连接元数据，HTTP 报文及解密流的保存由显式录制控制，MITM 由配置单独控制。抓取开关等待原生确认，停止抓取或停服后保留请求历史。空态说明从新 HTTP 请求/TCP 流开始记录；需要重新连接的范围及停止时的记录冻结语义由 [核心录制生命周期](libbox.md#httphttps-请求调试) 维护，中英文文案同步。
@@ -113,7 +113,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 配置“编辑”页依次直接提供“日志”、“网络”、“DNS”、“路由规则”、“规则集”、“MITM”、“HTTP 改写”和“脚本”，末尾单独保留一个“打开配置内容”入口，元数据表单仅保留元数据字段和更新时间。各分项打开时读取该配置的最新内容，由 [configuration.dart](flutter/lib/pages/configuration.dart) 复用共享分组、规则列表、排序及 JSON 表单；原始 JSON 入口独立于分项加载。内网详情的“编辑”入口复用同一配置编辑页。
 
-MITM 页面直接编辑 HTTPS、域名及排除项、HTTP/2、服务器证书校验、TCP 和 QUIC 回退，并提供单一证书入口；证书入口独立于配置加载。域名编辑器保留输入顺序及通配符、端口后缀，新增抓取域名追加在列表末尾。端口、应用等额外筛选通过同页 JSON 编辑入口修改，见 [MITM 配置](libbox.md#独立-mitm-配置)。HTTP 改写页面依次显示 URL Rewrite、Header Rewrite、Body Rewrite（含 jq）、Map Local / API Mock、Map Remote，下方提供资源及完整 JSON 编辑入口；脚本独立编辑启用状态、HTTP、Cron 和资源。前后查找/反向引用、文件/URL 资源及独立正文限额通过完整 JSON 表单配置，字段及运行行为见 [libbox.md](libbox.md#json-配置中的-http-改写)。新建规则/任务示例默认禁用。
+MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、服务器证书校验、“解密TCP”和 QUIC 回退设置；证书入口独立于配置加载。页面顶部不显示配置名或解密说明，TCP 和 QUIC 开关仅显示标题。域名入口只显示标题，完整域名及排除项在二级编辑器查看和修改，保留输入顺序及通配符、端口后缀，新增抓取域名追加在列表末尾。端口、应用等额外筛选通过同页 JSON 编辑入口修改，见 [MITM 配置](libbox.md#独立-mitm-配置)。HTTP 改写页面依次显示 URL Rewrite、Header Rewrite、Body Rewrite（含 jq）、Map Local / API Mock、Map Remote，下方提供资源及完整 JSON 编辑入口；脚本独立编辑启用状态、HTTP、Cron 和资源。前后查找/反向引用、文件/URL 资源及独立正文限额通过完整 JSON 表单配置，字段及运行行为见 [libbox.md](libbox.md#json-配置中的-http-改写)。新建规则/任务示例默认禁用。
 
 所有修改通过 ProfileConfigStore.set 保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
 

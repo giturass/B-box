@@ -139,13 +139,13 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('Tools has one Requests entry and remote sessions show only their connections', (tester) async {
+  testWidgets('Tools has one Connections and requests entry and remote sessions show only their connections', (tester) async {
     await mount(tester, remote: true);
     await tester.tap(find.text('Tools').last);
     await tester.pumpAndSettle();
-    expect(find.text('Requests'), findsOneWidget);
+    expect(find.text('Connections and requests'), findsOneWidget);
     expect(find.text('Connections'), findsNothing);
-    await tester.tap(find.text('Requests'));
+    await tester.tap(find.text('Connections and requests'));
     await tester.pumpAndSettle();
     events.add({'type': 'connections', 'value': [{'id': 'remote', 'displayDestination': 'remote.test:443', 'network': 'tcp'}]});
     await tester.pumpAndSettle();
@@ -205,7 +205,7 @@ void main() {
     addTearDown(store.dispose);
     await store.load();
     await open(tester, MitmPage(store: store));
-    expect(find.text('No domains selected'), findsOneWidget);
+    expect(find.text('Decryption domains'), findsOneWidget);
     expect(find.text('HTTPS excluded domains'), findsNothing);
     await capture(tester, 'independent-mitm-config');
     await expectClearTrailingToolbar(tester, boundaryKey, find.byType(MitmPage));
@@ -431,7 +431,7 @@ void main() {
     expect(find.text('Show more').hitTestable(), findsOneWidget,
       reason: 'The pagination button must scroll clear of the docked search field.');
     final list = find.descendant(of: find.byType(RequestsPage), matching: find.byType(ListView)).first;
-    expect(tester.getTopLeft(list).dy, greaterThanOrEqualTo(tester.getBottomLeft(find.text('Requests').last).dy),
+    expect(tester.getTopLeft(list).dy, greaterThanOrEqualTo(tester.getBottomLeft(find.text('Connections and requests').last).dy),
       reason: 'Scrolled request rows must stay below the shared toolbar.');
     await capture(tester, 'requests-pagination');
     await tester.tap(find.text('Show more'));

@@ -122,7 +122,7 @@ void main() {
     expect(store.value(ScriptsConfigPage.path), isNull);
     openPage(tester.element(find.byType(HttpRewriteConfigPage)), MitmConfigPage(store: store));
     await tester.pumpAndSettle();
-    expect(find.text('No domains selected'), findsOneWidget);
+    expect(find.text('Decryption domains'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('mitm-enabled')));
     await tester.pumpAndSettle();
     for (final key in ['mitm-h2', 'mitm-skip-server-cert-verify', 'mitm-tcp', 'mitm-block-quic']) {

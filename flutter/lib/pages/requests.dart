@@ -74,7 +74,7 @@ class _RequestsPageState extends State<RequestsPage> {
     final harIds = [for (final entry in list) if (entry.supportsHAR) entry.capture!['id'].toString()];
     final active = state['active'] == true;
     return Scaffold(
-      title: context.tr('Requests'), isLoading: _busy, keywords: _keywords,
+      title: context.tr('Connections and requests'), isLoading: _busy, keywords: _keywords,
       searchState: AppBarSearchState(onSearch: (query) => setState(() { _query = query; _limit = 50; })),
       iconActions: [if (refresh != null) IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Refresh'), onPressed: refresh)],
       menuItems: [
