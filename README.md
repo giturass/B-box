@@ -18,7 +18,12 @@
 
 ## Documentation
 
-https://sing-box.sagernet.org/installation/clients/sfa/
+- 项目文档站：[B-box 文档](https://b-box-docs.vercel.app)
+- 上游文档：[sing-box for Android](https://sing-box.sagernet.org/installation/clients/sfa/)
+
+## 致谢
+
+感谢 [LINUX DO](https://linux.do) 社区的支持。
 
 ## License
 
