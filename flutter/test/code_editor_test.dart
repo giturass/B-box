@@ -78,7 +78,7 @@ void main() {
 
     for (final scrolled in [false, true]) {
       for (final start in [true, false]) {
-        testWidgets('${start ? 'start' : 'end'} handle preserves the initial drag at scale $scale, scrolled=$scrolled', (tester) async {
+        testWidgets('${start ? 'start' : 'end'} handle selects the correct text rows at scale $scale, scrolled=$scrolled', (tester) async {
           final text = JsonEditorController()..text = [
             if (scrolled) '  "url": "https://example.org/${'segment/' * 16}",',
             ...List.generate(scrolled ? 80 : 18, _row),
@@ -117,8 +117,8 @@ void main() {
           final direction = start ? -1 : 1;
           final gesture = await tester.startGesture(origin);
           await tester.pump();
-          // Cross the touch threshold in one move, then travel a little farther.
-          // All movement must count from pointer-down, including that first move.
+          // Move three visual rows at the same column. The other boundary stays
+          // fixed, and scroll offsets must not affect the selected text positions.
           await gesture.moveTo(origin + Offset(0, direction * lineHeight * 2.6));
           await tester.pump();
           await gesture.moveTo(origin + Offset(0, direction * lineHeight * 3.25));

@@ -48,6 +48,16 @@ class _CodeEditorState extends State<CodeEditor> {
     super.dispose();
   }
 
+  EditableTextState? _editableForScroll(BuildContext? scrollContext) =>
+    scrollContext?.findAncestorStateOfType<EditableTextState>();
+
+  void _updateSelectionOverlay(EditableTextState? editable) {
+    if (editable == null || !editable.mounted) return;
+    // The pinned Flutter SDK has no public refresh method for handle endpoints.
+    // ignore: invalid_use_of_visible_for_testing_member
+    editable.selectionOverlay?.updateForScroll();
+  }
+
   @override Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final style = TextStyle(inherit: false, fontFamily: 'JetBrainsMono', fontSize: 13,
@@ -102,9 +112,19 @@ class _CodeEditorState extends State<CodeEditor> {
             ]);
           })),
         ))),
-        Expanded(child: NotificationListener<ScrollMetricsNotification>(onNotification: (_) {
+        Expanded(child: NotificationListener<ScrollMetricsNotification>(onNotification: (notification) {
           // A shorter document can clamp the offset during layout without a scroll event.
-          WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) setState(() {}); });
+          final editable = _editableForScroll(notification.context);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _updateSelectionOverlay(editable);
+            setState(() {});
+          });
+          return false;
+        }, child: NotificationListener<ScrollNotification>(onNotification: (notification) {
+          // Android moves the painted handles during scrolling without refreshing
+          // the endpoints cached by TextSelectionOverlay for handle drag targets.
+          _updateSelectionOverlay(_editableForScroll(notification.context));
           return false;
         }, child: TextField(
           controller: widget.controller, undoController: widget.undoController, scrollController: _scroll,
@@ -115,7 +135,7 @@ class _CodeEditorState extends State<CodeEditor> {
           textAlignVertical: TextAlignVertical.top, style: style, strutStyle: strut, cursorWidth: 2,
           decoration: const InputDecoration(border: const NoInputBorder(), isDense: true,
             contentPadding: EdgeInsets.fromLTRB(12, 16, 16, 16)),
-        ))),
+        )))),
       ]);
     });
   }

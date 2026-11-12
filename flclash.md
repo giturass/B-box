@@ -109,7 +109,9 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 编辑保留 B-box 已有的本地/远程类型切换；不会因视觉对齐加入参考版的 age 密钥等未接入能力。保存、修订冲突、配置应用及失败恢复继续由既有桥接处理，见 [app.md](app.md#配置服务应用与备份)。
 
-原始 JSON 编辑器使用 [code_editor.dart](flutter/lib/components/code_editor.dart) 显示从 1 开始的逻辑行号，空行和末尾换行保留编号；长行折行不增加行号，行号随正文滚动。行号布局与正文使用相同的字形、字号比例和换行宽度，仅创建可见编号；搜索、格式化、撤销及修订校验沿用原编辑流程。
+原始 JSON 编辑器使用 [code_editor.dart](flutter/lib/components/code_editor.dart) 显示从 1 开始的逻辑行号，空行和末尾换行保留编号；长行折行不增加行号，行号随正文滚动。行号布局与正文使用相同的字形、字号比例和换行宽度，仅创建可见编号。正文滚动及视口尺寸变化后同步选区端点，使手柄显示位置与拖动计算使用同一组正文坐标，避免按旧位置选中其他行；搜索、格式化、撤销及修订校验沿用原编辑流程。
+
+选区同步补偿 [固定 Flutter SDK](.github/actions/setup-flutter/action.yml) 的 Android 滚动处理，通过已有的 `EditableTextState.selectionOverlay` 取得选择覆盖层并刷新端点。该 getter 标为测试可见，调用处仅对它豁免可见性分析；SDK 升级时需核对这个入口及滚动后的手柄回归。
 
 分项配置的 JSON 表单使用固定 16 dp 圆角、正文顶部对齐的多行编辑框。[BoxField](flutter/lib/widgets.dart) 将圆角传给 Prism 的填充输入主题，使背景及聚焦边框使用同一轮廓，避免多行编辑区域随高度变成胶囊形。
 
@@ -185,7 +187,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 [proxies_test.dart](flutter/test/proxies_test.dart) 集中验证自动组禁止手选、延迟测试目标、分组切换、列表折叠及视口外节点定位。[connections_test.dart](flutter/test/connections_test.dart) 检查统一请求页关闭后释放连接订阅并停止抓取轮询；[status_panel_test.dart](flutter/test/status_panel_test.dart) 将启动按钮的独立无障碍点击入口与配置可用性、实际桥接调用一起验证。
 
-配置测试另覆盖本地时间的未知占位及原生元数据事件刷新；[code_editor_test.dart](flutter/test/code_editor_test.dart) 对照实际 `RenderEditable` 检查行号在折行、宽度/字号变化及滚动后的对齐，并覆盖空行、末尾换行和替换内容。[intranet_panel_test.dart](flutter/test/intranet_panel_test.dart) 检查大字号下复制按钮的尺寸与位置，以及运行/停服/远程会话的复制内容；这些几何断言不代替实机视觉验收。
+配置测试另覆盖本地时间的未知占位及原生元数据事件刷新；[code_editor_test.dart](flutter/test/code_editor_test.dart) 加载应用实际的等宽字体，对照 `RenderEditable` 检查行号在折行、宽度/字号变化及滚动后的对齐，并覆盖空行、末尾换行和替换内容。选区用例在 0.8、1.0、1.4 倍字号下实际拖动两端手柄，检查跨行选择、折行文档滚动后的定位，以及通过复制菜单取得的原文范围。[intranet_panel_test.dart](flutter/test/intranet_panel_test.dart) 检查大字号下复制按钮的尺寸与位置，以及运行/停服/远程会话的复制内容；这些几何断言不代替实机视觉验收。
 
 [service_settings_test.dart](flutter/test/service_settings_test.dart) 覆盖三个服务开关的即时应用、等待原生确认期间禁用开关及移除手动应用按钮；[box_test.dart](flutter/test/box_test.dart) 检查重复编辑、停止/远程会话、启停过渡及失败后的原生设置恢复。实际服务重启与恢复的 Android 验证范围见 [app.md](app.md#验证与历史记录)。
 
