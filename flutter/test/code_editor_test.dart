@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' show BoxHeightStyle;
 import 'package:b_box_ui/components/code_editor.dart';
 import 'package:b_box_ui/pages/profile_editor.dart';
@@ -42,7 +41,7 @@ Future<EditableTextState> _select(WidgetTester tester, JsonEditorController text
   await tester.pump();
   editable.userUpdateTextEditingValue(text.value.copyWith(selection: selection), SelectionChangedCause.longPress);
   await tester.pumpAndSettle();
-  editable.hideToolbar(hideHandles: false);
+  editable.hideToolbar(false);
   expect(editable.selectionOverlay!.handlesAreVisible, isTrue);
   return editable;
 }
