@@ -146,6 +146,10 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ## 验证与升级参考版本
 
+2026-11-13，原始 JSON 选区修复的验证源码为 `74bcbfc9d76b994d5bfb91f3401eee5f1109a9fc`，对应 [Actions 43331463838](https://github.com/giturass/B-box/actions/runs/43331463838) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43331463838/job/131576932628)。Flutter 分析、246 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 79 条 info、0 条 warning/error。新增用例在应用实际等宽字体和 0.8、1.0、1.4 倍字号下，拖动两端手柄跨越三行，分别核对未滚动与折行长文滚动后的字符范围，并实际点击复制菜单检查原文。
+
+同一批用例在修复前的 `208c5675d7c5582925a02c2002a6e1b3c62a2ed9` [Actions 43328760156](https://github.com/giturass/B-box/actions/runs/43328760156) 中，有六个滚动后的选区用例失败，未滚动用例通过；修复后这些场景均通过。本机执行差异、源码约束及文档链接静态检查，未编译或运行 Flutter 测试。本记录不表示已完成 ARM64 实机手柄及系统剪贴板验收，也不表示已发布包含修复的 APK；后续纯 Markdown 记录不改变上述验证源码。
+
 2026-11-11，本地资源导入与正文分页的验证源码为 `d3a1f178d6d2375291b698d7200ef9ab8ff98260`，对应 [Actions 42914488877](https://github.com/giturass/B-box/actions/runs/42914488877)。Flutter 分析、234 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 79 条 info、0 条 warning/error。用例覆盖脚本/改写资源导入的修订、取消与会话隔离，以及正文按页读取、替换、页内复制、失败重试和迟到结果丢弃。
 
 实际查看本次 [newui-validation](https://github.com/giturass/B-box/actions/runs/42914488877/artifacts/13809760403) 中以下截图，路径相对 `build/screenshots/`：
