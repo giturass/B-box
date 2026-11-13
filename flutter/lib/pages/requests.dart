@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import '../widgets.dart';
 import '../common/http_message.dart';
 import '../common/network_activity.dart';
+import '../common/capture_page.dart';
 import '../components/capture_poll.dart';
 import '../components/captured_body.dart';
 import '../components/connection_record.dart';
@@ -54,9 +55,13 @@ class _RequestsPageState extends State<RequestsPage> {
 
   @override Widget build(BuildContext context) {
     final box = context.watchBox(BoxAspect.connections);
+    final query = _keywords.queryWith(_query);
     return BoxDataSubscription(data: BoxData.connections, child: box.remote
       ? _buildList(context, null, null, null)
-      : CapturePoll(method: 'capture.snapshot', arguments: const {'query': '', 'limit': 0}, revision: _revision,
+      : CapturePoll(method: 'capture.query', load: loadCapturePage,
+          identity: (query, _filter, _sort),
+          arguments: {'query': query, 'filter': _filter, 'sort': _sort, 'limit': _limit,
+            'parents': _list.parents(box.connections, includeText: query.trim().isNotEmpty)}, revision: _revision,
           builder: _buildList));
   }
 
@@ -65,13 +70,13 @@ class _RequestsPageState extends State<RequestsPage> {
     final state = json(snapshot?['state']), page = json(snapshot?['page']);
     if (!identical(snapshot, _snapshot)) {
       _snapshot = snapshot;
-      _captures = rows(page['items']);
+      _captures = page['items'] as List<Json>? ?? const [];
     }
     final query = _keywords.queryWith(_query);
     final filter = box.remote && _filter == 'Captured' ? 'All' : _filter;
-    final list = _list.select(box.connections, box.remote ? const [] : _captures, query: query, filter: filter, sort: _sort);
+    final list = _list.select(box.connections, box.remote ? const [] : _captures, query: query, filter: filter, sort: _sort,
+      represented: (page['represented'] as List? ?? const []).cast<String>().toSet());
     final entries = list.take(_limit).toList();
-    final harIds = [for (final entry in list) if (entry.supportsHAR) entry.capture!['id'].toString()];
     final active = state['active'] == true;
     return Scaffold(
       title: context.tr('Connections and requests'), isLoading: _busy, keywords: _keywords,
@@ -86,14 +91,18 @@ class _RequestsPageState extends State<RequestsPage> {
         PopupMenuItem(glyph: AppGlyphs.clearAll, label: context.tr('Close all connections'), onPressed: box.running ? _closeAll : null),
         if (!box.remote) ...[
           PopupMenuItem(glyph: AppGlyphs.sliders, label: context.tr('Capture settings'), onPressed: _busy || active || snapshot == null ? null : _settings),
-          PopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'), onPressed: _busy || harIds.isEmpty ? null :
-            () => _act('capture.export', {'format': 'har', 'ids': harIds})),
+          PopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'), onPressed: _busy || (page['harCount'] as num? ?? 0) == 0 ? null :
+            () => _act('capture.export', {'format': 'har', 'selection': {
+              'query': query, 'filter': filter, 'sort': _sort,
+              'parents': _list.parents(box.connections, includeText: query.trim().isNotEmpty),
+            }})),
           PopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear captured requests'), onPressed: _busy || snapshot == null ? null : () async {
             if (await confirm(context, 'Clear captured requests?', action: 'Clear') && mounted && session == box.sessionRevision) await _act('capture.clear');
           }),
         ],
       ],
-      // Join and filter all summaries first; paginate the unified result.
+      // The backend selects a bounded capture window and reports all matching
+      // parent IDs; merging its first N captures yields the first N activity rows.
       body: Builder(builder: (context) {
         final inset = context.appBarInset, gap = context.contentTopPadding - inset;
         return Padding(padding: EdgeInsets.only(top: inset), child: ListView.builder(
@@ -121,7 +130,7 @@ class _RequestsPageState extends State<RequestsPage> {
                 ]),
                 if (!box.running) Padding(padding: const EdgeInsets.all(12), child: Text(context.tr('Start the local service before capturing requests'))),
                 if (snapshot != null) Padding(padding: const EdgeInsets.all(12), child: Text(
-                  '${page['total'] ?? 0} ${context.tr('Captured')} · ${bytes(page['storedBytes'] as num? ?? 0)}', style: context.listSubtitleStyle)),
+                  '${page['capturedTotal'] ?? 0} ${context.tr('Captured')} · ${bytes(page['storedBytes'] as num? ?? 0)}', style: context.listSubtitleStyle)),
                 if ((page['error'] as String? ?? '').isNotEmpty) Text(page['error'].toString(), style: TextStyle(color: context.colorScheme.error)),
                 if (error != null) ErrorState(error, retry: refresh),
                 if (snapshot == null && error == null) const Center(child: ActivityIndicator()),
@@ -131,7 +140,7 @@ class _RequestsPageState extends State<RequestsPage> {
                   ? 'Configure MITM domains and trust the CA to record HTTPS or TLS/TCP. Recording starts with new requests or streams. Reconnect the target app if its connection was not already intercepted. Stopping recording keeps existing connections running.'
                   : 'Recent connections appear while the service is running. Capture saves HTTP messages and decrypted TLS streams separately.'),
             ]));
-            if (index > entries.length) return list.length > entries.length
+            if (index > entries.length) return list.length > entries.length || page['hasMore'] == true
               ? TextButton(onPressed: () => setState(() => _limit += 50), child: Text(context.tr('Show more')))
               : const SizedBox.shrink();
             final entry = entries[index - 1];
@@ -365,8 +374,10 @@ class _RelatedRequestsState extends State<_RelatedRequests> {
     if (widget.connectionId.isEmpty) return const SizedBox.shrink();
     if (context.box.remote) return Padding(padding: const EdgeInsets.all(12),
       child: Text(context.tr('HTTP debugging is only available for the local service'), style: context.listSubtitleStyle));
-    return CapturePoll(method: 'capture.snapshot', arguments: const {'query': '', 'limit': 0}, builder: (context, snapshot, error, refresh) {
-      final items = rows(json(snapshot?['page'])['items']).where((item) => item['connectionId'] == widget.connectionId).toList();
+    return CapturePoll(method: 'capture.query', load: loadCapturePage, identity: widget.connectionId,
+      arguments: {'query': '', 'connectionId': widget.connectionId, 'limit': _limit}, builder: (context, snapshot, error, refresh) {
+      final page = json(snapshot?['page']);
+      final items = page['items'] as List<Json>? ?? const [];
       return generateSection(title: context.tr('Related captured requests'), items: [
         if (error != null) ErrorState(error, retry: refresh),
         if (snapshot == null && error == null) const Center(child: ActivityIndicator()),
@@ -377,7 +388,7 @@ class _RelatedRequestsState extends State<_RelatedRequests> {
           subtitle: Text('${item['method'] ?? ''} · ${item['protocol'] ?? ''}${item['id'] == widget.currentId ? ' · ${context.tr('Current request')}' : ''}'),
           onTap: item['id'] == widget.currentId ? null : () => openPage(context, RequestDetailPage(id: item['id'].toString(), connection: widget.connection)),
         ),
-        if (items.length > _limit) TextButton(onPressed: () => setState(() => _limit += 50), child: Text(context.tr('Show more'))),
+        if (page['hasMore'] == true) TextButton(onPressed: () => setState(() => _limit += 50), child: Text(context.tr('Show more'))),
       ]);
     });
   }

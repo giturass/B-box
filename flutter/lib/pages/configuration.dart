@@ -63,7 +63,9 @@ class ProfileConfigStore extends ChangeNotifier {
       box.report(failure);
       return false;
     }
-    final candidate = json(jsonDecode(jsonEncode(root)));
+    // Copy only ancestors of the edited field. All other branches are read-only
+    // during serialization, and a rejected write leaves the loaded root intact.
+    final candidate = Map<String, dynamic>.of(root);
     Json parent = candidate;
     for (final key in path.take(path.length - 1)) {
       final next = json(parent[key]);
@@ -596,10 +598,15 @@ class ConfigValueEditor extends StatefulWidget {
 class _ConfigValueEditorState extends State<ConfigValueEditor> {
   late final _original = configEncoder.convert(widget.initial);
   late final _text = JsonEditorController()..text = _original;
+  late String _lastText = _original;
   bool _saving = false;
   String? _error;
   @override void initState() { super.initState(); _text.addListener(_changed); }
-  void _changed() { if (mounted) setState(() {}); }
+  void _changed() {
+    if (_lastText == _text.text) return;
+    _lastText = _text.text;
+    if (mounted) setState(() {});
+  }
   @override void dispose() { _text.dispose(); super.dispose(); }
   @override Widget build(BuildContext context) => BoxEditGuard(dirty: _text.text != _original, busy: _saving,
     child: BoxPage(title: widget.title, loading: _saving,

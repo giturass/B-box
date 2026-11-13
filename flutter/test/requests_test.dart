@@ -15,6 +15,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/toolbar_paint.dart';
+import 'support/capture_query.dart';
 
 void main() {
   late BoxController box;
@@ -73,7 +74,11 @@ void main() {
         'version': 'test', 'coreVersion': 'test', 'preferences': {'theme': dark ? 'dark' : 'light'},
         'dashboard': {'status': 'Started', if (remote) ...{'remote': 'Server', 'remoteConnected': true}},
       };
-      if (extra != null) return extra!(call);
+      if (extra != null) {
+        final result = await extra!(call);
+        return call.method == 'capture.query' && result != null
+            ? captureQueryResult(json(result), json(call.arguments), box.connections) : result;
+      }
       if (call.method == 'capture.ca.snapshot') return caState;
       if (call.method == 'capture.ca.generate') {
         caState = {'exists': true, 'revision': 'ca-created', 'subject': 'CN=B-box MITM test', 'fingerprint': 'ab' * 32,
@@ -82,7 +87,7 @@ void main() {
       }
       if (call.method == 'capture.ca.export' || call.method == 'capture.ca.module') return false;
       if (call.method == 'capture.ca.install') return true;
-      if (call.method == 'capture.snapshot') return snapshot;
+      if (call.method == 'capture.query') return captureQueryResult(snapshot, json(call.arguments), box.connections);
       if (call.method == 'capture.settings') return {'revision': 'saved-revision', 'config': snapshot['config']};
       if (call.method == 'capture.domains') return ['api.test', 'pinned.test'];
       if (call.method == 'capture.start') { snapshot['state'] = {'active': true}; return snapshot['state']; }
@@ -296,14 +301,14 @@ void main() {
       'protocol': 'HTTP/1.1', 'status': 200, 'complete': true,
     }]};
     await open(tester, const RequestsPage());
-    expect(json(calls.lastWhere((call) => call.method == 'capture.snapshot').arguments)['limit'], 0);
+    expect(json(calls.lastWhere((call) => call.method == 'capture.query').arguments)['limit'], 50);
     final scaffold = tester.widget<Scaffold>(find.descendant(of: find.byType(RequestsPage), matching: find.byType(Scaffold)).first);
     scaffold.searchState!.onSearch('record-300');
     await tester.pumpAndSettle();
     expect(find.text('https://history.test/record-300'), findsOneWidget);
     await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
     await tester.tap(find.text('Export HAR').last); await tester.pumpAndSettle();
-    expect(json(calls.lastWhere((call) => call.method == 'capture.export').arguments)['ids'], ['history-300']);
+    expect(json(json(calls.lastWhere((call) => call.method == 'capture.export').arguments)['selection'])['query'], 'record-300');
   });
 
   testWidgets('HAR export uses the current request filter', (tester) async {
@@ -316,7 +321,7 @@ void main() {
     await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
     await tester.tap(find.text('Export HAR').last); await tester.pumpAndSettle();
     final exports = calls.where((call) => call.method == 'capture.export').map((call) => json(call.arguments)).toList();
-    expect(exports.single, {'format': 'har', 'ids': ['saved']});
+    expect(exports.single, {'format': 'har', 'selection': {'query': 'api.test', 'filter': 'All', 'sort': 'Created', 'parents': {}}});
     expect(find.text('Capture statistics'), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -334,7 +339,7 @@ void main() {
     ]});
     await tester.pumpAndSettle();
     extra = (call) async {
-      if (call.method == 'capture.snapshot') return snapshot;
+      if (call.method == 'capture.query') return snapshot;
       if (call.method == 'capture.stop') {
         snapshot['state'] = {'active': false};
         snapshot['page'] = {'total': 2, 'items': [for (final item in rows(json(snapshot['page'])['items'])) {...item, 'complete': true}]};
@@ -354,7 +359,7 @@ void main() {
     expect(find.text('udp.test:123'), findsOneWidget);
     await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
     await tester.tap(find.text('Export HAR').last); await tester.pumpAndSettle();
-    expect(json(calls.lastWhere((call) => call.method == 'capture.export').arguments), {'format': 'har', 'ids': ['two']});
+    expect(json(json(calls.lastWhere((call) => call.method == 'capture.export').arguments)['selection'])['filter'], 'Active');
     await tester.tap(find.text('Capture requests')); await tester.pumpAndSettle();
     expect(find.text('Capture stopped'), findsOneWidget);
     expect(find.text('api.test:443'), findsOneWidget, reason: 'The keep-alive socket remains active when recording stops.');
@@ -378,7 +383,7 @@ void main() {
         'url': 'https://api.test/$id', 'method': 'GET', 'protocol': 'HTTP/2.0', 'status': 200, 'complete': true},
     ]};
     extra = (call) async {
-      if (call.method == 'capture.snapshot') return snapshot;
+      if (call.method == 'capture.query') return snapshot;
       if (call.method == 'capture.detail') return {
         'id': json(call.arguments)['id'], 'complete': true, 'metadata': {'connectionId': 'shared', 'outbound': 'selected-node'},
         'request': {'url': 'https://api.test/${json(call.arguments)['id']}', 'method': 'GET', 'protocol': 'HTTP/2.0', 'bodyComplete': true},
@@ -420,7 +425,7 @@ void main() {
     await mount(tester);
     await open(tester, const RequestsPage());
     final slow = Completer<dynamic>();
-    extra = (call) async => call.method == 'capture.snapshot' ? slow.future : null;
+    extra = (call) async => call.method == 'capture.query' ? slow.future : null;
     await tester.tap(find.byTooltip('Refresh').last); await tester.pump();
     events.add({'type': 'dashboard', 'value': {'status': 'Started', 'remote': 'Server', 'remoteId': 1, 'remoteConnected': true}});
     await tester.pumpAndSettle();
@@ -468,14 +473,16 @@ void main() {
     await capture(tester, 'requests-pagination');
     await tester.tap(find.text('Show more'));
     await tester.pumpAndSettle();
-    expect(json(calls.lastWhere((call) => call.method == 'capture.snapshot').arguments), {'query': '', 'limit': 0});
+    expect(json(calls.lastWhere((call) => call.method == 'capture.query').arguments), containsPair('limit', 100));
+    expect(json(calls.lastWhere((call) => call.method == 'capture.query').arguments), containsPair('query', 'match'));
     await tester.scrollUntilVisible(find.text('https://match-50.test/request'), 240, scrollable: scrollable);
     expect(find.text('Show more'), findsNothing);
     scaffold().searchState!.onSearch('other');
     await tester.pumpAndSettle();
     tester.state<ScrollableState>(scrollable).position.jumpTo(0);
     await tester.pumpAndSettle();
-    expect(json(calls.lastWhere((call) => call.method == 'capture.snapshot').arguments), {'query': '', 'limit': 0});
+    expect(json(calls.lastWhere((call) => call.method == 'capture.query').arguments), containsPair('limit', 50));
+    expect(json(calls.lastWhere((call) => call.method == 'capture.query').arguments), containsPair('query', 'other'));
     expect(find.text('https://other-0.test/request'), findsOneWidget);
     expect(calls.where((call) => ['capture.start', 'capture.stop'].contains(call.method)), isEmpty);
     expect(calls.where((call) => call.method == 'connections.visible'), isNotEmpty);
@@ -540,7 +547,7 @@ void main() {
     await mount(tester);
     final started = Completer<dynamic>();
     extra = (call) async {
-      if (call.method == 'capture.snapshot') return snapshot;
+      if (call.method == 'capture.query') return snapshot;
       if (call.method == 'capture.start') return started.future;
       return null;
     };
@@ -842,20 +849,20 @@ void main() {
   testWidgets('polling stops in the background and late summaries use the latest local filter', (tester) async {
     await mount(tester);
     await open(tester, const RequestsPage());
-    final firstCount = calls.where((call) => call.method == 'capture.snapshot').length;
+    final firstCount = calls.where((call) => call.method == 'capture.query').length;
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump(const Duration(seconds: 8));
-    expect(calls.where((call) => call.method == 'capture.snapshot'), hasLength(firstCount));
+    expect(calls.where((call) => call.method == 'capture.query'), hasLength(firstCount));
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
-    expect(calls.where((call) => call.method == 'capture.snapshot').length, greaterThan(firstCount));
+    expect(calls.where((call) => call.method == 'capture.query').length, greaterThan(firstCount));
     final slow = Completer<dynamic>();
     extra = (call) async {
-      if (call.method != 'capture.snapshot') return null;
+      if (call.method != 'capture.query') return null;
       return slow.future;
     };
     Scaffold scaffold() => tester.widget<Scaffold>(find.descendant(of: find.byType(RequestsPage), matching: find.byType(Scaffold)).first);

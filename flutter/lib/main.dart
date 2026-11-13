@@ -47,18 +47,24 @@ class _BoxAppState extends State<BoxApp> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  final _themes = <String, ThemeData>{};
+  final _themes = <Brightness, ThemeData>{};
 
   @override void didChangeLocales(List<Locale>? locales) => setState(_themes.clear);
 
+  @override void didHaveMemoryPressure() {
+    widget.controller.appIcons.clear();
+    _themes.clear();
+  }
+
   ThemeData _theme(Brightness brightness) {
     final scheme = appColorScheme(widget.controller, brightness);
-    final key = "$brightness:${scheme.hashCode}";
-    return _themes.putIfAbsent(key, () => ThemeData(
+    final cached = _themes[brightness];
+    if (cached?.colorScheme == scheme) return cached!;
+    return _themes[brightness] = ThemeData(
       colorScheme: scheme,
       fontFamilyFallback: appFontFamilyFallback(platform: defaultTargetPlatform, locales: WidgetsBinding.instance.platformDispatcher.locales),
       elevatedColorScheme: brightness == Brightness.dark ? scheme.elevated : null,
-    ));
+    );
   }
 
   @override

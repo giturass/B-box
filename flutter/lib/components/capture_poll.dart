@@ -6,11 +6,13 @@ import '../widgets.dart';
 /// Request generations keep a slow reply from replacing a newer filter or session.
 class CapturePoll extends StatefulWidget {
   const CapturePoll({super.key, required this.method, required this.arguments,
-    required this.builder, this.revision = 0, this.untilComplete = false});
+    required this.builder, this.revision = 0, this.untilComplete = false, this.identity, this.load});
   final String method;
   final Json arguments;
   final int revision;
   final bool untilComplete;
+  final Object? identity;
+  final Future<Json> Function(BoxController, Json, Json?)? load;
   final Widget Function(BuildContext, Json?, Object?, VoidCallback) builder;
   @override State<CapturePoll> createState() => _CapturePollState();
 }
@@ -45,7 +47,9 @@ class _CapturePollState extends State<CapturePoll> with WidgetsBindingObserver {
   }
   @override void didUpdateWidget(CapturePoll oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.method != widget.method || !mapEquals(oldWidget.arguments, widget.arguments) || oldWidget.revision != widget.revision) _refresh();
+    if (oldWidget.identity != widget.identity) { _value = null; _error = null; }
+    if (oldWidget.method != widget.method || !mapEquals(oldWidget.arguments, widget.arguments) ||
+        oldWidget.revision != widget.revision || oldWidget.identity != widget.identity) _refresh();
   }
   @override void didChangeAppLifecycleState(AppLifecycleState state) => _sync();
 
@@ -72,7 +76,9 @@ class _CapturePollState extends State<CapturePoll> with WidgetsBindingObserver {
     _loading = true;
     final generation = _generation;
     try {
-      final value = json(await _box!.call(widget.method, Map.of(widget.arguments)));
+      final arguments = Map<String, dynamic>.of(widget.arguments);
+      final value = widget.load != null ? await widget.load!(_box!, arguments, _value)
+          : json(await _box!.call(widget.method, arguments));
       if (mounted && _visible && generation == _generation) setState(() { _value = value; _error = null; });
     } catch (error) {
       if (mounted && _visible && generation == _generation) setState(() => _error = error);

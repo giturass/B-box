@@ -7,7 +7,7 @@ import 'dashboard_chip.dart';
 class ProxyGroupsPanel extends StatelessWidget {
   const ProxyGroupsPanel({super.key});
   @override Widget build(BuildContext context) {
-    final box = context.box, groups = context.box.groups;
+    final box = context.watchBox(BoxAspect.groups), groups = box.groups;
     final timeout = <String>{for (final group in groups) for (final node in rows(group['items']))
       if ((node['testedAt'] as num? ?? 0) > 0 && (node['delay'] as num? ?? 0) <= 0) node['tag'].toString()};
     return BoxPanel(onTap: groups.isEmpty ? null : () => openForm(context, const ProxiesPage()), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

@@ -553,17 +553,7 @@ func (s *Store) Page(limit int, query string) Page {
 		if limit > 0 && len(page.Items) >= limit {
 			continue
 		}
-		duration := r.DurationMS
-		if !r.Complete {
-			duration = max(0, time.Now().UnixMilli()-r.StartedAt)
-		}
-		page.Items = append(page.Items, Summary{ID: id, ConnectionID: r.Metadata.ConnectionID,
-			StartedAt: r.StartedAt, DurationMS: duration, Complete: r.Complete,
-			Method: r.Request.Method, URL: r.Request.URL, OriginalURL: r.OriginalURL, Protocol: r.Request.Protocol, Status: r.Response.Status,
-			Packages: r.Metadata.Packages, Source: r.Metadata.Source, Destination: r.Metadata.Destination,
-			Inbound: r.Metadata.Inbound, Outbound: r.Metadata.Outbound, Rule: r.Metadata.Rule,
-			Bytes: r.Request.BodyBytes + r.Response.BodyBytes, RequestBytes: r.Request.BodyBytes, ResponseBytes: r.Response.BodyBytes,
-			Error: r.Error, DomainOnly: r.DomainOnly})
+		page.Items = append(page.Items, captureSummary(r, time.Now().UnixMilli()))
 	}
 	return page
 }

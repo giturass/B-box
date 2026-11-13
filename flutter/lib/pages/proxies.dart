@@ -2,6 +2,7 @@ import '../widgets.dart';
 import '../components/group_tabs.dart';
 import '../components/proxy_card.dart';
 import '../components/proxy_list.dart';
+import '../common/proxy_nodes.dart';
 
 class ProxiesPage extends StatefulWidget {
   const ProxiesPage({super.key});
@@ -12,6 +13,9 @@ class _ProxiesPageState extends State<ProxiesPage> {
   final _testing = <String>{};
   final _scrolls = <String, ScrollController>{};
   final _selectedOffsets = <String, double>{};
+  final _nodeLists = <String, ProxyNodes>{};
+  final _grids = <String, (Object, Widget)>{};
+  int _testingRevision = 0;
   String? _currentGroup;
 
   @override void dispose() {
@@ -35,9 +39,9 @@ class _ProxiesPageState extends State<ProxiesPage> {
 
   Future<void> _test(String tag) async {
     if (_testing.contains(tag) || !context.box.running) return;
-    setState(() => _testing.add(tag));
+    setState(() { _testing.add(tag); _testingRevision++; });
     await context.box.act('groups.test', {'tag': tag});
-    if (mounted) setState(() => _testing.remove(tag));
+    if (mounted) setState(() { _testing.remove(tag); _testingRevision++; });
   }
 
   Future<void> _select(Json group, Json node) async {
@@ -49,16 +53,11 @@ class _ProxiesPageState extends State<ProxiesPage> {
   }
 
   List<Json> _nodes(Json group) {
-    final words = _query.toLowerCase().trim().split(RegExp(r'\s+'));
-    final nodes = rows(group['items']).where((node) => words.every(node['tag'].toString().toLowerCase().contains) &&
-      !(context.box.preferences['hideTimeoutProxies'] == true && (node['testedAt'] as num? ?? 0) > 0 && (node['delay'] as num? ?? 0) <= 0)).toList();
-    final sort = context.box.preferences['proxySort'] ?? 'Default';
-    if (sort == 'Name') nodes.sort((a, b) => a['tag'].toString().compareTo(b['tag'].toString()));
-    if (sort == 'Latency') {
-      int delay(Json node) => (node['delay'] as num? ?? 0) > 0 ? (node['delay'] as num).toInt() : 0x7fffffff;
-      nodes.sort((a, b) => delay(a).compareTo(delay(b)));
-    }
-    return nodes;
+    final prefs = context.box.preferences;
+    return _nodeLists.putIfAbsent(group['tag'].toString(), ProxyNodes.new).select(
+      group['items'] as List<Json>, query: _query,
+      sort: prefs['proxySort'] as String? ?? 'Default', hideTimeouts: prefs['hideTimeoutProxies'] == true,
+    );
   }
 
   Widget _card(BuildContext context, Json group, Json node) => ProxyNodeCard(
@@ -68,11 +67,16 @@ class _ProxiesPageState extends State<ProxiesPage> {
 
   Widget _grid(Json group) {
     final nodes = _nodes(group);
+    final tag = group['tag'].toString();
     if (nodes.isEmpty) {
+      _grids.remove(tag);
       _selectedOffsets.remove(group['tag']);
       return NullStatus(label: context.tr('No results'), illustration: NullStatusIllustration.proxies);
     }
-    return LayoutBuilder(builder: (context, constraints) {
+    final key = (group, nodes, _testingRevision);
+    final cached = _grids[tag];
+    if (cached?.$1 == key) return cached!.$2;
+    final grid = LayoutBuilder(builder: (context, constraints) {
       final columns = proxyColumns(constraints.maxWidth - 32, context.box.preferences);
       final metrics = ProxyCardMetrics.of(context, context.box.preferences);
       final selected = nodes.indexWhere((node) => node['tag'] == group['selected']);
@@ -87,12 +91,16 @@ class _ProxiesPageState extends State<ProxiesPage> {
         itemCount: nodes.length, itemBuilder: (context, index) => _card(context, group, nodes[index]),
       );
     });
+    _grids[tag] = (key, grid);
+    return grid;
   }
 
   @override Widget build(BuildContext context) {
-    final box = context.box;
+    final box = context.watchBox(BoxAspect.groups);
     final groups = box.groups;
     final liveTags = groups.map((group) => group['tag'].toString()).toSet();
+    _nodeLists.removeWhere((tag, _) => !liveTags.contains(tag));
+    _grids.removeWhere((tag, _) => !liveTags.contains(tag));
     _selectedOffsets.removeWhere((tag, _) => !liveTags.contains(tag));
     if (_scrolls.keys.any((tag) => !liveTags.contains(tag))) {
       WidgetsBinding.instance.addPostFrameCallback((_) {

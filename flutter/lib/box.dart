@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show MemoryImage, PaintingBinding;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'common/ip_quality_cache.dart';
+import 'common/app_icon_cache.dart';
 
 typedef Json = Map<String, dynamic>;
 
@@ -12,7 +14,7 @@ Json json(Object? value) => value is Map
     : <String, dynamic>{};
 List<Json> rows(Object? value) => value is List ? value.map(json).toList() : [];
 
-enum BoxAspect { state, appearance, traffic, memory, connections, logs, tools, diagnostics, transfers, terminal }
+enum BoxAspect { state, appearance, groups, traffic, memory, connections, logs, tools, diagnostics, transfers, terminal }
 enum BoxData { memory, logs, connections, tools, outbounds, lan }
 
 class BoxController extends ChangeNotifier {
@@ -54,7 +56,10 @@ class BoxController extends ChangeNotifier {
   String? startupError;
   final pendingIntents = <String>[];
   String? applyRequired;
-  final appIcons = <String, Future<Uint8List?>>{};
+  late final appIcons = AppIconCache(
+    load: (package) async => await call('apps.icon', {'package': package}) as Uint8List?,
+    onEvict: (bytes) => PaintingBinding.instance.imageCache.evict(MemoryImage(bytes), includeLive: false),
+  );
   final _profileStats = <int, Future<Json>>{};
   late final ipQualities = IpQualityCache(
     read: (ip) => call('dashboard.qualityCache.get', {'ip': ip}),
@@ -92,10 +97,33 @@ class BoxController extends ChangeNotifier {
 
   Future<Json> profileStats(int id) => _profileStats.putIfAbsent(id, () async => json(await call('profiles.stats', {'id': id})));
 
-  Future<Uint8List?> appIcon(String package) => appIcons.putIfAbsent(package, () async {
-    try { return await call('apps.icon', {'package': package}) as Uint8List?; }
-    catch (_) { return null; }
-  });
+  Future<Uint8List?> appIcon(String package) => appIcons.get(package);
+
+  bool _setGroups(Object? value) {
+    final previous = {for (final group in groups) group['tag']: group};
+    final next = <Json>[];
+    for (final group in rows(value)) {
+      final old = previous[group['tag']];
+      final oldItems = old?['items'] as List<Json>? ?? const <Json>[];
+      final oldNodes = {for (final node in oldItems) node['tag']: node};
+      final items = <Json>[];
+      for (final node in rows(group['items'])) {
+        final before = oldNodes[node['tag']];
+        items.add(before != null && const MapEquality<String, dynamic>().equals(before, node) ? before : node);
+      }
+      group['items'] = listEquals(oldItems, items) ? oldItems : items;
+      next.add(old != null && const MapEquality<String, dynamic>().equals(old, group) ? old : group);
+    }
+    if (listEquals(groups, next)) return false;
+    final selections = {for (final group in groups) group['tag']: group['selected']};
+    groups = next;
+    // Route observers also run without a Flutter frame, but latency and group
+    // order changes must not rebuild unrelated pages or invalidate the egress IP.
+    if (!const MapEquality().equals(selections, {for (final group in groups) group['tag']: group['selected']})) {
+      _stateChanges.notifyListeners();
+    }
+    return true;
+  }
 
   bool get remote => dashboard['remote'] != null;
   Object? get connectionTarget => dashboard['remoteId'] ?? dashboard['remote'];
@@ -303,7 +331,9 @@ class BoxController extends ChangeNotifier {
         }
         _setDashboard(nextDashboard);
       case 'profiles': profilesRevision++; _profileStats.clear(); profiles = rows(value);
-      case 'groups': groups = rows(value);
+      case 'groups':
+        if (!_setGroups(value)) return;
+        aspects = const [BoxAspect.groups];
       case 'connections':
         final update = json(value);
         if (value is List || update['reset'] != false) _connectionsById.clear();
@@ -362,6 +392,7 @@ class BoxController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _subscription?.cancel();
+    appIcons.clear();
     messages.close();
     intents.close();
     browserEvents.close();

@@ -84,6 +84,10 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 
 `ExportUICaptureHARSelection(path, idsJSON)` 接收请求 ID 数组，校验 ID 并按选择顺序去重导出，空数组导出空 HAR，不设条数或参数字节配额。选择后已清理的记录跳过，不以新记录或整份历史替换；仅域名和 TLS/TCP 继续排除。原有按搜索文本的 HAR 绑定保留。详情与 cURL 使用请求 ID，关闭连接仍使用连接 UUID，两者不能交换。界面筛选及分页规则见 [统一查看器](flclash.md#导航与交互约定)。
 
+[store_query.go](libbox/httpdebug/store_query.go) 提供 `QueryUICapture(optionsJSON)`，接受搜索词、All/Captured/Active/Finished 状态、Created/Speed/Upload/Download 排序、可选精确连接 ID、正整数 `limit`、非负 `offset`、当前连接搜索元数据和窗口内已知摘要版本。关键词忽略大小写并逐词匹配已观测字段，HTTP 工作完成不代表 keep-alive 连接关闭。核心遍历保留索引，以只容纳 `offset + limit` 条引用的堆选取窗口，随后才创建摘要；不为整个历史创建摘要或正文数组。响应提供窗口 ID 顺序、摘要 SHA-256 版本、变化项、匹配总数、总记录数、HTTP 匹配数及下一页标志。父连接去重覆盖全部匹配记录，但只返回调用方当前连接集合内的 ID；相同排序值按请求 ID 稳定排列，请求速度仍保持未知。
+
+`SelectUICaptureHAR(optionsJSON)` 使用相同搜索及状态条件，返回全历史匹配 HTTP ID，不受分页范围影响，也不创建完整摘要。Android 在文件选择器打开前固定该选择，调用约定见 [应用桥接](app.md#请求抓取与-mitm)。两项新绑定与既有 `ListUICapture` 分别保留，原版上游 AAR 不包含这些扩展。
+
 资源与完整性边界：
 
 - 不设固定的接管连接、HTTP/2 并发流、每主机连接、HTTP 头或正文容量配额，也不增加固定读头、空闲、正文读取、MITM 探测和 TLS 握手期限。[tls_selection.go](libbox/httpdebug/tls_selection.go) 跟踪探测、待交接与正式处理的生命周期，调用取消及服务停止会回收连接。ClientHello 使用当前 Go `crypto/tls` 的解析边界；路由入口保留上游协议嗅探的回退期限，缓冲区按需增长并完整回放，不以初始容量拒绝大请求头。
@@ -92,7 +96,7 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 - 请求条数、磁盘总量、头部和 trailers 不设固定配额。每方向正文默认保留 64 KiB，用户可填写任意可表示的正整数字节数，`-1` 保存完整正文；旧记录的截断标记保留。存储失败、截断、未完成和流错误分别保留。
 - 正文处理、预览和 HAR 使用相同的 Content-Encoding 解析，支持 identity、gzip/x-gzip、deflate（zlib/raw）、br 和 zstd，合并重复头后按应用顺序逆序解码。处理阶段沿用 [content_encoding.go](libbox/httpdebug/content_encoding.go) 的逐层用户限额；预览和导出通过 [content_reader.go](libbox/httpdebug/content_reader.go) 串联流式解码器，不将完整正文或中间层装入内存。HAR 请求/响应保留原始保存内容与完整性标志，用 `_trailers` 保存尾部字段，耗时仅为总时长。cURL 仅允许完整、未截断且无 trailers 的 HTTP 请求；TLS/TCP 流和仅域名记录不进入 HAR，也不能导出 cURL。
 
-[store.go](libbox/httpdebug/store.go) 为每条记录的两个方向按需保留正文文件句柄，方向内串行写入，EOF、用户正文限额、完成和清空均释放句柄；达到前缀上限后继续累计实际转发字节。正文写入在索引锁外执行，完成标志等待在途写入提交计数，迟到写入不能重建已清理记录；元数据沿用原子替换。详情、正文页和导出在锁内复制元数据并打开文件，随后在锁外通过受快照字节数约束的 SectionReader 读取，保留并发追加及清空期间的快照一致性。列表 `limit=0` 返回全部摘要，界面分页不限制可搜索或导出的历史。
+[store.go](libbox/httpdebug/store.go) 为每条记录的两个方向按需保留正文文件句柄，方向内串行写入，EOF、用户正文限额、完成和清空均释放句柄；达到前缀上限后继续累计实际转发字节。正文写入在索引锁外执行，完成标志等待在途写入提交计数，迟到写入不能重建已清理记录；元数据沿用原子替换。详情、正文页和导出在锁内复制元数据并打开文件，随后在锁外通过受快照字节数约束的 SectionReader 读取，保留并发追加及清空期间的快照一致性。兼容绑定 `ListUICapture` 仍支持 `limit=0` 返回全部摘要，新界面使用上述分页查询。
 
 [body_preview.go](libbox/httpdebug/body_preview.go) 将每方向详情限制为首个 16 KiB 正文页；`ReadUICaptureBody(id, response, offset, raw)` 按需读取后续页。`offset` / `nextOffset` 是所选字节表示的偏移，UTF-8 边界保留完整字符；`hasMore` 表示仍可翻页，与保存或解码的 `truncated` 分开。支持的编码默认查看解码后字节，二进制页以 Base64 表示；编码不可用时首个页回退到原始保存字节，返回 `source: raw` 及原因，后续沿用该来源。普通文件页直接定位，压缩内容为到达指定偏移从头流式解码并丢弃前缀，不缓存之前的正文页。16 KiB 是读取窗口，不改变用户的抓取保留范围。
 
@@ -346,6 +350,8 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 连接关联回归还包括 [路由测试](libbox/route/httpdebug_test.go) 从真实流量跟踪器取得 UUID、穿过嗅探缓存、清空连接历史后重新打开请求存储，以及无跟踪器的 HTTP；[改写测试](libbox/httpdebug/rewrite_test.go) 检查跨目标改写仍保留原始连接 ID，[TCP 测试](libbox/httpdebug/mitm_tcp_test.go) 检查 TLS/TCP 关联，[迁移测试](libbox/httpdebug/store_migration_test.go) 检查旧记录不将 `captureId` 误认为连接 ID。
 
 [store_activity_test.go](libbox/httpdebug/store_activity_test.go) 覆盖摘要关联的持久化、独立正文计数、改写前 URL、旧记录缺省，以及 HAR 选择的去重、顺序、空选择、非法输入、非 HTTP 排除和淘汰后不扩大导出范围。真实 HTTP/1.1 复用连接的测试同时检查摘要与详情的关联一致；Android 路由测试调用新生成的 HAR 选择绑定，覆盖 HTTP 和 TLS/TCP 的导出边界。这些用例由现有统一工作流执行，实际运行结果在 [应用验证记录](app.md#验证与历史记录) 中维护。
+
+[store_query_test.go](libbox/httpdebug/store_query_test.go) 覆盖超过 300 条历史的分页与搜索、当前连接和请求字段组合匹配、未加载父连接去重、状态和排序、摘要增量、全历史 HAR 选择、清空后不扩大导出，以及查询与录制/清空竞争。Android 原路由测试另调用两项新生成绑定，核对完整请求不再重复传送摘要、HTTP/TCP 的选择和导出边界；用例存在不代表当前源码已经通过，结果仍按实际 Actions SHA 记录。
 
 [ui_capture_test.go](libbox/ui_capture_test.go) 覆盖本地设置及 schema/退役字段；[路由测试](libbox/route/httpdebug_test.go) 通过真实 TLS 握手核对原选定出站、SNI 与 DNS 映射隔离、端口覆写、CONNECT 确认顺序、证书库及未匹配流的字节回放。[mitm_tcp_test.go](libbox/httpdebug/mitm_tcp_test.go) 覆盖 TLS/TCP 二进制、混合 ALPN、服务器先发、半关闭及记录/导出边界；[script_cron_test.go](libbox/httpdebug/script_cron_test.go) 覆盖独立 HTTP 脚本、Cron 语法/时区/DST、回调、证书校验和调度生命周期；[ui_processing_test.go](libbox/ui_processing_test.go) 验证扩展 schema 及迁移；[store_migration_test.go](libbox/httpdebug/store_migration_test.go) 覆盖旧文件清理、请求保留和符号链接隔离。Android 真正的 Keystore/gomobile 签名与模块打包由 [平台测试](app.md#验证与历史记录) 覆盖；Linux 测试不能代替 Android 系统 CA 模块或目标应用的实机验收。获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py)，它不构建 Android 绑定。
 

@@ -14,6 +14,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
   final _find = TextEditingController();
   String? _original, _error, _revision;
   bool _saving = false, _checking = false, _loading = false, _search = false;
+  String _lastText = '';
   bool get _dirty => _original != null && _text.text != _original;
 
   @override void initState() {
@@ -21,7 +22,11 @@ class _ProfileEditorState extends State<ProfileEditor> {
     _text.addListener(_changed);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
-  void _changed() { if (mounted) setState(() {}); }
+  void _changed() {
+    if (_lastText == _text.text) return;
+    _lastText = _text.text;
+    if (mounted) setState(() {});
+  }
   @override void dispose() { _text.dispose(); _undo.dispose(); _find.dispose(); super.dispose(); }
 
   Future<void> _load({bool confirmDiscard = false}) async {
@@ -115,11 +120,17 @@ class _ProfileEditorState extends State<ProfileEditor> {
 
 class JsonEditorController extends TextEditingController {
   static final _tokens = RegExp(r'("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?');
+  Object? _highlightKey;
+  TextSpan? _highlight;
   @override TextSpan buildTextSpan({required BuildContext context, TextStyle? style, required bool withComposing}) {
     if (text.length > 150000 || value.composing.isValid && !value.composing.isCollapsed) {
+      _highlightKey = null;
+      _highlight = null;
       return super.buildTextSpan(context: context, style: style, withComposing: withComposing);
     }
     final colors = Theme.of(context).colorScheme;
+    final key = (text, style, colors.primary, colors.tertiary, colors.secondary);
+    if (_highlightKey == key) return _highlight!;
     final spans = <InlineSpan>[];
     var end = 0;
     for (final token in _tokens.allMatches(text)) {
@@ -131,6 +142,7 @@ class JsonEditorController extends TextEditingController {
       end = token.end;
     }
     if (end < text.length) spans.add(TextSpan(text: text.substring(end)));
-    return TextSpan(style: style, children: spans);
+    _highlightKey = key;
+    return _highlight = TextSpan(style: style, children: spans);
   }
 }

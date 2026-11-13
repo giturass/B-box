@@ -98,4 +98,19 @@ void main() {
     expect(list.select(connections, captures, query: '/74').single.key, 'request:74');
     expect(list.select(connections, captures, filter: 'Captured').length, 75);
   });
+
+  test('parents represented by unloaded matches do not steal a place in the page', () {
+    final list = ActivityList();
+    final connections = [{...connection('socket'), 'createdAt': 1000}, connection('other')];
+    final captures = [capture('new', connectionId: 'expired')];
+    expect(list.select(connections, captures, represented: {'socket'}).map((entry) => entry.key),
+      ['request:new', 'connection:other']);
+    expect(list.select(connections, captures).map((entry) => entry.key),
+      ['connection:socket', 'request:new', 'connection:other']);
+    final parents = list.parents(connections, includeText: true);
+    expect(parents['socket'], contains('com.example'));
+    final updated = [for (final connection in connections) {...connection, 'upload': 999}];
+    expect(identical(list.parents(updated, includeText: true), parents), isTrue);
+    expect(list.parents(updated, includeText: false), {'socket': '', 'other': ''});
+  });
 }

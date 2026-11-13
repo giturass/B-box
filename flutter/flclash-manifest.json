@@ -31,12 +31,12 @@
     "lib/pages/profile_details.dart": {
       "source": "lib/views/dashboard/widgets/profile_detail.dart",
       "sourceSHA256": "279a4e5336b34c593b79813b99d1432ce1fd2d950a37b05a2bed33df7ff024e8",
-      "changes": "Profile summary and configuration editing page labeled Edit, with count presentation adapted to live Room metadata and unknown update times explicitly labeled. Metadata editing is retained. Log, network, DNS, routing, rule-set, MITM, HTTP rewrite and script sections open directly from this page, which owns the single raw sing-box JSON entry. Clash subscription counters are not invented. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Profile summary and configuration editing page labeled Edit, with count presentation adapted to live Room metadata and unknown update times explicitly labeled. Metadata editing is retained. Log, network, DNS, routing, rule-set, MITM, HTTP rewrite and script sections open directly from this page, which owns the single raw sing-box JSON entry. Clash subscription counters are not invented. Migrated to the v0.9.3 prism_ui types and presentation. Subscribe to the dedicated group aspect for remote group counts."
     },
     "lib/components/proxy_groups_panel.dart": {
       "source": "lib/views/dashboard/widgets/proxy_groups.dart",
       "sourceSHA256": "7ed6bc3e3613e1f5040b86895155c7066e22e28f898dcbe81195c72402355c03",
-      "changes": "Mobile group count, overlapping badges and timeout count adapted to sing-box groups. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Mobile group count, overlapping badges and timeout count adapted to sing-box groups. Migrated to the v0.9.3 prism_ui types and presentation. Subscribe to the dedicated group aspect for count and delay updates."
     },
     "lib/components/start_toggle.dart": {
       "source": "lib/views/dashboard/widgets/current_outbound.dart",
@@ -61,7 +61,7 @@
     "lib/pages/proxies.dart": {
       "source": "lib/views/proxies/card.dart",
       "sourceSHA256": "0e9dc58363dc907150406c2608df88980ac9e4c40f034b00207239cb414744bb",
-      "changes": "Proxy card metrics, text, selection and delay presentation adapted to libbox groups. Only selector groups expose selection; Mihomo pinning and local-provider actions are omitted. Migrated to the v0.9.3 prism_ui types and presentation. Explicit Prism tab controllers are recreated when group identities change, preserving the active group by tag and existing per-group scroll positions.",
+      "changes": "Proxy card metrics, text, selection and delay presentation adapted to libbox groups. Only selector groups expose selection; Mihomo pinning and local-provider actions are omitted. Migrated to the v0.9.3 prism_ui types and presentation. Explicit Prism tab controllers are recreated when group identities change, preserving the active group by tag and existing per-group scroll positions. Group updates subscribe separately from application state. Per-group node projections reuse unchanged nodes and filtering/sorting order; unchanged tab grids are retained without rebuilding for another group’s latency update.",
       "supportingSources": [
         {
           "source": "lib/views/proxies/tab.dart",
@@ -268,7 +268,7 @@
     "lib/main.dart": {
       "source": "lib/application.dart",
       "sourceSHA256": "5b89684b6596e0d3529b2ef05c6a499441188b1691c916f500858c3ec9110d2c",
-      "changes": "PrismApp, Prism themes, built-in glass/emoji/text scaling, banner messages and navigation adapted to the existing B-box controller. Banners reserve Prism's toolbar clearance so copy and failure feedback leave toolbar actions accessible. System language and 0.8–1.4 scaling remain; no Flutter or Android identity change."
+      "changes": "PrismApp, Prism themes, built-in glass/emoji/text scaling, banner messages and navigation adapted to the existing B-box controller. Banners reserve Prism's toolbar clearance so copy and failure feedback leave toolbar actions accessible. System language and 0.8–1.4 scaling remain; no Flutter or Android identity change. Cache only the current theme for each brightness, comparing the complete color scheme. Locale changes and memory pressure clear theme caches; memory pressure also releases the bounded application-icon cache."
     },
     "lib/components/page_switcher.dart": {
       "source": "lib/pages/home.dart",

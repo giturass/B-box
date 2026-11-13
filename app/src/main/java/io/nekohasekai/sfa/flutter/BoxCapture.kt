@@ -66,6 +66,10 @@ internal class BoxCapture(private val activity: BoxActivity) {
                                 (args["query"] as? String).orEmpty(),
                             ))),
                         )
+                        "capture.query" -> mapOf(
+                            "state" to jsonObject(status()),
+                            "page" to jsonObject(JSONObject(Libbox.queryUICapture(JSONObject(args).toString()))),
+                        )
                         "capture.settings" -> settings.snapshot()
                         "capture.configure" -> {
                             require(!status().optBoolean("active")) { "Stop capture before changing its settings" }
@@ -173,6 +177,16 @@ internal class BoxCapture(private val activity: BoxActivity) {
             "domains" -> "B-box-domains.txt"
             else -> error("Unknown capture export format")
         }
+        // Resolve the entire filter before opening the picker. Only the native
+        // side holds these IDs; unloaded rows remain searchable and exportable.
+        val selection = if (args["format"] == "har" && args.containsKey("selection")) {
+            mutex.withLock { withContext(Dispatchers.IO) {
+                requireLocal()
+                Libbox.openUICapture(captures.absolutePath)
+                val query = args["selection"] as? Map<*, *> ?: error("Invalid HAR query")
+                Libbox.selectUICaptureHAR(JSONObject(query).toString())
+            } }
+        } else null
         val destination = activity.pickDocument(name) ?: return false
         requireLocal()
         return mutex.withLock { withContext(Dispatchers.IO) {
@@ -182,6 +196,7 @@ internal class BoxCapture(private val activity: BoxActivity) {
             val file = File.createTempFile("export-", ".tmp", directory)
             try {
                 when {
+                    selection != null -> Libbox.exportUICaptureHARSelection(file.absolutePath, selection)
                     args["format"] == "curl" -> Libbox.exportUICaptureCurlFile(file.absolutePath, args["id"] as? String ?: error("Missing request ID"))
                     args["format"] == "domains" -> {
                         val domains = JSONArray(Libbox.extractUICaptureHosts((args["query"] as? String).orEmpty()))

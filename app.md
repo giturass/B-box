@@ -100,7 +100,9 @@ MITM 配置、证书设置及 HTTP 脚本/Cron 的入口见 [配置编辑](flcla
 
 [BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 提供本地请求启停、筛选、列表/详情、域名、HAR/cURL 导出以及 CA 管理。开始抓包需本地服务已 Started；记录设置准备完成后，在配置互斥区复核服务实例、运行配置和当前选择，再调用该服务的抓包绑定；解密设置与证书来自已启动配置。启动失败、返回期间取消或状态确认失败会回收本次已启动会话。切换远程会话停止本地抓包，远程会话拒绝读取或操作本机记录与证书。核心协议、路由、限额和停止行为见 [libbox.md](libbox.md#httphttps-请求调试)。
 
-统一请求查看器通过原有 `capture.snapshot` 读取全部保留摘要，并与当前连接订阅合并；UI 行为见 [flclash.md](flclash.md#导航与交互约定)。`capture.export` 的 HAR 操作可携带显式 `ids`，桥接校验数组及字符串元素后调用 `ExportUICaptureHARSelection`，不另设选择条数上限；旧的 `query` 形式继续支持，正文、文件选择取消和导出失败语义保持不变。[BoxWire.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxWire.kt) 在仪表盘消息中提供远程服务器 ID，Flutter 按目标变化清空连接视图并递增会话代次，隔离迟到抓取结果和旧详情操作，同名远程服务器也分别处理。远程页面只订阅远端连接，不能查看或操作本机抓取历史。
+统一请求查看器和关联请求通过 `capture.query` 调用 `QueryUICapture`，将搜索、活动状态、排序、连接 ID、窗口及已知摘要版本交给核心；只在 Flutter 与当前连接订阅合并查询窗口，UI 行为见 [flclash.md](flclash.md#导航与交互约定)。查询附带当前连接的 ID 和搜索元数据，核心返回全部匹配请求所代表的当前连接 ID，避免分页后重复展示父连接。旧 `capture.snapshot` / `ListUICapture` 绑定继续保留兼容。
+
+`capture.export` 的 HAR 操作接受 `selection` 查询条件，打开 Android 文件选择器前通过 `SelectUICaptureHAR` 固定所有匹配 HTTP ID，再用 `ExportUICaptureHARSelection` 流式导出；完整 ID 列表仅在原生层持有，未加载记录仍可导出，选择后清空的记录不以新记录替换。原有显式 `ids` 和 `query` 形式继续支持，不另设选择条数上限；正文、文件选择取消和导出失败语义保持不变。[BoxWire.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxWire.kt) 在仪表盘消息中提供远程服务器 ID，Flutter 按目标变化清空连接视图并递增会话代次，隔离迟到抓取结果和旧详情操作，同名远程服务器也分别处理。远程页面只订阅远端连接，不能查看或操作本机抓取历史。
 
 [CaptureSettings.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureSettings.kt) 将 version 3 的应用/端口、域名提取和正文限额保存到私有 `noBackupFilesDir/http-debug/settings.json`，正文可保存完整内容或使用用户填写的字节限制。多个 Activity 共用互斥锁，保存检查修订并使用 AtomicFile，读取先恢复中断写入，不另设设置或迁移文件容量配额。抓包期间不能改记录设置。version 0～2 原子迁移保留记录筛选，删除旧 HTTPS、解密包含/排除、QUIC、库路径、函数偏移及本机改写/脚本字段，新保存拒绝这些字段；不会将旧本机解密策略提升为配置。配置和备份不携带抓包设置、记录或 CA。其他旧扩展清理见 [核心兼容说明](libbox.md#旧抓包配置清理)。
 

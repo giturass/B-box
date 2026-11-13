@@ -24,8 +24,8 @@ class ActivityEntry {
   };
 }
 
-/// Joins bounded capture summaries to the current connection snapshot before
-/// filtering and pagination. Missing/expired parents never hide saved requests.
+/// Joins a capture query window to current connections. The core reports parent
+/// IDs represented even by matches outside that window, keeping pagination exact.
 class ActivityList {
   static const _connectionFields = ['id', 'displayDestination', 'destination', 'domain', 'outbound',
     'inbound', 'network', 'protocol', 'rule', 'source', 'process', 'chain'];
@@ -37,6 +37,10 @@ class ActivityList {
   List<ActivityEntry> _result = [];
   Map<String, num?> _ranks = {};
   String? _query, _filter, _sort;
+  Set<String> _represented = const {};
+  List<Json>? _parentConnections;
+  bool? _parentText;
+  Map<String, String> _parents = const {};
 
   ActivityEntry _entry(String key, Json? connection, Json? capture) {
     final old = _entries[key];
@@ -45,8 +49,7 @@ class ActivityList {
     return _entries[key] = ActivityEntry(connection: connection, capture: capture);
   }
 
-  bool _matches(ActivityEntry entry, List<String> words) {
-    if (words.isEmpty) return true;
+  String _searchText(ActivityEntry entry) {
     final fields = <Object?>[
       for (final field in _connectionFields) entry.connection?[field],
       for (final field in _captureFields) entry.capture?[field],
@@ -55,21 +58,32 @@ class ActivityList {
     final text = cached != null && const DeepCollectionEquality().equals(fields, cached.$1)
         ? cached.$2 : fields.where((value) => value != null).join(' ').toLowerCase();
     _search[entry.key] = (fields, text);
-    return words.every(text.contains);
+    return text;
+  }
+
+  Map<String, String> parents(List<Json> connections, {required bool includeText}) {
+    if (identical(_parentConnections, connections) && _parentText == includeText) return _parents;
+    final next = {for (final connection in connections) connection['id'].toString():
+      includeText ? _searchText(ActivityEntry(connection: connection)) : ''};
+    if (!const MapEquality<String, String>().equals(_parents, next)) _parents = next;
+    _parentConnections = connections;
+    _parentText = includeText;
+    return _parents;
   }
 
   List<ActivityEntry> select(List<Json> connections, List<Json> captures,
-      {String query = '', String filter = 'All', String sort = 'Created'}) {
+      {String query = '', String filter = 'All', String sort = 'Created', Set<String> represented = const {}}) {
     query = query.toLowerCase().trim();
     if (identical(connections, _connections) && identical(captures, _captures) &&
-        query == _query && filter == _filter && sort == _sort) return _result;
+        query == _query && filter == _filter && sort == _sort &&
+        const SetEquality<String>().equals(represented, _represented)) return _result;
     final words = query.split(RegExp(r'\s+')).where((word) => word.isNotEmpty).toList();
     final parents = {for (final connection in connections) connection['id'].toString(): connection};
     final retained = <String>{};
-    final represented = <String>{};
+    final representedIDs = Set<String>.of(represented);
     final matches = <String, ActivityEntry>{};
     bool include(ActivityEntry entry) => !(filter == 'Active' && !entry.active ||
-        filter == 'Finished' && entry.active) && _matches(entry, words);
+        filter == 'Finished' && entry.active) && (words.isEmpty || words.every(_searchText(entry).contains));
 
     for (final capture in captures) {
       final key = 'request:${capture['id']}';
@@ -78,14 +92,14 @@ class ActivityList {
       final entry = _entry(key, id.isEmpty ? null : parents[id], capture);
       if (!include(entry)) continue;
       matches[key] = entry;
-      if (id.isNotEmpty) represented.add(id);
+      if (id.isNotEmpty) representedIDs.add(id);
     }
     for (final connection in connections) {
       final id = connection['id'].toString(), key = 'connection:${connection['id']}';
       retained.add(key);
       // Suppress only parents represented in this filtered result. An idle
       // keep-alive socket remains visible in Active after its HTTP work ends.
-      if (filter == 'Captured' || represented.contains(id)) continue;
+      if (filter == 'Captured' || representedIDs.contains(id)) continue;
       final entry = _entry(key, connection, null);
       if (include(entry)) matches[key] = entry;
     }
@@ -104,6 +118,7 @@ class ActivityList {
     _query = query;
     _filter = filter;
     _sort = sort;
+    _represented = represented;
     _ranks = ranks;
     return _result;
   }

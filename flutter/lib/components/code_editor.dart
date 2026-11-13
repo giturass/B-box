@@ -14,10 +14,11 @@ class CodeEditor extends StatefulWidget {
 
 class _CodeEditorState extends State<CodeEditor> {
   final _scroll = ScrollController();
+  final _gutterRevision = ValueNotifier(0);
   String? _content;
-  int _lineCount = 1;
+  List<int> _lineStarts = [0];
   Object? _layoutKey;
-  List<({int number, double top})> _lines = [];
+  bool _layoutReady = false, _gutterScheduled = false;
 
   @override void initState() {
     super.initState();
@@ -29,7 +30,8 @@ class _CodeEditorState extends State<CodeEditor> {
     if (_content == widget.controller.text) return;
     setState(() {
       _content = widget.controller.text;
-      _lineCount = '\n'.allMatches(_content!).length + 1;
+      _lineStarts = [0, for (final newline in '\n'.allMatches(_content!)) newline.end];
+      _layoutReady = false;
     });
   }
 
@@ -45,6 +47,7 @@ class _CodeEditorState extends State<CodeEditor> {
   @override void dispose() {
     widget.controller.removeListener(_changed);
     _scroll.dispose();
+    _gutterRevision.dispose();
     super.dispose();
   }
 
@@ -58,6 +61,27 @@ class _CodeEditorState extends State<CodeEditor> {
     editable.selectionOverlay?.updateForScroll();
   }
 
+  void _refreshGutter() {
+    if (_gutterScheduled) return;
+    _gutterScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _gutterScheduled = false;
+      if (!mounted) return;
+      _layoutReady = true;
+      _gutterRevision.value++;
+    });
+  }
+
+  int _lineAt(int offset) {
+    var low = 0, high = _lineStarts.length;
+    while (low < high) {
+      final middle = (low + high) ~/ 2;
+      if (_lineStarts[middle] <= offset) { low = middle + 1; }
+      else { high = middle; }
+    }
+    return math.max(0, low - 1);
+  }
+
   @override Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final style = TextStyle(inherit: false, fontFamily: 'JetBrainsMono', fontSize: 13,
@@ -65,48 +89,34 @@ class _CodeEditorState extends State<CodeEditor> {
     final strut = StrutStyle.fromTextStyle(style, forceStrutHeight: true);
     final scaler = MediaQuery.textScalerOf(context);
     final locale = Localizations.maybeLocaleOf(context);
-    final number = TextPainter(text: TextSpan(text: '$_lineCount', style: style),
+    final number = TextPainter(text: TextSpan(text: '${_lineStarts.length}', style: style),
       textDirection: TextDirection.ltr, textScaler: scaler, strutStyle: strut, locale: locale)..layout();
     final gutterWidth = number.width + 24;
-    final numberBaseline = number.computeLineMetrics().single.baseline;
     number.dispose();
     return LayoutBuilder(builder: (context, constraints) {
-      // RenderEditable in the pinned Flutter version reserves cursorWidth + 1
-      // pixels after its text. Keep the same wrapping width as the text field.
-      final textWidth = math.max(0.0, constraints.maxWidth - gutterWidth - 12 - 16 - 3);
-      final layoutKey = (_content, textWidth, style, scaler, locale);
+      final layoutKey = (_content, constraints, gutterWidth, style, scaler, locale);
       if (_layoutKey != layoutKey) {
-        final text = TextPainter(text: TextSpan(text: _content, style: style),
-          textDirection: TextDirection.ltr, textScaler: scaler, strutStyle: strut, locale: locale)
-          ..layout(minWidth: textWidth, maxWidth: textWidth);
-        var logicalLine = 1;
-        var start = true;
-        _lines = [];
-        for (final line in text.computeLineMetrics()) {
-          if (start) _lines.add((number: logicalLine, top: line.baseline - numberBaseline));
-          start = line.hardBreak;
-          if (start) logicalLine++;
-        }
-        text.dispose();
+        _layoutReady = false;
         _layoutKey = layoutKey;
+        _refreshGutter();
       }
       return Row(textDirection: TextDirection.ltr, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         ExcludeSemantics(child: SizedBox(width: gutterWidth, child: ColoredBox(
           color: scheme.surfaceContainerLow,
-          child: ClipRect(child: ListenableBuilder(listenable: _scroll, builder: (context, _) {
-            final offset = _scroll.hasClients ? _scroll.offset : 0.0;
-            // Only materialize visible numbers; scrolling does not lay out the document again.
-            var low = 0, high = _lines.length;
-            while (low < high) {
-              final middle = (low + high) ~/ 2;
-              if (_lines[middle].top < offset - 16) { low = middle + 1; }
-              else { high = middle; }
-            }
-            final first = math.max(0, low - 1);
+          child: ClipRect(child: ListenableBuilder(listenable: Listenable.merge([_scroll, _gutterRevision]), builder: (context, _) {
+            final editable = _scroll.hasClients ? _editableForScroll(_scroll.position.context.notificationContext) : null;
+            if (!_layoutReady || editable == null || !editable.renderEditable.hasSize) return const SizedBox.shrink();
+            final render = editable.renderEditable;
+            final first = _lineAt(render.getPositionForPoint(render.localToGlobal(Offset.zero)).offset);
+            final last = _lineAt(render.getPositionForPoint(render.localToGlobal(render.size.bottomRight(Offset.zero))).offset);
+            // Reuse the field's paragraph, including its actual wrapping and
+            // font fallback. Collapsed endpoints expose unsnapped line offsets;
+            // getLocalRectForCaret would round each row to physical pixels.
             return Stack(fit: StackFit.expand, children: [
-              for (var index = first; index < _lines.length && _lines[index].top < offset + constraints.maxHeight; index++)
-                Positioned(top: 16 + _lines[index].top - offset, left: 0, right: 12,
-                  child: Text('${_lines[index].number}', key: ValueKey('code-line-${_lines[index].number}'),
+              for (var index = first; index <= last; index++)
+                Positioned(top: 16 + render.getEndpointsForSelection(TextSelection.collapsed(offset: _lineStarts[index])).single.point.dy - render.preferredLineHeight,
+                  left: 0, right: 12,
+                  child: Text('${index + 1}', key: ValueKey('code-line-${index + 1}'),
                     textAlign: TextAlign.right, textDirection: TextDirection.ltr,
                     style: style.copyWith(color: scheme.onSurfaceVariant), strutStyle: strut)),
             ]);
@@ -118,7 +128,7 @@ class _CodeEditorState extends State<CodeEditor> {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
             _updateSelectionOverlay(editable);
-            setState(() {});
+            _gutterRevision.value++;
           });
           return false;
         }, child: NotificationListener<ScrollNotification>(onNotification: (notification) {

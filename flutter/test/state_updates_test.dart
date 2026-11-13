@@ -119,6 +119,70 @@ void main() {
     box.dispose();
   });
 
+  testWidgets('group latency updates preserve nodes and notify only group consumers', (tester) async {
+    await box.initialize();
+    Json group(int delay, {String selected = 'A'}) => {'tag': 'group', 'selected': selected, 'selectable': true,
+      'items': [{'tag': 'A', 'delay': delay, 'testedAt': 1}, {'tag': 'B', 'delay': 20, 'testedAt': 1}]};
+    events.add({'type': 'groups', 'value': [group(10)]});
+    await tester.pump();
+    var stateBuilds = 0, groupBuilds = 0, routeUpdates = 0;
+    box.stateChanges.addListener(() => routeUpdates++);
+    await tester.pumpWidget(BoxScope(controller: box, child: Directionality(textDirection: TextDirection.ltr,
+      child: Column(children: [
+        Builder(builder: (context) { context.box; stateBuilds++; return const SizedBox(); }),
+        Builder(builder: (context) { BoxScope.of(context, aspect: BoxAspect.groups); groupBuilds++; return const SizedBox(); }),
+      ]))));
+    final oldGroup = box.groups.single;
+    final oldNodes = oldGroup['items'] as List<Json>;
+    events.add({'type': 'groups', 'value': [group(30)]});
+    await tester.pumpAndSettle();
+    expect(stateBuilds, 1);
+    expect(groupBuilds, 2);
+    expect(routeUpdates, 0);
+    final nextNodes = box.groups.single['items'] as List<Json>;
+    expect(nextNodes.first['delay'], 30);
+    expect(identical(nextNodes.last, oldNodes.last), isTrue);
+    expect(oldNodes.first['delay'], 10);
+    final updated = box.groups;
+    events.add({'type': 'groups', 'value': [group(30)]});
+    await tester.pumpAndSettle();
+    expect(identical(box.groups, updated), isTrue);
+    expect(groupBuilds, 2);
+    events.add({'type': 'groups', 'value': [group(30, selected: 'B')]});
+    await tester.pumpAndSettle();
+    expect(routeUpdates, 1);
+    expect(stateBuilds, 1);
+    expect(identical(box.groups.single['items'], nextNodes), isTrue);
+    await tester.pumpWidget(const SizedBox());
+    box.dispose();
+  });
+
+  testWidgets('memory pressure clears icons and theme changes retain only the current pair', (tester) async {
+    messenger.setMockMethodCallHandler(channel, (call) async => switch (call.method) {
+      'ready' => {'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'}},
+      'apps.icon' => Uint8List(4),
+      _ => null,
+    });
+    await tester.pumpWidget(BoxApp(controller: box));
+    await tester.pumpAndSettle();
+    final original = tester.widget<PrismApp>(find.byType(PrismApp)).theme!;
+    await box.appIcon('app');
+    expect(box.appIcons.retainedBytes, 4);
+    tester.binding.handleMemoryPressure();
+    expect(box.appIcons.retainedBytes, 0);
+    for (final color in [0xffff2d55, 0xff34c759, 0xff007aff]) {
+      events.add({'type': 'preferences', 'value': {'color': color}});
+      await tester.pumpAndSettle();
+    }
+    final restored = tester.widget<PrismApp>(find.byType(PrismApp)).theme!;
+    expect(restored.colorScheme, original.colorScheme);
+    expect(identical(restored, original), isFalse);
+    events.add({'type': 'preferences', 'value': {'color': 0xff007aff, 'floatingNavigation': false}});
+    await tester.pumpAndSettle();
+    expect(identical(tester.widget<PrismApp>(find.byType(PrismApp)).theme, restored), isTrue);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   test('startup preserves tool and network events delivered before the minimal ready response', () async {
     final ready = Completer<Json>();
     messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready' ? ready.future : null);

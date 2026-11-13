@@ -165,6 +165,15 @@ void main() {
     }
     await tester.pumpAndSettle();
     expect(find.text('Group B node 150').hitTestable(), findsOneWidget);
+    final selectedCard = find.byWidgetPredicate((widget) => widget is ProxyNodeCard && widget.node['tag'] == 'Group B node 150');
+    final beforeLatency = tester.widget<ProxyNodeCard>(selectedCard);
+    events.add({'type': 'groups', 'value': [
+      {...groups.first, 'items': [{'tag': 'Group A node 0', 'type': 'direct', 'delay': 25, 'testedAt': 1}]},
+      groups.last,
+    ]});
+    await tester.pumpAndSettle();
+    expect(tester.widget<ProxyNodeCard>(selectedCard), same(beforeLatency),
+      reason: 'A delay update in another group must not rebuild this grid.');
     events.add({'type': 'groups', 'value': [group('New group', 1, 0), ...groups]});
     await tester.pumpAndSettle();
     expect(tester.widget<TabBarView>(find.byType(TabBarView)).controller.index, 2);

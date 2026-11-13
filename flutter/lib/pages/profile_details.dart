@@ -9,7 +9,7 @@ class ProfileDetailsPage extends StatelessWidget {
   const ProfileDetailsPage({super.key, this.profile});
   final Json? profile;
   @override Widget build(BuildContext context) {
-    final box = context.box;
+    final box = context.watchBox(BoxAspect.groups);
     final p = box.remote ? null : profile == null ? box.selectedProfile : box.profiles.where((p) => p['id'] == profile!['id']).firstOrNull;
     if (!box.remote && profile != null && p == null) return const BoxPage(title: 'Edit', children: [EmptyState('Profile no longer exists')]);
     if (p == null) return BoxPage(title: 'Edit', children: [DetailRows({

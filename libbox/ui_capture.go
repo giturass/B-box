@@ -42,6 +42,38 @@ func ListUICapture(limit int32, query string) (string, error) {
 	return captureJSON(store.Page(int(limit), query))
 }
 
+func QueryUICapture(optionsJSON string) (string, error) {
+	query, err := httpdebug.DecodeCaptureQuery(optionsJSON)
+	if err != nil {
+		return "", err
+	}
+	store, err := httpdebug.Saved()
+	if err != nil {
+		return "", err
+	}
+	page, err := store.Query(query)
+	if err != nil {
+		return "", err
+	}
+	return captureJSON(page)
+}
+
+func SelectUICaptureHAR(optionsJSON string) (string, error) {
+	query, err := httpdebug.DecodeCaptureQuery(optionsJSON)
+	if err != nil {
+		return "", err
+	}
+	store, err := httpdebug.Saved()
+	if err != nil {
+		return "", err
+	}
+	ids, err := store.SelectHAR(query)
+	if err != nil {
+		return "", err
+	}
+	return captureJSON(ids)
+}
+
 func ExtractUICaptureHosts(query string) (string, error) {
 	store, err := httpdebug.Saved()
 	if err != nil {

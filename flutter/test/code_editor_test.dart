@@ -168,4 +168,29 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets('highlight spans survive selection changes and refresh for edits and composing', (tester) async {
+    final text = JsonEditorController()..text = '{"key": true, "value": 12}';
+    final undo = UndoHistoryController();
+    addTearDown(() { text.dispose(); undo.dispose(); });
+    await _mount(tester, text, undo);
+    final context = tester.element(find.byType(CodeEditor));
+    const style = TextStyle(fontSize: 13);
+    TextSpan highlight() => text.buildTextSpan(context: context, style: style, withComposing: true);
+    final original = highlight();
+    text.selection = const TextSelection(baseOffset: 2, extentOffset: 5);
+    expect(highlight(), same(original));
+    expect(highlight().toPlainText(), text.text);
+    text.text = '{"key": false}';
+    expect(highlight(), isNot(same(original)));
+    expect(highlight().toPlainText(), text.text);
+    text.value = text.value.copyWith(composing: const TextRange(start: 2, end: 5));
+    final composing = highlight();
+    expect(composing.toPlainText(), text.text);
+    text.clearComposing();
+    expect(highlight(), isNot(same(composing)));
+    text.text = ' ' * 150001;
+    expect(highlight().children, isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 }
