@@ -245,6 +245,9 @@ func TestWARPHTTP3WithoutExtendedConnectSetting(t *testing.T) {
 		if err == nil || errors.Is(err, context.DeadlineExceeded) {
 			t.Fatal("network reset did not interrupt the old HTTP/3 tunnel", err)
 		}
+		if err = datagrams.SendDatagram(payload); err == nil {
+			t.Fatal("network reset left the old HTTP/3 tunnel writable")
+		}
 		stream.Close()
 	}
 }

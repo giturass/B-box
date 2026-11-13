@@ -98,7 +98,11 @@ func (t *WARPTransport) OpenTunnel(ctx context.Context, _, _ string) (io.ReadWri
 		}
 		return nil, err
 	}
-	return &warpTunnel{DatagramStream: stream, cancel: cancel}, nil
+	tunnel := &warpTunnel{DatagramStream: stream, ctx: peerCtx, cancel: cancel}
+	// Closing the socket alone leaves HTTP/3 datagram readers waiting in the
+	// HTTP layer. Reset and shutdown must close the whole authenticated tunnel.
+	context.AfterFunc(peerCtx, func() { tunnel.Close() })
+	return tunnel, nil
 }
 
 func (t *WARPTransport) ResetConnections() {
@@ -118,9 +122,28 @@ func (t *WARPTransport) Close() error {
 
 type warpTunnel struct {
 	transportHTTP.DatagramStream
+	ctx    context.Context
 	cancel context.CancelFunc
 	once   sync.Once
 	err    error
+}
+
+func (t *warpTunnel) ReceiveDatagram(ctx context.Context) ([]byte, error) {
+	if err := t.ctx.Err(); err != nil {
+		return nil, err
+	}
+	readCtx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(t.ctx, cancel)
+	defer stop()
+	defer cancel()
+	return t.DatagramStream.ReceiveDatagram(readCtx)
+}
+
+func (t *warpTunnel) SendDatagram(payload []byte) error {
+	if err := t.ctx.Err(); err != nil {
+		return err
+	}
+	return t.DatagramStream.SendDatagram(payload)
 }
 
 func (t *warpTunnel) Close() error {
