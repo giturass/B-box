@@ -150,13 +150,18 @@ void main() {
     final number = int.parse(tester.widget<Text>(visible.last).data!);
     final offset = text.text.indexOf('"line ${number - 1}"');
     expect(tester.getTopLeft(_line(number)).dy - _textY(tester, offset), closeTo(alignment, 0.1));
+    text.text = text.text.replaceFirst('"line ${number - 1}"', '"edited $number"');
+    await tester.pump();
+    expect(_line(number), findsOneWidget);
+    expect(tester.getTopLeft(_line(number)).dy - _textY(tester, offset), closeTo(alignment, 0.1));
     scroll.jumpTo(scroll.position.maxScrollExtent);
     await tester.pump();
     expect(_line(100), findsOneWidget);
 
     // Formatting/reload and editing use the same controller notification path.
     text.text = '{\n\n}\n';
-    await tester.pump();
+    // The field's scroll physics may animate back into the shorter document.
+    await tester.pumpAndSettle();
     for (var line = 1; line <= 4; line++) { expect(_line(line), findsOneWidget); }
     expect(_line(5), findsNothing);
     expect(scroll.offset, 0);

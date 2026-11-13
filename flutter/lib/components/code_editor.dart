@@ -143,7 +143,7 @@ class _CodeEditorLayout extends MultiChildLayoutDelegate {
   @override void performLayout(Size size) {
     final width = math.min(gutterWidth, size.width);
     // The gutter's LayoutBuilder reads RenderEditable only after the field has
-    // laid out the new text and clamped its scroll offset in this same frame.
+    // laid out the new text with its current scroll offset in this same frame.
     layoutChild(_EditorPart.field, BoxConstraints.tight(Size(size.width - width, size.height)));
     positionChild(_EditorPart.field, Offset(width, 0));
     layoutChild(_EditorPart.gutter, BoxConstraints.tight(Size(width, size.height)));
