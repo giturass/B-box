@@ -1,6 +1,8 @@
 package io.nekohasekai.sfa.flutter
 
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.net.Uri
 import android.os.PowerManager
 import androidx.lifecycle.ViewModelProvider
@@ -45,6 +47,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.Closeable
 
 class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) : Closeable {
@@ -212,341 +215,430 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private suspend fun invoke(call: MethodCall): Any? {
         @Suppress("UNCHECKED_CAST")
         val args = (call.arguments as? Map<String, Any?>).orEmpty()
-        fun string(key: String): String = args[key] as? String ?: error("Missing argument: " + key)
-        fun id(key: String = "id"): Long = (args[key] as? Number)?.toLong() ?: error("Missing argument: " + key)
-        return when (call.method) {
-            "updates.check" -> withContext(Dispatchers.IO) { BoxUpdates.check() }
-            "dashboard.egress" -> dashboardDetails.egress(string("id"))
-            "dashboard.probe.open" -> { dashboardDetails.openProbe(string("id")); null }
-            "dashboard.probe.get" -> dashboardDetails.query(string("id"), string("url"), id("timeoutMillis"))
-            "dashboard.probe.close" -> { dashboardDetails.closeProbe(string("id")); null }
-            "dashboard.qualityCache.get" -> dashboardDetails.readQualityCache(string("ip"))
+        val method = call.method
+        // The tool bridge owns every name that is not handled here, and rejects unknown ones.
+        return when (method.substringBefore('.', "")) {
+            "dashboard" -> invokeDashboard(method, args)
+            "service" -> invokeService(method, args)
+            "profiles" -> invokeProfiles(method, args)
+            "capture" -> invokeCapture(method, args)
+            "groups", "mode", "systemProxy" -> invokeProxy(method, args)
+            "connections" -> invokeConnections(method, args)
+            "logs" -> invokeLogs(method, args)
+            "preferences", "settings" -> invokeSettings(method, args)
+            "apps" -> invokeApps(method, args)
+            "remote" -> invokeRemote(method, args)
+            "backup", "webdav" -> invokeBackup(method, args)
+            "reports" -> reports.invoke(method, args)
+            else -> invokeGeneral(method, args)
+        }
+    }
+
+    private suspend fun invokeGeneral(method: String, args: Map<String, Any?>): Any? {
+        when (method) {
+            "ready" -> return ready()
+            "updates.check" -> return withContext(Dispatchers.IO) { BoxUpdates.check() }
+            "intent.take" -> return activity.takeIntent()
+            "config.check" -> return withContext(Dispatchers.IO) {
+                BoxProfiles.validate(args.string("content"))
+                true
+            }
+            "config.format" -> return withContext(Dispatchers.IO) { Libbox.formatConfig(args.string("content")).value }
+            "document.save" -> return saveDocument(args.string("name"), args.string("content"))
+            "share.text" -> {
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, args.string("content"))
+                }
+                activity.startActivity(Intent.createChooser(send, null))
+            }
+            "battery.open" -> {
+                val action = android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                activity.startActivity(Intent(action, Uri.parse("package:" + activity.packageName)))
+            }
+            "url.open" -> {
+                val uri = Uri.parse(args.string("url"))
+                require(uri.scheme in listOf("http", "https")) { "Unsupported URL" }
+                activity.startActivity(Intent(Intent.ACTION_VIEW, uri))
+            }
+            "terminal.set", "terminal.importFont", "terminal.deleteFont" -> return operations.withLock { toolBridge.invoke(method, args) }
+            else -> return toolBridge.invoke(method, args)
+        }
+        return null
+    }
+
+    private suspend fun ready(): Map<String, Any?> = coroutineScope {
+        val initialProfiles = async(Dispatchers.IO) { profiles.list() }
+        val initialSettings = async(Dispatchers.IO) { settings() }
+        val initialPreferences = async(Dispatchers.IO) { readPreferences() }
+        // The dashboard and the pending intent are read only after the stored state has loaded.
+        val profileList = initialProfiles.await()
+        val settingValues = initialSettings.await()
+        val preferenceValues = initialPreferences.await()
+        mapOf(
+            "version" to BuildConfig.VERSION_NAME,
+            "coreVersion" to Libbox.version(),
+            "systemAccentColor" to systemAccentColor(),
+            "dashboard" to dashboard.uiState.value.toWire(),
+            "profiles" to profileList,
+            "settings" to settingValues,
+            "preferences" to preferenceValues,
+            "intent" to activity.takeIntent(),
+        )
+    }
+
+    private suspend fun saveDocument(name: String, content: String): Boolean {
+        val uri = activity.pickDocument(name) ?: return false
+        withContext(Dispatchers.IO) {
+            activity.contentResolver.openOutputStream(uri, "wt")?.use { it.write(content.toByteArray()) }
+                ?: error("Unable to write document")
+        }
+        return true
+    }
+
+    private suspend fun invokeDashboard(method: String, args: Map<String, Any?>): Any? {
+        when (method) {
+            "dashboard.egress" -> return dashboardDetails.egress(args.string("id"))
+            "dashboard.probe.open" -> dashboardDetails.openProbe(args.string("id"))
+            "dashboard.probe.get" -> return dashboardDetails.query(args.string("id"), args.string("url"), args.long("timeoutMillis"))
+            "dashboard.probe.close" -> dashboardDetails.closeProbe(args.string("id"))
+            "dashboard.qualityCache.get" -> return dashboardDetails.readQualityCache(args.string("ip"))
             "dashboard.qualityCache.put" -> {
-                @Suppress("UNCHECKED_CAST")
-                val value = args["value"] as? Map<String, Any?> ?: error("Missing IP quality record")
-                dashboardDetails.writeQualityCache(string("ip"), value)
-                null
+                val record = args.objectOrNull("value") ?: error("Missing IP quality record")
+                dashboardDetails.writeQualityCache(args.string("ip"), record)
             }
-            "dashboard.releaseMemory" -> dashboardDetails.releaseMemory()
-            "dashboard.memory.visible" -> { dashboardDetails.setMemoryVisible(args["visible"] == true); null }
-            "dashboard.lan.visible" -> { dashboardDetails.setLanVisible(args["visible"] == true); null }
-            "dashboard.lan.refresh" -> dashboardDetails.refreshNetwork(force = true)
-            "dashboard.lan.set" -> localProfiles {
-                val enabled = args["enabled"] as? Boolean ?: error("Missing LAN proxy state")
-                val port = args["port"]?.let {
-                    val number = it as? Number ?: error("Invalid proxy port")
-                    require(number.toDouble() == number.toInt().toDouble() && number.toInt() in 1..65535) { "Invalid proxy port" }
-                    number.toInt()
-                } ?: 0
-                profiles.setLanProxy(id("profileId"), string("revision"), enabled, port)
-                publishProfiles()
-                dashboardDetails.refreshNetwork()
-            }
-            "ready" -> coroutineScope {
-                val initialProfiles = async(Dispatchers.IO) { profiles.list() }
-                val initialSettings = async(Dispatchers.IO) { settings() }
-                val initialPreferences = async(Dispatchers.IO) { readPreferences() }
-                val profileList = initialProfiles.await()
-                val settingValues = initialSettings.await()
-                val preferenceValues = initialPreferences.await()
-                mapOf(
-                    "version" to BuildConfig.VERSION_NAME, "coreVersion" to Libbox.version(),
-                    "systemAccentColor" to systemAccentColor(),
-                    "dashboard" to dashboard.uiState.value.toWire(),
-                    "profiles" to profileList, "settings" to settingValues, "preferences" to preferenceValues,
-                    "intent" to activity.takeIntent(),
-                )
-            }
+            "dashboard.releaseMemory" -> return dashboardDetails.releaseMemory()
+            "dashboard.memory.visible" -> dashboardDetails.setMemoryVisible(args["visible"] == true)
+            "dashboard.lan.visible" -> dashboardDetails.setLanVisible(args["visible"] == true)
+            "dashboard.lan.refresh" -> return dashboardDetails.refreshNetwork(force = true)
+            "dashboard.lan.set" -> return setLanProxy(args)
+            else -> return toolBridge.invoke(method, args)
+        }
+        return null
+    }
+
+    private suspend fun setLanProxy(args: Map<String, Any?>): Map<String, Any?> = localProfiles {
+        val enabled = args["enabled"] as? Boolean ?: error("Missing LAN proxy state")
+        val port = args["port"]?.let {
+            val number = it as? Number ?: error("Invalid proxy port")
+            require(number.toDouble() == number.toInt().toDouble() && number.toInt() in 1..65535) { "Invalid proxy port" }
+            number.toInt()
+        } ?: 0
+        profiles.setLanProxy(args.long("profileId"), args.string("revision"), enabled, port)
+        publishProfiles()
+        dashboardDetails.refreshNetwork()
+    }
+
+    private suspend fun invokeService(method: String, args: Map<String, Any?>): Any? {
+        when (method) {
             "service.start" -> {
                 require(!CommandTarget.isRemote) { "Exit remote control before starting the local service" }
                 activity.startService()
-                null
             }
             "service.stop" -> {
                 require(!CommandTarget.isRemote) { "Exit remote control before stopping the local service" }
                 activity.stopService()
-                null
             }
             "service.reload" -> operations.withLock {
-                if (CommandTarget.isRemote) withContext(Dispatchers.IO) { CommandTarget.standaloneClient().serviceReload() }
-                else activity.applyProfile(args["restart"] == true)
-                null
-            }
-            "profiles.read" -> withContext(Dispatchers.IO) { profiles.read(id()) }
-            "profiles.config" -> withContext(Dispatchers.IO) { profiles.config(id()) }
-            "profiles.stats" -> withContext(Dispatchers.IO) { profiles.stats(id()) }
-            "profiles.write" -> localProfiles {
-                val saved = profiles.writeContent(id(), string("content"), string("revision"))
-                publishProfiles()
-                saved
-            }
-            "capture.configure" -> localProfiles {
-                val saved = capture.invoke(call.method, args)
-                publishProfiles()
-                saved
-            }
-            "capture.start", "capture.stop" -> operations.withLock { capture.invoke(call.method, args) }
-            "profiles.select" -> localProfiles {
-                profiles.select(id()) { activity.serviceStatus.value }
-                publishProfiles()
-                null
-            }
-            "profiles.save" -> {
-                val session = CommandTarget.localSession()
-                val prepared = withContext(Dispatchers.IO) { profiles.prepareSave(args) }
-                localProfiles(session) {
-                    val saved = profiles.savePrepared(prepared) { CommandTarget.requireLocalSession(session) }
-                    publishProfiles()
-                    saved
-                }
-            }
-            "profiles.update" -> {
-                val session = CommandTarget.localSession()
-                val snapshot = localProfiles(session) { profiles.prepareUpdate(id()) }
-                val content = withContext(Dispatchers.IO) { profiles.downloadUpdate(snapshot) }
-                localProfiles(session) {
-                    profiles.commitUpdate(snapshot, content) { CommandTarget.requireLocalSession(session) }
-                    publishProfiles()
-                    null
-                }
-            }
-            "profiles.delete" -> localProfiles {
-                profiles.delete(id())
-                publishProfiles()
-                null
-            }
-            "profiles.reorder" -> localProfiles {
-                profiles.reorder((args["ids"] as List<*>).map { (it as Number).toLong() })
-                publishProfiles()
-                null
-            }
-            "profiles.importFile" -> {
-                val uri = activity.pickDocument() ?: return null
-                withContext(Dispatchers.IO) {
-                    val (name, bytes) = activity.readDocument(uri)
-                    profiles.decode(bytes, name)
-                }
-            }
-            "profiles.importResource" -> {
-                val session = CommandTarget.localSession()
-                val profileId = id()
-                val section = string("section")
-                val revision = string("revision")
-                val uri = activity.pickDocument() ?: return null
-                var prepared: BoxProfiles.PreparedResource? = null
-                try {
-                    withContext(Dispatchers.IO) {
-                        CommandTarget.requireLocalSession(session)
-                        val name = activity.documentName(uri, "resource")
-                        activity.contentResolver.openInputStream(uri)?.use { input ->
-                            prepared = profiles.prepareResource(profileId, section, revision, name, input)
-                        } ?: error("Unable to read resource document")
-                    }
-                    localProfiles(session) {
-                        val saved = profiles.commitResource(checkNotNull(prepared)) { CommandTarget.requireLocalSession(session) }
-                        publishProfiles()
-                        saved
-                    }
-                } finally {
-                    withContext(NonCancellable + Dispatchers.IO) { prepared?.close() }
-                }
-            }
-            "profiles.scan" -> withContext(Dispatchers.Default) { qrScanner.scan(string("session"), string("text")) }
-            "profiles.scan.close" -> { qrScanner.close(string("session")); null }
-            "profiles.decodeIntent" -> {
-                val value = string("uri")
-                val uri = Uri.parse(value)
-                if (uri.scheme == "sing-box" && uri.host == "import-remote-profile") {
-                    val info = Libbox.parseRemoteProfileImportLink(value)
-                    mapOf("name" to info.name, "url" to info.url)
-                } else if (uri.scheme == "http" || uri.scheme == "https") {
-                    BoxProfiles.validateUrl(value)
-                    mapOf("name" to (uri.host ?: "Profile"), "url" to value)
+                if (CommandTarget.isRemote) {
+                    withContext(Dispatchers.IO) { CommandTarget.standaloneClient().serviceReload() }
                 } else {
-                    withContext(Dispatchers.IO) {
-                        val (name, bytes) = activity.readDocument(uri)
-                        profiles.decode(bytes, name)
-                    }
+                    activity.applyProfile(args["restart"] == true)
                 }
             }
-            "intent.take" -> activity.takeIntent()
-            "config.check" -> withContext(Dispatchers.IO) { BoxProfiles.validate(string("content")); true }
-            "config.format" -> withContext(Dispatchers.IO) { Libbox.formatConfig(string("content")).value }
-            "document.save" -> {
-                val uri = activity.pickDocument(string("name")) ?: return false
-                withContext(Dispatchers.IO) {
-                    activity.contentResolver.openOutputStream(uri, "wt")?.use { it.write(string("content").toByteArray()) }
-                        ?: error("Unable to write document")
-                }
-                true
+            else -> return toolBridge.invoke(method, args)
+        }
+        return null
+    }
+
+    private suspend fun invokeProfiles(method: String, args: Map<String, Any?>): Any? {
+        when (method) {
+            "profiles.read" -> return withContext(Dispatchers.IO) { profiles.read(args.id()) }
+            "profiles.config" -> return withContext(Dispatchers.IO) { profiles.config(args.id()) }
+            "profiles.stats" -> return withContext(Dispatchers.IO) { profiles.stats(args.id()) }
+            "profiles.write" -> return changeProfiles { profiles.writeContent(args.id(), args.string("content"), args.string("revision")) }
+            "profiles.select" -> changeProfiles { profiles.select(args.id()) { activity.serviceStatus.value } }
+            "profiles.save" -> return saveProfile(args)
+            "profiles.update" -> updateProfile(args)
+            "profiles.delete" -> changeProfiles { profiles.delete(args.id()) }
+            "profiles.reorder" -> changeProfiles { profiles.reorder((args["ids"] as List<*>).map { (it as Number).toLong() }) }
+            "profiles.importFile" -> return importProfile()
+            "profiles.importResource" -> return importResource(args)
+            "profiles.scan" -> return withContext(Dispatchers.Default) { qrScanner.scan(args.string("session"), args.string("text")) }
+            "profiles.scan.close" -> qrScanner.close(args.string("session"))
+            "profiles.decodeIntent" -> return decodeIntent(args.string("uri"))
+            else -> return toolBridge.invoke(method, args)
+        }
+        return null
+    }
+
+    private suspend fun saveProfile(args: Map<String, Any?>): Long {
+        val session = CommandTarget.localSession()
+        // URL imports download before entering the operation lock.
+        val prepared = withContext(Dispatchers.IO) { profiles.prepareSave(args) }
+        return changeProfiles(session) { profiles.savePrepared(prepared) { CommandTarget.requireLocalSession(session) } }
+    }
+
+    private suspend fun updateProfile(args: Map<String, Any?>) {
+        val session = CommandTarget.localSession()
+        val snapshot = localProfiles(session) { profiles.prepareUpdate(args.id()) }
+        // The subscription downloads between the two locked steps.
+        val content = withContext(Dispatchers.IO) { profiles.downloadUpdate(snapshot) }
+        changeProfiles(session) { profiles.commitUpdate(snapshot, content) { CommandTarget.requireLocalSession(session) } }
+    }
+
+    private suspend fun importProfile(): Map<String, Any?>? {
+        val uri = activity.pickDocument() ?: return null
+        return withContext(Dispatchers.IO) { decodeDocument(uri) }
+    }
+
+    private fun decodeDocument(uri: Uri): Map<String, Any?> {
+        val (name, bytes) = activity.readDocument(uri)
+        return profiles.decode(bytes, name)
+    }
+
+    private suspend fun importResource(args: Map<String, Any?>): Map<String, Any?>? {
+        val session = CommandTarget.localSession()
+        val profileId = args.id()
+        val section = args.string("section")
+        val revision = args.string("revision")
+        val uri = activity.pickDocument() ?: return null
+        // Assigned while staging so that a cancelled copy still leaves the resource to close.
+        var prepared: BoxProfiles.PreparedResource? = null
+        return try {
+            withContext(Dispatchers.IO) {
+                CommandTarget.requireLocalSession(session)
+                val name = activity.documentName(uri, "resource")
+                activity.contentResolver.openInputStream(uri)?.use { input ->
+                    prepared = profiles.prepareResource(profileId, section, revision, name, input)
+                } ?: error("Unable to read resource document")
             }
-            "share.text" -> {
-                activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, string("content"))
-                }, null))
-                null
+            changeProfiles(session) { profiles.commitResource(checkNotNull(prepared)) { CommandTarget.requireLocalSession(session) } }
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) { prepared?.close() }
+        }
+    }
+
+    private suspend fun decodeIntent(value: String): Map<String, Any?> {
+        val uri = Uri.parse(value)
+        return when {
+            uri.scheme == "sing-box" && uri.host == "import-remote-profile" -> {
+                val info = Libbox.parseRemoteProfileImportLink(value)
+                mapOf("name" to info.name, "url" to info.url)
             }
+            uri.scheme == "http" || uri.scheme == "https" -> {
+                BoxProfiles.validateUrl(value)
+                mapOf("name" to (uri.host ?: "Profile"), "url" to value)
+            }
+            else -> withContext(Dispatchers.IO) { decodeDocument(uri) }
+        }
+    }
+
+    private suspend fun invokeCapture(method: String, args: Map<String, Any?>): Any? = when (method) {
+        "capture.configure" -> changeProfiles { capture.invoke(method, args) }
+        "capture.start", "capture.stop" -> operations.withLock { capture.invoke(method, args) }
+        else -> capture.invoke(method, args)
+    }
+
+    private suspend fun invokeProxy(method: String, args: Map<String, Any?>): Any? {
+        when (method) {
             "groups.select" -> operations.withLock {
-                val group = groups.uiState.value.groups.firstOrNull { it.tag == string("group") } ?: error("Group no longer exists")
+                val name = args.string("group")
+                val tag = args.string("tag")
+                val group = groups.uiState.value.groups.firstOrNull { it.tag == name } ?: error("Group no longer exists")
                 require(group.selectable) { "This group is selected automatically by sing-box" }
-                require(group.items.any { it.tag == string("tag") }) { "Node no longer exists" }
-                withContext(Dispatchers.IO) { CommandTarget.standaloneClient().selectOutbound(group.tag, string("tag")) }
-                null
+                require(group.items.any { it.tag == tag }) { "Node no longer exists" }
+                withContext(Dispatchers.IO) { CommandTarget.standaloneClient().selectOutbound(group.tag, tag) }
             }
             "groups.test" -> withContext(Dispatchers.IO) {
-                val tag = string("tag")
-                require(groups.uiState.value.groups.any { it.tag == tag || it.items.any { item -> item.tag == tag } }) { "Node no longer exists" }
+                val tag = args.string("tag")
+                val known = groups.uiState.value.groups.any { it.tag == tag || it.items.any { item -> item.tag == tag } }
+                require(known) { "Node no longer exists" }
                 CommandTarget.standaloneClient().urlTest(tag)
-                null
             }
             "mode.set" -> {
-                require(dashboard.uiState.value.clashModes.contains(string("mode"))) { "This routing mode is not provided by the configuration" }
-                withContext(Dispatchers.IO) { CommandTarget.standaloneClient().setClashMode(string("mode")) }
-                null
+                val mode = args.string("mode")
+                require(mode in dashboard.uiState.value.clashModes) { "This routing mode is not provided by the configuration" }
+                withContext(Dispatchers.IO) { CommandTarget.standaloneClient().setClashMode(mode) }
             }
             "systemProxy.set" -> {
                 require(!CommandTarget.isRemote && dashboard.uiState.value.systemProxyVisible) { "System HTTP proxy is unavailable" }
-                val enabled = args["enabled"] == true
-                dashboard.toggleSystemProxy(enabled)
-                null
+                dashboard.toggleSystemProxy(args["enabled"] == true)
             }
+            else -> return toolBridge.invoke(method, args)
+        }
+        return null
+    }
+
+    private suspend fun invokeConnections(method: String, args: Map<String, Any?>): Any? {
+        when (method) {
             "connections.visible" -> {
                 val visible = args["visible"] == true
                 if (visible != connectionsVisible.value) {
                     connectionsVisible.value = visible
                     connections.setVisible(visible)
                 }
-                null
             }
-            "connections.close" -> withContext(Dispatchers.IO) {
-                CommandTarget.standaloneClient().closeConnection(string("id"))
-                null
-            }
-            "connections.closeAll" -> withContext(Dispatchers.IO) { CommandTarget.standaloneClient().closeConnections(); null }
-            "logs.clear" -> { logs.requestClearLogs(); null }
-            "logs.visible" -> { logsVisible.value = args["visible"] == true; null }
-            "preferences.set" -> operations.withLock {
-                @Suppress("UNCHECKED_CAST")
-                val value = BoxPreferences.validate(args["value"] as? Map<String, Any?> ?: error("Missing preferences"))
-                val old = jsonObject(JSONObject(preferences.getString("value", "{}")!!))
-                val updated = BoxPreferences.validate(old + value)
-                withContext(Dispatchers.IO) { check(preferences.edit().putString("value", JSONObject(updated).toString()).commit()) { "Unable to save preferences" } }
-                updated
-            }
-            "settings.set" -> operations.withLock { saveSettings(args); settings() }
-            "settings.patch" -> operations.withLock {
-                @Suppress("UNCHECKED_CAST")
-                val values = args["value"] as? Map<String, Any?> ?: error("Missing settings")
-                patchSettings(values)
-                settings()
-            }
-            "apps.list" -> {
-                val result = withContext(Dispatchers.IO) {
-                    apps.list(
-                        key = "${PackageQueryManager.strategy}:${activity.resources.configuration.locales.toLanguageTags()}",
-                        refresh = args["refresh"] == true,
-                        showSystem = args["system"] == true,
-                        showOffline = args["nonInternet"] == true,
-                    )
-                }
-                // Package broadcasts may have updated managed selections while the page was closed.
-                emit("settings", settings())
-                result
-            }
-            "apps.icon" -> withContext(Dispatchers.IO) {
-                val drawable = activity.packageManager.getApplicationIcon(string("package"))
-                val size = (48 * activity.resources.displayMetrics.density).toInt().coerceIn(48, 192)
-                val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
-                try {
-                    drawable.setBounds(0, 0, size, size)
-                    drawable.draw(android.graphics.Canvas(bitmap))
-                    java.io.ByteArrayOutputStream().use { output ->
-                        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output)
-                        output.toByteArray()
-                    }
-                } finally { bitmap.recycle() }
-            }
-            "apps.permission" -> { PackageQueryManager.requestShizukuPermission(); null }
-            "apps.rescan" -> operations.withLock {
+            "connections.close" -> withContext(Dispatchers.IO) { CommandTarget.standaloneClient().closeConnection(args.string("id")) }
+            "connections.closeAll" -> withContext(Dispatchers.IO) { CommandTarget.standaloneClient().closeConnections() }
+            else -> return toolBridge.invoke(method, args)
+        }
+        return null
+    }
+
+    private suspend fun invokeLogs(method: String, args: Map<String, Any?>): Any? {
+        when (method) {
+            "logs.clear" -> logs.requestClearLogs()
+            "logs.visible" -> logsVisible.value = args["visible"] == true
+            else -> return toolBridge.invoke(method, args)
+        }
+        return null
+    }
+
+    private suspend fun invokeSettings(method: String, args: Map<String, Any?>): Any? = when (method) {
+        "preferences.set" -> operations.withLock { savePreferences(args.objectOrNull("value") ?: error("Missing preferences")) }
+        "settings.set" -> operations.withLock {
+            saveSettings(args)
+            settings()
+        }
+        "settings.patch" -> operations.withLock {
+            patchSettings(args.objectOrNull("value") ?: error("Missing settings"))
+            settings()
+        }
+        else -> toolBridge.invoke(method, args)
+    }
+
+    private suspend fun savePreferences(values: Map<String, Any?>): Map<String, Any?> {
+        val changes = BoxPreferences.validate(values)
+        val current = jsonObject(JSONObject(preferences.getString("value", "{}")!!))
+        val updated = BoxPreferences.validate(current + changes)
+        withContext(Dispatchers.IO) {
+            check(preferences.edit().putString("value", JSONObject(updated).toString()).commit()) { "Unable to save preferences" }
+        }
+        return updated
+    }
+
+    private suspend fun invokeApps(method: String, args: Map<String, Any?>): Any? {
+        when (method) {
+            "apps.list" -> return listApps(args)
+            "apps.icon" -> return withContext(Dispatchers.IO) { appIcon(args.string("package")) }
+            "apps.permission" -> PackageQueryManager.requestShizukuPermission()
+            "apps.rescan" -> return operations.withLock {
                 if (Settings.perAppProxyManagedMode) {
                     Settings.saveManagedApps(PerAppProxyScanner.scanAllChinaApps())
                     emit("settings", settings())
                 }
                 settings()
             }
-            "battery.open" -> {
-                activity.startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + activity.packageName)))
-                null
+            else -> return toolBridge.invoke(method, args)
+        }
+        return null
+    }
+
+    private suspend fun listApps(args: Map<String, Any?>): List<Map<String, Any>> {
+        val result = withContext(Dispatchers.IO) {
+            apps.list(
+                key = "${PackageQueryManager.strategy}:${activity.resources.configuration.locales.toLanguageTags()}",
+                refresh = args["refresh"] == true,
+                showSystem = args["system"] == true,
+                showOffline = args["nonInternet"] == true,
+            )
+        }
+        // Package broadcasts may have updated managed selections while the page was closed.
+        emit("settings", settings())
+        return result
+    }
+
+    private fun appIcon(packageName: String): ByteArray {
+        val drawable = activity.packageManager.getApplicationIcon(packageName)
+        val size = (48 * activity.resources.displayMetrics.density).toInt().coerceIn(48, 192)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        return try {
+            drawable.setBounds(0, 0, size, size)
+            drawable.draw(Canvas(bitmap))
+            ByteArrayOutputStream().use { output ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                output.toByteArray()
             }
-            "url.open" -> {
-                val uri = Uri.parse(string("url"))
-                require(uri.scheme in listOf("http", "https")) { "Unsupported URL" }
-                activity.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                null
-            }
-            "remote.list" -> withContext(Dispatchers.IO) { RemoteServerManager.list().map { mapOf("id" to it.id, "name" to it.name, "url" to it.url, "secret" to it.secret) } }
-            "remote.save" -> withContext(Dispatchers.IO) {
-                val serverId = (args["id"] as? Number)?.toLong() ?: 0L
-                val server = if (serverId == 0L) RemoteServer() else RemoteServerManager.get(serverId) ?: error("Server no longer exists")
-                server.name = string("name")
-                server.url = RemoteServer.validateURL(string("url")) ?: error("Invalid server address")
-                server.secret = string("secret")
-                if (serverId == 0L) RemoteServerManager.create(server) else RemoteServerManager.update(server)
-                server.id
-            }
-            "remote.delete" -> withContext(Dispatchers.IO) {
-                require(RemoteControlManager.remoteServer.value?.id != id()) { "Disconnect from this server first" }
-                RemoteServerManager.get(id())?.let { RemoteServerManager.delete(it) }
-                null
-            }
-            "remote.connect" -> operations.withLock {
-                val server = withContext(Dispatchers.IO) { RemoteServerManager.get(id()) } ?: error("Server no longer exists")
-                RemoteControlManager.enterRemoteControl(server)
-                null
-            }
-            "remote.disconnect" -> operations.withLock { RemoteControlManager.exitRemoteControl(); null }
-            "backup.create" -> operations.withLock { withContext(Dispatchers.IO) { backups.create() } }
-            "backup.read" -> {
-                val uri = activity.pickDocument() ?: return null
-                withContext(Dispatchers.IO) {
-                    backups.read(activity.readDocument(uri).second, args["scope"] as? String ?: "all")
-                }
-            }
-            "backup.restore" -> localProfiles {
-                @Suppress("UNCHECKED_CAST")
-                val backup = args["backup"] as? Map<String, Any?> ?: error("Missing backup")
-                backups.restore(backup, args["scope"] as? String ?: "all", args["strategy"] as? String ?: "Compatible")
-            }
-            "webdav.get" -> webdav.snapshot()
-            "webdav.set" -> operations.withLock { withContext(Dispatchers.IO) {
-                require(args.containsKey("value")) { "Missing WebDAV account" }
-                @Suppress("UNCHECKED_CAST")
-                val value = args["value"]?.let { it as? Map<String, Any?> ?: error("Invalid WebDAV account") }
-                webdav.save(value)
-                webdav.snapshot()
-            } }
-            "webdav.check" -> withContext(Dispatchers.IO) { webdav.check() }
-            "webdav.upload" -> operations.withLock { withContext(Dispatchers.IO) {
-                webdav.upload(backups.encode(backups.create()))
-                true
-            } }
-            "webdav.read" -> withContext(Dispatchers.IO) { backups.read(webdav.download(), args["scope"] as? String ?: "all") }
-            "terminal.set", "terminal.importFont", "terminal.deleteFont" -> operations.withLock { toolBridge.invoke(call.method, args) }
-            else -> when {
-                call.method.startsWith("capture.") -> capture.invoke(call.method, args)
-                call.method.startsWith("reports.") -> reports.invoke(call.method, args)
-                else -> toolBridge.invoke(call.method, args)
-            }
+        } finally {
+            bitmap.recycle()
         }
     }
 
-    private suspend fun <T> localProfiles(session: Long = CommandTarget.localSession(), block: suspend () -> T): T {
-        return operations.withLock { withContext(Dispatchers.IO) {
+    private suspend fun invokeRemote(method: String, args: Map<String, Any?>): Any? {
+        when (method) {
+            "remote.list" -> return withContext(Dispatchers.IO) {
+                RemoteServerManager.list().map { mapOf("id" to it.id, "name" to it.name, "url" to it.url, "secret" to it.secret) }
+            }
+            "remote.save" -> return withContext(Dispatchers.IO) { saveRemoteServer(args) }
+            "remote.delete" -> withContext(Dispatchers.IO) {
+                val id = args.id()
+                require(RemoteControlManager.remoteServer.value?.id != id) { "Disconnect from this server first" }
+                RemoteServerManager.get(id)?.let { RemoteServerManager.delete(it) }
+            }
+            "remote.connect" -> operations.withLock {
+                val server = withContext(Dispatchers.IO) { RemoteServerManager.get(args.id()) } ?: error("Server no longer exists")
+                RemoteControlManager.enterRemoteControl(server)
+            }
+            "remote.disconnect" -> operations.withLock { RemoteControlManager.exitRemoteControl() }
+            else -> return toolBridge.invoke(method, args)
+        }
+        return null
+    }
+
+    private suspend fun saveRemoteServer(args: Map<String, Any?>): Long {
+        val id = (args["id"] as? Number)?.toLong() ?: 0L
+        val server = if (id == 0L) RemoteServer() else RemoteServerManager.get(id) ?: error("Server no longer exists")
+        server.name = args.string("name")
+        server.url = RemoteServer.validateURL(args.string("url")) ?: error("Invalid server address")
+        server.secret = args.string("secret")
+        if (id == 0L) RemoteServerManager.create(server) else RemoteServerManager.update(server)
+        return server.id
+    }
+
+    private suspend fun invokeBackup(method: String, args: Map<String, Any?>): Any? {
+        val backupScope = args["scope"] as? String ?: "all"
+        return when (method) {
+            "backup.create" -> operations.withLock { withContext(Dispatchers.IO) { backups.create() } }
+            "backup.read" -> {
+                val uri = activity.pickDocument() ?: return null
+                withContext(Dispatchers.IO) { backups.read(activity.readDocument(uri).second, backupScope) }
+            }
+            "backup.restore" -> localProfiles {
+                val backup = args.objectOrNull("backup") ?: error("Missing backup")
+                backups.restore(backup, backupScope, args["strategy"] as? String ?: "Compatible")
+            }
+            "webdav.get" -> webdav.snapshot()
+            "webdav.set" -> operations.withLock {
+                withContext(Dispatchers.IO) {
+                    require(args.containsKey("value")) { "Missing WebDAV account" }
+                    // A null account removes the saved one.
+                    val account = if (args["value"] == null) null else args.objectOrNull("value") ?: error("Invalid WebDAV account")
+                    webdav.save(account)
+                    webdav.snapshot()
+                }
+            }
+            "webdav.check" -> withContext(Dispatchers.IO) { webdav.check() }
+            "webdav.upload" -> operations.withLock {
+                withContext(Dispatchers.IO) {
+                    webdav.upload(backups.encode(backups.create()))
+                    true
+                }
+            }
+            "webdav.read" -> withContext(Dispatchers.IO) { backups.read(webdav.download(), backupScope) }
+            else -> toolBridge.invoke(method, args)
+        }
+    }
+
+    private suspend fun <T> localProfiles(session: Long = CommandTarget.localSession(), block: suspend () -> T): T = operations.withLock {
+        withContext(Dispatchers.IO) {
             CommandTarget.requireLocalSession(session)
             block()
-        } }
+        }
     }
+
+    private suspend fun <T> changeProfiles(session: Long = CommandTarget.localSession(), block: suspend () -> T): T =
+        localProfiles(session) { block().also { publishProfiles() } }
 
     private suspend fun publishProfiles() {
         val value = withContext(Dispatchers.IO) { profiles.list() }
@@ -670,3 +762,10 @@ private fun jsonValue(value: Any?): Any? = when (value) {
     is JSONArray -> (0 until value.length()).map { jsonValue(value.get(it)) }
     else -> value
 }
+
+private fun Map<String, Any?>.string(key: String): String = this[key] as? String ?: error("Missing argument: $key")
+private fun Map<String, Any?>.long(key: String): Long = (this[key] as? Number)?.toLong() ?: error("Missing argument: $key")
+private fun Map<String, Any?>.id(): Long = long("id")
+
+@Suppress("UNCHECKED_CAST")
+private fun Map<String, Any?>.objectOrNull(key: String): Map<String, Any?>? = this[key] as? Map<String, Any?>
