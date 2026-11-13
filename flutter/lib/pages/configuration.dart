@@ -235,6 +235,15 @@ class MitmConfigPage extends StatelessWidget {
       : ListenableBuilder(listenable: store, builder: (context, _) => _build(context, store));
   }
 
+  // An option that the profile does not set shows [byDefault].
+  Widget _toggle(BuildContext context, ProfileConfigStore store, String key, String title, String option,
+      {bool byDefault = false}) {
+    final current = store.value([...path, option]);
+    return ListItem.toggle(key: ValueKey(key), title: Text(context.tr(title)),
+      value: byDefault ? current != false : current == true,
+      onChanged: store.saving ? null : (value) => store.set([...path, option], value));
+  }
+
   Widget _build(BuildContext context, ProfileConfigStore? store) {
     final revision = store?.revision;
     if (context.box.remote) return const BoxPage(title: 'MITM', children: [EmptyState('Disconnect remote session to edit local profiles')]);
@@ -249,22 +258,13 @@ class MitmConfigPage extends StatelessWidget {
         child: store.error == null ? const Center(child: ActivityIndicator.page())
           : TextButton(onPressed: store.load, child: Text(context.tr('Reload'))))
       else generateSection(items: [
-        ListItem.toggle(key: const ValueKey('mitm-enabled'), title: Text(context.tr('Decrypt HTTPS')),
-          value: store.value([...path, 'enabled']) == true,
-          onChanged: store.saving ? null : (value) => store.set([...path, 'enabled'], value)),
+        _toggle(context, store, 'mitm-enabled', 'Decrypt HTTPS', 'enabled'),
         ListItem.open(key: const ValueKey('mitm-hosts'), leading: const GlyphIcon(AppGlyphs.dns), title: Text(context.tr('Decryption domains')),
           widget: MitmHostsEditor(store: store)),
-        ListItem.toggle(key: const ValueKey('mitm-h2'), title: Text(context.tr('MITM over HTTP/2')),
-          value: store.value([...path, 'h2']) != false,
-          onChanged: store.saving ? null : (value) => store.set([...path, 'h2'], value)),
-        ListItem.toggle(key: const ValueKey('mitm-skip-server-cert-verify'), title: Text(context.tr('Skip server certificate verification')),
-          value: store.value([...path, 'skip_server_cert_verify']) == true,
-          onChanged: store.saving ? null : (value) => store.set([...path, 'skip_server_cert_verify'], value)),
-        ListItem.toggle(key: const ValueKey('mitm-tcp'), title: Text(context.tr('Decrypt TCP')),
-          value: store.value([...path, 'tcp']) == true,
-          onChanged: store.saving ? null : (value) => store.set([...path, 'tcp'], value)),
-        ListItem.toggle(key: const ValueKey('mitm-block-quic'), title: Text(context.tr('Request TCP fallback for QUIC')), value: store.value([...path, 'block_quic']) != false,
-          onChanged: store.saving ? null : (value) => store.set([...path, 'block_quic'], value)),
+        _toggle(context, store, 'mitm-h2', 'MITM over HTTP/2', 'h2', byDefault: true),
+        _toggle(context, store, 'mitm-skip-server-cert-verify', 'Skip server certificate verification', 'skip_server_cert_verify'),
+        _toggle(context, store, 'mitm-tcp', 'Decrypt TCP', 'tcp'),
+        _toggle(context, store, 'mitm-block-quic', 'Request TCP fallback for QUIC', 'block_quic', byDefault: true),
       ]),
       if (store != null && store.ready) generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit MITM options')),
