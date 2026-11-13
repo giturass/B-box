@@ -17,8 +17,6 @@ class _CodeEditorState extends State<CodeEditor> {
   final _gutterRevision = ValueNotifier(0);
   String? _content;
   List<int> _lineStarts = [0];
-  Object? _layoutKey;
-  bool _layoutReady = false, _gutterScheduled = false;
 
   @override void initState() {
     super.initState();
@@ -31,7 +29,6 @@ class _CodeEditorState extends State<CodeEditor> {
     setState(() {
       _content = widget.controller.text;
       _lineStarts = [0, for (final newline in '\n'.allMatches(_content!)) newline.end];
-      _layoutReady = false;
     });
   }
 
@@ -61,17 +58,6 @@ class _CodeEditorState extends State<CodeEditor> {
     editable.selectionOverlay?.updateForScroll();
   }
 
-  void _refreshGutter() {
-    if (_gutterScheduled) return;
-    _gutterScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _gutterScheduled = false;
-      if (!mounted) return;
-      _layoutReady = true;
-      _gutterRevision.value++;
-    });
-  }
-
   int _lineAt(int offset) {
     var low = 0, high = _lineStarts.length;
     while (low < high) {
@@ -94,18 +80,14 @@ class _CodeEditorState extends State<CodeEditor> {
     final gutterWidth = number.width + 24;
     number.dispose();
     return LayoutBuilder(builder: (context, constraints) {
-      final layoutKey = (_content, constraints, gutterWidth, style, scaler, locale);
-      if (_layoutKey != layoutKey) {
-        _layoutReady = false;
-        _layoutKey = layoutKey;
-        _refreshGutter();
-      }
-      return Row(textDirection: TextDirection.ltr, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        ExcludeSemantics(child: SizedBox(width: gutterWidth, child: ColoredBox(
+      return CustomMultiChildLayout(delegate: _CodeEditorLayout(
+        gutterWidth, (_content, constraints, style, scaler, locale)), children: [
+        LayoutId(id: _EditorPart.gutter, child: ExcludeSemantics(child: ColoredBox(
           color: scheme.surfaceContainerLow,
-          child: ClipRect(child: ListenableBuilder(listenable: Listenable.merge([_scroll, _gutterRevision]), builder: (context, _) {
+          child: ClipRect(child: ListenableBuilder(listenable: Listenable.merge([_scroll, _gutterRevision]),
+            builder: (context, _) => LayoutBuilder(builder: (context, _) {
             final editable = _scroll.hasClients ? _editableForScroll(_scroll.position.context.notificationContext) : null;
-            if (!_layoutReady || editable == null || !editable.renderEditable.hasSize) return const SizedBox.shrink();
+            if (editable == null || !editable.renderEditable.hasSize) return const SizedBox.shrink();
             final render = editable.renderEditable;
             final first = _lineAt(render.getPositionForPoint(render.localToGlobal(Offset.zero)).offset);
             final last = _lineAt(render.getPositionForPoint(render.localToGlobal(render.size.bottomRight(Offset.zero))).offset);
@@ -120,9 +102,9 @@ class _CodeEditorState extends State<CodeEditor> {
                     textAlign: TextAlign.right, textDirection: TextDirection.ltr,
                     style: style.copyWith(color: scheme.onSurfaceVariant), strutStyle: strut)),
             ]);
-          })),
+          }))),
         ))),
-        Expanded(child: NotificationListener<ScrollMetricsNotification>(onNotification: (notification) {
+        LayoutId(id: _EditorPart.field, child: NotificationListener<ScrollMetricsNotification>(onNotification: (notification) {
           // A shorter document can clamp the offset during layout without a scroll event.
           final editable = _editableForScroll(notification.context);
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -149,4 +131,25 @@ class _CodeEditorState extends State<CodeEditor> {
       ]);
     });
   }
+}
+
+enum _EditorPart { field, gutter }
+
+class _CodeEditorLayout extends MultiChildLayoutDelegate {
+  _CodeEditorLayout(this.gutterWidth, this.layoutKey);
+  final double gutterWidth;
+  final Object layoutKey;
+
+  @override void performLayout(Size size) {
+    final width = math.min(gutterWidth, size.width);
+    // The gutter's LayoutBuilder reads RenderEditable only after the field has
+    // laid out the new text and clamped its scroll offset in this same frame.
+    layoutChild(_EditorPart.field, BoxConstraints.tight(Size(size.width - width, size.height)));
+    positionChild(_EditorPart.field, Offset(width, 0));
+    layoutChild(_EditorPart.gutter, BoxConstraints.tight(Size(width, size.height)));
+    positionChild(_EditorPart.gutter, Offset.zero);
+  }
+
+  @override bool shouldRelayout(_CodeEditorLayout oldDelegate) =>
+    oldDelegate.gutterWidth != gutterWidth || oldDelegate.layoutKey != layoutKey;
 }

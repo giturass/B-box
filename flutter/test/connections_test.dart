@@ -4,6 +4,7 @@ import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/pages/requests.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/capture_query.dart';
 
 void main() {
   testWidgets('the unified page releases connection subscriptions and capture polling when closed', (tester) async {
@@ -11,11 +12,15 @@ void main() {
     final captureCalls = <MethodCall>[];
     final events = StreamController<dynamic>.broadcast();
     const channel = MethodChannel('test.connections');
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (call) async {
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
       if (call.method == 'connections.visible') visibility.add((call.arguments as Map)['visible'] == true);
       if (call.method.startsWith('capture.')) captureCalls.add(call);
+      if (call.method == 'capture.query') return captureQueryResult(
+        {'state': {'active': false}, 'page': {'items': []}}, json(call.arguments), const []);
       return call.method == 'ready' ? {'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Started'}} : null;
     });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     final box = BoxController(channel: channel, events: events.stream);
     await tester.pumpWidget(BoxApp(controller: box));
     await tester.pumpAndSettle();
@@ -23,7 +28,7 @@ void main() {
     openPage(context, const RequestsPage());
     await tester.pumpAndSettle();
     expect(visibility, [true]);
-    expect(captureCalls.map((call) => call.method), ['capture.snapshot']);
+    expect(captureCalls.map((call) => call.method), ['capture.query']);
     expect(find.byKey(const ValueKey('capture-toggle')), findsOneWidget);
     final pageContext = tester.element(find.byType(RequestsPage));
     pageContext.safeNestedPop();

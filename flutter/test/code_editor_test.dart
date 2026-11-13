@@ -17,7 +17,6 @@ Future<void> _mount(WidgetTester tester, JsonEditorController text, UndoHistoryC
     child: MediaQuery(data: MediaQueryData(textScaler: TextScaler.linear(scale)),
       child: CodeEditor(controller: text, undoController: undo)),
   )))));
-  await tester.pump();
 }
 
 double _textY(WidgetTester tester, int offset) {
@@ -157,7 +156,7 @@ void main() {
 
     // Formatting/reload and editing use the same controller notification path.
     text.text = '{\n\n}\n';
-    await tester.pumpAndSettle();
+    await tester.pump();
     for (var line = 1; line <= 4; line++) { expect(_line(line), findsOneWidget); }
     expect(_line(5), findsNothing);
     expect(scroll.offset, 0);
