@@ -11,11 +11,32 @@ import 'theme_settings.dart';
 import 'components/page_switcher.dart';
 import 'components/navigation_bar.dart';
 
+// License titles and their files under assets/licenses.
+const _licenses = {
+  'FlClash': 'LICENSE',
+  'prism_ui': 'LICENSE',
+  'prism_ui third-party notices': 'prism_ui-NOTICE',
+  'prism_ui shapes / material_new_shapes': 'prism_shapes-LICENSE',
+  'prism_ui lists / super_sliver_list': 'prism_sliver_list-LICENSE',
+  'prism_ui sheets / navigator_resizable': 'prism_navigator-LICENSE',
+  'Goja': 'goja-LICENSE',
+  'gojq': 'gojq-LICENSE',
+  'timefmt-go': 'timefmt-go-LICENSE',
+  'robfig/cron': 'cron-LICENSE',
+  'regexp2': 'regexp2-LICENSE',
+  'go-sourcemap': 'sourcemap-LICENSE',
+  'Google pprof': 'pprof-LICENSE',
+  'Brotli': 'brotli-LICENSE',
+  'klauspost/compress': 'klauspost-compress-LICENSE',
+  'JetBrains Mono': 'JetBrainsMono-OFL.txt',
+  'Twemoji / Mozilla': 'Twemoji-LICENSE.md',
+};
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   LicenseRegistry.addLicense(() async* {
-    for (final entry in const {'FlClash': 'LICENSE', 'prism_ui': 'LICENSE', 'prism_ui third-party notices': 'prism_ui-NOTICE', 'prism_ui shapes / material_new_shapes': 'prism_shapes-LICENSE', 'prism_ui lists / super_sliver_list': 'prism_sliver_list-LICENSE', 'prism_ui sheets / navigator_resizable': 'prism_navigator-LICENSE', 'Goja': 'goja-LICENSE', 'gojq': 'gojq-LICENSE', 'timefmt-go': 'timefmt-go-LICENSE', 'robfig/cron': 'cron-LICENSE', 'regexp2': 'regexp2-LICENSE', 'go-sourcemap': 'sourcemap-LICENSE', 'Google pprof': 'pprof-LICENSE', 'Brotli': 'brotli-LICENSE', 'klauspost/compress': 'klauspost-compress-LICENSE', 'JetBrains Mono': 'JetBrainsMono-OFL.txt', 'Twemoji / Mozilla': 'Twemoji-LICENSE.md'}.entries) {
+    for (final entry in _licenses.entries) {
       yield LicenseEntryWithLineBreaks([entry.key], await rootBundle.loadString('assets/licenses/${entry.value}'));
     }
   });
