@@ -1,0 +1,42 @@
+{
+  "dns": {
+    "servers": [
+      {
+        "type": "udp",
+        "tag": "warp-dns",
+        "server": "1.1.1.1",
+        "detour": "warp"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+      "auto_route": true,
+      "strict_route": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "masque",
+      "tag": "warp",
+      "server": "162.159.198.2",
+      "server_port": 443,
+      "private_key": "REPLACE_WITH_MASQUE_PRIVATE_KEY",
+      "peer_public_key": "REPLACE_WITH_MASQUE_PEER_PUBLIC_KEY",
+      "address": ["172.16.0.2/32", "2001:db8::2/128"],
+      "version": 3,
+      "mtu": 1280
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "rules": [
+      {"action": "sniff"},
+      {"protocol": "dns", "action": "hijack-dns"}
+    ],
+    "final": "warp"
+  }
+}

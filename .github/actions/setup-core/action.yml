@@ -35,6 +35,7 @@ runs:
         git -C .core apply --check ../libbox/libbox-no-legacy.patch
         git -C .core apply ../libbox/libbox-no-legacy.patch
         python3 tools/patch_sing_tun.py .core
+        python3 tools/patch_warp_masque.py .core
         python3 tools/patch_httpdebug.py .core
         cp libbox/ui_*.go .core/experimental/libbox/
     - name: Resolve the pinned JavaScript, jq and cron runtimes

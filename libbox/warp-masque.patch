@@ -1,0 +1,125 @@
+diff --git a/constant/proxy.go b/constant/proxy.go
+index 2993eb9..5d977fa 100644
+--- a/constant/proxy.go
++++ b/constant/proxy.go
+@@ -29,6 +29,7 @@ const (
+ 	TypeOpenConnect        = "openconnect"
+ 	TypeOpenVPNClient      = "openvpn-client"
+ 	TypeOpenVPNServer      = "openvpn-server"
++	TypeMASQUE             = "masque"
+ 	TypeMASQUEClient       = "masque-client"
+ 	TypeMASQUEServer       = "masque-server"
+ 	TypeTailscale          = "tailscale"
+@@ -111,6 +112,8 @@ func ProxyDisplayName(proxyType string) string {
+ 		return "OpenVPN Client"
+ 	case TypeOpenVPNServer:
+ 		return "OpenVPN Server"
++	case TypeMASQUE:
++		return "WARP MASQUE"
+ 	case TypeMASQUEClient:
+ 		return "MASQUE Client"
+ 	case TypeMASQUEServer:
+diff --git a/include/registry.go b/include/registry.go
+index fbb398d..6801086 100644
+--- a/include/registry.go
++++ b/include/registry.go
+@@ -92,6 +92,7 @@ func OutboundRegistry() *outbound.Registry {
+ 
+ 	socks.RegisterOutbound(registry)
+ 	http.RegisterOutbound(registry)
++	masque.RegisterOutbound(registry)
+ 	shadowsocks.RegisterOutbound(registry)
+ 	snell.RegisterOutbound(registry)
+ 	vmess.RegisterOutbound(registry)
+diff --git a/transport/masque/client.go b/transport/masque/client.go
+index 494ec8f..34cdacd 100644
+--- a/transport/masque/client.go
++++ b/transport/masque/client.go
+@@ -2,6 +2,7 @@ package masque
+ 
+ import (
+ 	"context"
++	"io"
+ 	"net/netip"
+ 	"slices"
+ 	"sync"
+@@ -33,12 +34,19 @@ type ClientHandler interface {
+ 	FrontHeadroom() int
+ }
+ 
++type TunnelClient interface {
++	OpenTunnel(ctx context.Context, protocol string, path string) (io.ReadWriteCloser, error)
++	ResetConnections()
++	Close() error
++}
++
+ type ClientOptions struct {
+ 	Context         context.Context
+ 	Logger          logger.ContextLogger
+-	HTTPClient      *transportHTTP.Client
++	HTTPClient      TunnelClient
+ 	Path            string
+ 	AdvertiseRoutes []netip.Prefix
++	LocalAddress    []netip.Prefix
+ 	Handler         ClientHandler
+ }
+ 
+@@ -46,9 +54,10 @@ type Client struct {
+ 	ctx             context.Context
+ 	cancel          context.CancelFunc
+ 	logger          logger.ContextLogger
+-	httpClient      *transportHTTP.Client
++	httpClient      TunnelClient
+ 	template        *Template
+ 	advertiseRoutes []AddressRange
++	localAddress    []netip.Prefix
+ 	handler         ClientHandler
+ 	access          sync.Mutex
+ 	current         *clientSession
+@@ -84,6 +93,7 @@ func NewClient(options ClientOptions) (*Client, error) {
+ 		httpClient:      options.HTTPClient,
+ 		template:        template,
+ 		advertiseRoutes: advertiseRoutes,
++		localAddress:    slices.Clone(options.LocalAddress),
+ 		handler:         options.Handler,
+ 		stateUpdated:    make(chan struct{}),
+ 	}, nil
+@@ -169,7 +179,7 @@ func (c *Client) connect() (bool, error) {
+ 	if err != nil {
+ 		return false, err
+ 	}
+-	current := &clientSession{client: c}
++	current := &clientSession{client: c, configuration: Configuration{Address: slices.Clone(c.localAddress)}}
+ 	c.access.Lock()
+ 	if c.suspended || c.restarting {
+ 		suspended := c.suspended
+@@ -183,10 +193,15 @@ func (c *Client) connect() (bool, error) {
+ 	current.session = newSession(c.ctx, stream, current, c.handler.FrontHeadroom)
+ 	c.current = current
+ 	c.access.Unlock()
+-	err = current.writeCapsule(newAddressCapsule(capsuleTypeAddressRequest, []AssignedAddress{
+-		{RequestID: 1, Prefix: netip.PrefixFrom(netip.IPv4Unspecified(), 32)},
+-		{RequestID: 2, Prefix: netip.PrefixFrom(netip.IPv6Unspecified(), 128)},
+-	}))
++	if len(c.localAddress) > 0 {
++		// WARP assigns addresses during account enrollment, outside the tunnel.
++		err = current.updateConfiguration(current.configuration)
++	} else {
++		err = current.writeCapsule(newAddressCapsule(capsuleTypeAddressRequest, []AssignedAddress{
++			{RequestID: 1, Prefix: netip.PrefixFrom(netip.IPv4Unspecified(), 32)},
++			{RequestID: 2, Prefix: netip.PrefixFrom(netip.IPv6Unspecified(), 128)},
++		}))
++	}
+ 	if err == nil && len(c.advertiseRoutes) > 0 {
+ 		err = current.writeCapsule(newRouteCapsule(c.advertiseRoutes))
+ 	}
+@@ -335,6 +350,9 @@ func (c *Client) WritePacketBuffers(packetBuffers []*buf.Buffer, forwarded bool)
+ }
+ 
+ func (s *clientSession) handleAddressAssign(addresses []AssignedAddress) error {
++	if len(s.client.localAddress) > 0 {
++		return nil
++	}
+ 	var assigned []netip.Prefix
+ 	for _, address := range addresses {
+ 		if address.RequestID != 0 && address.Prefix.Addr().IsUnspecified() && address.Prefix.IsSingleIP() {

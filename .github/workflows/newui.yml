@@ -41,6 +41,12 @@ jobs:
       - name: HTTP, routed IP and LAN tests against the matching core
         working-directory: .core
         run: go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1
+      - name: WARP MASQUE authentication, HTTP/2 and HTTP/3 tunnel regressions
+        working-directory: .core
+        run: |
+          go test -race -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m
+          go test -race -tags=with_quic -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m
+          go test -tags=with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIMASQUE' -count=1
       - name: Routed probe lifecycle race tests
         working-directory: .core
         run: go test -race -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(Egress|Route|HTTP|Profile)' -count=1

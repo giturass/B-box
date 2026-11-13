@@ -54,6 +54,8 @@ Flutter 从 `ready` 和配置/设置变更事件取得配置列表与设置，�
 
 [BoxProfiles.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxProfiles.kt) 负责导入、编辑、手动订阅更新、配置切换及局域网代理保存；[ProfileContent.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileContent.kt) 的互斥锁和内容替换流程由前台编辑和后台订阅更新共用。
 
+Cloudflare WARP MASQUE 使用新增的 sing-box `masque` 出站，通过既有 JSON 导入/编辑和 `Libbox.checkConfig` 校验。字段、凭据及示例由 [核心文档](libbox.md#cloudflare-warp-masque) 维护。
+
 - 保存前检查内容修订和完整 `Libbox.checkConfig`，以原子写入替换内容。分项配置编辑原生 DNS、路由、规则集、入站、出站、端点和日志；原始 JSON 编辑保留配置元数据及订阅 URL。
 - 普通应用设置、查询策略/托管扫描结果、终端设置、配置选择及服务模式通过 [RoomPreferenceDataStore.kt](app/src/main/java/io/nekohasekai/sfa/database/preference/RoomPreferenceDataStore.kt) 的确认事务保存；只有 Room 提交成功才发布缓存并向调用方返回成功。查询策略先用于扫描，成功后与其他设置一起提交。保留的同步属性写入在失败时恢复缓存，`flush()` 报告此前尚未报告的错误，较早写入的完成或失败不能覆盖后续排队的值；服务清理与广播结束不因刷盘失败中断。字符串集合按 UTF-8 字节长度编码，支持中文及 emoji。
 - 本地配置创建时在 Room 记录时间，原始 JSON 编辑、分项配置编辑及局域网入站变更成功保存内容时更新 `lastUpdated`；无内容变化和仅编辑名称等元数据不刷新时间。保存或应用失败与内容一起恢复旧时间。远程配置的该字段仍表示订阅更新时间，手动 JSON 编辑不覆盖它；没有时间记录的旧配置保持未知。界面展示见 [flclash.md](flclash.md#配置页与内核差异)。
@@ -186,6 +188,8 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 `publish_release` 默认开启；设为 `false` 时仍构建、校验并上传 Actions Artifact，仅跳过发布。[publish_release.py](tools/publish_release.py) 要求 Release tag 严格等于 `VERSION_NAME`（不加 `v`）且指向本次源码 SHA；已有 tag 指向其他提交时失败，不移动版本标签。同一提交重跑可重传资产。发布 APK 及 `B-box-version-metadata.json`，alpha/beta/rc 标为预发布。
 
 ## 验证与历史记录
+
+[WarpMasqueConfigTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpMasqueConfigTest.kt) 在 smoke 矩阵中使用临时 ECDSA 密钥，检查实际 libbox AAR 接受 HTTP/2、HTTP/3 WARP MASQUE 配置，格式化保留凭据及隧道地址，并拒绝非法账号配置；该用例不连接 Cloudflare。核心握手和真实 IP 栈传输的回归范围见 [libbox.md](libbox.md#cloudflare-warp-masque)。
 
 统一工作流的 `root-ca` job 在独立 Linux PID/mount namespace 中运行 [test_mitm_ca.py](tools/test_mitm_ca.py)，使用 BusyBox 和导出的原始脚本，覆盖 APEX 延迟就绪、旧系统缺少 APEX、hash 冲突和原证书保留、已有二级后代/隐藏模块路径、同一 namespace 的重新挂载、准备失败、service 重试和禁用退出。该测试只在 Actions 运行，不对本机 Android 做 Root 挂载。`ProfileRecoveryTest.failedSelectionRestoresThePreviousSelectionAndService` 连续五轮核对选配置失败恢复、停止释放核心及重新启动，防止服务清理竞态污染后续用例。
 

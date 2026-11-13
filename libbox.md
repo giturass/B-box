@@ -12,6 +12,7 @@
 | --- | --- | --- |
 | 排除 legacy 产物 | [libbox-no-legacy.patch](libbox/libbox-no-legacy.patch) | 修改上游 `cmd/internal/build_libbox/main.go`，删除 API 21 AAR 分支及只供该分支使用的 `filterTags` |
 | Android 自动重定向兼容 | [sing-tun-android-ingress.patch](libbox/sing-tun-android-ingress.patch) | 兼容 ingress discard BPF map 的 4/8 字节 value，保留接口归属检查和原值恢复 |
+| Cloudflare WARP MASQUE | [warp-masque.patch](libbox/warp-masque.patch)、[masque/](libbox/masque/) | 新增 `masque` 出站，适配 WARP 的 ECDSA 认证、公钥固定、HTTP/3 datagram 与 HTTP/2 capsule |
 | 运行时内存绑定 | [ui_dashboard.go](libbox/ui_dashboard.go) | 读取 Go 运行时内存和 goroutine 数，提供释放内存操作 |
 | HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码与完整响应，通过 `UIHTTPTask` 传播 Android 取消，供备份及 Release 元数据使用 |
 | 订阅下载绑定 | [ui_profile.go](libbox/ui_profile.go) | 可取消的完整订阅下载，失败响应不读取正文 |
@@ -23,6 +24,33 @@
 | 独立配置处理 | [http_rewrite.patch](libbox/http_rewrite.patch)、[ui_processing.go](libbox/ui_processing.go)、[processing.go](libbox/option/processing.go) | 独立的 MITM、HTTP 改写、HTTP 脚本与 Cron，统一校验及服务生命周期 |
 
 ## 新增接口与行为
+
+### Cloudflare WARP MASQUE
+
+B-box 新增 `outbounds` 中的 `type: "masque"`，复用当前上游 MASQUE 的 IP 栈、TCP/UDP/ICMP、路由、代理组和网络切换生命周期。上游 `endpoints` 中的 `masque-client` / `masque-server` 继续使用标准 CONNECT-IP。WARP 使用自己的 `cf-connect-ip` 握手和注册时分配的地址；只将普通 MASQUE 端点改为 WARP 服务器并不能完成认证。
+
+传输依据 [Cloudflare 官方网络要求](https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/deployment/firewall/#masque) 的 MASQUE UDP 与 HTTP/2 TCP 说明；WARP 专用握手及凭据格式核对 [warpscout `9e2ce9570625757ba24b390ad680dccd5e7f2707`](https://github.com/vernette/warpscout/blob/9e2ce9570625757ba24b390ad680dccd5e7f2707/masque.go)、其固定的 [usque `6aa03fc97d12`](https://github.com/Diniboy1123/usque/blob/6aa03fc97d12/api/masque.go) 和 [connect-ip-go `66cba32d7d33`](https://github.com/Diniboy1123/connect-ip-go/blob/66cba32d7d33/client_h2.go)。实现使用当前核心已有的 `quic-go`、`x/net/http2` 及 sing-box IP 栈，不引入这些参考项目的运行时或其他代理核心。
+
+| 字段 | 作用 |
+| --- | --- |
+| `server` / `server_port` | 当前网络可用的 WARP MASQUE 服务地址与端口；均须提供，IPv6 地址不加方括号 |
+| `private_key` | 已注册 MASQUE 设备的 ECDSA P-256 私钥；支持 PEM、Base64 DER，SEC1 或 PKCS#8 |
+| `peer_public_key` | 同一注册结果中的服务端 ECDSA P-256 公钥；支持 PEM 或 Base64 DER SubjectPublicKeyInfo |
+| `address` | 同一注册结果的隧道地址，IPv4 使用 `/32`、IPv6 使用 `/128`；每种地址族最多一个，至少一个 |
+| `server_name` | TLS SNI，默认 `consumer-masque.cloudflareclient.com`；选择其他 SNI 时仍校验服务端公钥 |
+| `version` | `3` 为 QUIC/HTTP/3（UDP，默认），`2` 为 TLS/HTTP/2（TCP） |
+| `mtu` | IP 栈 MTU，默认 `1280`，有效范围 `1280`–`65535` |
+| 通用拨号字段 | 使用 sing-box 原生 `detour`、`bind_interface`、`domain_resolver` 等，沿用 Android socket 保护 |
+
+先准备 MASQUE 注册结果，再填写 [warp-masque.json](examples/warp-masque.json) 中的私钥、公钥、隧道地址和可用服务端点后导入 B-box。示例的 `2001:db8::2/128` 是文档地址，须替换为注册结果；没有 IPv6 隧道地址时删除该项。usque 配置的 `private_key` 对应这里的 `private_key`，`endpoint_pub_key` 对应 `peer_public_key`，`ipv4` / `ipv6` 加上主机前缀长度后填入 `address`。HTTP/3 和 HTTP/2 使用同一组 MASQUE 设备凭据，服务端点及 SNI 按所选传输填写。WireGuard 的 Curve25519 私钥和 peer key 不能用于这个出站。
+
+每次 TLS 握手使用已注册的私钥签发临时客户端证书；证书更新不替换注册私钥。服务端证书以注册公钥固定校验，缺少公钥、密钥格式错误、重复地址族和失败的 CONNECT 都返回错误。HTTP/3 发送 WARP 所需的旧 datagram setting，在服务端未声明 extended CONNECT 时仍完成 `cf-connect-ip`；HTTP/2 使用普通 CONNECT 和 WARP 专用头，capsule 内直接传 IP 数据，不添加 HTTP/3 的 context ID。
+
+注册地址在认证完成后配置给 IP 栈，拨号等待就绪，不等待 WARP 不发送的 `ADDRESS_ASSIGN`；普通 MASQUE 仍保留地址请求/分配。取消握手、停服和网络切换会关闭旧 TCP/QUIC 连接，已成功打开的隧道不被握手期限结束取消；重连沿用上游的退避与服务生命周期。
+
+[patch_warp_masque.py](tools/patch_warp_masque.py) 对干净的匹配核心检查补丁并安装选项、出站和传输，重复安装失败。共享 [setup-core](.github/actions/setup-core/action.yml) 使统一测试、Android smoke 和 ARM64 Release 使用同一实现；正式 libbox 构建已有 `with_quic`，不含 QUIC 的测试构建只接受 HTTP/2。
+
+[传输回归](libbox/masque/warp_test.go) 与 [HTTP/3 回归](libbox/masque/warp_http3_test.go) 使用临时测试密钥和本地 TLS/QUIC 服务器，检查握手、公钥固定、报文、失败/取消与重连；[ui_masque_test.go](libbox/ui_masque_test.go) 检查配置/格式化及真实 IP 栈经 selector 传输 UDP 和网络重置。[Android 绑定回归](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpMasqueConfigTest.kt) 验证实际 AAR 的 HTTP/2、HTTP/3 配置和非法凭据拒绝。实际运行记录维护在 [app.md](app.md#验证与历史记录)；本地模拟服务不代表 Cloudflare 真实网络或注册流程已经验收。
 
 ### 运行时内存
 
