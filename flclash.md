@@ -113,6 +113,8 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 Cloudflare WARP MASQUE 通过“网络 → 出站”的 JSON 表单或原始 JSON 编辑器配置；字段及导入示例见 [核心文档](libbox.md#cloudflare-warp-masque)。配置保存沿用上述修订检查及 Android 校验流程。
 
+[requests_test.dart](flutter/test/requests_test.dart) 的详情滚动查找限定在当前详情页内；目标尚未由列表构建时先滚动，不对空查找调用 `.last`。这保留关联请求、连接过期及滚动后标题边界的实际断言。
+
 原始 JSON 编辑器使用 [code_editor.dart](flutter/lib/components/code_editor.dart) 显示从 1 开始的逻辑行号，空行和末尾换行保留编号；长行折行不增加行号，行号随正文滚动。编辑器只保存逻辑行起始偏移，在同一帧先布局正文，再复用 `RenderEditable` 的排版及未取整选区端点计算可见行号，输入、替换内容和调整尺寸时无需等待下一帧，也不为行号排版第二份完整文本。正文滚动及视口尺寸变化后同步选区端点，使手柄显示位置与拖动计算使用同一组正文坐标，避免按旧位置选中其他行；搜索、格式化、撤销及修订校验沿用原编辑流程。
 
 [JsonEditorController](flutter/lib/pages/profile_editor.dart) 只缓存当前内容、样式和配色的高亮，纯选区变化复用结果；输入法组合输入及超过既有 150000 字符阈值时使用普通文本并释放高亮缓存。原始编辑器和分项 JSON 表单不因选区变化重建整页。`ProfileConfigStore.set` 只复制修改路径上的 Map，序列化读取其他分支；失败时原配置和修订保持不变。

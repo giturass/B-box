@@ -126,12 +126,14 @@ void main() {
 
   Future<void> showDetailItem(WidgetTester tester, Finder finder) async {
     await dismissCopyFeedback(tester);
-    final scrollable = find.descendant(of: find.byType(RequestDetailPage).last, matching: find.byType(Scrollable)).first;
-    if (finder.evaluate().isEmpty) {
+    final page = find.byType(RequestDetailPage).last;
+    final target = find.descendant(of: page, matching: finder);
+    final scrollable = find.descendant(of: page, matching: find.byType(Scrollable)).first;
+    if (target.evaluate().isEmpty) {
       tester.state<ScrollableState>(scrollable).position.jumpTo(0);
       await tester.pumpAndSettle();
     }
-    await tester.scrollUntilVisible(finder, 240, scrollable: scrollable);
+    await tester.scrollUntilVisible(target, 240, scrollable: scrollable);
     await tester.pumpAndSettle();
   }
 
@@ -398,7 +400,7 @@ void main() {
     await tester.tap(related); await tester.pumpAndSettle();
     expect(json(calls.lastWhere((call) => call.method == 'capture.detail').arguments)['id'], 'two');
     await chooseMessage(tester, 'Connection');
-    await showDetailItem(tester, find.text('Related captured requests').last);
+    await showDetailItem(tester, find.text('Related captured requests'));
     final detailPage = find.byType(RequestDetailPage).last;
     final detailList = find.descendant(of: detailPage, matching: find.byType(ListView)).first;
     final detailTitle = find.descendant(of: detailPage, matching: find.text('Request details')).last;
@@ -413,7 +415,7 @@ void main() {
     expect(json(calls.lastWhere((call) => call.method == 'connections.close').arguments)['id'], 'shared');
     events.add({'type': 'connections', 'value': []});
     await tester.pumpAndSettle();
-    await showDetailItem(tester, find.text('No longer in recent connections').last);
+    await showDetailItem(tester, find.text('No longer in recent connections'));
     final scaffold = tester.widget<Scaffold>(find.descendant(of: find.byType(RequestDetailPage).last, matching: find.byType(Scaffold)).first);
     expect(scaffold.menuItems.singleWhere((item) => item.label == 'Close underlying connection').onPressed, isNull);
     await tester.tap(find.byTooltip('Export cURL').last); await tester.pumpAndSettle();
