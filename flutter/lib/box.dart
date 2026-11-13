@@ -126,16 +126,21 @@ class BoxController extends ChangeNotifier {
   }
 
   bool get remote => dashboard['remote'] != null;
-  Object? get connectionTarget => dashboard['remoteId'] ?? dashboard['remote'];
+  Object? get connectionTarget => _targetOf(dashboard);
+  static Object? _targetOf(Json value) => value['remoteId'] ?? value['remote'];
 
-  void _setDashboard(Json value) {
-    if (connectionTarget != (value['remoteId'] ?? value['remote'])) {
+  /// Replaces the dashboard and returns whether it belongs to another session.
+  bool _setDashboard(Json value) {
+    final sessionChanged = connectionTarget != _targetOf(value);
+    if (sessionChanged) {
       sessionRevision++;
       _connectionsById.clear();
       connections = [];
     }
     dashboard = value;
+    return sessionChanged;
   }
+
   bool get running => remote
       ? dashboard['remoteConnected'] == true
       : dashboard['status'] == 'Started';
@@ -299,93 +304,158 @@ class BoxController extends ChangeNotifier {
     if (_disposed) return;
     final item = json(event);
     final type = item['type'] as String?;
-    if (type != null) _eventRevisions[type] = (_eventRevisions[type] ?? 0) + 1;
-    final value = item['value'];
-    var aspects = const [BoxAspect.state];
-    switch (item['type']) {
-      case 'tools': toolState = json(value); aspects = const [BoxAspect.tools];
-      case 'outbounds': outbounds = rows(value); aspects = const [BoxAspect.diagnostics];
-      case 'stun': stun = json(value); aspects = const [BoxAspect.diagnostics];
-      case 'quality': quality = json(value); aspects = const [BoxAspect.diagnostics];
-      case 'inbox': inbox = json(value); aspects = const [BoxAspect.transfers];
-      case 'ping': ping = json(value); aspects = const [BoxAspect.diagnostics];
-      case 'transfers': transfers = rows(value); aspects = const [BoxAspect.transfers];
-      case 'usbDevices': usbDevices = rows(value); aspects = const [BoxAspect.tools];
-      case 'terminal': terminal = json(value); aspects = const [BoxAspect.terminal];
-      case 'memory':
-        final nextMemory = json(value);
-        if (const DeepCollectionEquality().equals(memory, nextMemory)) return;
-        memory = nextMemory;
-        aspects = const [BoxAspect.memory];
-      case 'lan': lan = json(value);
-      case 'browserComplete': browserEvents.add(json(value)); return;
+    if (type == null) return;
+    _eventRevisions[type] = (_eventRevisions[type] ?? 0) + 1;
+    final aspects = _applyEvent(type, item['value']);
+    if (aspects.isNotEmpty) _notify(aspects);
+  }
+
+  /// Applies one backend event and returns the aspects whose consumers rebuild.
+  List<BoxAspect> _applyEvent(String type, Object? value) {
+    switch (type) {
       case 'dashboard':
-        final nextDashboard = json(value);
-        if (const DeepCollectionEquality().equals(dashboard, nextDashboard)) return;
-        const counters = {'memory', 'goroutines', 'uploadTotal', 'downloadTotal', 'connections'};
-        Json state(Json data) => Map.fromEntries(data.entries.where((entry) => !counters.contains(entry.key)));
-        aspects = const DeepCollectionEquality().equals(state(dashboard), state(nextDashboard))
-          ? const [BoxAspect.traffic] : const [BoxAspect.state, BoxAspect.traffic];
-        if (connectionTarget != (nextDashboard['remoteId'] ?? nextDashboard['remote'])) {
-          aspects = const [BoxAspect.state, BoxAspect.traffic, BoxAspect.connections];
-        }
-        _setDashboard(nextDashboard);
-      case 'profiles': profilesRevision++; _profileStats.clear(); profiles = rows(value);
-      case 'groups':
-        if (!_setGroups(value)) return;
-        aspects = const [BoxAspect.groups];
-      case 'connections':
-        final update = json(value);
-        if (value is List || update['reset'] != false) _connectionsById.clear();
-        for (final id in update['removed'] as List? ?? const []) { _connectionsById.remove(id); }
-        for (final entry in rows(value is List ? value : update['entries'])) {
-          _connectionsById[entry['id'] as String] = entry;
-        }
-        connections = _connectionsById.values.toList();
-        aspects = const [BoxAspect.connections];
-      case 'logs':
-        final logState = json(value);
-        final entries = rows(logState['entries']);
-        if (logState['reset'] == false) {
-          final firstId = (logState['firstId'] as num?)?.toInt();
-          final retained = firstId == null ? <Json>[] : logs.where((entry) => (entry['id'] as num).toInt() >= firstId);
-          final lastId = logs.isEmpty ? -1 : (logs.last['id'] as num).toInt();
-          logs = [...retained, ...entries.where((entry) => (entry['id'] as num).toInt() > lastId)];
-        } else {
-          logs = entries;
-        }
-        defaultLogLevel = logState['defaultLogLevel'] as String?;
-        aspects = const [BoxAspect.logs];
-      case 'settings': settings = json(value);
+        return _updateDashboard(json(value));
+      case 'profiles':
+        profilesRevision++;
+        _profileStats.clear();
+        profiles = rows(value);
+        return const [BoxAspect.state];
+      case 'settings':
+        settings = json(value);
+        return const [BoxAspect.state];
+      case 'lan':
+        lan = json(value);
+        return const [BoxAspect.state];
+      case 'applyRequired':
+        applyRequired = value.toString();
+        return const [BoxAspect.state];
       case 'preferences':
-        final nextPreferences = json(value);
-        if (const DeepCollectionEquality().equals(preferences, nextPreferences)) return;
-        preferences = nextPreferences;
-        aspects = const [BoxAspect.state, BoxAspect.appearance];
+        final next = json(value);
+        if (const DeepCollectionEquality().equals(preferences, next)) return const [];
+        preferences = next;
+        return const [BoxAspect.state, BoxAspect.appearance];
       case 'systemAccent':
-        if (systemAccentColor == (value as num).toInt()) return;
-        systemAccentColor = value.toInt();
-        aspects = const [BoxAspect.appearance];
+        final color = (value as num).toInt();
+        if (systemAccentColor == color) return const [];
+        systemAccentColor = color;
+        return const [BoxAspect.appearance];
+      case 'groups':
+        return _setGroups(value) ? const [BoxAspect.groups] : const [];
       case 'rates':
-        sampleRevision++;
-        rates = json(value);
-        uploadHistory.add((rates['upload'] as num? ?? 0).toDouble());
-        downloadHistory.add((rates['download'] as num? ?? 0).toDouble());
-        if (uploadHistory.length > 30) uploadHistory.removeAt(0);
-        if (downloadHistory.length > 30) downloadHistory.removeAt(0);
-        aspects = const [BoxAspect.traffic];
-      case 'error': messages.add(value.toString()); return;
-      case 'applyRequired': applyRequired = value.toString();
-      case 'intentAvailable':
-        call('intent.take').then((uri) { if (uri is String) { pendingIntents.add(uri); intents.add(uri); } }).catchError(report);
-        return;
+        _addRateSample(json(value));
+        return const [BoxAspect.traffic];
+      case 'memory':
+        final next = json(value);
+        if (const DeepCollectionEquality().equals(memory, next)) return const [];
+        memory = next;
+        return const [BoxAspect.memory];
+      case 'connections':
+        _mergeConnections(value);
+        return const [BoxAspect.connections];
+      case 'logs':
+        _mergeLogs(json(value));
+        return const [BoxAspect.logs];
+      case 'tools':
+        toolState = json(value);
+        return const [BoxAspect.tools];
+      case 'usbDevices':
+        usbDevices = rows(value);
+        return const [BoxAspect.tools];
+      case 'terminal':
+        terminal = json(value);
+        return const [BoxAspect.terminal];
+      case 'outbounds':
+        outbounds = rows(value);
+        return const [BoxAspect.diagnostics];
+      case 'stun':
+        stun = json(value);
+        return const [BoxAspect.diagnostics];
+      case 'quality':
+        quality = json(value);
+        return const [BoxAspect.diagnostics];
+      case 'ping':
+        ping = json(value);
+        return const [BoxAspect.diagnostics];
+      case 'transfers':
+        transfers = rows(value);
+        return const [BoxAspect.transfers];
+      case 'inbox':
+        inbox = json(value);
+        return const [BoxAspect.transfers];
+      // The remaining events are passed on to their listeners and rebuild nothing.
+      case 'error':
+        messages.add(value.toString());
       case 'openUrl':
         // A backend request remains a visible user action in the Flutter UI.
         messages.add(value.toString());
-        return;
-      default: return;
+      case 'browserComplete':
+        browserEvents.add(json(value));
+      case 'intentAvailable':
+        unawaited(_takeIntent());
     }
-    _notify(aspects);
+    return const [];
+  }
+
+  List<BoxAspect> _updateDashboard(Json next) {
+    const equality = DeepCollectionEquality();
+    if (equality.equals(dashboard, next)) return const [];
+    // A change to these counters alone only concerns the traffic consumers.
+    const counters = {'memory', 'goroutines', 'uploadTotal', 'downloadTotal', 'connections'};
+    Json state(Json data) => Map.fromEntries(data.entries.where((entry) => !counters.contains(entry.key)));
+    final stateChanged = !equality.equals(state(dashboard), state(next));
+    if (_setDashboard(next)) return const [BoxAspect.state, BoxAspect.traffic, BoxAspect.connections];
+    return stateChanged ? const [BoxAspect.state, BoxAspect.traffic] : const [BoxAspect.traffic];
+  }
+
+  void _addRateSample(Json sample) {
+    sampleRevision++;
+    rates = sample;
+    uploadHistory.add((sample['upload'] as num? ?? 0).toDouble());
+    downloadHistory.add((sample['download'] as num? ?? 0).toDouble());
+    if (uploadHistory.length > 30) uploadHistory.removeAt(0);
+    if (downloadHistory.length > 30) downloadHistory.removeAt(0);
+  }
+
+  // A list replaces every connection. A map holds the entries that changed and the IDs
+  // that were removed since the previous event, unless it starts over with a reset.
+  void _mergeConnections(Object? value) {
+    final update = json(value);
+    if (value is List || update['reset'] != false) _connectionsById.clear();
+    for (final id in update['removed'] as List? ?? const []) {
+      _connectionsById.remove(id);
+    }
+    for (final entry in rows(value is List ? value : update['entries'])) {
+      _connectionsById[entry['id'] as String] = entry;
+    }
+    connections = _connectionsById.values.toList();
+  }
+
+  void _mergeLogs(Json update) {
+    final entries = rows(update['entries']);
+    if (update['reset'] == false) {
+      int id(Json entry) => (entry['id'] as num).toInt();
+      // firstId is the oldest record that the backend still holds. Without one it holds none.
+      final firstId = (update['firstId'] as num?)?.toInt();
+      final lastId = logs.isEmpty ? -1 : id(logs.last);
+      logs = [
+        if (firstId != null) ...logs.where((entry) => id(entry) >= firstId),
+        ...entries.where((entry) => id(entry) > lastId),
+      ];
+    } else {
+      logs = entries;
+    }
+    defaultLogLevel = update['defaultLogLevel'] as String?;
+  }
+
+  Future<void> _takeIntent() async {
+    try {
+      final uri = await call('intent.take');
+      if (uri is! String) return;
+      pendingIntents.add(uri);
+      intents.add(uri);
+    } catch (error) {
+      report(error);
+    }
   }
 
   @override
