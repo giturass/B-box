@@ -43,16 +43,19 @@ class ConnectionRecord extends StatelessWidget {
   }
 }
 
-Map<String, dynamic> connectionValues(Json c) => {
-  'Connection ID': c['id'],
-  'Destination': c['displayDestination'] ?? c['destination'], 'Source': c['source'], 'Network': c['network'],
-  'Protocol': c['protocol'], 'Inbound': c['inbound'], 'Outbound': c['outbound'],
-  'Rule matched': c['rule'], 'Chain': (c['chain'] as List? ?? []).join(' → '),
-  'Created': localDate(c['createdAt']),
-  if ((c['closedAt'] as num? ?? 0) > 0) 'Closed': localDate(c['closedAt']),
-  'Upload': bytes(c['uploadTotal'] as num? ?? 0), 'Download': bytes(c['downloadTotal'] as num? ?? 0),
-  if (c['process'] != null) 'Process': json(c['process']).entries.map((e) => '${e.key}: ${e.value}').join('\n'),
-};
+Map<String, dynamic> connectionValues(Json c) {
+  final packages = json(c['process'])['packages'] as List? ?? const [];
+  return {
+    'Connection ID': c['id'],
+    'Destination': c['displayDestination'] ?? c['destination'], 'Source': c['source'], 'Network': c['network'],
+    'Protocol': c['protocol'], 'Inbound': c['inbound'], 'Outbound': c['outbound'],
+    'Rule matched': c['rule'], 'Chain': (c['chain'] as List? ?? []).join(' → '),
+    'Created': localDate(c['createdAt']),
+    if ((c['closedAt'] as num? ?? 0) > 0) 'Closed': localDate(c['closedAt']),
+    'Upload': bytes(c['uploadTotal'] as num? ?? 0), 'Download': bytes(c['downloadTotal'] as num? ?? 0),
+    'App': packages.isEmpty ? null : packages.join(', '),
+  };
+}
 
 class ConnectionInfo extends StatelessWidget {
   const ConnectionInfo({super.key, required this.connection, required this.present});
@@ -62,6 +65,6 @@ class ConnectionInfo extends StatelessWidget {
     DetailRow.text(title: context.tr('Status'), value: context.tr(!present ? 'No longer in recent connections' :
       (connection['closedAt'] as num? ?? 0) > 0 ? 'Closed' : 'Active')),
     for (final value in connectionValues(connection).entries) DetailRow.text(title: context.tr(value.key),
-      value: value.value?.toString() ?? '—', stacked: const ['Connection ID', 'Process'].contains(value.key)),
+      value: value.value?.toString() ?? '—', stacked: const ['Connection ID', 'App'].contains(value.key)),
   ], footer: present ? null : context.tr('Last observed connection information. Captured requests are retained separately.'));
 }
