@@ -50,7 +50,7 @@ B-box 新增 `outbounds` 中的 `type: "masque"`，复用当前上游 MASQUE 的
 
 [patch_warp_masque.py](tools/patch_warp_masque.py) 对干净的匹配核心检查补丁并安装选项、出站和传输，重复安装失败。共享 [setup-core](.github/actions/setup-core/action.yml) 使统一测试、Android smoke 和 ARM64 Release 使用同一实现；正式 libbox 构建已有 `with_quic`，不含 QUIC 的测试构建只接受 HTTP/2。
 
-[传输回归](libbox/masque/warp_test.go) 与 [HTTP/3 回归](libbox/masque/warp_http3_test.go) 使用临时测试密钥和本地 TLS/QUIC 服务器，检查握手、公钥固定、报文、失败/取消与重连；[ui_masque_test.go](libbox/ui_masque_test.go) 检查配置/格式化及真实 IP 栈经 selector 传输 UDP 和网络重置。[Android 绑定回归](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpMasqueConfigTest.kt) 验证实际 AAR 的 HTTP/2、HTTP/3 配置和非法凭据拒绝。实际运行记录维护在 [app.md](app.md#验证与历史记录)；本地模拟服务不代表 Cloudflare 真实网络或注册流程已经验收。
+[传输回归](libbox/masque/warp_test.go) 与 [HTTP/3 回归](libbox/masque/warp_http3_test.go) 使用临时测试密钥和本地 TLS/QUIC 服务器，检查握手、公钥固定、报文、失败/取消与重连；[ui_masque_test.go](libbox/ui_masque_test.go) 检查配置/格式化及真实 IP 栈经 selector 传输 UDP 和网络重置。[Android 绑定回归](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpMasqueConfigTest.kt) 验证实际 AAR 的 HTTP/2、HTTP/3 配置和非法凭据拒绝。实际运行记录维护在 [app.md](app.md#cloudflare-warp-masque-验证)；本地模拟服务不代表 Cloudflare 真实网络或注册流程已经验收。
 
 ### 运行时内存
 

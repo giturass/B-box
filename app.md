@@ -237,6 +237,30 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### Cloudflare WARP MASQUE 验证
+
+2026-11-13，WARP MASQUE 集成的验证源码为 `e0d77c9a5507a3503c5942c1a0b38bd702dbfd5e`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/43434680819)，全部 8 个 job 通过。协议字段、注册凭据和导入示例见 [核心文档](libbox.md#cloudflare-warp-masque)；后续只补充验证记录的 Markdown 提交不改变上述应用、核心、Flutter 或测试源码。
+
+- WARP 传输在不含 QUIC 和 `with_quic` 两种构建中通过 Go race 回归，覆盖 ECDSA 客户端认证、服务端公钥固定、HTTP/2 capsule、HTTP/3 datagram、取消及重连。`TestUIMASQUE` 通过实际配置校验、格式化和示例导入，以及真实 IP 栈经 selector 传输 UDP、网络重置后旧隧道的读写退出。
+- 匹配核心的 Android ingress-discard、全部 `TestUI`、路由/HTTP/订阅 race、完整 `experimental/httpdebug` race 和路由接入回归通过；Root CA namespace 回归通过。
+- Flutter 分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；数量、分析提示和实际查看的截图见 [界面验证记录](flclash.md#验证与升级参考版本)。
+- 已读取 [native-unit-tests](https://github.com/giturass/B-box/actions/runs/43434680819/artifacts/14041868696) 的 13 份 XML，56 项 JVM 测试通过，无失败、错误或跳过；`play` Kotlin 编译和 x86_64 应用/仪器测试 APK 构建通过。
+
+已逐项核对以下 Artifact 的 `results.json` 与 `native-tests.txt`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 41 项原生测试通过，原生状态码全部成功，无失败或跳过；页大小为设备实际读取值。
+
+| 环境与结果产物 | 实际页大小 | 采集来源 |
+| --- | --- | --- |
+| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/43434680819/artifacts/14041984527) | 4096 字节 | `/proc/self/smaps` |
+| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/43434680819/artifacts/14042918987) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/43434680819/artifacts/14043249049) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/43434680819/artifacts/14043539219) | 16384 字节 | `getconf` |
+
+四组 `WarpMasqueConfigTest.http2AndHttp3UseThePatchedAndroidCore` 和 `malformedAccountDataFailsConfigurationValidation` 均通过，确认实际 Android AAR 接受两种 WARP 传输、保留配置字段并拒绝非法凭据；这些测试使用临时密钥，不连接 Cloudflare。
+
+同一源码的 [ARM64 Release](https://github.com/giturass/B-box/actions/runs/43435512552) 全部 3 个 job 通过，从同次运行的 libbox 和 Flutter Release AAR 构建签名 `otherRelease` APK，保留 R8。安装身份 `io.ericlee.bfa`、最低 API 24、ARM64 架构、应用标签、入口、模块 assets 和签名校验通过；[APK Artifact](https://github.com/giturass/B-box/actions/runs/43435512552/artifacts/14042134142) 保留 30 天。本次输入为 `publish_release=false`，已确认发布步骤跳过，未创建 GitHub Release。
+
+本机仅执行差异、Go 格式、源码约束、示例 JSON 和文档链接等静态检查，编译及 Go/Flutter/JVM/Android 测试均在 Actions 运行。以上设备为临时 x86_64 模拟器；尚未验收 Cloudflare 真实注册/连接、真实网络下的传输兼容性或 ARM64 实机网络切换。
+
 ### UI 性能优化验证
 
 2026-11-13，图标/主题缓存、代理组通知、JSON 编辑和请求历史分页优化的验证源码为 `efe9028214cd52ef03f5a8b1e0143006be5ba6ad`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/43407927934)，全部 8 个 job 通过。界面行为见 [FlClash 适配](flclash.md#导航与交互约定)，查询与导出绑定见 [核心请求调试](libbox.md#httphttps-请求调试)；后续仅补充验证记录的 Markdown 提交不改变上述源码。

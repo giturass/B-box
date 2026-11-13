@@ -154,6 +154,10 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ## 验证与升级参考版本
 
+2026-11-13，WARP MASQUE 集成的验证源码为 `e0d77c9a5507a3503c5942c1a0b38bd702dbfd5e`，对应 [Actions 43434680819](https://github.com/giturass/B-box/actions/runs/43434680819) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43434680819/job/131916654215)。Flutter 分析、257 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 83 条 info、0 条 warning/error。请求详情测试的滚动查找限定为当前详情页，覆盖新增应用信息后位于屏幕外的关联请求；生产页面沿用现有实现。
+
+已查看本次 [newui-validation](https://github.com/giturass/B-box/actions/runs/43434680819/artifacts/14042942102) 中的 `build/screenshots/requests/unified-related-requests.png`：应用信息位于连接字段卡片内，关联请求卡片列出两条 HTTP/2 请求并标明当前请求，标题栏与卡片未重叠。截图使用测试桥接数据；核心、Android 与签名 ARM64 Release 的实际结果和未覆盖范围见 [应用验证记录](app.md#cloudflare-warp-masque-验证)。后续只补充记录的 Markdown 提交不改变上述验证源码。
+
 2026-11-13，图标/主题缓存、代理组通知、JSON 编辑和请求历史分页优化的验证源码为 `efe9028214cd52ef03f5a8b1e0143006be5ba6ad`，对应 [Actions 43407927934](https://github.com/giturass/B-box/actions/runs/43407927934) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43407927934/job/131826877757)。Flutter 分析、257 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 83 条 info、0 条 warning/error。
 
 用例覆盖图标容量及迟到加载、内存压力清理、主题和未变化代理对象复用、高亮缓存、行号在首帧/调整尺寸/滚动中编辑后的对齐，以及请求窗口增量、未加载父连接去重、全历史搜索与 HAR 条件、会话切换和页面关闭后的轮询释放。原有 0.8、1.0、1.4 倍字号下的选区拖动与复制回归继续通过；文档缩短后的检查等待正文滚动归位，普通编辑的行号检查保持单帧要求。
