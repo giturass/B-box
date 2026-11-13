@@ -360,6 +360,59 @@ func TestWARPStaticAddressesAndClientLifecycle(t *testing.T) {
 	}
 }
 
+// warpGatedTestTransport opens one tunnel per permit, so a test decides when a reconnect completes.
+type warpGatedTestTransport struct {
+	permits chan struct{}
+}
+
+func (t *warpGatedTestTransport) OpenTunnel(ctx context.Context, _, _ string) (io.ReadWriteCloser, error) {
+	select {
+	case <-t.permits:
+		tunnel, _ := net.Pipe()
+		return tunnel, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+func (t *warpGatedTestTransport) ResetConnections() {}
+func (t *warpGatedTestTransport) Close() error      { return nil }
+
+func TestWARPNetworkResetRevokesReadiness(t *testing.T) {
+	transport := &warpGatedTestTransport{permits: make(chan struct{}, 1)}
+	handler := &warpTestHandler{configuration: make(chan Configuration, 8), packets: make(chan []byte, 8)}
+	client, err := NewClient(ClientOptions{
+		Context: context.Background(), Logger: log.NewNOPFactory().Logger(),
+		HTTPClient: transport, Path: "/", LocalAddress: []netip.Prefix{netip.MustParsePrefix("172.16.0.2/32")}, Handler: handler,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.Start()
+	t.Cleanup(func() { client.Close() })
+	waitReady := func(timeout time.Duration) error {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		return client.WaitReady(ctx)
+	}
+	transport.permits <- struct{}{}
+	if err = waitReady(5 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	client.RestartSession()
+	// The replacement tunnel cannot open before the next permit. A dial that
+	// found the cancelled session ready would send its first packets nowhere.
+	if client.Ready() {
+		t.Fatal("network reset left the cancelled session ready")
+	}
+	if err = waitReady(100 * time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("dial did not wait for the replacement tunnel", err)
+	}
+	transport.permits <- struct{}{}
+	if err = waitReady(5 * time.Second); err != nil {
+		t.Fatal("replacement tunnel did not become ready", err)
+	}
+}
+
 type warpStandardTestTransport struct {
 	client net.Conn
 	peer   net.Conn

@@ -32,7 +32,7 @@ index fbb398d..6801086 100644
  	snell.RegisterOutbound(registry)
  	vmess.RegisterOutbound(registry)
 diff --git a/transport/masque/client.go b/transport/masque/client.go
-index 494ec8f..34cdacd 100644
+index 494ec8f..f8f79b8 100644
 --- a/transport/masque/client.go
 +++ b/transport/masque/client.go
 @@ -2,6 +2,7 @@ package masque
@@ -113,7 +113,17 @@ index 494ec8f..34cdacd 100644
  	if err == nil && len(c.advertiseRoutes) > 0 {
  		err = current.writeCapsule(newRouteCapsule(c.advertiseRoutes))
  	}
-@@ -335,6 +350,9 @@ func (c *Client) WritePacketBuffers(packetBuffers []*buf.Buffer, forwarded bool)
+@@ -278,6 +293,9 @@ func (c *Client) RestartSession() {
+ 	c.restarting = true
+ 	if c.current != nil {
+ 		c.current.cancel(E.New("network changed"))
++		// The loop removes a cancelled session only after it has shut down.
++		// A dial must wait for the replacement instead of finding this one ready.
++		c.current = nil
+ 	}
+ 	c.lastError = nil
+ 	c.notifyStateLocked()
+@@ -335,6 +353,9 @@ func (c *Client) WritePacketBuffers(packetBuffers []*buf.Buffer, forwarded bool)
  }
  
  func (s *clientSession) handleAddressAssign(addresses []AssignedAddress) error {

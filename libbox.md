@@ -46,11 +46,11 @@ B-box 新增 `outbounds` 中的 `type: "masque"`，复用当前上游 MASQUE 的
 
 每次 TLS 握手使用已注册的私钥签发临时客户端证书；证书更新不替换注册私钥。服务端证书以注册公钥固定校验，缺少公钥、密钥格式错误、重复地址族和失败的 CONNECT 都返回错误。HTTP/3 发送 WARP 所需的旧 datagram setting，在服务端未声明 extended CONNECT 时仍完成 `cf-connect-ip`；HTTP/2 使用普通 CONNECT 和 WARP 专用头，capsule 内直接传 IP 数据，不添加 HTTP/3 的 context ID。
 
-注册地址在认证完成后配置给 IP 栈，拨号等待就绪，不等待 WARP 不发送的 `ADDRESS_ASSIGN`；普通 MASQUE 仍保留地址请求/分配。取消握手、停服和网络切换会关闭旧 TCP/QUIC 连接，已成功打开的隧道不被握手期限结束取消；重连沿用上游的退避与服务生命周期。
+注册地址在认证完成后配置给 IP 栈，拨号等待就绪，不等待 WARP 不发送的 `ADDRESS_ASSIGN`；普通 MASQUE 仍保留地址请求/分配。取消握手、停服和网络切换会关闭旧 TCP/QUIC 连接，已成功打开的隧道不被握手期限结束取消；重连沿用上游的退避与服务生命周期。网络切换取消会话时立即撤销其就绪状态，此后的拨号等待新隧道认证完成，不把首批报文写入已取消的旧隧道；上游客户端在重连循环回收旧会话前仍报告就绪，该修正由同一补丁维护，标准 MASQUE 端点同样生效。
 
 [patch_warp_masque.py](tools/patch_warp_masque.py) 对干净的匹配核心检查补丁并安装选项、出站和传输，重复安装失败。共享 [setup-core](.github/actions/setup-core/action.yml) 使统一测试、Android smoke 和 ARM64 Release 使用同一实现；正式 libbox 构建已有 `with_quic`，不含 QUIC 的测试构建只接受 HTTP/2。
 
-[传输回归](libbox/masque/warp_test.go) 与 [HTTP/3 回归](libbox/masque/warp_http3_test.go) 使用临时测试密钥和本地 TLS/QUIC 服务器，检查握手、公钥固定、报文、失败/取消与重连；[ui_masque_test.go](libbox/ui_masque_test.go) 检查配置/格式化及真实 IP 栈经 selector 传输 UDP 和网络重置。[Android 绑定回归](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpMasqueConfigTest.kt) 验证实际 AAR 的 HTTP/2、HTTP/3 配置和非法凭据拒绝。实际运行记录维护在 [app.md](app.md#cloudflare-warp-masque-验证)；本地模拟服务不代表 Cloudflare 真实网络或注册流程已经验收。
+[传输回归](libbox/masque/warp_test.go) 与 [HTTP/3 回归](libbox/masque/warp_http3_test.go) 使用临时测试密钥和本地 TLS/QUIC 服务器，检查握手、公钥固定、报文、失败/取消与重连，以及网络重置后拨号等待替换隧道；[ui_masque_test.go](libbox/ui_masque_test.go) 检查配置/格式化及真实 IP 栈经 selector 传输 UDP 和网络重置。[Android 绑定回归](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpMasqueConfigTest.kt) 验证实际 AAR 的 HTTP/2、HTTP/3 配置和非法凭据拒绝。实际运行记录维护在 [app.md](app.md#cloudflare-warp-masque-验证)；本地模拟服务不代表 Cloudflare 真实网络或注册流程已经验收。
 
 ### 运行时内存
 
