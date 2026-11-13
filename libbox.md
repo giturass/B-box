@@ -351,7 +351,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 
 [store_activity_test.go](libbox/httpdebug/store_activity_test.go) 覆盖摘要关联的持久化、独立正文计数、改写前 URL、旧记录缺省，以及 HAR 选择的去重、顺序、空选择、非法输入、非 HTTP 排除和淘汰后不扩大导出范围。真实 HTTP/1.1 复用连接的测试同时检查摘要与详情的关联一致；Android 路由测试调用新生成的 HAR 选择绑定，覆盖 HTTP 和 TLS/TCP 的导出边界。这些用例由现有统一工作流执行，实际运行结果在 [应用验证记录](app.md#验证与历史记录) 中维护。
 
-[store_query_test.go](libbox/httpdebug/store_query_test.go) 覆盖超过 300 条历史的分页与搜索、当前连接和请求字段组合匹配、未加载父连接去重、状态和排序、摘要增量、全历史 HAR 选择、清空后不扩大导出，以及查询与录制/清空竞争。Android 原路由测试另调用两项新生成绑定，核对完整请求不再重复传送摘要、HTTP/TCP 的选择和导出边界；用例存在不代表当前源码已经通过，结果仍按实际 Actions SHA 记录。
+[store_query_test.go](libbox/httpdebug/store_query_test.go) 覆盖超过 300 条历史的分页与搜索、当前连接和请求字段组合匹配、未加载父连接去重、状态和排序、摘要增量、全历史 HAR 选择、清空后不扩大导出，以及查询与录制/清空竞争。Android 原路由测试另调用两项新生成绑定，核对完整请求不再重复传送摘要、HTTP/TCP 的选择和导出边界；实际 Actions SHA 及四组 Android 的运行结果见 [UI 性能优化验证](app.md#ui-性能优化验证)。
 
 [ui_capture_test.go](libbox/ui_capture_test.go) 覆盖本地设置及 schema/退役字段；[路由测试](libbox/route/httpdebug_test.go) 通过真实 TLS 握手核对原选定出站、SNI 与 DNS 映射隔离、端口覆写、CONNECT 确认顺序、证书库及未匹配流的字节回放。[mitm_tcp_test.go](libbox/httpdebug/mitm_tcp_test.go) 覆盖 TLS/TCP 二进制、混合 ALPN、服务器先发、半关闭及记录/导出边界；[script_cron_test.go](libbox/httpdebug/script_cron_test.go) 覆盖独立 HTTP 脚本、Cron 语法/时区/DST、回调、证书校验和调度生命周期；[ui_processing_test.go](libbox/ui_processing_test.go) 验证扩展 schema 及迁移；[store_migration_test.go](libbox/httpdebug/store_migration_test.go) 覆盖旧文件清理、请求保留和符号链接隔离。Android 真正的 Keystore/gomobile 签名与模块打包由 [平台测试](app.md#验证与历史记录) 覆盖；Linux 测试不能代替 Android 系统 CA 模块或目标应用的实机验收。获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py)，它不构建 Android 绑定。
 

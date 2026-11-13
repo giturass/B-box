@@ -150,6 +150,21 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ## 验证与升级参考版本
 
+2026-11-13，图标/主题缓存、代理组通知、JSON 编辑和请求历史分页优化的验证源码为 `efe9028214cd52ef03f5a8b1e0143006be5ba6ad`，对应 [Actions 43407927934](https://github.com/giturass/B-box/actions/runs/43407927934) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43407927934/job/131826877757)。Flutter 分析、257 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 83 条 info、0 条 warning/error。
+
+用例覆盖图标容量及迟到加载、内存压力清理、主题和未变化代理对象复用、高亮缓存、行号在首帧/调整尺寸/滚动中编辑后的对齐，以及请求窗口增量、未加载父连接去重、全历史搜索与 HAR 条件、会话切换和页面关闭后的轮询释放。原有 0.8、1.0、1.4 倍字号下的选区拖动与复制回归继续通过；文档缩短后的检查等待正文滚动归位，普通编辑的行号检查保持单帧要求。
+
+本次实际查看 [newui-validation](https://github.com/giturass/B-box/actions/runs/43407927934/artifacts/14028143254) 的以下截图：
+
+| 截图（相对 `build/screenshots/`） | 核对范围 |
+| --- | --- |
+| `requests/requests-pagination.png` | 滚动列表位于标题栏下方，末尾“显示更多”避开底部搜索栏 |
+| `requests/unified-http2-and-connections.png`、`requests/unified-related-requests.png` | HTTP/2 独立请求、普通连接及关联请求入口 |
+| `requests/360-1.4-dark-list.png`、`requests/800-1.0-light-list.png` | 大字号筛选换行、长 URL 省略及宽屏侧栏布局 |
+| `360-light-1.0-Proxies-populated.png`、`360-dark-1.4-Proxies-populated.png` | 代理选中态、延迟/超时显示及大字号卡片布局 |
+
+这些截图使用测试桥接数据，不证明实机性能收益。核心与 Android 的实际结果见 [应用验证记录](app.md#ui-性能优化验证)；未测量 ARM64 实机的内存、帧耗时或大历史数据性能。本机仅执行静态检查，后续仅补充验证记录的 Markdown 提交不改变上述验证源码。
+
 2026-11-13，原始 JSON 选区修复的验证源码为 `74bcbfc9d76b994d5bfb91f3401eee5f1109a9fc`，对应 [Actions 43331463838](https://github.com/giturass/B-box/actions/runs/43331463838) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43331463838/job/131576932628)。Flutter 分析、246 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 79 条 info、0 条 warning/error。新增用例在应用实际等宽字体和 0.8、1.0、1.4 倍字号下，拖动两端手柄跨越三行，分别核对未滚动与折行长文滚动后的字符范围，并实际点击复制菜单检查原文。
 
 同一批用例在修复前的 `208c5675d7c5582925a02c2002a6e1b3c62a2ed9` [Actions 43328760156](https://github.com/giturass/B-box/actions/runs/43328760156) 中，有六个滚动后的选区用例失败，未滚动用例通过；修复后这些场景均通过。本机执行差异、源码约束及文档链接静态检查，未编译或运行 Flutter 测试。本记录不表示已完成 ARM64 实机手柄及系统剪贴板验收，也不表示已发布包含修复的 APK；后续纯 Markdown 记录不改变上述验证源码。

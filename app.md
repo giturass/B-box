@@ -233,6 +233,27 @@ JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界�
 
 上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
 
+### UI 性能优化验证
+
+2026-11-13，图标/主题缓存、代理组通知、JSON 编辑和请求历史分页优化的验证源码为 `efe9028214cd52ef03f5a8b1e0143006be5ba6ad`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/43407927934)，全部 8 个 job 通过。界面行为见 [FlClash 适配](flclash.md#导航与交互约定)，查询与导出绑定见 [核心请求调试](libbox.md#httphttps-请求调试)；后续仅补充验证记录的 Markdown 提交不改变上述源码。
+
+- 匹配核心的 Android ingress-discard、`TestUI`、路由/HTTP/订阅 race、完整 `experimental/httpdebug` race 和路由接入回归通过；Root CA namespace 回归通过。新增查询用例覆盖全历史筛选、窗口排序、摘要增量、父连接去重、HAR 选择及查询与录制/清空并发。
+- Flutter 分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；实际数量、分析提示和查看过的截图见 [界面验证记录](flclash.md#验证与升级参考版本)。
+- 已读取 [native-unit-tests](https://github.com/giturass/B-box/actions/runs/43407927934/artifacts/14027774950) 的 13 份 XML，56 项 JVM 测试通过，无失败、错误或跳过；`play` Kotlin 编译和 x86_64 应用/仪器测试 APK 构建通过。
+
+已逐项核对以下 Artifact 的 `results.json` 与 `native-tests.txt`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 39 项原生测试通过，所有测试结束码均为成功，无失败或跳过；页大小为设备实际读取值。
+
+| 环境与结果产物 | 实际页大小 | 采集来源 |
+| --- | --- | --- |
+| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/43407927934/artifacts/14028702995) | 4096 字节 | `/proc/self/smaps` |
+| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/43407927934/artifacts/14028154826) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/43407927934/artifacts/14028584560) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/43407927934/artifacts/14028189515) | 16384 字节 | `getconf` |
+
+四组 `routedMITMUsesKeystoreAndTheOriginalOutbound` 均通过，在实际 Keystore、路由和生成绑定上检查请求窗口、完成摘要不再重复返回，以及 HTTP/TCP 的 HAR 选择与导出边界。已查看 API 24 的 VPN 运行态和实际代理组截图，以及 API 36 / 16 KiB 的首次启动和实际代理组截图；其他界面截图的核对范围在 FlClash 文档中维护。
+
+本机仅执行差异、Go 格式、源码约束和文档链接等静态检查，编译及 Go/Flutter/JVM/设备测试均在 Actions 运行。以上设备均为临时 x86_64 模拟器，未测量 ARM64 实机内存、帧耗时或大历史数据性能，也未验收第三方应用信任、真实 Root CA 模块安装或签名 ARM64 Release/R8；本轮未发布 APK。
+
 ### Android 协议、资源导入与正文读取修复验证
 
 2026-11-11，验证源码为 `d3a1f178d6d2375291b698d7200ef9ab8ff98260`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42914488877)，最终全部 8 个 job 通过。HTTP/2 默认值与关闭后的透传、Android 本地资源导入、正文分页及流式导出的当前行为分别见 [MITM 配置](libbox.md#独立-mitm-配置)、[配置处理生命周期](#配置处理生命周期)和[核心正文读取](libbox.md#httphttps-请求调试)。后续只补充验证记录的 Markdown 提交不改变上述源码。
