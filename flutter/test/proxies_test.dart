@@ -122,7 +122,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Group B'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Test latency').first);
+    await tester.tap(find.byTooltip('More').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Test latency').last);
     await tester.pumpAndSettle();
     expect((calls.lastWhere((call) => call.method == 'groups.test').arguments as Map)['tag'], 'Group B');
     await tester.drag(find.byType(TabBarView), const Offset(280, 0));

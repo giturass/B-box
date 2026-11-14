@@ -221,7 +221,13 @@ void main() {
         await tester.tap(find.byTooltip('Show more'));
         await tester.pumpAndSettle();
       }
-      await tester.tap(find.byTooltip('Test latency').first);
+      if (layout == 'List') {
+        await tester.tap(find.byTooltip('Test latency').first);
+      } else {
+        await tester.tap(find.byTooltip('More').last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Test latency').last);
+      }
       await tester.pumpAndSettle();
       expect(tests, ['Live selector']);
       await tester.tap(find.text('Local B').hitTestable());
@@ -333,7 +339,11 @@ void main() {
       }
       return null;
     });
-    openForm(tester.element(find.byType(HomePage)), const ProfileOrderPage());
+    await _profiles(tester);
+    await tester.tap(find.byTooltip('More').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Node sort'), findsOneWidget);
+    await tester.tap(find.text('Reorder profiles'));
     await tester.pumpAndSettle();
     tester.widget<PrismReorderableListView>(find.byType(PrismReorderableListView)).onReorderItem(0, 1);
     await tester.pumpAndSettle();
@@ -364,8 +374,8 @@ void main() {
     expect(find.text('Disconnect remote session to edit local profiles'), findsOneWidget);
     expect(find.byType(ProfileCard), findsNothing);
     expect(find.byType(AddProfileMenu), findsNothing);
+    expect(find.byTooltip('Add profile'), findsNothing);
     expect(find.byTooltip('Update all'), findsNothing);
-    expect(find.byTooltip('Reorder'), findsNothing);
     events.add({'type': 'groups', 'value': [
       {'tag': 'Remote selector', 'selected': 'Remote A', 'selectable': true, 'items': [
         {'tag': 'Remote A', 'type': 'direct'}, {'tag': 'Remote B', 'type': 'direct'},

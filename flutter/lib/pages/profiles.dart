@@ -109,6 +109,20 @@ class _ProfilesPageState extends State<ProfilesPage> {
       return ProxiesPage(
         title: 'Profiles',
         emptyState: !box.remote && profiles.isEmpty ? emptyState : null,
+        actions: box.remote ? const [] : [
+          AddProfileMenu(builder: (open) => AppBarActionButton(data: IconButtonData(
+            glyph: AppGlyphs.addCircle, tooltip: context.tr('Add profile'), onPressed: open,
+          ))),
+          AppBarActionButton(data: IconButtonData(
+            glyph: AppGlyphs.sync, tooltip: context.tr('Update all'),
+            isLoading: _updatingAll || _updating.isNotEmpty,
+            onPressed: _updatingAll || _updating.isNotEmpty || !profiles.any((p) => p['remote'] == true) ? null : _updateAll,
+          )),
+        ],
+        sortItems: box.remote ? const [] : [
+          PopupMenuItem(glyph: AppGlyphs.sort, label: context.tr('Reorder profiles'),
+            onPressed: profiles.length < 2 ? null : () => openForm(context, const ProfileOrderPage())),
+        ],
         header: box.remote ? Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           child: Column(spacing: 8, children: [
@@ -120,19 +134,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
           ]),
         ) : profiles.isEmpty ? null : Padding(
           padding: const EdgeInsets.only(bottom: 16),
-          child: Column(spacing: 8, children: [
-            InfoHeader(info: Info(label: context.tr('Profile files'), glyph: AppGlyphs.profiles), actions: [
-              AddProfileMenu(builder: (open) => IconButton(
-                tooltip: context.tr('Add profile'), icon: const GlyphIcon(AppGlyphs.addCircle), onPressed: open,
-              )),
-              IconButton(tooltip: context.tr('Update all'),
-                icon: _updatingAll || _updating.isNotEmpty ? const ActivityIndicator(size: 24) : const GlyphIcon(AppGlyphs.sync),
-                onPressed: _updatingAll || _updating.isNotEmpty || !profiles.any((p) => p['remote'] == true) ? null : _updateAll),
-              IconButton(tooltip: context.tr('Reorder'), icon: const GlyphIcon(AppGlyphs.sort),
-                onPressed: profiles.length < 2 ? null : () => openForm(context, const ProfileOrderPage())),
-            ]),
-            _ProfileStrip(profiles: profiles, selectedId: box.selectedProfileId, itemBuilder: _card),
-          ]),
+          child: _ProfileStrip(profiles: profiles, selectedId: box.selectedProfileId, itemBuilder: _card),
         ),
       );
     }

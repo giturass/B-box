@@ -5,9 +5,12 @@ import '../components/proxy_list.dart';
 import '../common/proxy_nodes.dart';
 
 class ProxiesPage extends StatefulWidget {
-  const ProxiesPage({super.key, this.title = 'Proxies', this.header, this.emptyState});
+  const ProxiesPage({super.key, this.title = 'Proxies', this.header, this.emptyState,
+    this.actions = const [], this.sortItems = const []});
   final String title;
   final Widget? header, emptyState;
+  final List<Widget> actions;
+  final List<PopupMenuItem> sortItems;
   @override State<ProxiesPage> createState() => _ProxiesPageState();
 }
 class _ProxiesPageState extends State<ProxiesPage> {
@@ -135,6 +138,7 @@ class _ProxiesPageState extends State<ProxiesPage> {
     return Scaffold(
       title: context.tr(widget.title),
       searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
+      actions: widget.actions,
       primaryAction: list ? null : IconButtonData(glyph: AppGlyphs.bolt, tooltip: context.tr('Test latency'),
         isLoading: _testing.contains(_currentGroup),
         onPressed: box.running && _currentGroup != null ? () => _test(_currentGroup!) : null),
@@ -143,7 +147,8 @@ class _ProxiesPageState extends State<ProxiesPage> {
       ],
       menuItems: [
         _options('Style', AppGlyphs.appsList, 'proxyLayout', const ['Tabs', 'List'], 'Tabs'),
-        _options('Sort', AppGlyphs.sort, 'proxySort', const ['Default', 'Latency', 'Name'], 'Default'),
+        ...widget.sortItems,
+        _options('Node sort', AppGlyphs.sort, 'proxySort', const ['Default', 'Latency', 'Name'], 'Default'),
         _options('Layout', AppGlyphs.dashboard, 'proxyDensity', const ['Tight', 'Standard', 'Loose'], 'Standard'),
         _options('Size', AppGlyphs.textSize, 'proxyCardSize', const ['Compact', 'Standard', 'Loose'], 'Standard'),
         if (list) _options('Icon style', AppGlyphs.iconTile, 'proxyIconStyle', const ['Filled', 'Plain', 'Hidden'], 'Filled'),

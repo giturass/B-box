@@ -239,27 +239,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-2026-11-14，配置/代理合并、设置底栏与仪表盘铅笔入口的验证源码为 `2adc1b653bd98acc68929deec19f77dfa04f0022`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/43562639502)。core、Root CA、Flutter、Android 构建及四组 smoke 合计 8 个作业全部通过；后续仅补充文档的 Markdown 提交不改变上述验证源码。
-
-- core 的匹配内核 Android ingress-discard、全部 `TestUI`、不含 QUIC 与 `with_quic` 两种 `^TestWARP` race、`with_quic` 的 `^TestUIMASQUE`、路由/HTTP/订阅 race、完整 `experimental/httpdebug` race 和路由接入回归步骤全部通过。
-- Root CA namespace 回归的 6 项测试通过。
-- Flutter 分析、259 项交互/布局及 ARM64 Debug/Release Flutter AAR 构建通过；分析提示、配置横向滑动与设置导航、铅笔入口的截图检查见 [界面验证记录](flclash.md#当前验证记录)。
-- 已读取 [native-unit-tests](https://github.com/giturass/B-box/actions/runs/43562639502/artifacts/14100589285) 的 13 份 XML，56 项 JVM 测试通过，无失败、错误或跳过；`play` Kotlin 编译和 x86_64 应用/仪器测试 APK 构建通过。
-
-已逐项核对以下 Artifact 的 `results.json` 与 `native-tests.txt`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 41 项原生测试通过，原生状态码全部成功，无失败或跳过；页大小为设备实际读取值。
-
-| 环境与结果产物 | 实际页大小 | 采集来源 |
-| --- | --- | --- |
-| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/43562639502/artifacts/14101675282) | 4096 字节 | `/proc/self/smaps` |
-| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/43562639502/artifacts/14100688625) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/43562639502/artifacts/14101935906) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/43562639502/artifacts/14101143038) | 16384 字节 | `getconf` |
-
-本机仅执行差异、源码约束、Python 脚本语法及文档链接等静态检查，编译及 Go/Flutter/JVM/Android 测试均在 Actions 运行。未覆盖范围：
-
-- 本次未触发签名 ARM64 Release 工作流，也没有发布；Flutter AAR 和 x86_64 测试 APK 不等于可安装的 ARM64 Release。
-- 尚未验收 ARM64 实机上的配置滑动、设置导航、仪表盘编辑、真实远程会话或性能；Flutter 截图使用测试桥接数据。
-- 尚未验收 Cloudflare 真实注册/连接、真实网络下的传输兼容性、ARM64 实机网络切换及实际 Root 管理器的 CA 模块安装与重启。
+2026-11-14，本次配置页顶部精简及工具栏收纳调整基于 `ab20ad1`。本机仅执行静态检查，编译、Flutter/JVM/Go 测试及四组 Android smoke 通过统一 Actions 工作流执行；当前尚未取得本次源码的运行结果。上一轮导航合并的通过记录见下表，界面进度见 [flclash.md](flclash.md#当前验证记录)。本次未触发签名 ARM64 Release 或发布，也未进行 ARM64 实机、真实远程会话或性能验收。
 
 ### 历史验证记录
 
@@ -267,6 +247,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 | 日期 | 主题 | 验证源码 | Actions | 范围与备注 |
 | --- | --- | --- | --- | --- |
+| 2026-11-14 | 配置/代理合并、设置底栏与仪表盘铅笔 | `2adc1b653bd98acc68929deec19f77dfa04f0022` | [43562639502](https://github.com/giturass/B-box/actions/runs/43562639502) | 8 个作业通过；259 项 Flutter；56 项 JVM；API 24/31/36 及 16 KiB 四组各 41 项原生测试，未触发 ARM64 Release |
 | 2026-11-14 | 代码整理与 MASQUE 网络重置修复 | `06eed8f5f830a90b9853995ced3b2e211deca628` | [43523435178](https://github.com/giturass/B-box/actions/runs/43523435178) | 8 个 job 通过；56 项 JVM；API 24/31/36 及 16 KiB 四组各 41 项原生测试；同源码 core 第二次重跑也通过，未触发 ARM64 Release |
 | 2026-11-13 | Cloudflare WARP MASQUE | `e0d77c9a5507a3503c5942c1a0b38bd702dbfd5e` | [43434680819](https://github.com/giturass/B-box/actions/runs/43434680819) | 8 个 job 通过；56 项 JVM；API 24/31/36 及 16 KiB 四组各 41 项原生测试。同一源码的 [ARM64 Release](https://github.com/giturass/B-box/actions/runs/43435512552) 以 `publish_release=false` 构建并校验签名 APK，未发布 |
 | 2026-11-13 | UI 性能优化 | `efe9028214cd52ef03f5a8b1e0143006be5ba6ad` | [43407927934](https://github.com/giturass/B-box/actions/runs/43407927934) | 8 个 job 通过；56 项 JVM；四组各 39 项原生测试 |
