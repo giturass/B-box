@@ -113,8 +113,6 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 Cloudflare WARP MASQUE 通过“网络 → 出站”的 JSON 表单或原始 JSON 编辑器配置；字段及导入示例见 [核心文档](libbox.md#cloudflare-warp-masque)。配置保存沿用上述修订检查及 Android 校验流程。
 
-[requests_test.dart](flutter/test/requests_test.dart) 的详情滚动查找限定在当前详情页内；目标尚未由列表构建时先滚动，不对空查找调用 `.last`。这保留关联请求、连接过期及滚动后标题边界的实际断言。
-
 原始 JSON 编辑器使用 [code_editor.dart](flutter/lib/components/code_editor.dart) 显示从 1 开始的逻辑行号，空行和末尾换行保留编号；长行折行不增加行号，行号随正文滚动。编辑器只保存逻辑行起始偏移，在同一帧先布局正文，再复用 `RenderEditable` 的排版及未取整选区端点计算可见行号，输入、替换内容和调整尺寸时无需等待下一帧，也不为行号排版第二份完整文本。正文滚动及视口尺寸变化后同步选区端点，使手柄显示位置与拖动计算使用同一组正文坐标，避免按旧位置选中其他行；搜索、格式化、撤销及修订校验沿用原编辑流程。
 
 [JsonEditorController](flutter/lib/pages/profile_editor.dart) 只缓存当前内容、样式和配色的高亮，纯选区变化复用结果；输入法组合输入及超过既有 150000 字符阈值时使用普通文本并释放高亮缓存。原始编辑器和分项 JSON 表单不因选区变化重建整页。`ProfileConfigStore.set` 只复制修改路径上的 Map，序列化读取其他分支；失败时原配置和修订保持不变。
@@ -128,8 +126,6 @@ Cloudflare WARP MASQUE 通过“网络 → 出站”的 JSON 表单或原始 JSO
 MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、服务器证书校验、“解密TCP”和 QUIC 回退设置；证书入口独立于配置加载。页面顶部不显示配置名或解密说明，TCP 和 QUIC 开关仅显示标题。域名入口只显示标题，完整域名及排除项在二级编辑器查看和修改，保留输入顺序及通配符、端口后缀，新增抓取域名追加在列表末尾。端口、应用等额外筛选通过同页 JSON 编辑入口修改，见 [MITM 配置](libbox.md#独立-mitm-配置)。HTTP 改写页面依次显示 URL Rewrite、Header Rewrite、Body Rewrite（含 jq）、Map Local / API Mock、Map Remote，下方提供资源及完整 JSON 编辑入口；脚本独立编辑启用状态、HTTP、Cron 和资源。脚本及改写资源页提供“导入本地资源”、已有资源的 JSON 编辑及整个资源字典编辑；导入期间禁用重复提交，取消保留原配置，成功后显示可供规则引用的资源名，失败显示原因。文件位置、修订检查和备份边界见 [Android 导入流程](app.md#配置处理生命周期)。前后查找/反向引用、URL 资源及独立正文限额通过完整 JSON 表单配置，字段及运行行为见 [libbox.md](libbox.md#json-配置中的-http-改写)。新建规则/任务示例默认禁用。
 
 字段修改通过 ProfileConfigStore.set，本地资源导入通过独立桥接；二者均保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
-
-[configuration_test.dart](flutter/test/configuration_test.dart) 验证三种配置及 Cron 草稿通过独立路径保存，HTTP/2、证书校验及 QUIC 显式关闭选项正确保存，关闭改写保留 MITM/脚本，校验失败保留内容；[requests_test.dart](flutter/test/requests_test.dart) 覆盖空域名、有序域名/排除项选择、旧记录设置清理、无改写横幅/抓包日志入口及 TCP 详情。生成的独立配置截图为 requests/independent-mitm-config.png、requests/independent-scripts-cron.png；结果按实际源码 SHA 记录。
 
 ### 状态卡片与出口查询
 
@@ -154,107 +150,89 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ## 验证与升级参考版本
 
-2026-11-13，WARP MASQUE 集成的验证源码为 `e0d77c9a5507a3503c5942c1a0b38bd702dbfd5e`，对应 [Actions 43434680819](https://github.com/giturass/B-box/actions/runs/43434680819) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43434680819/job/131916654215)。Flutter 分析、257 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 83 条 info、0 条 warning/error。请求详情测试的滚动查找限定为当前详情页，覆盖新增应用信息后位于屏幕外的关联请求；生产页面沿用现有实现。
+本节依次维护测试入口、测试文件的覆盖范围、当前源码的界面验证结果、历史运行索引和升级步骤。测试的存在不是通过声明；这些测试只覆盖声明的页面和情景，不等于全应用逐像素一致或已经完成实机验收。核心、JVM 与 Android 的结果和未覆盖范围见 [app.md](app.md#验证与历史记录)。
 
-已查看本次 [newui-validation](https://github.com/giturass/B-box/actions/runs/43434680819/artifacts/14042942102) 中的 `build/screenshots/requests/unified-related-requests.png`：应用信息位于连接字段卡片内，关联请求卡片列出两条 HTTP/2 请求并标明当前请求，标题栏与卡片未重叠。截图使用测试桥接数据；核心、Android 与签名 ARM64 Release 的实际结果和未覆盖范围见 [应用验证记录](app.md#cloudflare-warp-masque-验证)。后续只补充记录的 Markdown 提交不改变上述验证源码。
+### 测试入口与产物
 
-2026-11-13，图标/主题缓存、代理组通知、JSON 编辑和请求历史分页优化的验证源码为 `efe9028214cd52ef03f5a8b1e0143006be5ba6ad`，对应 [Actions 43407927934](https://github.com/giturass/B-box/actions/runs/43407927934) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43407927934/job/131826877757)。Flutter 分析、257 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 83 条 info、0 条 warning/error。
+[newui.yml](.github/workflows/newui.yml) 在各分支代码推送时自动运行，统一包含核心、Flutter、JVM 和 Android smoke；[setup-flutter](.github/actions/setup-flutter/action.yml) 固定 SDK 和依赖锁文件。Flutter job 先运行 [verify_newui.py](tools/verify_newui.py) 核验 FlClash/prism_ui 文件哈希、许可、适配目标和退役依赖等源码约束，再依次执行 `flutter analyze --no-fatal-infos`、`flutter test --reporter expanded` 和 `flutter build aar --no-profile --target-platform android-arm64`。截图和像素比较由同一测试入口生成，截图及失败对比图上传为 `newui-validation`，验证用 AAR 上传为 `flutter-aar-arm64`。手动 Release 构建独立准备所需的 Flutter Release AAR，不依赖测试运行，见 [构建与发布](app.md#构建与发布)。
 
-用例覆盖图标容量及迟到加载、内存压力清理、主题和未变化代理对象复用、高亮缓存、行号在首帧/调整尺寸/滚动中编辑后的对齐，以及请求窗口增量、未加载父连接去重、全历史搜索与 HAR 条件、会话切换和页面关闭后的轮询释放。原有 0.8、1.0、1.4 倍字号下的选区拖动与复制回归继续通过；文档缩短后的检查等待正文滚动归位，普通编辑的行号检查保持单帧要求。
+### 测试文件覆盖
 
-本次实际查看 [newui-validation](https://github.com/giturass/B-box/actions/runs/43407927934/artifacts/14028143254) 的以下截图：
+下列测试使用桥接替身和测试数据，验证交互、通知、调用和几何断言。它们不代替实际 TLS、系统证书安装、第三方应用或实机视觉验收；实际 PSS/RSS、CPU、帧耗时和加载耗时仍需在同设备、同配置下测量。原生服务重启、配置重载和内核日志级别由 [Android 仪器测试](app.md#android-仪器测试) 覆盖。
 
-| 截图（相对 `build/screenshots/`） | 核对范围 |
+**导航、外观与关于**
+
+- [navigation_test.dart](flutter/test/navigation_test.dart)：固定导航在 320 宽、底部安全区、浅色/深色/纯黑及大字号下的高度、底色、页面边界、标签切换和选中语义，并输出固定栏截图。宽屏通过侧栏实际按钮切页，并在截图前核对当前页；外观与 MITM 页直接检查工具栏操作区域像素，防止隐藏首页的按钮残留；复制反馈和保存失败回归另检查顶部按钮仍可点击。另输出配置编辑与排序弹层在窄屏、大字号和宽屏下的截图，这些是布局回归产物，配置页尚未声明与上游逐像素一致。
+- [appearance_test.dart](flutter/test/appearance_test.dart)：主题选择与重开页面后的偏好，旧字体偏好不覆盖默认字体，系统字号运行时变化和既有缩放上下限。导航、状态、内网 IP、出站模式及请求页面的字号场景通过系统缩放模拟，不依赖已退役的应用偏好。
+- [licenses_test.dart](flutter/test/licenses_test.dart)：异步加载、共享许可按包分组、搜索及完整可选中正文。
+- [about_test.dart](flutter/test/about_test.dart)：版本检查完整/未完成与可升级/不可升级的四种组合，等待时禁止重复请求、未完成提示、APK 下载条件和发布页面入口。
+- [dashboard_editor_test.dart](flutter/test/dashboard_editor_test.dart)、[outbound_mode_test.dart](flutter/test/outbound_mode_test.dart) 和 [terminal_settings_test.dart](flutter/test/terminal_settings_test.dart)：首页卡片的原位编辑情景；出站模式图形与 Android 一致并保留内核顺序和当前选择；停服时从终端页打开 Ghostty 设置并保存原生配置。
+
+**配置、编辑与备份**
+
+- [profiles_test.dart](flutter/test/profiles_test.dart)：新建与二进制导入的内容/元数据、添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、本地时间的未知占位及原生元数据事件刷新、自动更新校验、选中配置定位、列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、排序冲突及远程会话隔离。
+- [configuration_test.dart](flutter/test/configuration_test.dart)：MITM、HTTP 改写、脚本三种配置及 Cron 草稿通过独立路径保存，HTTP/2、证书校验及 QUIC 显式关闭选项正确保存，关闭改写保留 MITM/脚本，校验失败保留内容，原始编辑按修订写入内容且不改动配置元数据。
+- [code_editor_test.dart](flutter/test/code_editor_test.dart)：加载应用实际的等宽字体，对照 `RenderEditable` 检查行号在折行、宽度/字号变化及滚动后的对齐，覆盖空行、末尾换行和替换内容。选区用例在 0.8、1.0、1.4 倍字号下实际拖动两端手柄，检查跨行选择、折行文档滚动后的定位，以及通过复制菜单取得的原文范围。
+- [backup_test.dart](flutter/test/backup_test.dart)：取消本地选择器不报告成功也不恢复数据，导出使用紧凑 JSON；恢复传递范围与策略，失败后可重试；WebDAV 上传等待服务器确认且不打开本地选择器；WebDAV 表单校验目录 URL，保存失败和取消关闭后保留长输入。
+
+**代理、状态与出口查询**
+
+- [proxies_test.dart](flutter/test/proxies_test.dart) 与 [proxy_nodes_test.dart](flutter/test/proxy_nodes_test.dart)：自动组禁止手选、延迟测试目标、分组切换、列表折叠及视口外节点定位；节点筛选复用未变化的结果，超时、改名、相同延迟重排和移除使排序结果失效。
+- [status_panel_test.dart](flutter/test/status_panel_test.dart)：状态卡片与出口查询的刷新和会话约定，并将启动按钮的独立无障碍点击入口与配置可用性、实际桥接调用一起验证。
+- [status_panel_parity_test.dart](flutter/test/status_panel_parity_test.dart)：与冻结的 [flclash_status_reference.dart](flutter/test/support/flclash_status_reference.dart) 比较像素，覆盖中英文、深浅主题、0.8/1.0/1.4 字号比例、IPv6、查询等待/失败、组织/ASN 回退及质量等级；停止按钮另行比较，停服状态包含无配置首次启动和设备网络查询的成功/等待/失败情况。参考渲染器独立保留原版标题、chips、徽章、形变、卡片表面和排版，不导入 B-box 的适配仪表盘组件；比较使用相同视口、字号、语言、主题及 Roboto/Noto Sans SC 字体，按卡片自然高度截图并断言高度，双方图像上传为 CI Artifact。
+- [ip_quality_test.dart](flutter/test/ip_quality_test.dart) 与 [ip_quality_cache_test.dart](flutter/test/ip_quality_cache_test.dart)：各来源的类型和标志解析、查询目标地址、不增加固定期限、用户取消不启动后续批次、首个声明类型的来源胜出并取消其余、前序失败或静默时进入后续批次、全部应答后回退推断类型及失败原因；成功结果的内存共享与按 IP 持久化、三天到期边界、无效记录忽略、失败五分钟内存冷却且不持久化、手动重试和刷新跳过缓存、缓存读写失败不丢弃成功结果、取消不返回旧数据也不产生冷却，以及同一 IP 的并发查询共享结果。
+- [intranet_panel_test.dart](flutter/test/intranet_panel_test.dart)：大字号下复制按钮的尺寸与位置，以及运行/停服/远程会话的复制内容。
+
+**服务设置与日志**
+
+- [service_settings_test.dart](flutter/test/service_settings_test.dart) 与 [box_test.dart](flutter/test/box_test.dart)：三个服务开关的即时应用、等待原生确认期间禁用开关及移除手动应用按钮；重复编辑、停止/远程会话、启停过渡及失败后的原生设置恢复。
+- [logs_test.dart](flutter/test/logs_test.dart)：本地/远程日志状态的默认阈值、保留更严重的记录、手动筛选及恢复跟随配置，以及暂停、搜索、导出和清空。
+
+**数据订阅、刷新与缓存**
+
+- [state_updates_test.dart](flutter/test/state_updates_test.dart)：高频数据只重建对应订阅者、服务状态仍通知、应用根部不随遥测/工具进度变化重建且外观设置继续生效，并覆盖日志增量淘汰、暂停快照、连接增量对象复用/重置及启动响应不覆盖早到事件。
+- [data_subscription_test.dart](flutter/test/data_subscription_test.dart)：各类数据的卡片/详情共享订阅，以及隐藏页面、TickerMode、前后台和销毁时的订阅切换。
+- [connection_list_test.dart](flutter/test/connection_list_test.dart) 与 [network_activity_test.dart](flutter/test/network_activity_test.dart)：搜索、过滤、排序、增量复用、一对多关联、无关联/淘汰历史、分页前去重及连接与请求计量隔离。
+- [connections_test.dart](flutter/test/connections_test.dart)、[capture_poll_test.dart](flutter/test/capture_poll_test.dart) 和 [capture_page_test.dart](flutter/test/capture_page_test.dart)：统一请求页关闭后释放连接订阅并停止抓取轮询；完成详情停轮询、手动刷新、前台恢复和同帧会话切换；查询增量复用已保留的摘要并释放窗口外记录，畸形增量页被拒绝且不产生空历史。
+- [app_icon_cache_test.dart](flutter/test/app_icon_cache_test.dart)：图标共享在途加载并按最近最少使用淘汰，未命中和超大图标不使缓存无界增长，加载期间清空不会重新填充或覆盖新条目。
+- [access_test.dart](flutter/test/access_test.dart)：进入托管页面不扫描、加载期间接收最新托管选择、显示范围与隐藏选择保留、保存失败后重试、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。
+
+**请求与 MITM**
+
+- [requests_test.dart](flutter/test/requests_test.dart)：统一工具入口、混合列表和活动筛选、关联详情、底层连接关闭确认、历史保留、同名远端的会话隔离、HAR 选中 ID、本机设置修订、旧记录设置清理、无改写横幅/抓包日志入口、端口、启动确认及后台轮询/迟到结果。MITM 域名覆盖空域名、有序域名/排除项选择；证书测试检查无配置时从抓包设置经 MITM 页进入证书、明确生成、取消导出、活跃 MITM 禁止重生成、远程切换和信任刷新。其他回归包括停止抓取时的历史分页与搜索重置、TCP 详情及流完成/导出限制、既有 socket 元数据、报文菜单、字段/Cookie 复制、正文格式及 Unicode 分页、完整正文/任意字节限制和超过旧条数范围的搜索导出；历史列表检查“显示更多”可实际点击，正文检查原生翻页、页内复制、失败重试及会话切换。资源页另检查导入、取消、修订失败和远程会话禁用。详情的滚动查找限定在当前详情页内，目标尚未由列表构建时先滚动，不对空查找调用 `.last`，以保留关联请求、连接过期及滚动后标题边界的实际断言。
+- 滚动边界：配置页面和共享表单将滚动视口放在共享标题下方，测试核对配置页 320 宽、1.3 倍字号深色主题，以及抓包设置 360 宽浅色/1.4 倍深色、800 宽浅色的滚动前后几何位置。窄屏、大字号深色及宽屏测试运行后将截图写入 `build/screenshots/requests/`，包含独立配置（如 `independent-mitm-config.png`、`independent-scripts-cron.png`）、请求设置、证书、统一列表、关联记录、分页按钮及报文详情。
+- [http_message_test.dart](flutter/test/http_message_test.dart)：JSON 数值/重复键/转义保真、无效内容回退、正文页缩进输出过大时回退原文，以及重复 Cookie、空值、等号和 Expires 逗号。请求正文不完整或截断时不提供 cURL 导出。
+
+### 当前验证记录
+
+2026-11-14，代码整理与 MASQUE 网络重置修复的验证源码为 `06eed8f5f830a90b9853995ced3b2e211deca628`，对应 [Actions 43523435178](https://github.com/giturass/B-box/actions/runs/43523435178) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43523435178/job/132223173515)。Flutter 分析、257 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 84 条 info、0 条 warning/error。该源码的界面改动是不改变行为的重构（后端事件处理、请求页面拆分、许可列表命名、MITM 开关构建），没有修改测试文件；后续只补充记录的 Markdown 提交不改变上述验证源码。
+
+本次实际查看 [newui-validation](https://github.com/giturass/B-box/actions/runs/43523435178/artifacts/14083938781) 的以下截图，路径相对 `build/screenshots/`：
+
+| 截图 | 核对结果 |
 | --- | --- |
-| `requests/requests-pagination.png` | 滚动列表位于标题栏下方，末尾“显示更多”避开底部搜索栏 |
-| `requests/unified-http2-and-connections.png`、`requests/unified-related-requests.png` | HTTP/2 独立请求、普通连接及关联请求入口 |
-| `requests/360-1.4-dark-list.png`、`requests/800-1.0-light-list.png` | 大字号筛选换行、长 URL 省略及宽屏侧栏布局 |
-| `360-light-1.0-Proxies-populated.png`、`360-dark-1.4-Proxies-populated.png` | 代理选中态、延迟/超时显示及大字号卡片布局 |
+| `requests/unified-related-requests.png` | 请求详情的连接字段卡片含来源、网络、协议、入站/出站、规则、链路、流量和应用信息；关联请求卡片列出两条 HTTP/2 请求并标明当前请求，标题栏与卡片未重叠 |
+| `requests/requests-pagination.png` | 滚动列表位于标题栏下方，末尾“显示更多”位于底部搜索栏上方 |
+| `requests/independent-mitm-config.png` | 320 宽深色 MITM 页首先显示证书入口，随后是 HTTPS、域名、HTTP/2、服务器证书校验、TCP 解密和 QUIC 回退开关及 JSON 编辑入口；标题可读，顶部无其他页面的按钮残留 |
+| `navigation/fixed-light.png` | 320 宽浅色代理页显示停服空状态，固定底部导航四个标签可读，代理标签为选中态 |
+| `360-light-1.0-Dashboard-populated.png` | 状态、网速、出站模式和配置卡片依次显示，底部导航未遮挡卡片文字 |
 
-这些截图使用测试桥接数据，不证明实机性能收益。核心与 Android 的实际结果见 [应用验证记录](app.md#ui-性能优化验证)；未测量 ARM64 实机的内存、帧耗时或大历史数据性能。本机仅执行静态检查，后续仅补充验证记录的 Markdown 提交不改变上述验证源码。
+截图使用测试桥接数据，属于抽样检查；没有进行全应用逐像素验收、ARM64 实机视觉或性能测量。核心、JVM、Android smoke 的结果和未覆盖范围见 [应用验证记录](app.md#当前验证记录)。
 
-2026-11-13，原始 JSON 选区修复的验证源码为 `74bcbfc9d76b994d5bfb91f3401eee5f1109a9fc`，对应 [Actions 43331463838](https://github.com/giturass/B-box/actions/runs/43331463838) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43331463838/job/131576932628)。Flutter 分析、246 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 79 条 info、0 条 warning/error。新增用例在应用实际等宽字体和 0.8、1.0、1.4 倍字号下，拖动两端手柄跨越三行，分别核对未滚动与折行长文滚动后的字符范围，并实际点击复制菜单检查原文。
+### 历史验证记录
 
-同一批用例在修复前的 `208c5675d7c5582925a02c2002a6e1b3c62a2ed9` [Actions 43328760156](https://github.com/giturass/B-box/actions/runs/43328760156) 中，有六个滚动后的选区用例失败，未滚动用例通过；修复后这些场景均通过。本机执行差异、源码约束及文档链接静态检查，未编译或运行 Flutter 测试。本记录不表示已完成 ARM64 实机手柄及系统剪贴板验收，也不表示已发布包含修复的 APK；后续纯 Markdown 记录不改变上述验证源码。
+下表索引此前记录过的 Flutter 运行，只用于查询，不是当前源码的通过声明；各次均包含 Flutter 分析、交互/布局测试和 ARM64 Debug/Release Flutter AAR 构建，分析结果无 warning/error。截图路径相对各次 `newui-validation` 的 `build/screenshots/`，逐张的核对结论和未覆盖范围保留在 Git 历史，可用 `git show 06eed8f5f830a90b9853995ced3b2e211deca628:flclash.md` 查看整理前的完整记录。对应的核心与 Android 结果见 [app.md](app.md#历史验证记录)。
 
-2026-11-11，本地资源导入与正文分页的验证源码为 `d3a1f178d6d2375291b698d7200ef9ab8ff98260`，对应 [Actions 42914488877](https://github.com/giturass/B-box/actions/runs/42914488877)。Flutter 分析、234 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 79 条 info、0 条 warning/error。用例覆盖脚本/改写资源导入的修订、取消与会话隔离，以及正文按页读取、替换、页内复制、失败重试和迟到结果丢弃。
+| 日期 | 主题 | 验证源码 | Actions | 测试 / info | 当时实际查看的截图 |
+| --- | --- | --- | --- | --- | --- |
+| 2026-11-13 | WARP MASQUE 集成 | `e0d77c9a5507a3503c5942c1a0b38bd702dbfd5e` | [43434680819](https://github.com/giturass/B-box/actions/runs/43434680819)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43434680819/job/131916654215)） | 257 / 83 | `requests/unified-related-requests.png` |
+| 2026-11-13 | 图标/主题缓存、代理组通知、JSON 编辑和请求历史分页优化 | `efe9028214cd52ef03f5a8b1e0143006be5ba6ad` | [43407927934](https://github.com/giturass/B-box/actions/runs/43407927934)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43407927934/job/131826877757)） | 257 / 83 | `requests/requests-pagination.png`、`requests/unified-http2-and-connections.png`、`requests/unified-related-requests.png`、`requests/360-1.4-dark-list.png`、`requests/800-1.0-light-list.png`、`360-light-1.0-Proxies-populated.png`、`360-dark-1.4-Proxies-populated.png` |
+| 2026-11-13 | 原始 JSON 选区修复 | `74bcbfc9d76b994d5bfb91f3401eee5f1109a9fc` | [43331463838](https://github.com/giturass/B-box/actions/runs/43331463838)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43331463838/job/131576932628)） | 246 / 79 | 未记录截图。修复前的 `208c5675d7c5582925a02c2002a6e1b3c62a2ed9`（[43328760156](https://github.com/giturass/B-box/actions/runs/43328760156)）有六个滚动后的选区用例失败，不计入 |
+| 2026-11-11 | 本地资源导入与正文分页 | `d3a1f178d6d2375291b698d7200ef9ab8ff98260` | [42914488877](https://github.com/giturass/B-box/actions/runs/42914488877) | 234 / 79 | `requests/resource-import-scripts.png`、`requests/resource-import-http_rewrite.png`、`requests/body-first-page.png`、`requests/body-last-page.png` |
+| 2026-11-10 | 正文保留方式、WebDAV 长输入及表单滚动边界 | `6414cea3bfca092b8f5c146552f6c76738cb4bf1` | [42848220348](https://github.com/giturass/B-box/actions/runs/42848220348) | 232 / 80 | `requests/360-1.4-dark-settings-ports.png`、`requests/360-1.0-light-settings-ports.png`、`requests/800-1.0-light-settings.png`、`360-dark-1.4-Profile-edit.png`、`800-light-1.0-Profile-edit.png` |
+| 2026-11-10 | 统一请求查看器 | `3922cd606f520f6581bd4fd0a7d211a68a24ca23` | [42760227283](https://github.com/giturass/B-box/actions/runs/42760227283) | 229 / 80 | `requests/unified-http2-and-connections.png`、`requests/unified-related-requests.png`、`requests/requests-pagination.png`、`requests/360-1.4-dark-list.png`、`requests/360-1.4-dark-details.png`、`requests/360-1.4-dark-body.png`、`requests/800-1.0-light-list.png`、`requests/800-1.0-light-details.png` |
+| 2026-11-05 | FlClash v0.9.3 / Prism UI 升级 | `d9254711ccf34cda547d2f2287b0e0a508e861a6` | [41982716632](https://github.com/giturass/B-box/actions/runs/41982716632) | 215 / 78 | 800 宽浅色的代理、配置、工具和配置编辑页，360 宽的首页、外观和配置编辑页，`requests/independent-mitm-config.png`、`requests/independent-mitm-tcp-quic.png`、`requests/360-1.4-dark-message-menu.png`、`requests/800-1.0-light-settings.png`，三种 `navigation/fixed-*.png`，`status-card/zh-dark-large-bbox.png`；另查看 `android-smoke-api-31` 的启动、分组和配置恢复截图 |
 
-实际查看本次 [newui-validation](https://github.com/giturass/B-box/actions/runs/42914488877/artifacts/13809760403) 中以下截图，路径相对 `build/screenshots/`：
+### 升级参考版本
 
-- `requests/resource-import-scripts.png`、`requests/resource-import-http_rewrite.png`：320 宽、1.3 倍字号深色页面中，导入按钮、资源名称、JSON 编辑入口和应用内备份说明可读，无布局溢出。
-- `requests/body-first-page.png`、`requests/body-last-page.png`：360 宽浅色详情中，正文在卡片内滚动，页码、下一页/上一页和复制按钮可见；翻页后的短正文与前一页分开显示。
-
-截图使用测试桥接数据，只覆盖这些布局情景；真实文档流、核心协议及 Android 结果见 [应用验证](app.md#android-协议资源导入与正文读取修复验证)。未测量 ARM64 实机 PSS/RSS 或大响应的性能，后续只补充记录的 Markdown 提交不改变上述验证源码。
-
-2026-11-10，正文保留方式、WebDAV 长输入及表单滚动边界的验证源码为 `6414cea3bfca092b8f5c146552f6c76738cb4bf1`，对应 [Actions 42848220348](https://github.com/giturass/B-box/actions/runs/42848220348)。Flutter 分析、232 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 80 条 info、0 条 warning/error。完整正文切换、任意正数字节限制、超过旧条数范围的搜索/导出，以及超过旧长度限制的 WebDAV 输入和失败重试均由本次用例覆盖。
-
-实际查看本次 `newui-validation` 中以下截图，路径相对 `build/screenshots/`：
-
-- `requests/360-1.4-dark-settings-ports.png`、`requests/360-1.0-light-settings-ports.png`：滚动内容在标题下方裁剪，正文开关、字节输入、端口及说明可读，顶部保存按钮保持可用。
-- `requests/800-1.0-light-settings.png`：宽屏设置侧页完整显示正文保留选项及输入框，关闭和保存操作可见。
-- `360-dark-1.4-Profile-edit.png`、`800-light-1.0-Profile-edit.png`：共享表单改动后，配置编辑弹层仍保留字段、滚动和保存操作，长内容在字段内横向编辑。
-
-这些截图使用测试桥接数据，覆盖的是声明的布局情景；核心、Android 及未覆盖范围见 [应用验证](app.md#路由正文准入与资源缓存修复验证)。后续只补充记录的 Markdown 提交不改变上述验证源码。
-
-2026-11-10，统一请求查看器的验证源码为 `3922cd606f520f6581bd4fd0a7d211a68a24ca23`，对应 [Actions 42760227283](https://github.com/giturass/B-box/actions/runs/42760227283)。Flutter 分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；本次实际查看 `newui-validation` 中以下截图：
-
-- `requests/unified-http2-and-connections.png`、`requests/unified-related-requests.png`：同一 HTTP/2 连接的多个请求独立展示，普通 UDP 连接和关联请求可见；滚动后的连接信息不进入标题栏。
-- `requests/requests-pagination.png`：滚动内容避让标题栏，“显示更多”位于固定搜索栏上方；测试实际点击后展开下一批记录。
-- `requests/360-1.4-dark-list.png`、`requests/360-1.4-dark-details.png`、`requests/360-1.4-dark-body.png`，以及 `requests/800-1.0-light-list.png`、`requests/800-1.0-light-details.png`：窄屏大字号筛选可换行，详情和正文可滚动，宽屏侧面页布局正常。
-
-截图使用测试桥接数据，不代替真实 TLS、第三方应用或 ARM64 实机验收；核心和 Android 的实际验证记录见 [应用验证](app.md#统一请求查看器验证)。后续仅补充验证记录的 Markdown 提交不改变上述源码。
-
-2026-11-05，FlClash v0.9.3 / Prism UI 升级的验证源码为 `d9254711ccf34cda547d2f2287b0e0a508e861a6`。对应 [Actions 41982716632](https://github.com/giturass/B-box/actions/runs/41982716632) 的 Flutter 分析、215 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 78 条 info、0 条 warning/error。后续只记录结果的 Markdown 提交不改变验证源码，Android 与核心复核见 [应用验证记录](app.md#prism-ui-升级验证)。
-
-[newui.yml](.github/workflows/newui.yml) 在各分支代码推送时自动运行，统一包含核心、Flutter、JVM 和 Android smoke；[setup-flutter](.github/actions/setup-flutter/action.yml) 固定 SDK 和依赖锁文件。Flutter 测试按功能组织，覆盖导航、配置编辑、首页编辑、代理列表、备份、外观、关于、终端设置、模式、内网 IP 和 IP 查询/缓存；[verify_newui.py](tools/verify_newui.py) 核验 FlClash/prism_ui 文件哈希、许可、适配目标和退役依赖等源码约束。截图/像素比较仍由同一测试入口运行，截图与验证 AAR 分别上传到 `newui-validation` 和 `flutter-aar-arm64`。手动 Release 构建独立准备所需的 Flutter Release AAR，不依赖测试运行，见 [构建与发布](app.md#构建与发布)。
-
-[navigation_test.dart](flutter/test/navigation_test.dart) 另检查固定导航在 320 宽、底部安全区、浅色/深色/纯黑及大字号下的高度、底色、页面边界、标签切换和选中语义，并输出固定栏截图。宽屏通过侧栏实际按钮切页，并在截图前核对当前页；外观与 MITM 页直接检查工具栏操作区域像素，防止隐藏首页的按钮残留。复制反馈和保存失败回归另检查顶部按钮仍可点击。[licenses_test.dart](flutter/test/licenses_test.dart) 检查异步加载、共享许可按包分组、搜索及完整可选中正文。
-
-[about_test.dart](flutter/test/about_test.dart) 覆盖版本检查完整/未完成与可升级/不可升级的四种组合，检查等待时禁止重复请求、未完成提示、APK 下载条件和发布页面入口。实际运行结果见 [持久化、配置恢复与后台检查优化验证](app.md#持久化配置恢复与后台检查优化验证)。
-
-[appearance_test.dart](flutter/test/appearance_test.dart) 检查主题选择与重开页面后的偏好，以及旧字体偏好不覆盖默认字体、系统字号运行时变化和既有缩放上下限。导航、状态、内网 IP、出站模式及请求页面的字号场景通过系统缩放模拟，不依赖已退役的应用偏好。
-
-[profiles_test.dart](flutter/test/profiles_test.dart) 覆盖新建与二进制导入的内容/元数据、添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、自动更新校验、选中配置定位、列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、排序冲突及远程会话隔离。[navigation_test.dart](flutter/test/navigation_test.dart) 另输出配置编辑与排序弹层在窄屏、大字号和宽屏下的截图；这些是布局回归产物，配置页尚未声明与上游逐像素一致。
-
-[proxies_test.dart](flutter/test/proxies_test.dart) 集中验证自动组禁止手选、延迟测试目标、分组切换、列表折叠及视口外节点定位。[connections_test.dart](flutter/test/connections_test.dart) 检查统一请求页关闭后释放连接订阅并停止抓取轮询；[status_panel_test.dart](flutter/test/status_panel_test.dart) 将启动按钮的独立无障碍点击入口与配置可用性、实际桥接调用一起验证。
-
-配置测试另覆盖本地时间的未知占位及原生元数据事件刷新；[code_editor_test.dart](flutter/test/code_editor_test.dart) 加载应用实际的等宽字体，对照 `RenderEditable` 检查行号在折行、宽度/字号变化及滚动后的对齐，并覆盖空行、末尾换行和替换内容。选区用例在 0.8、1.0、1.4 倍字号下实际拖动两端手柄，检查跨行选择、折行文档滚动后的定位，以及通过复制菜单取得的原文范围。[intranet_panel_test.dart](flutter/test/intranet_panel_test.dart) 检查大字号下复制按钮的尺寸与位置，以及运行/停服/远程会话的复制内容；这些几何断言不代替实机视觉验收。
-
-[service_settings_test.dart](flutter/test/service_settings_test.dart) 覆盖三个服务开关的即时应用、等待原生确认期间禁用开关及移除手动应用按钮；[box_test.dart](flutter/test/box_test.dart) 检查重复编辑、停止/远程会话、启停过渡及失败后的原生设置恢复。实际服务重启与恢复的 Android 验证范围见 [app.md](app.md#验证与历史记录)。
-
-[logs_test.dart](flutter/test/logs_test.dart) 覆盖本地/远程日志状态的默认阈值、保留更严重的记录、手动筛选及恢复跟随配置，并检查暂停、搜索、导出和清空；实际内核级别与配置重载由 Android 仪器测试覆盖。
-
-[state_updates_test.dart](flutter/test/state_updates_test.dart) 检查高频数据只重建对应订阅者、服务状态仍通知、应用根部不随遥测/工具进度变化重建且外观设置继续生效，并覆盖日志增量淘汰、暂停快照、连接增量对象复用/重置及启动响应不覆盖早到事件。[data_subscription_test.dart](flutter/test/data_subscription_test.dart) 对各类数据检查卡片/详情共享订阅、隐藏页面、TickerMode、前后台和销毁时的订阅切换。[connection_list_test.dart](flutter/test/connection_list_test.dart) 和 [network_activity_test.dart](flutter/test/network_activity_test.dart) 覆盖搜索、过滤、排序、增量复用、一对多关联、无关联/淘汰历史、分页前去重及连接与请求计量隔离；[capture_poll_test.dart](flutter/test/capture_poll_test.dart) 检查完成详情停轮询、手动刷新、前台恢复和同帧会话切换。测试验证通知和调用行为，实际 PSS/RSS、CPU 和帧耗时仍需在同设备、同配置下测量。
-
-上述增量、订阅与轮询优化的源码 SHA、统一 Actions 结果和未覆盖范围见 [界面刷新与存储优化验证](app.md#界面刷新与存储优化验证)。
-
-[access_test.dart](flutter/test/access_test.dart) 覆盖进入托管页面不扫描、加载期间接收最新托管选择、显示范围与隐藏选择保留、保存失败后重试、图标复用、扫描等待/成功/失败及查询设置返回后的刷新。它验证交互和调用行为，不代替实机加载耗时或视觉验收。
-
-[requests_test.dart](flutter/test/requests_test.dart) 覆盖统一工具入口、混合列表和活动筛选、关联详情、底层连接关闭确认、历史保留、同名远端的会话隔离、HAR 选中 ID、本机设置修订、MITM 域名选择、端口、启动确认及后台轮询/迟到结果；证书测试检查无配置时从抓包设置经 MITM 页进入证书、明确生成、取消导出、活跃 MITM 禁止重生成、远程切换和信任刷新。其他回归包括停止抓取时的历史分页与搜索重置、TCP 流完成/导出限制、既有 socket 元数据、报文菜单、字段/Cookie 复制、正文格式及 Unicode 分页；历史列表检查“显示更多”可实际点击，正文检查原生翻页、页内复制、失败重试及会话切换。资源页另检查导入、取消、修订失败和远程会话禁用。窄屏、大字号深色及宽屏测试运行后将截图写入 build/screenshots/requests/，包含独立配置、请求设置、证书、统一列表、关联记录、分页按钮及报文详情；桥接替身不能代替实际 TLS 或系统安装验收。
-
-配置页面和共享表单将滚动视口放在共享标题下方，避免文字穿过标题；测试核对配置页 320 宽、1.3 倍字号深色主题，以及抓包设置 360 宽浅色/1.4 倍深色、800 宽浅色的滚动前后几何位置。配置约定见 [MITM 配置](libbox.md#独立-mitm-配置)，当前截图检查范围记录在本节末尾。
-
-[http_message_test.dart](flutter/test/http_message_test.dart) 检查 JSON 数值/重复键/转义保真、无效内容回退、正文页缩进输出过大时回退原文，以及重复 Cookie、空值、等号和 Expires 逗号。[requests_test.dart](flutter/test/requests_test.dart) 另覆盖完整正文/任意字节限制和超过旧条数范围的搜索导出。请求正文不完整或截断时不提供 cURL 导出。
-
-[status_panel_parity_test.dart](flutter/test/status_panel_parity_test.dart) 与冻结的 [flclash_status_reference.dart](flutter/test/support/flclash_status_reference.dart) 比较像素，覆盖中英文、深浅主题、0.8/1.0/1.4 字号比例、IPv6、查询等待/失败、组织/ASN 回退及质量等级；停止按钮另行比较。停服状态包含无配置首次启动和设备网络查询的成功/等待/失败情况。
-
-参考渲染器独立保留原版标题、chips、徽章、形变、卡片表面和排版，不导入 B-box 的适配仪表盘组件。比较使用相同视口、字号、语言、主题及 Roboto/Noto Sans SC 字体，按卡片自然高度截图并断言高度，双方图像上传为 CI Artifact。
-
-这些测试只覆盖声明的页面和情景，不等于全应用逐像素一致或已经完成实机验收。升级参考版本时同步审查来源清单、适配文件、许可和独立参考渲染器，按实际 Actions 运行记录结果；Android 验证入口见 [app.md](app.md)。
-
-本轮实际查看上述运行在同一源码生成的 `newui-validation`，以下文件名均相对产物中的 `build/screenshots/`：
-
-| 情景 | 实际查看的截图 | 检查结果 |
-| --- | --- | --- |
-| 800 宽浅色 | `800-light-1.0-Proxies-populated.png`、`800-light-1.0-Profiles-populated.png`、`800-light-1.0-Tools.png`、`800-light-1.0-Profile-edit.png` | 收起侧栏的选择与实际页面一致；代理延迟、配置元数据、工具分区和居中表单可读，表单保留取消/保存操作 |
-| 360 宽浅色及深色大字号 | `360-light-1.0-Dashboard-populated.png`、`360-dark-1.4-Appearance.png`、`360-dark-1.4-Profile-edit.png` | 状态、速度和模式卡片使用新版布局；外观页无隐藏首页工具栏残影；编辑表单标签、开关及顶部操作可见，长输入保留横向编辑与页面滚动 |
-| MITM，320 宽、1.3 倍深色 | `requests/independent-mitm-config.png`、`requests/independent-mitm-tcp-quic.png` | 首屏和滚动后的 TCP/QUIC、证书及 JSON 编辑入口可读，标题与滚动内容分离，顶部无代理页按钮残影 |
-| 请求菜单与宽屏设置 | `requests/360-1.4-dark-message-menu.png`、`requests/800-1.0-light-settings.png` | 请求/响应/Cookies 菜单保留选中态，正文在有界卡片中展示，宽屏设置侧页保留关闭与保存按钮 |
-| 固定导航，320 宽 | `navigation/fixed-light.png`、`navigation/fixed-dark.png`、`navigation/fixed-black.png` | 浅色、深色及纯黑背景与页面一致；栏体及底部安全区不遮挡内容。1.4 倍字号的长英文标签按现有策略省略，完整标签仍用于语义 |
-| 中文状态卡，深色大字号 | `status-card/zh-dark-large-bbox.png` | 中文字体、状态徽章、启停图形和卡片排版可读；声明的状态情景同时通过独立上游参考渲染器的像素比较 |
-
-工具栏残影由首页保活方式与 Prism 浮层定位的组合引起，当前使用参考版分页保活；复制及保存失败横幅避让顶部操作。相应像素、点击和失败重试断言在本轮通过，宽屏截图在实际切页并核对当前页后生成。旧截图和失败运行不作为本版通过依据。
-
-同次 `android-smoke-api-31` 产物中实际查看了 `03-vpn-running.png`、`04-core-proxies.png` 和 `05-restored-profile.png`：应用显示运行状态、真实 `Smoke selector` 分组及 `direct` 节点，停止并重启进程后保留导入配置。模拟器报告与上述源码 SHA 一致。
-
-以上是抽样视觉检查及已声明情景的像素回归；没有进行全应用逐像素验收、ARM64 实机性能测量、完整系统证书设置或 Root 管理器交互验收。模拟器运行范围见 [应用验证记录](app.md#prism-ui-升级验证)，此前视觉记录通过本文 Git 历史查询。
+升级参考版本时同步审查 [来源清单](#参考版本与来源清单)、适配文件、字体/着色器、许可和独立参考渲染器，并核对 [固定 Flutter SDK](.github/actions/setup-flutter/action.yml) 下的选区覆盖层入口。结果按实际 Actions 运行写入 [当前验证记录](#当前验证记录)，原记录压缩为历史表中的一行；旧截图和失败运行不作为新版本的通过依据。

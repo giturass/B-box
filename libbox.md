@@ -50,7 +50,7 @@ B-box 新增 `outbounds` 中的 `type: "masque"`，复用当前上游 MASQUE 的
 
 [patch_warp_masque.py](tools/patch_warp_masque.py) 对干净的匹配核心检查补丁并安装选项、出站和传输，重复安装失败。共享 [setup-core](.github/actions/setup-core/action.yml) 使统一测试、Android smoke 和 ARM64 Release 使用同一实现；正式 libbox 构建已有 `with_quic`，不含 QUIC 的测试构建只接受 HTTP/2。
 
-[传输回归](libbox/masque/warp_test.go) 与 [HTTP/3 回归](libbox/masque/warp_http3_test.go) 使用临时测试密钥和本地 TLS/QUIC 服务器，检查握手、公钥固定、报文、失败/取消与重连，以及网络重置后拨号等待替换隧道；[ui_masque_test.go](libbox/ui_masque_test.go) 检查配置/格式化及真实 IP 栈经 selector 传输 UDP 和网络重置。[Android 绑定回归](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpMasqueConfigTest.kt) 验证实际 AAR 的 HTTP/2、HTTP/3 配置和非法凭据拒绝。实际运行记录维护在 [app.md](app.md#cloudflare-warp-masque-验证)；本地模拟服务不代表 Cloudflare 真实网络或注册流程已经验收。
+[传输回归](libbox/masque/warp_test.go) 与 [HTTP/3 回归](libbox/masque/warp_http3_test.go) 使用临时测试密钥和本地 TLS/QUIC 服务器，检查握手、公钥固定、报文、失败/取消与重连，以及网络重置后拨号等待替换隧道；[ui_masque_test.go](libbox/ui_masque_test.go) 检查配置/格式化及真实 IP 栈经 selector 传输 UDP 和网络重置。[Android 绑定回归](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpMasqueConfigTest.kt) 验证实际 AAR 的 HTTP/2、HTTP/3 配置和非法凭据拒绝。实际运行记录维护在 [app.md](app.md#当前验证记录)；本地模拟服务不代表 Cloudflare 真实网络或注册流程已经验收。
 
 ### 运行时内存
 
@@ -172,7 +172,7 @@ HTTP 离线 Mock 的握手方式见下文。TCP 支持限于直接建立 TLS 的
 
 叶证书缓存按证书到期时间清理，不设置固定主机数量配额；仍使用独立单主机 SAN，证书有效期不超过签发 CA。缓存随服务实例释放。
 
-本轮协议、配置及 Android 路由回归的实际结果见 [MITM 与 Surge 对齐验证](app.md#mitm-与-surge-对齐验证)。
+协议和配置的回归范围见 [回归文件覆盖](#回归文件覆盖)，Android 路由回归及实际运行记录见 [app.md](app.md#验证与历史记录)。
 
 ### JSON 配置中的 HTTP 改写
 
@@ -348,41 +348,101 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 
 ## 构建、同步和验证
 
+本节维护核心的构建入口、工作流配置的回归范围和升级步骤。回归文件的存在和下列描述不是通过声明；实际运行的源码 SHA、Actions 结果和未覆盖范围统一维护在 [app.md](app.md#验证与历史记录)。本机构建限制见 [AGENTS.md](AGENTS.md)。
+
+### 构建与工作流
+
 - [Release 工作流](.github/workflows/build-release.yml) 仅手动构建、不运行测试；通过共享构建 Action 使用 JDK 17、版本文件指定的 Go 和 NDK 28.0.13004108，执行上游 `make lib_install` 与 `build_libbox -target android -platform android/arm64`，与 Flutter Release AAR 并行准备。
-- [统一测试工作流](.github/workflows/newui.yml) 的 Android job 使用同一构建 Action，核心目标为 `android/amd64`，用于 JVM 及 [Android 模拟器矩阵](app.md#验证与历史记录) 的回归。两种架构的构建均要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
-- 同一工作流的 core job 使用共享准备 Action，运行 `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1` 及 `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`。所有生产扩展均参与编译，所有 `TestUI` 测试自动纳入，不再维护具体扩展名的筛选清单；该 job 不构建核心 AAR。另执行 `go test -race ./experimental/httpdebug -count=1` 和 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1`，覆盖 HTTP/MITM 抓取引擎、数据竞争及原出站和嗅探字节保留。
-- 对应回归文件为 [ui_http_test.go](libbox/ui_http_test.go)、[ui_egress_test.go](libbox/ui_egress_test.go)、[ui_lan_test.go](libbox/ui_lan_test.go)，覆盖请求限制/重定向、源回退/公网 IP 校验/解析失败后继续竞速/取消/服务替换、监听转换和端点生成。
+- [统一测试工作流](.github/workflows/newui.yml) 的 Android job 使用同一构建 Action，核心目标为 `android/amd64`，用于 JVM 及 [Android 模拟器矩阵](app.md#模拟器-smoke-矩阵) 的回归。两种架构的构建均要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
+- 同一工作流的 core job 使用共享准备 Action 把扩展、补丁和回归文件安装到上游检出目录，不构建核心 AAR。所有生产扩展均参与编译，测试按名称前缀或目录自动纳入，不维护具体扩展名的筛选清单。该 job 依次运行：
+  1. `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1`：Android ingress-discard map 布局兼容。
+  2. `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`：全部 `TestUI` 扩展回归。
+  3. `go test -race -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m`，再以 `-tags=with_quic` 运行同一命令，随后执行 `go test -tags=with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIMASQUE' -count=1`：WARP 认证及 HTTP/2、HTTP/3 隧道。HTTP/3 用例只在 `with_quic` 构建中编译。
+  4. `go test -race -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(Egress|Route|HTTP|Profile)' -count=1`：路由、出口探测、HTTP 任务和订阅的数据竞争。
+  5. `go test -race ./experimental/httpdebug -count=1 -timeout=5m` 与 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m`：HTTP/MITM 抓取与处理引擎的全部用例及数据竞争，以及原出站和嗅探字节保留。
+- 获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py) 以受限并发运行独立的抓取引擎测试，它不构建 Android 绑定。
 
-[httpdebug_test.go](libbox/httpdebug/httpdebug_test.go) 覆盖 HTTP、SSE/WebSocket、存储和导出；[mitm_test.go](libbox/httpdebug/mitm_test.go) 覆盖 TLS 1.2/1.3、HTTP/1.1/2、同连接请求的独立 ID 与连接关联、上游连接复用、独立信任链、过期/错误名称/不受信任上游、客户端 pinning、未匹配域名和非 HTTP hello 回放、重复 Cookie、请求/响应 trailers、大正文、并发流、SSE 取消、跨 authority 拒绝、QUIC 筛选及停止/拨号超时。[authority_test.go](libbox/httpdebug/authority_test.go) 覆盖独立根身份、SAN/IP、叶证书缓存和密钥错配；[ui_capture_signer_test.go](libbox/ui_capture_signer_test.go) 验证平台签名接口的摘要、算法及返回签名校验。
+### 回归文件覆盖
 
-[store_concurrency_test.go](libbox/httpdebug/store_concurrency_test.go) 覆盖正文句柄复用和关闭边界、前缀/转发总量、并发双向写入与详情快照，以及模拟慢写时其他记录和清空继续工作、完成状态等待计数提交。由现有 HTTP 调试 `-race` 测试入口运行。
+下列文件按 core job 的入口分组，描述各文件断言的行为。Linux 上的回归不能代替 Android 系统 CA 模块、Keystore/gomobile 签名或目标应用的实机验收，后者的仪器测试范围见 [app.md](app.md#android-仪器测试)；大样本越过旧阈值只证明不再因该阈值拒绝，不代表 Android 容量测量。
 
-[tls_selection_test.go](libbox/httpdebug/tls_selection_test.go) 在已有 48 条连接时执行真实 ClientHello 探测、TLS 握手及 HTTP Mock，检查仍接管请求，并验证探测取消、未交接关闭及正式接管后的服务回收。[recording_test.go](libbox/httpdebug/recording_test.go) 在同一 HTTP/1.1、HTTP/2 连接反复启停记录，检查处理不中断、连接 ID 不变；结合既有 SSE、WebSocket 和 TCP 测试验证停止后继续传输及记录冻结。[diagnostics_test.go](libbox/httpdebug/diagnostics_test.go) 检查无 HTTP 请求的 TLS 结束提示、错误页及迟到更新隔离。
+**核心扩展（`./experimental/libbox`，步骤 2；路由、出口、HTTP 和订阅另由步骤 4 以 race 运行）**
 
-[body_processing_test.go](libbox/httpdebug/body_processing_test.go) 覆盖新编码/多层/重复头在改写、预览与 HAR 中一致，压缩膨胀、响应回放、上传截断、预算不足时零读取和正文关闭后释放；[streaming_processing_test.go](libbox/httpdebug/streaming_processing_test.go) 覆盖 HTTP/2 gRPC 在上传结束前响应、trailers、Expect: 100-continue 及慢上传取消。[script_resources_test.go](libbox/httpdebug/script_resources_test.go) 用实际等待中的 Cron HTTP 请求占满 Cron 池，验证 HTTP 脚本仍执行以及取消释放资源。这些是工作流配置的回归范围，实际通过结果以 [验证记录](app.md#验证与历史记录) 为准。
+- [ui_http_test.go](libbox/ui_http_test.go)：WebDAV 状态/内容/重定向及超过旧大小上限的传输，HTTP 任务关闭时取消等待中的响应头与正文，Release 元数据的重定向、大响应、重定向循环和共享期限。
+- [ui_profile_test.go](libbox/ui_profile_test.go)：订阅请求头保留、超过旧容量的正文、覆盖响应头与正文的期限、错误状态不读正文、重定向循环和非法地址。
+- [ui_egress_test.go](libbox/ui_egress_test.go)：来源解析、公网 IP 校验、竞速并发与取消、失败或解析失败后继续竞速、服务替换、期限和关闭取消路由拨号、停服等待路由退出、不回退直连，以及 IP 胜出后保持质量查询会话。
+- [ui_route_test.go](libbox/ui_route_test.go)：停服等待路由和指定出站的拨号退出，以及准入与关闭的竞争。
+- [ui_lan_test.go](libbox/ui_lan_test.go)：监听地址、开关保留原生配置、创建/停用 mixed 入站、新监听冲突与校验。
+- [ui_masque_test.go](libbox/ui_masque_test.go)：WARP 配置校验/格式化、非法账号拒绝、VPN 示例，以及真实 IP 栈经 HTTP/2 出站传输 UDP 和网络重置；步骤 3 另在 `with_quic` 构建中运行。
+- [ui_capture_test.go](libbox/ui_capture_test.go) 与 [ui_capture_signer_test.go](libbox/ui_capture_signer_test.go)：本地抓包设置、schema 和退役字段迁移；平台签名接口的摘要、算法及返回签名校验。
+- [ui_processing_test.go](libbox/ui_processing_test.go)：改写 schema 校验与格式化、退役选项不激活新规则、一元 gRPC 与 reject 动作往返、迁移保留范围和端口缺省、脚本能力 schema，以及 Surge 字段格式化时不加载资源。
 
-[grpc_body_test.go](libbox/httpdebug/grpc_body_test.go) 通过真实 HTTP/2 MITM 检查一元 RPC 双向压缩消息改写、长度更新及请求/响应 trailers；补充 gRPC-Web 二进制/Base64 填充、损坏及多消息跳过、无操作原字节保留、输出校验和取消释放。[surge_compatibility_test.go](libbox/httpdebug/surge_compatibility_test.go) 覆盖空正文与参数缺省、会话信息、`$utils.ungzip` 的子视图/限额/预算、调试备注、空响应快捷动作，以及 HTTP/1 和 HTTP/2 的脚本 abort；HTTP/2 中核对后续请求仍复用连接。新增用例由同一 `httpdebug -race` 入口执行，存在这些用例不代表已完成真实 App 验收。
+**WARP MASQUE 传输（`./transport/masque`，步骤 3）**
 
-[upload_rejection_test.go](libbox/httpdebug/upload_rejection_test.go) 使用真实 TCP 连接，覆盖固定长度/chunked 上传超限后保持连接且停止发送时，HTTP/1 及时返回完整 413、关闭连接并完成记录及预算释放；还覆盖未读取正文就发生的脚本错误返回 502，以及 HTTP/2 超限返回 413 后同一连接仍可处理新请求。由现有 HTTP 调试 `-race` 测试入口运行。
+- [warp_test.go](libbox/masque/warp_test.go)：HTTP/2 握手、数据报与重连，调用方取消和网络重置下的停滞握手，错误对端公钥与 HTTP 失败，私钥/公钥格式校验，静态账号地址与客户端生命周期，网络重置后撤销就绪并等待替换隧道，以及标准 MASQUE 地址协商不受 WARP 方言影响。
+- [warp_http3_test.go](libbox/masque/warp_http3_test.go)：未声明 Extended CONNECT 设置的 HTTP/3 握手、停滞握手取消和不可用对端拒绝。
 
-[script_api_test.go](libbox/httpdebug/script_api_test.go) 覆盖两阶段 HTTP 客户端的路由注入、允许 origin/Host/次数/正文限制、重定向、TLS 信任、取消和全局预算；[script_storage_test.go](libbox/httpdebug/script_storage_test.go) 覆盖持久化、命名空间隔离及 HTTP/Cron 共享、字节/键/全局配额、并发写入、原子失败恢复、符号链接和重载/清空记录边界；[script_timers_test.go](libbox/httpdebug/script_timers_test.go) 覆盖顺序、参数、interval 清理、回调异常、上限及 HTTP/Cron 截止时间。新增用例由现有 `httpdebug -race` 入口自动纳入；它们的存在不代表当前源码已运行通过。
+**sing-tun 与路由接入（步骤 1 和步骤 5）**
 
-[processing_resources_cache_test.go](libbox/httpdebug/processing_resources_cache_test.go) 使用实际磁盘、HTTP 下载和 Goja 编译结果，检查同 URL 并发加载、离线重载、同内容刷新不重复编译、同大小同时间戳内容变更、`debug` 绕过、独立 VM、大脚本更新，以及空源码/编译/磁盘提交失败后保留旧程序；另验证取消源码限额后仍可离线加载既有版本写入的缓存。由同一 `httpdebug -race` 入口运行。
+- [redirect_ingress_discard_linux_test.go](libbox/sing-tun/redirect_ingress_discard_linux_test.go)：map 布局校验、单/双接口归属和恢复条件，范围说明见 [Android 自动重定向兼容](#android-自动重定向兼容)。
+- [route/httpdebug_test.go](libbox/route/httpdebug_test.go)：嗅探缓冲随大请求头增长并完整回放；通过真实 TLS 握手核对原选定出站、SNI 与 DNS 映射隔离、端口覆写、CONNECT 确认顺序、证书库及未匹配流的字节回放；从真实流量跟踪器取得连接 UUID、穿过嗅探缓存、清空连接历史后重新打开请求存储，以及无跟踪器的 HTTP。
 
-[script_source_test.go](libbox/httpdebug/script_source_test.go) 执行含 256 KiB 字符串的请求、响应及 Cron 脚本，覆盖内联、text/base64 资源、相对文件、URL、资源引用、gzip/deflate/br/zstd 及多层下载、离线缓存；另验证文件、下载、解压及中间层耗尽共享正文工作预算时拒绝加载并释放预留。由同一 `httpdebug -race` 入口运行。
+**HTTP 调试引擎（`./experimental/httpdebug`，步骤 5，全部以 race 运行）**
 
-[script_http_encoding_test.go](libbox/httpdebug/script_http_encoding_test.go) 通过真实 HTTP 服务器及 Cron 路由客户端，覆盖显式/未提供 `Accept-Encoding` 时的所有支持编码、重复/多层编码、空压缩正文、压缩前后及中间层限额、损坏/截断/未知编码、UTF-8 校验、解压后的响应头、HEAD/204/304 元数据和预算释放；两阶段 HTTP 脚本也使用 gzip 响应验证共用客户端。由同一 `httpdebug -race` 入口运行。
+抓取、存储与导出：
 
-[script_cron_queue_test.go](libbox/httpdebug/script_cron_queue_test.go) 通过阻塞路由拨号控制真实脚本的完成顺序，覆盖同批任务的 FIFO 执行、新触发不能越过旧等待任务、排队/运行时重复触发不扩大队列、等待不消耗执行超时、单次超时后继续执行、256 条配置上限及停服时取消/丢弃队列和资源释放。由同一 `httpdebug -race` 入口运行。
+- [httpdebug_test.go](libbox/httpdebug/httpdebug_test.go)：域名选择、HTTP 流式正文与原路由、SSE/WebSocket、存储保留/持久化/清空、HAR 与 cURL 导出，以及缺失正文不导出为完整请求。
+- [store_concurrency_test.go](libbox/httpdebug/store_concurrency_test.go)：正文句柄复用和关闭边界、前缀/转发总量、并发双向写入与详情快照，以及模拟慢写时其他记录和清空继续工作、完成状态等待计数提交。
+- [store_activity_test.go](libbox/httpdebug/store_activity_test.go)：摘要关联的持久化、独立正文计数、改写前 URL、旧记录缺省，以及 HAR 选择的去重、顺序、空选择、非法输入、非 HTTP 排除和淘汰后不扩大导出范围；真实 HTTP/1.1 复用连接的用例同时检查摘要与详情的关联一致。
+- [store_query_test.go](libbox/httpdebug/store_query_test.go)：超过 300 条历史的分页与搜索、当前连接和请求字段组合匹配、未加载父连接去重、状态和排序、摘要增量、全历史 HAR 选择、清空后不扩大导出、非法范围与选项，以及查询与录制/清空竞争。
+- [store_migration_test.go](libbox/httpdebug/store_migration_test.go)：旧文件清理、请求保留、符号链接隔离，以及旧记录不将 `captureId` 误认为连接 ID、未知上游 ALPN 保持区分。
+- [body_inspection_test.go](libbox/httpdebug/body_inspection_test.go)：正文分页不拆分 UTF-8 字符、不丢失或重复字节，预览只读取并解码所在页，流式 HAR 和 cURL 保留完整的已存正文及原始压缩数据，快照在追加和清空后保持已固定的前缀。
+- [recording_test.go](libbox/httpdebug/recording_test.go)：在同一 HTTP/1.1、HTTP/2 连接反复启停记录时处理不中断、连接 ID 不变，停止记录冻结 SSE 记录但不断开连接。
+- [diagnostics_test.go](libbox/httpdebug/diagnostics_test.go)：无 HTTP 请求的 TLS 结束提示、处理失败指向既有服务日志，以及停止后的迟到更新隔离。
 
-连接关联回归还包括 [路由测试](libbox/route/httpdebug_test.go) 从真实流量跟踪器取得 UUID、穿过嗅探缓存、清空连接历史后重新打开请求存储，以及无跟踪器的 HTTP；[改写测试](libbox/httpdebug/rewrite_test.go) 检查跨目标改写仍保留原始连接 ID，[TCP 测试](libbox/httpdebug/mitm_tcp_test.go) 检查 TLS/TCP 关联，[迁移测试](libbox/httpdebug/store_migration_test.go) 检查旧记录不将 `captureId` 误认为连接 ID。
+MITM 与 TLS：
 
-[store_activity_test.go](libbox/httpdebug/store_activity_test.go) 覆盖摘要关联的持久化、独立正文计数、改写前 URL、旧记录缺省，以及 HAR 选择的去重、顺序、空选择、非法输入、非 HTTP 排除和淘汰后不扩大导出范围。真实 HTTP/1.1 复用连接的测试同时检查摘要与详情的关联一致；Android 路由测试调用新生成的 HAR 选择绑定，覆盖 HTTP 和 TLS/TCP 的导出边界。这些用例由现有统一工作流执行，实际运行结果在 [应用验证记录](app.md#验证与历史记录) 中维护。
+- [mitm_test.go](libbox/httpdebug/mitm_test.go)：TLS 1.2/1.3、HTTP/1.1/2、同连接请求的独立 ID 与连接关联、上游连接复用、独立信任链、过期/错误名称/不受信任上游、客户端 pinning、未匹配域名和非 HTTP hello 回放、重复 Cookie、请求/响应 trailers、大正文、并发流、SSE 取消、跨 authority 拒绝、QUIC 筛选及停止/拨号超时。
+- [authority_test.go](libbox/httpdebug/authority_test.go)：独立根身份、SAN/IP、叶证书缓存和密钥错配。
+- [tls_selection_test.go](libbox/httpdebug/tls_selection_test.go)：已有 48 条连接时执行真实 ClientHello 探测、TLS 握手及 HTTP Mock 仍接管请求，并验证探测取消、未交接关闭及正式接管后的服务回收。
+- [mitm_tcp_test.go](libbox/httpdebug/mitm_tcp_test.go)：TLS/TCP 二进制、混合 ALPN、服务器先发、半关闭、连接关联及记录/导出边界。
+- [mitm_compat_test.go](libbox/httpdebug/mitm_compat_test.go)：默认配置不降级仅支持 HTTP/2 的 gRPC 客户端，无 ALPN 的 HTTP 仍经过改写、脚本和导出，客户端先发的原始 TLS 字节回放与半关闭，HTTP/2 选项区分客户端和源站版本，上游证书校验默认开启及显式关闭，停服取消无 ALPN 的协议探测。
+- [mitm_config_test.go](libbox/httpdebug/mitm_config_test.go)：Host List 的顺序、通配符、排除和端口匹配，默认值及显式关闭的协议选项在格式化后保留。
 
-[store_query_test.go](libbox/httpdebug/store_query_test.go) 覆盖超过 300 条历史的分页与搜索、当前连接和请求字段组合匹配、未加载父连接去重、状态和排序、摘要增量、全历史 HAR 选择、清空后不扩大导出，以及查询与录制/清空竞争。Android 原路由测试另调用两项新生成绑定，核对完整请求不再重复传送摘要、HTTP/TCP 的选择和导出边界；实际 Actions SHA 及四组 Android 的运行结果见 [UI 性能优化验证](app.md#ui-性能优化验证)。
+正文处理与传输：
 
-[ui_capture_test.go](libbox/ui_capture_test.go) 覆盖本地设置及 schema/退役字段；[路由测试](libbox/route/httpdebug_test.go) 通过真实 TLS 握手核对原选定出站、SNI 与 DNS 映射隔离、端口覆写、CONNECT 确认顺序、证书库及未匹配流的字节回放。[mitm_tcp_test.go](libbox/httpdebug/mitm_tcp_test.go) 覆盖 TLS/TCP 二进制、混合 ALPN、服务器先发、半关闭及记录/导出边界；[script_cron_test.go](libbox/httpdebug/script_cron_test.go) 覆盖独立 HTTP 脚本、Cron 语法/时区/DST、回调、证书校验和调度生命周期；[ui_processing_test.go](libbox/ui_processing_test.go) 验证扩展 schema 及迁移；[store_migration_test.go](libbox/httpdebug/store_migration_test.go) 覆盖旧文件清理、请求保留和符号链接隔离。Android 真正的 Keystore/gomobile 签名与模块打包由 [平台测试](app.md#验证与历史记录) 覆盖；Linux 测试不能代替 Android 系统 CA 模块或目标应用的实机验收。获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py)，它不构建 Android 绑定。
+- [body_processing_test.go](libbox/httpdebug/body_processing_test.go)：各编码、多层和重复头在改写、预览与 HAR 中一致；不符合条件的正文不被读取并继续流式转发；正文预留按实际字节登记并在输出后释放，不再有全局配额；显式解码上限和截断上传保持完整性；只读头部的脚本不为原始流保留正文预留。
+- [streaming_processing_test.go](libbox/httpdebug/streaming_processing_test.go)：HTTP/2 gRPC 在上传结束前响应并保留 trailers、`Expect: 100-continue` 上传改写不死锁，以及慢上传取消后释放预留。
+- [grpc_body_test.go](libbox/httpdebug/grpc_body_test.go)：通过真实 HTTP/2 MITM 检查一元 RPC 双向压缩消息改写、长度更新及请求/响应 trailers；gRPC-Web 二进制/Base64 填充、损坏及多消息跳过、无操作原字节保留、输出校验和取消释放。
+- [upload_rejection_test.go](libbox/httpdebug/upload_rejection_test.go)：使用真实 TCP 连接，固定长度/chunked 上传超过显式上限且停止发送时，HTTP/1 及时返回完整 413、关闭连接并完成记录及预留释放；未读取正文就发生的脚本错误返回 502；HTTP/2 返回 413 后同一连接仍可处理新请求。
+- [transport_limits_test.go](libbox/httpdebug/transport_limits_test.go)：慢上传越过旧正文期限后不中止，仍完成改写。
+- [processing_limits_test.go](libbox/httpdebug/processing_limits_test.go)：大规模配置、MITM 范围、改写与脚本数量不受旧数量或大小上限限制，长正则与大量分组可用，jq 无输出数量/嵌套上限并响应调用方取消，记录保留大正文和全部历史直至显式清空。
+
+改写、资源与 Surge 兼容：
+
+- [rewrite_test.go](libbox/httpdebug/rewrite_test.go)：配置校验、改写管线与记录内容、HTTPS 离线 Mock 及停止记录后继续处理、映射地址拨号与 TLS 校验、超限和流式响应保持原样、脚本隔离/二进制/错误、正文上限与 HTTP 分帧、Upgrade 保留协议并跳过正文、替换与分组，以及跨目标改写保留原始连接 ID。
+- [surge_rewrite_test.go](libbox/httpdebug/surge_rewrite_test.go)：四种前后查找、数字/命名反向引用及 Unicode 替换位置，原生正则的取消与并发使用，URL 候选、WebSocket、网关重定向和非法目标，jq 正文规则及失败时保留原报文，jq 先于脚本执行，正文大小缺省值与非标准 Mock 状态码。
+- [surge_compatibility_test.go](libbox/httpdebug/surge_compatibility_test.go)：空正文与参数缺省、会话信息、`$utils.ungzip` 的子视图/失败/预留释放、调试备注、空响应快捷动作，以及 HTTP/1 和 HTTP/2 的脚本 abort；HTTP/2 中核对后续请求仍复用连接。
+- [surge_resources_test.go](libbox/httpdebug/surge_resources_test.go)：内嵌资源的内容类型，配置校验不加载文件或下载资源，Map Local 读取配置目录内文件并拒绝目录逃逸、FIFO 等非普通文件，URL 资源缓存、并发去重和离线重载，远程脚本自动刷新并保留上次可用版本，本地脚本的 `debug` 重载及加载失败时透传上游，刷新随服务停止。
+- [resource_eviction_test.go](libbox/httpdebug/resource_eviction_test.go)：缓存清理只回收未引用且由缓存拥有的文件，写入超过旧磁盘配额仍可提交，一个来源停滞时其他资源继续刷新并在关闭时取消。
+
+脚本：
+
+- [script_api_test.go](libbox/httpdebug/script_api_test.go)：能力校验不执行脚本、两阶段 HTTP 客户端的路由注入、未配置目标与 Host 覆写拒绝、重定向/正文/请求次数的显式限制、不回退并校验 TLS、取消后释放解释器与正文预留，以及只读头部的脚本 HTTP 不受旧全局正文配额影响。
+- [script_admission_test.go](libbox/httpdebug/script_admission_test.go)：HTTP 准入先于正文读取和序列化、复制到宿主前检查 UTF-8 与视图长度、原生正则取消按 VM 隔离，以及 HTTP 脚本无固定 VM 栈或日志配额。
+- [script_storage_test.go](libbox/httpdebug/script_storage_test.go)：持久化、命名空间隔离与删除、超过旧配额的写入、并发写入与取消的锁等待、原子失败和中断写入恢复、损坏与符号链接拒绝且不丢数据、HTTP/Cron 共享且无调用次数配额，以及重载/清空记录后保留。
+- [script_timers_test.go](libbox/httpdebug/script_timers_test.go)：顺序、参数、interval 清理与 `$done`，延迟校验和取消，以及 Cron 定时器使用同一调用期限。
+- [script_source_test.go](libbox/httpdebug/script_source_test.go)：执行含 256 KiB 字符串的请求、响应及 Cron 脚本，覆盖内联、text/base64 资源、相对文件、URL、资源引用、压缩及多层下载和离线缓存；源码加载登记共享正文预留，加载失败后释放。
+- [processing_resources_cache_test.go](libbox/httpdebug/processing_resources_cache_test.go)：使用实际磁盘、HTTP 下载和 Goja 编译结果，检查同 URL 并发加载、离线重载、按内容哈希复用编译结果、`debug` 绕过、刷新失败保留上次可用程序，以及取消源码限额后仍可加载既有版本写入的缓存。
+- [script_http_encoding_test.go](libbox/httpdebug/script_http_encoding_test.go)：通过真实 HTTP 服务器及 Cron 路由客户端，覆盖显式/未提供 `Accept-Encoding` 时的所有支持编码、重复/多层编码、压缩前后及中间层的显式上限、损坏/截断/未知编码、UTF-8 校验、HEAD/204/304 元数据和容量释放。
+- [surge_script_http_test.go](libbox/httpdebug/surge_script_http_test.go)：超过旧并发/排队上限的请求、重定向/Cookie/JSON/二进制/`policy`、连续 20 次以上调用、跳过证书校验与单次请求期限，以及脚本异常或 `$done` 后取消未完成的请求。
+- [script_resources_test.go](libbox/httpdebug/script_resources_test.go)：多个 Cron HTTP 调用同时等待时互不阻塞，HTTP 脚本仍立即返回；取消使这些 Cron 调用失败并释放解释器与正文容量。
+
+Cron：
+
+- [script_cron_test.go](libbox/httpdebug/script_cron_test.go)：脚本独立校验且校验不执行 Cron，Cron 语法/时区/DST，HTTP 回调与证书校验，仅含 Cron 的配置不拦截 HTTP，记录开关不重建调度，停服取消在途请求。
+- [script_cron_queue_test.go](libbox/httpdebug/script_cron_queue_test.go)：通过阻塞路由拨号控制脚本完成顺序，检查不同任务并行运行、同一任务未完成时的重复触发合并且不重叠、单次超时不影响其他任务和后续调度，以及关闭时取消并等待全部调用、不保留待运行任务。
+
+### 升级核心
 
 升级核心时先检查补丁是否仍准确排除 legacy 分支，核对 sing-tun 依赖版本及自动重定向补丁，检查 HTTP 调试路由/服务生命周期补丁及覆盖文件，再逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对共享准备 Action 的安装范围，以及统一测试与 Release 两条工作流的调用。
-
-以上列出源码和工作流的覆盖范围。连接与正文处理优化的实际源码 SHA、Actions 结果和未覆盖范围见 [MITM 连接与正文处理优化验证](app.md#mitm-连接与正文处理优化验证)。存储锁与文件句柄优化的实际结果见 [界面刷新与存储优化验证](app.md#界面刷新与存储优化验证)。此前独立 MITM/TCP/Cron 的验证结果见 [验证记录](app.md#独立-mitmtcpcron-验证)；此前配置改写的实际检查、源码 SHA、Actions 运行及未覆盖范围见 [JSON 配置改写验证](app.md#json-配置改写验证)，此前的请求录制/CA 记录见 [MITM 分支验证](app.md#mitm-分支验证)。本机构建限制见 [AGENTS.md](AGENTS.md)。

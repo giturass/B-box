@@ -148,9 +148,7 @@ libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理�
 
 CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期间不能轮换密钥；活跃 MITM 或手动抓包拒绝重新生成。界面入口及状态展示见 [flclash.md](flclash.md#配置页与内核差异)。
 
-`ProfileRecoveryTest.profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 使用实际 gomobile、Keystore、mixed CONNECT 和 HTTP 服务器，覆盖平级 MITM/脚本与改写、HTTPS 离线 Mock、跨域映射重新匹配路由、响应改写、停记录后继续处理及应用失败恢复；资源用例先通过实际 `content://` 文档流完成本地文件和脚本导入，再检查 999 状态、MIME、后查找/内部反向引用 → jq → 脚本的顺序及本地文件更新。`localResourceImportsKeepRevisionsRecoverFailuresAndCleanCancelledCopies` 覆盖重名资源、修订冲突、应用失败恢复、文档读取失败和阻塞读取期间取消后的清理。`independentCronUsesRoutingAndStopsWithTheService` 覆盖定时路由请求、抓包启停、非法 Cron 保存拒绝及移除配置后不再请求。这些测试由 [统一 smoke 矩阵](#验证与历史记录) 运行，实际结果见验证记录。
-
-`httpScriptsUseRoutedClientTimersAndPersistentNamespaces` 使用仅当前路由可解析、也匹配脚本范围的 HTTP 目标，检查异步回调及防递归、定时器、磁盘快照、规则改名/重载/清空记录后保留值、命名空间隔离、默认联网及显式空允许列表禁止联网。Go 回归补充四种前后查找、数字/命名反向引用及 Unicode 位置、jq 失败透传、用户正文限额、并发 HTTP/VM、原生正则取消、重定向/Cookie/二进制、资源清理/刷新/损坏缓存/关闭取消。大样本越过旧阈值只证明不再因该阈值拒绝，不代表 Android 容量测量。新用例以当前源码的 Actions 为准，此前记录不替代本次验收。
+这些流程的 Android 仪器测试范围见 [验证与历史记录](#android-仪器测试)，核心回归文件见 [libbox.md](libbox.md#回归文件覆盖)。
 
 ## 已移除能力与兼容入口
 
@@ -189,9 +187,9 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ## 验证与历史记录
 
-[WarpMasqueConfigTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpMasqueConfigTest.kt) 在 smoke 矩阵中使用临时 ECDSA 密钥，检查实际 libbox AAR 接受 HTTP/2、HTTP/3 WARP MASQUE 配置，格式化保留凭据及隧道地址，并拒绝非法账号配置；该用例不连接 Cloudflare。核心握手和真实 IP 栈传输的回归范围见 [libbox.md](libbox.md#cloudflare-warp-masque)。
+本节依次维护验证入口、已配置的检查、当前源码的实际结果和历史运行索引。已配置的检查不是通过声明；记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK、旧 Compose 或其他提交的验证记录。核心回归文件的覆盖范围见 [libbox.md](libbox.md#回归文件覆盖)，Flutter 测试与视觉验证见 [flclash.md](flclash.md#验证与升级参考版本)。
 
-统一工作流的 `root-ca` job 在独立 Linux PID/mount namespace 中运行 [test_mitm_ca.py](tools/test_mitm_ca.py)，使用 BusyBox 和导出的原始脚本，覆盖 APEX 延迟就绪、旧系统缺少 APEX、hash 冲突和原证书保留、已有二级后代/隐藏模块路径、同一 namespace 的重新挂载、准备失败、service 重试和禁用退出。该测试只在 Actions 运行，不对本机 Android 做 Root 挂载。`ProfileRecoveryTest.failedSelectionRestoresThePreviousSelectionAndService` 连续五轮核对选配置失败恢复、停止释放核心及重新启动，防止服务清理竞态污染后续用例。
+### 验证入口
 
 | 入口 | 配置的验证范围 |
 | --- | --- |
@@ -199,377 +197,99 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 | [newui.yml](.github/workflows/newui.yml) | 各分支代码 push 自动触发，也支持目标为 `dev` / `newui` 的 PR 及手动触发；仅 Markdown 的 push/PR 跳过。统一运行 Root CA 挂载/补查、Go 扩展/HTTP/MITM/重定向布局、Flutter 分析/交互/布局、JVM、`play` 编译及 API 24/31/36 smoke，API 36 另运行 `google_apis_ps16k`；同时构建验证所需的 AAR 和 x86_64 模拟器 APK |
 | [build-release.yml](.github/workflows/build-release.yml) | 仅手动触发；独立并行准备核心/Flutter Release 库，构建签名 ARM64 APK、校验安装身份/产物及可选发布，不运行测试 |
 
-JVM 回归覆盖服务启动确认/失败/超时、设置、日志等级/边界和 QRS；[ServiceSettingsChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ServiceSettingsChangeTest.kt) 覆盖服务开关保存后的启动确认、失败/超时/取消恢复及恢复错误保留；[ProfileChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/database/ProfileChangeTest.kt) 覆盖配置持久化失败、应用超时/取消、恢复确认及恢复错误保留。[ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/手动与自动订阅/完整备份恢复失败，以及停服和未选中配置更新的服务状态。Flutter 视觉验证见 [flclash.md](flclash.md)。
+### JVM 回归
 
-[PreferencePersistenceTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/database/preference/PreferencePersistenceTest.kt) 使用实际 Room 检查普通设置重新读取、提交失败后的缓存恢复、后续排队值保留、取消与回滚顺序，以及 UTF-8 字符串集合。`ProfileRecoveryTest` 另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。[ReleaseCheckerTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ReleaseCheckerTest.kt) 用虚拟时间检查总时限、并发上限、失败候选保留、缓存失效及取消后重试。
+以下用例由统一工作流 Android job 的 `:app:testOtherDebugUnitTest` 运行。调用计数和虚拟时间断言不代表设备上的实测耗时、内存或帧率，也不代替真实 Wi-Fi/蜂窝切换、热点及性能验收。
 
-模拟器镜像名称依据 [Google SDK 系统镜像清单](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml)；16 KiB 测试方式见 [Android 官方文档](https://developer.android.com/guide/practices/page-sizes)。smoke 读取设备实际页大小，普通镜像要求 4096、`ps16k` 要求 16384，不能仅凭镜像名称记录通过。所有矩阵均为临时 x86_64 模拟器，不代表 ARM64 实机或系统 CA 模块安装已验收。
+- **服务与配置应用：** [ServiceStartResultTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ServiceStartResultTest.kt)、[BoxSettingsTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxSettingsTest.kt)、[LogBufferTest.kt](app/src/test/java/io/nekohasekai/sfa/backend/log/LogBufferTest.kt) 和 [BoxQrScannerTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxQrScannerTest.kt) 覆盖服务启动确认/失败/超时、设置、日志等级/边界和 QRS；[ServiceSettingsChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ServiceSettingsChangeTest.kt) 覆盖服务开关保存后的启动确认、失败/超时/取消恢复及恢复错误保留；[ProfileChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/database/ProfileChangeTest.kt) 覆盖配置持久化失败、应用超时/取消、恢复确认及恢复错误保留。
+- **版本检查：** [ReleaseCheckerTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ReleaseCheckerTest.kt) 用虚拟时间检查总时限、并发上限、失败候选保留、缓存失效及取消后重试。
+- **仪表盘与应用列表缓存：** [DashboardConfigCacheTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/DashboardConfigCacheTest.kt) 通过调用计数覆盖重复刷新不再读取/哈希/解析、地址变化、配置切换、写入/回滚、运行快照更新及错误/取消重试；[AppListCacheTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/AppListCacheTest.kt) 通过查询/名称读取计数覆盖隐藏应用不读取名称、筛选切换复用、刷新及查询策略/语言失效、失败/取消重试和并发查询合并。
+- **日志与可见性轮询：** [LogStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/LogStreamTest.kt) 覆盖日志快照、增量、淘汰边界、等级更新、清空、重新订阅和缓冲重置，并检查 3000 条缓冲新增一条时只编码一条；[VisiblePollingTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/VisiblePollingTest.kt) 用虚拟时间检查不可见/后台/熄屏时零采样、恢复立即采样及取消在途任务。
+- **连接与网络刷新：** [ConnectionStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ConnectionStreamTest.kt) 检查增量计数、最终关闭计数、历史淘汰、DNS 过滤、快照隔离及 3000 条记录经过状态合并和恢复订阅后的消息内容；[NetworkRefreshTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/NetworkRefreshTest.kt) 用虚拟时间覆盖网络通知、十秒/六十秒补查、前后台/熄屏取消和突发通知合并。
 
-该原生套件还覆盖超过旧 16 MiB 阈值的订阅完成 URL 导入、手动及自动更新并保留服务状态，以及协程取消阻塞中的原生下载。取消用例分别从 IO/Default 调度器发起，共连续执行 20 次，再验证后续请求仍能成功；取消必须结束 JNI 调用且不能作为普通网络失败取消父任务。其他用例覆盖备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、大正文、取消和重定向循环由 [核心订阅测试](libbox/ui_profile_test.go) 覆盖。
+### Android 仪器测试
 
-模拟器统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、远程 JSON 导入、VPN 授权、启停、实际内核分组及进程重启后配置保留；原生组运行全部仪器测试并拒绝零测试结果。`build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。每组测试在应用启动前持续采集 main/system/crash/events 日志，结束后保存 Activity 和内存状态，API 30+ 另保存该应用的系统退出记录；`am start -W` 的输出单独保存，避免启动过程被末尾日志截断。启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
+以下用例使用实际 libbox AAR，由 smoke 矩阵的原生组在每个环境运行。模拟器中的自有客户端和本地测试服务器不代表第三方目标应用信任、真实网络或 Root 模块已经实机通过。
 
-实际 smoke 运行结果须附对应 SHA；自有 CA 客户端测试不等于第三方信任库、CT/ECH 或 Root 模块的兼容性验收。
+- **配置应用与恢复：** [ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/手动与自动订阅/完整备份恢复失败，以及停服和未选中配置更新的服务状态；另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。`failedSelectionRestoresThePreviousSelectionAndService` 连续五轮核对选配置失败恢复、停止释放核心及重新启动，防止服务清理竞态污染后续用例。
+- **配置时间与日志级别：** `localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。`logLevelFollowsSuccessfulConfigurationReloads` 覆盖真实内核日志订阅的默认级别、运行中修改 `log.level` 后刷新，以及移除该字段后恢复当前核心的默认值。
+- **订阅下载、备份回滚与删除：** 覆盖超过旧 16 MiB 阈值的订阅完成 URL 导入、手动及自动更新并保留服务状态，以及协程取消阻塞中的原生下载。取消用例分别从 IO/Default 调度器发起，共连续执行 20 次，再验证后续请求仍能成功；取消必须结束 JNI 调用且不能作为普通网络失败取消父任务。其他用例覆盖备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、大正文、取消和重定向循环由 [核心订阅测试](libbox/ui_profile_test.go) 覆盖。
+- **设置持久化：** [PreferencePersistenceTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/database/preference/PreferencePersistenceTest.kt) 使用实际 Room 检查普通设置重新读取、提交失败后的缓存恢复、后续排队值保留、取消与回滚顺序，以及 UTF-8 字符串集合。查询策略回归在每次切换 Root/Shizuku 并刷盘后重新打开 Room 数据库读取持久值，同时核对状态流，不以读取同一内存缓存代替持久化验证。
+- **LAN 缓存：** `lanCacheTracksEqualSizeWritesSuccessfulReloadsAndRecovery` 使用实际文件和 libbox，覆盖同大小同时间戳写入、保存与运行配置分离、成功重载、失败恢复和停服后的 LAN 状态。
+- **记录设置与 MITM CA：** `captureSettingsAreLocalAndCheckRevisions` 使用实际 libbox 和 AtomicFile，覆盖 version 3 设置迁移/保存/重新打开、修订冲突、本机 HTTPS 字段移除和退役选项拒绝。[MitmCertificateTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/MitmCertificateTest.kt) 使用实际 Android Keystore 与 gomobile，验证 CA 自签名、预哈希签名、私钥不可导出、无自动生成、修订冲突/轮换、AtomicFile 恢复、密钥缺失、大小限制，以及 CRT/模块仅含公钥和完整脚本；不安装设备证书或 Root 模块。
+- **路由 MITM：** `routedMITMUsesKeystoreAndTheOriginalOutbound` 将实际 Android TLS 客户端经 mixed CONNECT 入口送入本地服务，使用 Keystore CA 解密、原 selector/direct 出站与独立证书库验证测试服务器。覆盖普通 HTTPS、开启 TCP 解密但无 ALPN 的 HTTP/1.1，以及服务器先发数据的二进制 TLS/TCP；核对 URL、原路由及 TLS 元数据，HTTP 检查重复 Cookie/cURL，TCP 检查双向字节、完整性与 cURL 拒绝，并验证重载停抓。测试服务器证书由 smoke 脚本提供，见 [模拟器 smoke 矩阵](#模拟器-smoke-矩阵)；自有 CA 客户端测试不等于第三方信任库、CT/ECH 或 Root 模块的兼容性验收。
+- **HTTP 改写、资源导入与 Cron：** `profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 使用实际 gomobile、Keystore、mixed CONNECT 和 HTTP 服务器，覆盖平级 MITM/脚本与改写、HTTPS 离线 Mock、跨域映射重新匹配路由、响应改写、停记录后继续处理及应用失败恢复；资源用例先通过实际 `content://` 文档流完成本地文件和脚本导入，再检查 999 状态、MIME、后查找/内部反向引用 → jq → 脚本的顺序及本地文件更新。`localResourceImportsKeepRevisionsRecoverFailuresAndCleanCancelledCopies` 覆盖重名资源、修订冲突、应用失败恢复、文档读取失败和阻塞读取期间取消后的清理。`independentCronUsesRoutingAndStopsWithTheService` 覆盖定时路由请求、抓包启停、非法 Cron 保存拒绝及移除配置后不再请求。本地订阅/定时请求服务器按连接处理对端断开，允许服务重载或停止时取消在途 Cron 请求后继续接受新请求；监听失败及其他异常仍使测试失败，响应内容、请求次数、配置恢复和停止后的不再调度继续由原有断言检查。
+- **脚本：** `httpScriptsUseRoutedClientTimersAndPersistentNamespaces` 使用仅当前路由可解析、也匹配脚本范围的 HTTP 目标，检查异步回调及防递归、定时器、磁盘快照、规则改名/重载/清空记录后保留值、命名空间隔离、默认联网及显式空允许列表禁止联网。
+- **WARP MASQUE：** [WarpMasqueConfigTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpMasqueConfigTest.kt) 使用临时 ECDSA 密钥，检查实际 libbox AAR 接受 HTTP/2、HTTP/3 WARP MASQUE 配置，格式化保留凭据及隧道地址，并拒绝非法账号配置；该用例不连接 Cloudflare。核心握手和真实 IP 栈传输的回归范围见 [libbox.md](libbox.md#cloudflare-warp-masque)。
 
-导入 smoke 等待弹层保存按钮在连续两次窗口观察中位置稳定后点击，记录实际点击边界；保存后须返回带“启动”按钮及导入配置名的仪表盘，不能以表单内的预填名称作为导入成功依据。
+### 模拟器 smoke 矩阵
 
-模拟器数据分区统一设为 4 GiB，以容纳完整核心的测试 APK 及安装数据。API 36 / 16 KiB 另显式分配 4 GiB RAM：默认镜像曾在冷启动期间因内存水位不足杀掉前台 B-box，系统退出记录为 `LOW_MEMORY`；该矩阵用于页大小兼容验证，不是低内存压力测试。smoke job 不编译原生库，下载镜像前移除该临时 runner 上不使用的预装 NDK，为系统镜像和数据分区留空间；构建 job 的 NDK 不受影响。页大小优先使用 `getconf PAGE_SIZE`；旧系统缺少该命令时从 `/proc/self/smaps` 的 `KernelPageSize` 读取，并在结果中记录采集来源，不按 Android 版本猜测。
+模拟器镜像名称依据 [Google SDK 系统镜像清单](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml)；16 KiB 测试方式见 [Android 官方文档](https://developer.android.com/guide/practices/page-sizes)。smoke 读取设备实际页大小，普通镜像要求 4096、`ps16k` 要求 16384，不能仅凭镜像名称记录通过。页大小优先使用 `getconf PAGE_SIZE`；旧系统缺少该命令时从 `/proc/self/smaps` 的 `KernelPageSize` 读取，并在结果中记录采集来源，不按 Android 版本猜测。所有矩阵均为临时 x86_64 模拟器，不代表 ARM64 实机或系统 CA 模块安装已验收。
 
-查询策略回归在每次切换 Root/Shizuku 并刷盘后重新打开 Room 数据库读取持久值，同时核对状态流，不以读取同一内存缓存代替持久化验证。
+统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、远程 JSON 导入、VPN 授权、启停、实际内核分组及进程重启后配置保留；原生组运行全部仪器测试并拒绝零测试结果。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
 
-`ProfileRecoveryTest.logLevelFollowsSuccessfulConfigurationReloads` 另覆盖真实内核日志订阅的默认级别、运行中修改 `log.level` 后刷新，以及移除该字段后恢复当前核心的默认值。
+- **结果与日志：** `build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。每组测试在应用启动前持续采集 main/system/crash/events 日志，结束后保存 Activity 和内存状态，API 30+ 另保存该应用的系统退出记录；`am start -W` 的输出单独保存，避免启动过程被末尾日志截断。
+- **启动与导入：** 启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。导入 smoke 等待弹层保存按钮在连续两次窗口观察中位置稳定后点击，记录实际点击边界；保存后须返回带“启动”按钮及导入配置名的仪表盘，不能以表单内的预填名称作为导入成功依据。
+- **MITM 测试服务器：** 脚本在 CI 临时目录生成独立测试服务器证书，经 ADB reverse 提供 HTTP 和原始流两个 TLS 端点，只把公钥 CA 传给仪器测试；私钥不写入仓库、设备或上传产物，套件结束删除。单独运行路由 MITM 用例需要脚本提供的 `mitmOriginPort` / `mitmTCPOriginPort` / `mitmOriginCA` 参数。
+- **存储与内存：** 模拟器数据分区统一设为 4 GiB，以容纳完整核心的测试 APK 及安装数据。API 36 / 16 KiB 另显式分配 4 GiB RAM：默认镜像曾在冷启动期间因内存水位不足杀掉前台 B-box，系统退出记录为 `LOW_MEMORY`；该矩阵用于页大小兼容验证，不是低内存压力测试。smoke job 不编译原生库，下载镜像前移除该临时 runner 上不使用的预装 NDK，为系统镜像和数据分区留空间；构建 job 的 NDK 不受影响。
 
-`ProfileRecoveryTest.localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。
+### Root CA 回归
 
-`ProfileRecoveryTest.captureSettingsAreLocalAndCheckRevisions` 使用实际 libbox 和 AtomicFile，覆盖 version 3 设置迁移/保存/重新打开、修订冲突、本机 HTTPS 字段移除和退役选项拒绝。[MitmCertificateTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/MitmCertificateTest.kt) 在上述 smoke 矩阵使用实际 Android Keystore 与 gomobile，验证 CA 自签名、预哈希签名、私钥不可导出、无自动生成、修订冲突/轮换、AtomicFile 恢复、密钥缺失、大小限制，以及 CRT/模块仅含公钥和完整脚本；不安装设备证书或 Root 模块。
+统一工作流的 `root-ca` job 在独立 Linux PID/mount namespace 中运行 [test_mitm_ca.py](tools/test_mitm_ca.py)，使用 BusyBox 和导出的原始脚本，覆盖 APEX 延迟就绪、旧系统缺少 APEX、hash 冲突和原证书保留、已有二级后代/隐藏模块路径、同一 namespace 的重新挂载、准备失败、service 重试和禁用退出。该测试只在 Actions 运行，不对本机 Android 做 Root 挂载，也不代表真实 Magisk/KernelSU/APatch 安装与重启已验收。
 
-`ProfileRecoveryTest.routedMITMUsesKeystoreAndTheOriginalOutbound` 将实际 Android TLS 客户端经 mixed CONNECT 入口送入本地服务，使用 Keystore CA 解密、原 selector/direct 出站与独立证书库验证测试服务器。覆盖普通 HTTPS、开启 TCP 解密但无 ALPN 的 HTTP/1.1，以及服务器先发数据的二进制 TLS/TCP；核对 URL、原路由及 TLS 元数据，HTTP 检查重复 Cookie/cURL，TCP 检查双向字节、完整性与 cURL 拒绝，并验证重载停抓。[android_smoke.py](tools/android_smoke.py) 在 CI 临时目录生成独立测试服务器证书，经 ADB reverse 提供 HTTP 和原始流两个 TLS 端点，只把公钥 CA 传给仪器测试；私钥不写入仓库、设备或上传产物，套件结束删除。单独运行需要脚本提供的 `mitmOriginPort` / `mitmTCPOriginPort` / `mitmOriginCA` 参数。模拟器中的测试客户端显式信任本次 CA，不代表第三方目标应用信任或 Root 模块已经实机通过。
+### 当前验证记录
 
-`ProfileRecoveryTest` 的本地订阅/定时请求服务器按连接处理对端断开，允许服务重载或停止时取消在途 Cron 请求后继续接受新请求；监听失败及其他异常仍使测试失败。响应内容、请求次数、配置恢复和停止后的不再调度继续由原有断言检查。
+2026-11-14，代码整理与 MASQUE 网络重置修复的验证源码为 `06eed8f5f830a90b9853995ced3b2e211deca628`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/43523435178)，首次运行全部 8 个 job 通过。该源码在 `newui` 之上包含 7 个不改变行为的重构提交（报告适配、桥接分发、备份恢复步骤、后端事件处理、请求页面拆分、许可列表命名、MITM 开关构建）和 [网络重置后的就绪修正](libbox.md#cloudflare-warp-masque)；后续只补充记录的 Markdown 提交不改变上述应用、核心、Flutter 或测试源码。
 
-[DashboardConfigCacheTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/DashboardConfigCacheTest.kt) 通过调用计数覆盖重复刷新不再读取/哈希/解析、地址变化、配置切换、写入/回滚、运行快照更新及错误/取消重试；`ProfileRecoveryTest.lanCacheTracksEqualSizeWritesSuccessfulReloadsAndRecovery` 使用实际文件和 libbox，覆盖同大小同时间戳写入、保存与运行配置分离、成功重载、失败恢复和停服后的 LAN 状态。它们由统一测试工作流的 JVM/仪器测试步骤运行。
-
-[AppListCacheTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/AppListCacheTest.kt) 通过查询/名称读取计数覆盖隐藏应用不读取名称、筛选切换复用、刷新及查询策略/语言失效、失败/取消重试和并发查询合并，由统一工作流的 JVM 测试运行。它不衡量设备上的实际加载耗时。
-
-[LogStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/LogStreamTest.kt) 覆盖日志快照、增量、淘汰边界、等级更新、清空、重新订阅和缓冲重置，并检查 3000 条缓冲新增一条时只编码一条。[VisiblePollingTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/VisiblePollingTest.kt) 用虚拟时间检查不可见/后台/熄屏时零采样、恢复立即采样及取消在途任务；两者由统一工作流的 JVM 测试运行，Flutter 通知与订阅测试见 [flclash.md](flclash.md#验证与升级参考版本)。这些调用计数不代表实测内存或帧率收益。
-
-[ConnectionStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ConnectionStreamTest.kt) 检查增量计数、最终关闭计数、历史淘汰、DNS 过滤、快照隔离及 3000 条记录经过状态合并和恢复订阅后的消息内容。[NetworkRefreshTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/NetworkRefreshTest.kt) 用虚拟时间覆盖网络通知、十秒/六十秒补查、前后台/熄屏取消和突发通知合并。两者纳入现有 JVM 测试，不代替真实 Wi-Fi/蜂窝切换、热点及性能验收。
-
-上述为已配置的检查，不是当前提交的通过声明。记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK 或旧 Compose 验证记录。
-
-### Cloudflare WARP MASQUE 验证
-
-2026-11-13，WARP MASQUE 集成的验证源码为 `e0d77c9a5507a3503c5942c1a0b38bd702dbfd5e`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/43434680819)，全部 8 个 job 通过。协议字段、注册凭据和导入示例见 [核心文档](libbox.md#cloudflare-warp-masque)；后续只补充验证记录的 Markdown 提交不改变上述应用、核心、Flutter 或测试源码。
-
-- WARP 传输在不含 QUIC 和 `with_quic` 两种构建中通过 Go race 回归，覆盖 ECDSA 客户端认证、服务端公钥固定、HTTP/2 capsule、HTTP/3 datagram、取消及重连。`TestUIMASQUE` 通过实际配置校验、格式化和示例导入，以及真实 IP 栈经 selector 传输 UDP、网络重置后旧隧道的读写退出。
-- 匹配核心的 Android ingress-discard、全部 `TestUI`、路由/HTTP/订阅 race、完整 `experimental/httpdebug` race 和路由接入回归通过；Root CA namespace 回归通过。
-- Flutter 分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；数量、分析提示和实际查看的截图见 [界面验证记录](flclash.md#验证与升级参考版本)。
-- 已读取 [native-unit-tests](https://github.com/giturass/B-box/actions/runs/43434680819/artifacts/14041868696) 的 13 份 XML，56 项 JVM 测试通过，无失败、错误或跳过；`play` Kotlin 编译和 x86_64 应用/仪器测试 APK 构建通过。
+- 此前 `newui` 的 `308e61fe3be3d92d6874c7e1fa15ac7185a9c66b`（[43438453060](https://github.com/giturass/B-box/actions/runs/43438453060)，core 失败后其余 job 被取消）以及本分支的 `8c7b7abb7d3edb1740686d21c675a3870b439c9f`（[43468461414](https://github.com/giturass/B-box/actions/runs/43468461414)）和 `cead9d7704a37329df76c2cac80dc65f6fa02d1b`（[43515304678](https://github.com/giturass/B-box/actions/runs/43515304678)）的 core job 均在 `TestUIMASQUEHTTP2OutboundUDPAndNetworkReset` 以 `i/o timeout` 失败，不计为通过；同一用例在下表 `e0d77c9a5507a3503c5942c1a0b38bd702dbfd5e` 的运行中通过，失败来自拨号与重连之间的时序。修正后新增的 `TestWARPNetworkResetRevokesReadiness` 随 `^TestWARP` 在两种构建中运行。
+- core job 依次通过匹配核心的 Android ingress-discard、全部 `TestUI`、不含 QUIC 与 `with_quic` 两种构建的 `^TestWARP` race、`with_quic` 的 `^TestUIMASQUE`、路由/HTTP/订阅 race、完整 `experimental/httpdebug` race 和路由接入回归。为确认时序修正，在同一源码上单独重跑 core job，[第二次尝试](https://github.com/giturass/B-box/actions/runs/43523435178/attempts/2) 的上述步骤再次全部通过；两次通过不构成对该时序问题的统计性证明。
+- Root CA namespace 回归的 6 项测试通过。
+- Flutter 分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；数量、分析提示和实际查看的截图见 [界面验证记录](flclash.md#当前验证记录)。
+- 已读取 [native-unit-tests](https://github.com/giturass/B-box/actions/runs/43523435178/artifacts/14085020674) 的 13 份 XML，56 项 JVM 测试通过，无失败、错误或跳过；`play` Kotlin 编译和 x86_64 应用/仪器测试 APK 构建通过。
 
 已逐项核对以下 Artifact 的 `results.json` 与 `native-tests.txt`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 41 项原生测试通过，原生状态码全部成功，无失败或跳过；页大小为设备实际读取值。
 
 | 环境与结果产物 | 实际页大小 | 采集来源 |
 | --- | --- | --- |
-| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/43434680819/artifacts/14041984527) | 4096 字节 | `/proc/self/smaps` |
-| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/43434680819/artifacts/14042918987) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/43434680819/artifacts/14043249049) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/43434680819/artifacts/14043539219) | 16384 字节 | `getconf` |
-
-四组 `WarpMasqueConfigTest.http2AndHttp3UseThePatchedAndroidCore` 和 `malformedAccountDataFailsConfigurationValidation` 均通过，确认实际 Android AAR 接受两种 WARP 传输、保留配置字段并拒绝非法凭据；这些测试使用临时密钥，不连接 Cloudflare。
-
-同一源码的 [ARM64 Release](https://github.com/giturass/B-box/actions/runs/43435512552) 全部 3 个 job 通过，从同次运行的 libbox 和 Flutter Release AAR 构建签名 `otherRelease` APK，保留 R8。安装身份 `io.ericlee.bfa`、最低 API 24、ARM64 架构、应用标签、入口、模块 assets 和签名校验通过；[APK Artifact](https://github.com/giturass/B-box/actions/runs/43435512552/artifacts/14042134142) 保留 30 天。本次输入为 `publish_release=false`，已确认发布步骤跳过，未创建 GitHub Release。
-
-本机仅执行差异、Go 格式、源码约束、示例 JSON 和文档链接等静态检查，编译及 Go/Flutter/JVM/Android 测试均在 Actions 运行。以上设备为临时 x86_64 模拟器；尚未验收 Cloudflare 真实注册/连接、真实网络下的传输兼容性或 ARM64 实机网络切换。
-
-### UI 性能优化验证
-
-2026-11-13，图标/主题缓存、代理组通知、JSON 编辑和请求历史分页优化的验证源码为 `efe9028214cd52ef03f5a8b1e0143006be5ba6ad`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/43407927934)，全部 8 个 job 通过。界面行为见 [FlClash 适配](flclash.md#导航与交互约定)，查询与导出绑定见 [核心请求调试](libbox.md#httphttps-请求调试)；后续仅补充验证记录的 Markdown 提交不改变上述源码。
-
-- 匹配核心的 Android ingress-discard、`TestUI`、路由/HTTP/订阅 race、完整 `experimental/httpdebug` race 和路由接入回归通过；Root CA namespace 回归通过。新增查询用例覆盖全历史筛选、窗口排序、摘要增量、父连接去重、HAR 选择及查询与录制/清空并发。
-- Flutter 分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；实际数量、分析提示和查看过的截图见 [界面验证记录](flclash.md#验证与升级参考版本)。
-- 已读取 [native-unit-tests](https://github.com/giturass/B-box/actions/runs/43407927934/artifacts/14027774950) 的 13 份 XML，56 项 JVM 测试通过，无失败、错误或跳过；`play` Kotlin 编译和 x86_64 应用/仪器测试 APK 构建通过。
-
-已逐项核对以下 Artifact 的 `results.json` 与 `native-tests.txt`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 39 项原生测试通过，所有测试结束码均为成功，无失败或跳过；页大小为设备实际读取值。
-
-| 环境与结果产物 | 实际页大小 | 采集来源 |
-| --- | --- | --- |
-| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/43407927934/artifacts/14028702995) | 4096 字节 | `/proc/self/smaps` |
-| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/43407927934/artifacts/14028154826) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/43407927934/artifacts/14028584560) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/43407927934/artifacts/14028189515) | 16384 字节 | `getconf` |
-
-四组 `routedMITMUsesKeystoreAndTheOriginalOutbound` 均通过，在实际 Keystore、路由和生成绑定上检查请求窗口、完成摘要不再重复返回，以及 HTTP/TCP 的 HAR 选择与导出边界。已查看 API 24 的 VPN 运行态和实际代理组截图，以及 API 36 / 16 KiB 的首次启动和实际代理组截图；其他界面截图的核对范围在 FlClash 文档中维护。
-
-本机仅执行差异、Go 格式、源码约束和文档链接等静态检查，编译及 Go/Flutter/JVM/设备测试均在 Actions 运行。以上设备均为临时 x86_64 模拟器，未测量 ARM64 实机内存、帧耗时或大历史数据性能，也未验收第三方应用信任、真实 Root CA 模块安装或签名 ARM64 Release/R8；本轮未发布 APK。
-
-### Android 协议、资源导入与正文读取修复验证
-
-2026-11-11，验证源码为 `d3a1f178d6d2375291b698d7200ef9ab8ff98260`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42914488877)，最终全部 8 个 job 通过。HTTP/2 默认值与关闭后的透传、Android 本地资源导入、正文分页及流式导出的当前行为分别见 [MITM 配置](libbox.md#独立-mitm-配置)、[配置处理生命周期](#配置处理生命周期)和[核心正文读取](libbox.md#httphttps-请求调试)。后续只补充验证记录的 Markdown 提交不改变上述源码。
-
-- 匹配版本核心的 Android ingress-discard、`TestUI`、路由/HTTP/订阅 race、完整 `experimental/httpdebug` race 和路由接入回归通过；Root CA namespace 回归通过。新增用例使用只提供 h2 的 TLS 客户端交换 gRPC 消息，检查双方 ALPN 和 trailers，覆盖默认启用、显式关闭时原样回放及配置格式化保留 false；正文用例覆盖有界读取、UTF-8/二进制分页、分层解码、损坏压缩尾部、完整 HAR/cURL 流式导出，以及追加/清空期间的文件快照。
-- Flutter 分析、234 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 79 条 info、0 条 warning/error。实际查看的资源导入、正文首末页截图见 [界面验证记录](flclash.md#验证与升级参考版本)。
-- 已读取 `native-unit-tests` 的 13 份 XML，56 项 JVM 测试全部通过，无失败、错误或跳过；`play` Kotlin 编译和 x86_64 应用/仪器测试 APK 构建通过。
-
-已逐项核对以下 Artifact 的 `results.json` 与 `native-tests.txt`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 39 项原生测试通过，无失败或跳过；页大小为实际读取值。
-
-| 环境与结果产物 | 实际页大小 | 采集来源 |
-| --- | --- | --- |
-| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/42914488877/artifacts/13809339472) | 4096 字节 | `/proc/self/smaps` |
-| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/42914488877/artifacts/13808953705) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/42914488877/artifacts/13809622635) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/42914488877/artifacts/13809817032) | 16384 字节 | `getconf` |
-
-四组的 `localResourceImportsKeepRevisionsRecoverFailuresAndCleanCancelledCopies`、`profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 与 `routedMITMUsesKeystoreAndTheOriginalOutbound` 均成功，覆盖真实文档流导入、重名与修订冲突、应用失败恢复、读取失败和阻塞复制取消后的清理。
-
-API 24 [首轮](https://github.com/giturass/B-box/actions/runs/42914488877/job/130178021124) UI smoke 通过，原生测试因系统重启中断；`native-logcat.txt` 记录 `system_server` 的 `android.display` 线程在 `memcpy` 中发生 SIGSEGV，仪器测试返回 `System has crashed`。仅重跑该 job 后 UI/native 全部通过，见 [第二次运行](https://github.com/giturass/B-box/actions/runs/42914488877/attempts/2)；复用同一源码和测试 APK，首轮中断不记为通过。
-
-本机仅执行差异、Go 格式、源码约束、示例 JSON 及文档链接等静态检查，编译和 Go/Flutter/JVM/Android 测试均在 Actions 运行。未测量 ARM64 实机 PSS/RSS 或大响应的内存与耗时，也未验证第三方证书固定应用、真实 Root CA 模块安装或运行签名 ARM64 Release/R8 构建；本轮未发布 APK。
-
-### 路由、正文准入与资源缓存修复验证
-
-2026-11-11，验证源码为 `6414cea3bfca092b8f5c146552f6c76738cb4bf1`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42848220348)，全部 8 个 job 通过。后续补充本记录的 Markdown 提交不改变验证源码。共享路由关闭、正文准入及资源缓存回收的当前行为分别见 [路由生命周期](libbox.md#出口-ip-和质量查询传输)、[正文记账](libbox.md#json-配置中的-http-改写)和[资源加载](libbox.md#文件和-url-资源加载)；本次同时取消审计中缺少 Android 容量测量依据的固定配额，不以 Surge iOS/macOS 数值作为 Android 容量依据。
-
-- 匹配版本核心的 Android ingress-discard、`TestUI`、路由/HTTP/订阅 race、`experimental/httpdebug` race 及路由接入回归通过，Root CA namespace 回归通过。新增用例覆盖停服等待、迟到拨号结果关闭、正文 getter/序列化前准入、UTF-8/TypedArray 副本长度检查、缓存清理与活跃版本保留、独立资源刷新和正则取消。
-- Flutter 分析、232 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 80 条 info、0 条 warning/error。实际查看的表单与正文设置截图见 [界面验证记录](flclash.md#验证与升级参考版本)。
-- 已读取 `native-unit-tests` 的 13 份 XML，56 项 JVM 测试全部通过，无失败、错误或跳过；`play` Kotlin 编译和 x86_64 应用/仪器测试 APK 构建通过。
-
-已逐项核对以下 Artifact 的 `results.json` 和 `native-tests.txt`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 38 项原生测试通过，无失败或跳过；页大小为实际读取值。
-
-| 环境与结果产物 | 实际页大小 | 采集来源 |
-| --- | --- | --- |
-| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/42848220348/artifacts/13780636105) | 4096 字节 | `/proc/self/smaps` |
-| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/42848220348/artifacts/13780636619) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/42848220348/artifacts/13780875889) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/42848220348/artifacts/13780856293) | 16384 字节 | `getconf` |
-
-四组均通过超过旧 16 MiB 阈值的订阅导入、手动/自动更新，以及 IO/Default 调度器交替执行的 20 次下载取消；取消后继续发起请求成功，未再把原生取消误报为使父任务失败的普通网络错误。核心另验证大正文、超过旧缓存容量的提交、存储/规则/并发配额移除和用户显式限额继续生效。这些样本只证明相应行为，不构成设备容量测量或新的固定上限依据。
-
-本机仅执行 `git diff --check`、`python3 tools/verify_newui.py` 及文档链接/锚点等静态检查；编译和 Go/Flutter/JVM/Android 测试均在 Actions 运行。本轮未运行签名 ARM64 Release/R8、ARM64 实机容量/性能或第三方应用信任验收。
-
-### 统一请求查看器验证
-
-2026-11-10，验证源码为 `3922cd606f520f6581bd4fd0a7d211a68a24ca23`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42760227283)，全部 8 个 job 通过。后续补充本记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。统一列表、筛选和详情的交互约定见 [flclash.md](flclash.md#导航与交互约定)，关联摘要及 HAR 选择绑定见 [libbox.md](libbox.md#httphttps-请求调试)。
-
-- 核心扩展、HTTP/MITM race、路由与 Root CA 回归通过；新增存储测试覆盖关联元数据、双向正文计数及显式 HAR 选择的去重、顺序、空集、淘汰和非法 ID。
-- Flutter 分析、229 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 80 条 info、0 条 warning/error。统一列表的一对多关联、活动筛选、历史保留、同名远端隔离、分页及标题栏避让均有回归；实际查看的截图见 [界面验证记录](flclash.md#验证与升级参考版本)。
-- 已读取 `native-unit-tests` 的 13 份 XML，56 项 JVM 测试全部通过，无失败、错误或跳过；`play` 编译及 x86_64 应用/仪器测试 APK 构建通过。
-
-已逐项核对以下 Artifact 的 `results.json`、`native-tests.txt` 和 `mitm-origin.json`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 37 项原生测试通过，没有原生失败或跳过；页大小为实际读取值。
-
-| 环境与结果产物 | 实际页大小 | 采集来源 |
-| --- | --- | --- |
-| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/42760227283/artifacts/13738122098) | 4096 字节 | `/proc/self/smaps` |
-| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/42760227283/artifacts/13738097681) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/42760227283/artifacts/13738067865) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/42760227283/artifacts/13738321407) | 16384 字节 | `getconf` |
-
-`ProfileRecoveryTest.routedMITMUsesKeystoreAndTheOriginalOutbound` 使用实际 libbox，核对 HTTPS/TLS 流详情与摘要的连接 ID、原出站及正文计数，并调用生成的 `ExportUICaptureHARSelection` 绑定检查所选 HTTP 记录、TCP 排除及空选择导出。四份独立服务器报告均包含 `/probe?raw=1;2`、`/http-no-alpn` 和预期的二进制 TLS/TCP 请求。
-
-本机只完成差异、源码约束、Go 格式及文档链接/锚点等静态检查，编译与 Go/Flutter/JVM/设备测试均在 Actions 运行。本轮未运行签名 ARM64 Release/R8、ARM64 实机或第三方应用信任验收；模拟器客户端显式信任测试 CA，不能代替目标应用的实际抓取验证。
-
-### 特权增强移除验证
-
-2026-11-09，最终验证源码为 `95a6f002170628911e2687af6e2dd39b3691bb3e`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42570495902)，全部 8 个 job 通过。后续补充本记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。通用 Room 持久化、Root/Shizuku 和 MITM CA 回归继续保留。
-
-- 核心扩展、HTTP/MITM race、路由与 Root CA 回归通过；新增出口探测生命周期回归分别检查普通取消和服务关闭，并以 Go race detector 再次运行全部 `TestUIEgress` 用例。
-- Flutter 分析、219 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 77 条 info、0 条 warning/error。
-- 已读取 `native-unit-tests` 的 13 份 XML，56 项 JVM 测试全部通过，无失败、错误或跳过；`play` 编译及 x86_64 应用/仪器测试 APK 构建通过。
-
-已逐项核对以下 Artifact 的 `results.json` 和 `native-tests.txt`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 37 项原生测试通过，页大小为实际读取值。
-
-| 环境与结果产物 | 实际页大小 | 采集来源 |
-| --- | --- | --- |
-| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/42570495902/artifacts/13652634834) | 4096 字节 | `/proc/self/smaps` |
-| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/42570495902/artifacts/13653627957) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/42570495902/artifacts/13652903876) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/42570495902/artifacts/13653119963) | 16384 字节 | `getconf` |
-
-16 KiB job 的 AVD 配置已核对为 `hw.ramSize=4096M`；完整日志和应用退出记录中没有 B-box 的低内存退出、崩溃或 ANR，UI 阶段只有脚本主动执行的 force-stop。已查看其首次启动和 VPN 运行态截图；运行态截图中的公网 IP 查询显示 `Check failed`，本轮不证明外部 IP/质量服务的可用性。所有设备均为临时 x86_64 模拟器，未验证移除后的 ARM64 Release、实机或旧 LSPosed 模块升级后的禁用/重启退出流程。
-
-本次移除基于 `f590e1b06682261ad7d1a485dec2d41231de0ad7`。本机通过差异、源码约束、Python/JSON/XML 语法、文档链接/锚点、删除类型残留及许可检查；生命周期补丁的全部上下文另与核心基线 `824dbcfb4dd0a95921840b1737b950cde590241e` 静态核对。编译、Go/Flutter/JVM 和设备测试均在 Actions 运行。
-
-[首轮测试](https://github.com/giturass/B-box/actions/runs/42563166489) 对应移除提交 `9df354941d5c8fb2deba9b4fd077b6f13f13f3e4`，16 KiB 两次首次启动均停留在桌面；当时只保留末尾日志，缺少退出原因。增加持续日志的 `a50e59639ac48d7e21dc9a40ebf0477c0a9eae19` [诊断运行](https://github.com/giturass/B-box/actions/runs/42567022417) 捕获到 16 KiB 前台进程的 `LOW_MEMORY` 退出及系统重启，以及 4 KiB 原生测试期间的 `dns.Client.newCacheKey` 空 transport panic。后者来自出口探测在旧核心关闭后进入 DNS，现由 [核心探测生命周期同步](libbox.md#出口-ip-和质量查询传输) 修复。诊断运行还遇到 Kotlin 编译器下载 HTTP 504；最终上述运行的 Flutter 构建已通过。
-
-### 持久化、配置恢复与后台检查优化验证
-
-2026-11-08，最终测试源码为 `3ea124a980b0c8bdd205cc8ebdf79633a991210b`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42477676213)，全部 job 通过。后续补充验证记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。
-
-- 核心扩展、HTTP/MITM race、路由与 Root CA 回归通过，包含新增的 HTTP 请求剩余时限检查。
-- Flutter 分析、228 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 85 条 info，0 条 warning/error。关于页新增场景见 [Flutter 验证范围](flclash.md#验证与升级参考版本)。
-- 已读取 `native-unit-tests` 的 15 份 XML，67 项 JVM 测试全部通过，无失败、错误或跳过，包含 5 项版本检查并发、时限及缓存回归。`play` 编译、模拟器应用/仪器测试 APK 构建与打包检查通过。
-
-已逐项核对以下 Artifact 的 `results.json` 和 `native-tests.txt`：源码 SHA 均与上述提交一致，每个环境的 UI smoke 与全部 40 项原生测试通过。所有设备均为 x86_64 模拟器，页大小为实际读取值。
-
-| 环境与结果产物 | 实际页大小 | 采集来源 |
-| --- | --- | --- |
-| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/42477676213/artifacts/13615909545) | 4096 字节 | `/proc/self/smaps` |
-| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/42477676213/artifacts/13616164111) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/42477676213/artifacts/13616737350) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/42477676213/artifacts/13615829585) | 16384 字节 | `getconf` |
-
-[首轮测试](https://github.com/giturass/B-box/actions/runs/42476182525) 暴露了 API 24 备份回滚测试夹具未制造预期写入失败的问题；最终测试提交按不同版本 AtomicFile 的写入路径修正故障注入，保留全部回滚断言。最终运行的第一次尝试分别遇到 Gradle 下载 HTTP 504 和 API 24 的 `Messenger has stopped` 系统弹窗；在相同 SHA 上重试两个失败 job 后均通过。
-
-[ARM64 Release 构建](https://github.com/giturass/B-box/actions/runs/42476210954) 在实现提交 `82ffed86f57891f68fd055d707124a1b1714ba14` 上通过，独立构建核心/Flutter Release AAR 和使用既有密钥签名的 R8 APK，并通过安装身份、API 24、ARM64 和签名检查。最终测试提交相较此提交仅修改 Android 测试夹具，应用、核心、Flutter 和构建源码一致。`publish_release=false`，未发布 GitHub Release；[签名 APK Artifact](https://github.com/giturass/B-box/actions/runs/42476210954/artifacts/13615846557) 可供下载。
-
-本机仅完成源码约束、Go 格式、Python 语法及差异/文档链接静态检查，未在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未验收 ARM64 实机、系统 CA 模块安装或第三方应用信任，也没有新增人工视觉或实机性能验收结论。
-
-### 脚本修复合并验证
-
-2026-11-07，将解除脚本源码大小上限的 `ce7333f4ee5ef6707f7537451d98b3520f551892` 与一元 gRPC/脚本 API 修复的 `3f583b602fbde98814f90c5bbc0e4a1d41131890` 合入 `newui`。合并后的验证源码为 `23fab54581bcbdfa06fd74fd3ca674c141386285`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42357641137)。后续仅更新验证记录的 Markdown 提交不改变应用或测试源码。
-
-- `core` 与 `root-ca` job 通过，包含 Go 扩展配置、HTTP/MITM `-race`、原路由、Android 重定向布局及 Root CA 隔离挂载回归。
-- `flutter` 与 `android` job 通过，包含 Flutter 分析和 226 项测试、Flutter Android 库、核心 AAR、`play` 编译及模拟器应用/仪器测试 APK 构建。Flutter 分析仍有 86 条 info，无 warning/error。
-- 已读取本次 `native-unit-tests` 的 14 份 XML，61 项 JVM 测试全部通过，无失败、错误或跳过。
-
-API 31 smoke 在执行模拟器阶段被取消，工作流总体结果为 `cancelled`，本次合并没有完整 smoke 通过结论。本机只进行差异、源码约束和文档链接等静态检查，未编译或运行 Go/Flutter/Android 测试。
-
-### 一元 gRPC 与脚本 API 对齐验证
-
-2026-11-07，验证源码为 `3f583b602fbde98814f90c5bbc0e4a1d41131890`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42355749078)，全部 job 通过。该提交在 `d5fcd85a6d7c2b3913872198c16d427479df5990` 上仅包含本次修复，未纳入开始任务前已有的脚本资源大小限制暂存改动；原暂存内容保持不变，工作树合并状态不在此次 CI 结论内。后续记录结果的 Markdown 更新不改变应用或测试源码。
-
-- Go 扩展配置校验/格式化、HTTP/MITM `-race`、原路由及 Android 重定向布局回归通过，包含一元 gRPC 双向消息改写、压缩与 trailers 保留、普通正文规则跳过 gRPC、脚本 API 和 HTTP/1、HTTP/2 abort。Root CA 隔离挂载及启动补查回归通过。
-- Flutter 分析（`--no-fatal-infos`）和 226 项测试通过；分析仍有 86 条 info，无 warning/error。Flutter Android 库、x86_64 核心 AAR、`play` 编译及模拟器应用/仪器测试 APK 构建与打包检查通过。
-- 已读取 `native-unit-tests` 的 14 份 XML，61 项 JVM 测试全部通过，无失败、错误或跳过。
-- 已读取 `android-smoke-api-31` 的 `results.json` 和 `native-tests.txt`，源码 SHA 与上述提交一致，UI smoke 与全部 28 项原生测试通过。设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（`getconf`）。
-
-本机仅完成 Go 格式、差异/源码约束、示例 JSON 和文档链接等静态检查，未在本机编译或运行 Go/Flutter/Android 测试。新增 gRPC 协议行为由 Go HTTP/2 MITM 回归覆盖；没有完成哔哩哔哩、YouTube、高德等第三方 App、ARM64 实机或证书固定的验证，也未触发签名 Release 或发布 APK。支持范围与配置方式见 [一元 gRPC 正文脚本](libbox.md#一元-grpc-正文脚本)。
-
-### 订阅下载、备份回滚与配置删除修复验证
-
-2026-11-07，验证源码为 `9eda9945d23ca6916844f2c294cfd314c1185cb0`；后续补充验证记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。
-
-- [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42300191496) 全部 job 通过：Root CA 回归、Go `TestUI`（包含订阅限额、超时、错误响应及重定向）、sing-tun、HTTP/MITM race 和路由回归均通过。
-- Flutter 分析、217 项交互/布局测试及 ARM64 Debug/Release AAR 构建通过；分析仍有 78 条 info。配置页和切换弹层均通过选中配置禁删、旧菜单回调和确认期间选择变化的检查。
-- 50 项 JVM 测试、`play` Kotlin 编译、模拟器 APK 构建、API 31 UI smoke 和全部 25 项原生测试通过。已核对 `native-tests.txt` 中新增的超限订阅、文件/设置回滚失败和删除保护/互斥竞争测试均返回成功；`results.json` 的源码 SHA 一致，设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（`getconf`）。
-- [ARM64 Release 构建](https://github.com/giturass/B-box/actions/runs/42300615184) 在同一源码 SHA 上通过，独立生成核心及 Flutter Release AAR、R8 签名 APK，并通过安装身份、API、架构和签名校验。`publish_release=false`，APK 已上传 Actions Artifact，发布步骤跳过。
-
-本机仅完成差异、源码约束、Go 格式和文档链接静态检查，未在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未覆盖其他 Android 版本、ARM64 实机运行或 16 KiB 页；没有新增视觉验收结论。
-
-### 死代码清理验证
-
-2026-11-06，验证源码为 `adb57d82be837bbe366dab0779ce0af3d5e2f57c`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42242606570)，所有 job 通过；后续补充验证记录的 Markdown 提交不改变应用、核心、Flutter 或测试源码。
-
-- Go 扩展、HTTP/MITM `-race`、原路由、Android 重定向布局及 Root CA 隔离挂载回归通过。
-- Flutter 分析、215 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过。分析的 78 条均为 info，没有 warning/error；忽略行列号后，诊断与清理前源码 `8446b1da3730c4df5c266116fd47146cb47dc975` 的 [验证记录](https://github.com/giturass/B-box/actions/runs/42238301293) 完全一致。
-- Android x86_64 核心 AAR、Flutter debug 库、`play` 编译及模拟器应用/仪器测试 APK 构建通过；读取 `native-unit-tests` 的 12 份 XML，50 项 JVM 测试全部通过，无失败、错误或跳过。
-- API 31 UI smoke 和全部 20 项原生测试通过，包含查询策略持久化、配置/订阅/备份失败恢复及 Keystore MITM。已读取 `android-smoke-api-31` 的 `results.json` 和 `native-tests.txt`，逐项核对成功状态及源码 SHA；设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（`getconf`）。
-
-本机只运行差异、源码约束、调用引用、Go 格式、XML/JSON 和文档链接静态检查，没有在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未触发签名 ARM64 Release/R8 APK 构建，不代替其他 Android 版本、ARM64 实机、16 KiB 页或 Root/Shizuku 等实机验证。
-
-### Surge HTTP 处理对齐验证
-
-2026-11-05，验证源码为 `75897bd75b15ead454e3fcfeac383f303de15108`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/42000793483)，所有 job 通过；后续验证记录的 Markdown 提交不改变应用及测试源码。功能语义、资源加载及保留差异见 [核心说明](libbox.md#json-配置中的-http-改写)。
-
-- Go 配置/绑定、HTTP/MITM `-race`、原路由及 Android 重定向布局回归通过，包含前后查找/内部反向引用、jq、资源缓存/更新、异步 HTTP 和定时器完成语义。
-- Flutter 分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；Android x86_64 核心 AAR、Flutter debug 库、`play` 编译和模拟器应用/仪器测试 APK 构建通过。
-- 读取 `native-unit-tests` 的 12 份 XML，50 项 JVM 测试全部通过，无失败、错误或跳过。
-- Root CA 隔离挂载及启动补查回归通过。
-- API 31 UI smoke 和全部 20 项原生测试通过，包含文件 Mock/jq/外部脚本、默认联网与空允许列表、持久存储、Cron 及服务失败恢复。
-
-已读取 `android-smoke-api-31` 的 `results.json` 和 `native-tests.txt`，报告 SHA 与上述源码一致，UI/native 均成功；逐项核对 `profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery`、`httpScriptsUseRoutedClientTimersAndPersistentNamespaces`、`independentCronUsesRoutingAndStopsWithTheService` 的仪器测试状态为成功。设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（`getconf`）。本次未改动页面布局，不新增视觉验收声明。
-
-本机只运行 Go 格式、差异/源码约束、Python 语法、示例 JSON、文档链接及旧引用静态检查，并在内存中核对两个 HTTP 补丁按顺序匹配固定上游 SHA；未在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未触发签名 ARM64 Release/R8 APK 工作流或发布 APK，不覆盖其他 Android 版本、ARM64 实机性能、16 KiB 页运行、完整 Surge/WebView API 或第三方应用证书信任。
-
-### Prism UI 升级验证
-
-2026-11-05，验证源码为 `d9254711ccf34cda547d2f2287b0e0a508e861a6`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/41982716632)，所有 job 通过。FlClash v0.9.3、Prism UI 固定提交和适配范围见 [界面来源](flclash.md#参考版本与来源清单)，不改变 Android 上游或核心比较基线；后续记录结果的 Markdown 提交不改变应用或测试源码。
-
-- Flutter 分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过，具体数量、分析提示和实际查看的截图见 [界面验证记录](flclash.md#验证与升级参考版本)。
-- Go 扩展、HTTP/MITM `-race`、原路由及 Android 重定向布局回归通过。
-- 50 项 JVM 测试通过，无失败、错误或跳过；模拟器应用和仪器测试 APK 构建通过。
-- API 31 UI smoke 及全部 20 项原生测试通过，覆盖远程 JSON 导入、VPN 授权/启停、实际内核分组、进程重启后配置保留，以及 Keystore、原路由 HTTPS/TCP 和配置恢复。
-- Root CA 隔离挂载及启动补查回归通过。
-
-已读取本次 `native-unit-tests` 的 12 份 XML，以及 `android-smoke-api-31` 的 `results.json`、`native-tests.txt` 和 `mitm-origin.json`，报告源码 SHA 与上述提交一致。设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（来源 `getconf`）。独立服务器收到 `/probe?raw=1;2`、`/http-no-alpn` 及二进制 TLS/TCP 请求，HTTP Host 保留原始目标。
-
-导入 smoke 的保存点击现在等待弹层位置稳定，并在返回仪表盘后核对导入结果。本轮通过记录包含该检查；界面升级期间的旧失败运行没有被记为通过。
-
-本机仅完成差异、来源哈希/许可、`python3 tools/verify_newui.py`、Python 语法及文档链接/旧引用等静态检查，未在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未触发签名 ARM64 Release/R8 APK 工作流或发布 APK，未覆盖其他 Android 版本、16 KiB 页运行、ARM64 实机性能、完整系统证书设置、真实 Root 管理器安装或第三方应用信任。
-
-### MITM 与 Surge 对齐验证
-
-2026-11-05，验证源码为 `5e40bd30a3695cb2e7ed84716955fc64e4a08495`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/41964904848)，全部通过。对齐范围及默认值见 [核心 MITM 配置](libbox.md#独立-mitm-配置)；后续记录结果的 Markdown 提交不改变应用或测试源码。
-
-- Go 扩展、HTTP/MITM `-race`、原路由及 Android 重定向布局回归通过。覆盖无 ALPN 的 HTTP 改写/脚本/导出、二进制字节回放与半关闭、HTTP/2 两端独立协商、证书校验选项、Host List/QUIC 默认值及旧记录的未知 ALPN 保留。
-- Flutter 分析（`--no-fatal-infos`）、210 项交互/布局测试及 ARM64 Flutter AAR 构建通过；分析仍有 148 条 info 提示。实际查看的 MITM 窄屏截图见 [视觉验证](flclash.md#验证与升级参考版本)。
-- 50 项 JVM 测试无失败、错误或跳过，`play`/`other` 编译及模拟器应用/仪器测试 APK 构建通过。
-- API 31 UI smoke 和全部 20 项原生测试通过，包含真实 Keystore、原 selector 出站、两种 HTTP 模式及服务器先发数据的二进制 TLS 流；测试同时检查相同配置保留录制、配置重载停止录制。
-- Root CA 隔离挂载及启动补查回归通过。
-
-已读取 12 份 JVM XML，以及 `android-smoke-api-31` 的 `results.json`、`native-tests.txt` 和 `mitm-origin.json`。结果中的源码 SHA 与上述提交一致；设备为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（来源 `getconf`）。独立服务器分别收到 `/probe?raw=1;2`、`/http-no-alpn`，以及精确的二进制请求 `\x00client\xff`；HTTP Host 保留原始测试目标。
-
-本机完成 `git diff --check`、`python3 tools/verify_newui.py`、Go 格式、Python 语法、JSON 及文档链接/旧引用静态检查，未在本机编译或运行 Go/Flutter/JVM/设备测试。本轮未触发签名 ARM64 Release/R8 或发布 APK；未覆盖其他 Android 版本、ARM64 实机及第三方应用信任，平台边界见 [请求抓取与 MITM](#请求抓取与-mitm)。
-
-### Root CA 与服务恢复修复验证
-
-2026-11-05，验证源码为 `4d7dabb9b804706d3dd019b92be85fd4f68ba89c`，包含 Root CA 模块版本 3 的启动补查、完整 namespace 枚举与重新挂载修复，以及服务错误/主动停止共用清理任务和启动代次检查。后续记录结果的 Markdown 提交不改变应用、模块或测试源码。
-
-[Unit tests and regression](https://github.com/giturass/B-box/actions/runs/41870624196) 全部成功：
-
-- Root CA 的六项 Linux 隔离挂载回归通过，包括 APEX 延迟就绪、旧系统可选 APEX、已有后代/隐藏模块路径、同一 namespace 重挂载、准备失败保留原库，以及常驻补查、单实例锁和禁用退出。Ubuntu BusyBox 未启用 `flock`，测试夹具补入真实的 util-linux 文件锁及其运行库。
-- Go 扩展、HTTP/MITM `-race`、路由及 Android 重定向布局回归通过。
-- Flutter 分析（`--no-fatal-infos`）、210 项交互/布局测试和 ARM64 Flutter AAR 构建通过；分析仍有 148 条 info 提示。
-- 50 项 JVM 测试无失败、错误或跳过，`play`/`other` 编译及模拟器应用/仪器测试 APK 构建通过。
-- API 31 UI smoke 和 20 项原生测试通过，包括连续五轮配置选择失败后的恢复、停止与重新启动。
-
-此前 [41857802322](https://github.com/giturass/B-box/actions/runs/41857802322) 的 API 31 回归出现服务恢复超时与 `initialize cache-file: timeout`。本次 `failedSelectionRestoresThePreviousSelectionAndService` 及其后的全部用例通过，未再出现该缓存锁超时。
-
-已读取 Root CA job 日志、12 份 JVM XML，以及 `android-smoke-api-31` 的 `results.json`、`native-tests.txt` 和 `mitm-origin.json`。模拟器报告为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（来源 `getconf`）；结果中的源码 SHA 与上述提交一致，HTTPS/TCP 测试服务器分别收到 `/probe?raw=1;2` 和 `/tcp-stream`。
-
-本机完成 `git diff --check`、`python3 tools/verify_newui.py`、ShellCheck、Python 语法、来源清单及文档链接静态检查，未在本机构建或运行 Go/Flutter/JVM/设备测试。本次未触发签名 Release 或发布 APK；真实 Magisk/KernelSU/APatch 安装、重启、Android 14+ 设备及第三方应用信任仍未验收，范围见 [请求抓取与 MITM](#请求抓取与-mitm)。
-
-### MITM 连接与正文处理优化验证
-
-2026-11-04，验证源码为 `aa734faab8ae5edf76dba56b88aa5e8986fa47dc`，包含取消固定连接总数上限、记录启停保留连接、正文处理预算/编码/流式转发及 HTTP/Cron 脚本资源隔离，具体行为见 [核心请求调试](libbox.md#httphttps-请求调试)。当次自动 Android smoke 仅运行 API 31；后续记录结果的 Markdown 提交不改变应用源码。
-
-[Unit tests and regression](https://github.com/giturass/B-box/actions/runs/41833768526) 由代码 push 自动触发，全部成功：
-
-- Go 扩展、HTTP/MITM `-race`、原路由及 Android 重定向布局回归通过，包含超过 32 条连接仍接管、停止录制后继续传输、预算不足时正文零读取、编码/回放完整性、脚本池隔离及错误页文案检查。
-- Flutter 分析（`--no-fatal-infos`）、210 项交互/布局测试和 ARM64 Flutter AAR 构建通过。分析输出 148 条 info 提示，不记为零提示。
-- 50 项 JVM 测试无失败、错误或跳过，`play`/`other` 编译和模拟器应用/仪器测试 APK 构建通过。
-- API 31 的 UI smoke 和 19 项原生测试通过，包含真实 Keystore、原路由 HTTPS/TCP、配置处理恢复和 Cron 服务生命周期回归。
-
-已读取本次 `native-unit-tests` 的 12 份 JVM XML，以及 `android-smoke-api-31` 的 `results.json`、`native-tests.txt` 和 `mitm-origin.json`。设备报告为 Android 12 / SDK 31、`google_apis/x86_64`、4096 字节页（来源 `getconf`），结果中的源码 SHA 与上述提交一致；HTTPS/TCP 测试服务器分别收到 `/probe?raw=1;2` 和 `/tcp-stream`，Host 保留原始测试目标。
-
-验证期间修正了旧镜像缺少 `getconf`、模拟器安装/宿主空间不足，以及服务取消 Cron 请求后测试服务器的 `Broken pipe`；前序失败见 [41818907770](https://github.com/giturass/B-box/actions/runs/41818907770) 和 [41820772969](https://github.com/giturass/B-box/actions/runs/41820772969)。当次最终 smoke 结果仅覆盖 API 31，不将当时已移除的其他镜像计为通过。
-
-本机完成差异、Go 格式、Python 语法、`python3 tools/verify_newui.py`、文档链接/旧引用及 Actions 结构/表达式检查（`actionlint -shellcheck='' -pyflakes=''`），未在本机编译或运行 Go/Flutter/JVM/设备测试。截图检查范围见 [flclash.md](flclash.md#验证与升级参考版本)。本轮未触发签名 ARM64 Release/R8 构建或发布 APK，未覆盖其他 Android 版本、16 KiB 页运行、ARM64 实机性能、真实 Root CA 模块安装或第三方应用信任；Root CA 模块当前的 namespace 覆盖和限制见 [请求抓取与 MITM](#请求抓取与-mitm)。
-
-### 界面刷新与存储优化验证
-
-2026-11-04，验证源码为 `ef219625437f64eb7c6fc349d4617617bbea8dc8`，包含连接增量、启动数据拆分、工具订阅、请求存储/详情轮询及界面网络刷新优化，以及统一测试和独立手动 Release 工作流。后续记录结果的 Markdown 提交不改变应用源码。
-
-[Unit tests and regression](https://github.com/giturass/B-box/actions/runs/41760772704) 由代码 push 自动触发，最终全部成功：
-
-- Go 扩展、HTTP/MITM 存储 `-race`、原路由及 Android 重定向布局检查通过。
-- Flutter 分析（`--no-fatal-infos`）、210 项交互/布局测试及 ARM64 Flutter AAR 构建通过。
-- 50 项 JVM 测试无失败、错误或跳过，包含连接快照和网络通知合并；`play`/`other` 编译及模拟器应用/仪器测试 APK 构建通过。
-- API 24/31/35 的 UI smoke 和各 19 项原生测试通过。已读取 JVM XML、三个平台的 `results.json` 与 `native-tests.txt`，源码 SHA 均一致。
-
-API 24 首轮被模拟器自带的“Messenger has stopped”弹窗挡住首页，`window.xml` 保留该系统弹窗，19 项原生测试仍通过。仅重跑该 job 后 UI/native 均通过，见 [第二次运行](https://github.com/giturass/B-box/actions/runs/41760772704/attempts/2)；重跑复用同一源码和测试 APK。
-
-本机完成 `git diff --check`、`python3 tools/verify_newui.py`、Go 格式、来源清单 JSON、文档链接及 Actions 结构/表达式检查（`actionlint -shellcheck='' -pyflakes=''`），未在本机编译或运行 Go/Flutter/JVM/设备测试。本次未触发手动 Release/R8 构建，未发布 APK 或 GitHub Release；Release 流程的调整只完成静态检查。未测量实机 CPU、内存、帧耗时，也未实测 Wi-Fi/蜂窝切换、热点变化或新增视觉验收；模拟器结果不能代替这些结论。
-
-### 独立 MITM/TCP/Cron 验证
-
-2026-11-03，独立 MITM/脚本、TCP 解密、Cron、配置迁移及抓包日志移除的验证结果如下。`339ecfc8bf42c4a07d800a6b8024d2e02a466ae9` 相对 `e1bbf0fcb1e3b06d4f4912943f3aa3487892b169` 仅修正 Flutter 测试的域名选择入口定位；Android、Go 与 Flutter 生产源码相同。后续记录结果的文档提交不改变应用源码。
-
-| Actions | 检出源码 SHA | 实际结果 |
-| --- | --- | --- |
-| [Core and Flutter validation](https://github.com/giturass/B-box/actions/runs/41637368901) | `339ecfc8bf42c4a07d800a6b8024d2e02a466ae9` | Go 扩展/schema、HTTP/MITM/TCP/脚本/Cron 的 `-race`、原路由及 Android 重定向布局回归通过；Flutter 分析、201 项测试及 ARM64 Flutter AAR 构建通过 |
-| [Android regression and smoke](https://github.com/giturass/B-box/actions/runs/41636466736) | `e1bbf0fcb1e3b06d4f4912943f3aa3487892b169` | 44 项 JVM 测试无失败或跳过，`play`/`other` 编译及模拟器应用/仪器测试 APK 构建通过；API 24/31/35 的 UI smoke 与各 19 项仪器测试全部通过 |
-
-已核对三个 `android-smoke-api-*` Artifact：`results.json` 的源码 SHA 一致，UI/native 均成功，`native-tests.txt` 均记录 19 项通过，包含原路由 HTTPS/TCP 解密、独立 MITM/脚本与改写的应用恢复，以及独立 Cron 的路由请求和服务生命周期回归。各份 `mitm-origin.json` 均记录 `/probe?raw=1;2` 与 `/tcp-stream` 两次请求，Host 保留 `origin.test:<实际端口>`。具体覆盖见 [请求抓取与 MITM](#请求抓取与-mitm) 和 [配置处理生命周期](#配置处理生命周期)。
-
-本机完成 `git diff --check`、`python3 tools/verify_newui.py`、Go 格式、Python 语法、配置示例/来源清单 JSON、核心补丁应用及文档链接静态检查，未在本机构建或执行 Go/Flutter/Android 测试。截图检查范围见 [flclash.md](flclash.md#验证与升级参考版本)。本次未运行签名 ARM64 Release/R8，未发布 APK 或 GitHub Release；下文旧 Release 不包含本次变更。模拟器的自有客户端显式信任测试 CA，尚未验收 ARM64 实机、真实 Root CA 模块安装、第三方应用信任或完整系统证书设置交互。
-
-### JSON 配置改写验证
-
-2026-11-03，配置改写的验证源码为 `e62ddbe724a1b5f61e3bff96e48b1ba8e82c94fc`，包含最后的标题重叠修正。下表记录实际运行结果；后续仅记录结果的文档提交不改变应用源码。
-
-| Actions | 检出源码 SHA | 实际结果 |
-| --- | --- | --- |
-| [Core and Flutter validation](https://github.com/giturass/B-box/actions/runs/41575286785) | `e62ddbe724a1b5f61e3bff96e48b1ba8e82c94fc` | Go 扩展/schema、HTTP/MITM/改写/JS 的 `-race`、原路由及重定向布局回归通过；Flutter 分析、203 项测试及 ARM64 Flutter AAR 构建通过 |
-| [Android regression and smoke](https://github.com/giturass/B-box/actions/runs/41575670538) | `e62ddbe724a1b5f61e3bff96e48b1ba8e82c94fc` | 44 项 JVM 测试无失败或跳过，`play`/`other` 编译和模拟器应用/仪器测试 APK 构建通过；API 24/31/35 的 UI smoke 与各 18 项仪器测试全部通过 |
-
-已核对三个 `android-smoke-api-*` Artifact 的 `results.json`：源码 SHA 一致，UI/native 均成功；每份 `native-tests.txt` 都记录 18 项通过，且 `profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 成功。该回归的实际覆盖见 [配置处理生命周期](#配置处理生命周期)。模拟器中的自有 TLS 客户端显式信任本次 CA，测试没有安装系统证书或 Root 模块。
-
-本机完成 `git diff --check`、`python3 tools/verify_newui.py`、Go 格式、Python 语法、配置示例/来源清单 JSON 及文档链接静态检查，未在本机构建或执行 Go/Flutter/Android 测试。最终截图的检查范围见 [flclash.md](flclash.md#验证与升级参考版本)。本次未运行签名 ARM64 Release/R8，未发布 APK 或 GitHub Release；下文旧 Release 不包含本次配置改写。ARM64 实机、真实 Root CA 模块安装与第三方应用信任仍未验收。Surge 配置/脚本支持范围以 [核心文档](libbox.md#json-配置中的-http-改写) 为准。
-
-### MITM 分支验证
-
-以下为 2026-11-03 在 JSON 配置改写加入前的请求录制与 CA 验证，不覆盖上述新扩展。三个 SHA 的 Android 主应用、Go 扩展和 Flutter 生产源码相同；`8869e69` 之后只调整了 Android 仪器测试、smoke 脚本、Flutter CI 的 NDK 准备及文档，未把测试修正记为新的应用实现。后续仅记录结果的文档提交不改变 APK。
-
-| Actions | 检出源码 SHA | 实际结果 |
-| --- | --- | --- |
-| [Core and Flutter validation](https://github.com/giturass/B-box/actions/runs/41549420394) | `b3dfe817c7838a7485497eced0aa1bcebe1ae6d6` | Go 扩展、HTTP/MITM `-race`、原路由回归、Flutter 分析/交互/布局测试和 ARM64 Flutter AAR 全部通过；显式安装 NDK 后打包成功 |
-| [Android regression and smoke](https://github.com/giturass/B-box/actions/runs/41548479075) | `8cc2ca6b64963891d479a671b4a6a58521a16ba1` | 44 项 JVM 测试、`play`/`other` Kotlin、模拟器应用及测试 APK 编译通过；API 24/31/35 的 UI smoke 和各 17 项仪器测试全部通过，含实际 Keystore 签名与原出站 HTTPS MITM |
-| [ARM64 Release 构建](https://github.com/giturass/B-box/actions/runs/41546076303) | `8869e6992a59327c11d39ad98457a22f402a23cb` | 复用核心/Flutter 验证，44 项 JVM 测试、R8 签名构建、API 24/ARM64/安装身份/模块资源及签名校验通过；`publish_release=false`，发布步骤跳过 |
-
-三个模拟器的 `mitm-origin.json` 均记录独立 HTTPS 服务器只收到一次 `/probe?raw=1;2`，Host 保留 `origin.test:<实际端口>`；仪器测试同时核对叶证书由本次 Keystore CA 签发、重复 Cookie、响应正文、原 selector 路由、TLS 元数据、cURL 和配置重载停抓。完整结果与诊断在对应运行的 `android-smoke-api-*` Artifact 中。Flutter 截图检查范围见 [flclash.md](flclash.md#验证与升级参考版本)。
-
-[签名 APK Artifact](https://github.com/giturass/B-box/actions/runs/41546076303/artifacts/13189531900) 包含 `B-box-1.15.0-alpha.13-arm64-v8a.apk`，SHA-256 为 `28065565867c0642f1a4f1e784309823b23d4e3d3a63a0a399bd44f76b3621c6`，保留期按 Release 工作流的 30 天设置。该构建未发布 GitHub Release。
-
-本机完成 `git diff --check`、`python3 tools/verify_newui.py`、Python/模块脚本语法、来源清单及文档链接静态检查。模拟器测试使用显式信任本次 CA 的自有客户端；尚未验收真实 Magisk/KernelSU/APatch 安装与重启、第三方目标应用信任、ARM64 实机运行或完整系统证书设置交互。协议支持与限制见 [libbox.md](libbox.md#httphttps-请求调试)，不能由这些通过记录推断全应用均可解密。
+| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/43523435178/artifacts/14083289827) | 4096 字节 | `/proc/self/smaps` |
+| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/43523435178/artifacts/14083744442) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/43523435178/artifacts/14085395366) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/43523435178/artifacts/14083774476) | 16384 字节 | `getconf` |
+
+四组 `WarpMasqueConfigTest.http2AndHttp3UseThePatchedAndroidCore` 和 `malformedAccountDataFailsConfigurationValidation` 均通过；这些测试使用临时密钥，不连接 Cloudflare。
+
+本机仅执行差异、Go 格式、源码约束和文档链接等静态检查，编译及 Go/Flutter/JVM/Android 测试均在 Actions 运行。未覆盖范围：
+
+- 没有为该源码触发 ARM64 Release 构建，也没有发布；最近一次签名 Release 构建对应下表的 `e0d77c9a5507a3503c5942c1a0b38bd702dbfd5e`，不能作为当前源码的产物。
+- 以上设备为临时 x86_64 模拟器；尚未验收 Cloudflare 真实注册/连接、真实网络下的传输兼容性或 ARM64 实机网络切换。
+- 重构只由既有自动化用例回归，没有新增实机或真实 Root 管理器、第三方目标应用信任的验收。
+- 上游客户端的 `Suspend` 路径未修改，也没有针对它的就绪回归。
+
+### 历史验证记录
+
+下表索引此前在 Actions 上记录过的运行，只用于查询，不是当前源码的通过声明。逐次的检查项、产物链接、失败原因和未覆盖范围保留在 Git 历史，可用 `git show 06eed8f5f830a90b9853995ced3b2e211deca628:app.md` 查看整理前的完整记录。未注明时 smoke 为该行所列环境的 UI smoke 加原生测试；Flutter 数量见 [flclash.md](flclash.md#历史验证记录)。
+
+| 日期 | 主题 | 验证源码 | Actions | 范围与备注 |
+| --- | --- | --- | --- | --- |
+| 2026-11-13 | Cloudflare WARP MASQUE | `e0d77c9a5507a3503c5942c1a0b38bd702dbfd5e` | [43434680819](https://github.com/giturass/B-box/actions/runs/43434680819) | 8 个 job 通过；56 项 JVM；API 24/31/36 及 16 KiB 四组各 41 项原生测试。同一源码的 [ARM64 Release](https://github.com/giturass/B-box/actions/runs/43435512552) 以 `publish_release=false` 构建并校验签名 APK，未发布 |
+| 2026-11-13 | UI 性能优化 | `efe9028214cd52ef03f5a8b1e0143006be5ba6ad` | [43407927934](https://github.com/giturass/B-box/actions/runs/43407927934) | 8 个 job 通过；56 项 JVM；四组各 39 项原生测试 |
+| 2026-11-11 | Android 协议、资源导入与正文读取修复 | `d3a1f178d6d2375291b698d7200ef9ab8ff98260` | [42914488877 第二次尝试](https://github.com/giturass/B-box/actions/runs/42914488877/attempts/2) | API 24 job 在同一源码重跑后通过；56 项 JVM；四组各 39 项原生测试 |
+| 2026-11-11 | 路由、正文准入与资源缓存修复 | `6414cea3bfca092b8f5c146552f6c76738cb4bf1` | [42848220348](https://github.com/giturass/B-box/actions/runs/42848220348) | 56 项 JVM；四组各 38 项原生测试 |
+| 2026-11-10 | 统一请求查看器 | `3922cd606f520f6581bd4fd0a7d211a68a24ca23` | [42760227283](https://github.com/giturass/B-box/actions/runs/42760227283) | 56 项 JVM；四组各 37 项原生测试 |
+| 2026-11-09 | 特权增强移除 | `95a6f002170628911e2687af6e2dd39b3691bb3e` | [42570495902](https://github.com/giturass/B-box/actions/runs/42570495902) | 56 项 JVM；四组各 37 项原生测试。前序 [42563166489](https://github.com/giturass/B-box/actions/runs/42563166489) 与诊断运行 [42567022417](https://github.com/giturass/B-box/actions/runs/42567022417) 未通过，不计入 |
+| 2026-11-08 | 持久化、配置恢复与后台检查优化 | `3ea124a980b0c8bdd205cc8ebdf79633a991210b` | [42477676213](https://github.com/giturass/B-box/actions/runs/42477676213) | 两个失败 job 在同一源码重试后通过；67 项 JVM；四组各 40 项原生测试。[ARM64 Release](https://github.com/giturass/B-box/actions/runs/42476210954) 在 `82ffed86f57891f68fd055d707124a1b1714ba14` 上以 `publish_release=false` 构建，未发布 |
+| 2026-11-07 | 脚本修复合并 | `23fab54581bcbdfa06fd74fd3ca674c141386285` | [42357641137](https://github.com/giturass/B-box/actions/runs/42357641137) | 工作流结论为 `cancelled`，API 31 smoke 未完成，不计为 smoke 通过；61 项 JVM |
+| 2026-11-07 | 一元 gRPC 与脚本 API 对齐 | `3f583b602fbde98814f90c5bbc0e4a1d41131890` | [42355749078](https://github.com/giturass/B-box/actions/runs/42355749078) | 61 项 JVM；仅 API 31，28 项原生测试 |
+| 2026-11-07 | 订阅下载、备份回滚与配置删除修复 | `9eda9945d23ca6916844f2c294cfd314c1185cb0` | [42300191496](https://github.com/giturass/B-box/actions/runs/42300191496) | 50 项 JVM；仅 API 31，25 项原生测试。同一源码的 [ARM64 Release](https://github.com/giturass/B-box/actions/runs/42300615184) 以 `publish_release=false` 构建，未发布 |
+| 2026-11-06 | 死代码清理 | `adb57d82be837bbe366dab0779ce0af3d5e2f57c` | [42242606570](https://github.com/giturass/B-box/actions/runs/42242606570) | 50 项 JVM；仅 API 31，20 项原生测试 |
+| 2026-11-05 | Surge HTTP 处理对齐 | `75897bd75b15ead454e3fcfeac383f303de15108` | [42000793483](https://github.com/giturass/B-box/actions/runs/42000793483) | 50 项 JVM；仅 API 31，20 项原生测试 |
+| 2026-11-05 | Prism UI 升级 | `d9254711ccf34cda547d2f2287b0e0a508e861a6` | [41982716632](https://github.com/giturass/B-box/actions/runs/41982716632) | 50 项 JVM；仅 API 31，20 项原生测试 |
+| 2026-11-05 | MITM 与 Surge 对齐 | `5e40bd30a3695cb2e7ed84716955fc64e4a08495` | [41964904848](https://github.com/giturass/B-box/actions/runs/41964904848) | 50 项 JVM；仅 API 31，20 项原生测试 |
+| 2026-11-05 | Root CA 与服务恢复修复 | `4d7dabb9b804706d3dd019b92be85fd4f68ba89c` | [41870624196](https://github.com/giturass/B-box/actions/runs/41870624196) | 50 项 JVM；仅 API 31，20 项原生测试。前序 [41857802322](https://github.com/giturass/B-box/actions/runs/41857802322) 的 API 31 回归失败，不计入 |
+| 2026-11-04 | MITM 连接与正文处理优化 | `aa734faab8ae5edf76dba56b88aa5e8986fa47dc` | [41833768526](https://github.com/giturass/B-box/actions/runs/41833768526) | 50 项 JVM；仅 API 31，19 项原生测试。前序 [41818907770](https://github.com/giturass/B-box/actions/runs/41818907770)、[41820772969](https://github.com/giturass/B-box/actions/runs/41820772969) 失败，不计入 |
+| 2026-11-04 | 界面刷新与存储优化 | `ef219625437f64eb7c6fc349d4617617bbea8dc8` | [41760772704 第二次尝试](https://github.com/giturass/B-box/actions/runs/41760772704/attempts/2) | API 24 job 在同一源码重跑后通过；50 项 JVM；API 24/31/35 各 19 项原生测试 |
+| 2026-11-03 | 独立 MITM/TCP/Cron | `339ecfc8bf42c4a07d800a6b8024d2e02a466ae9`（核心与 Flutter）、`e1bbf0fcb1e3b06d4f4912943f3aa3487892b169`（Android） | [41637368901](https://github.com/giturass/B-box/actions/runs/41637368901)、[41636466736](https://github.com/giturass/B-box/actions/runs/41636466736) | 当时为两条独立工作流；44 项 JVM；API 24/31/35 各 19 项原生测试 |
+| 2026-11-03 | JSON 配置改写 | `e62ddbe724a1b5f61e3bff96e48b1ba8e82c94fc` | [41575286785](https://github.com/giturass/B-box/actions/runs/41575286785)、[41575670538](https://github.com/giturass/B-box/actions/runs/41575670538) | 两条独立工作流；44 项 JVM；API 24/31/35 各 18 项原生测试 |
+| 2026-11-03 | MITM 分支 | `b3dfe817c7838a7485497eced0aa1bcebe1ae6d6`（核心与 Flutter）、`8cc2ca6b64963891d479a671b4a6a58521a16ba1`（Android） | [41549420394](https://github.com/giturass/B-box/actions/runs/41549420394)、[41548479075](https://github.com/giturass/B-box/actions/runs/41548479075) | 两条独立工作流；44 项 JVM；API 24/31/35 各 17 项原生测试。[ARM64 Release](https://github.com/giturass/B-box/actions/runs/41546076303) 在 `8869e6992a59327c11d39ad98457a22f402a23cb` 上以 `publish_release=false` 构建，未发布 |
 
 原 `MODIFICATIONS.md` 与 `NEWUI.md` 已按领域归入这四份文档。历史 MOD-001～004、007～008、012 的 Compose 界面由 Flutter 替代；MOD-005/006/009 的品牌、安装身份及发布约定在本文继续维护；MOD-011/015/016 的删除项以本次迁移后的现状为准；MOD-013/014 的核心与工具裁剪已回退；MOD-017 的 UI 适配见 [flclash.md](flclash.md)。旧实现、逐次构建日志与产物哈希可通过 `git log --all -- MODIFICATIONS.md NEWUI.md` 和对应提交的文件内容查询，不再混入当前项目约束。
