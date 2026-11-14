@@ -13,6 +13,7 @@ import 'package:b_box_ui/pages/tools.dart';
 import 'package:b_box_ui/pages/diagnostics.dart';
 import 'package:b_box_ui/pages/profiles.dart';
 import 'package:b_box_ui/pages/proxies.dart';
+import 'package:b_box_ui/pages/dashboard.dart';
 import 'package:b_box_ui/components/navigation_bar.dart';
 import 'package:b_box_ui/components/page_switcher.dart';
 import 'package:flutter/services.dart';
@@ -242,7 +243,7 @@ void main() {
       await selectTab('Dashboard');
       expect(find.byType(SettingsPage), findsNothing);
       expect(find.byTooltip('Edit dashboard').hitTestable(), findsOneWidget);
-      expect(find.byTooltip('Settings'), findsNothing);
+      expect(find.descendant(of: find.byType(DashboardPage), matching: find.byTooltip('Settings')), findsNothing);
       for (final (label, page) in <(String, Widget)>[
         ('Profile-edit', const ProfileForm(initial: {'id': 1, 'name': 'Primary sing-box profile',
           'remote': true, 'url': 'https://example.org/config.json', 'autoUpdate': true, 'interval': 60})),

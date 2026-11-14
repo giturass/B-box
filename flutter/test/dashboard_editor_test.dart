@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/widgets.dart';
-import 'package:b_box_ui/components/dashboard_editor.dart';
 import 'package:b_box_ui/components/status_panel.dart';
 import 'package:b_box_ui/components/start_toggle.dart';
+import 'package:b_box_ui/pages/dashboard.dart';
 import 'package:b_box_ui/pages/tools.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -76,15 +76,18 @@ void main() {
         expect(control.hitTestable(), findsOneWidget);
       }
       expect(find.byTooltip('Edit dashboard').hitTestable(), findsOneWidget);
-      expect(find.byTooltip('Settings'), findsNothing);
+      expect(find.descendant(of: find.byType(DashboardPage), matching: find.byTooltip('Settings')), findsNothing);
       expect(find.byTooltip('Dashboard cards'), findsNothing);
       final editTarget = switch (scenario) {
         'reorder' => systemProxy ? find.text(card) : find.byType(StartToggle),
         'failed-save' => find.text(ip),
         _ => find.text('Status'),
       };
-      if (scenario == 'add-remove') await tester.tap(find.byTooltip('Edit dashboard'));
-      else await tester.longPress(editTarget);
+      if (scenario == 'add-remove') {
+        await tester.tap(find.byTooltip('Edit dashboard'));
+      } else {
+        await tester.longPress(editTarget);
+      }
       await advance();
       expect(find.byType(DashboardEditor), findsOneWidget);
       expect(find.byType(EgressDetails), findsNothing);

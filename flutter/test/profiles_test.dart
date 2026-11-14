@@ -184,8 +184,13 @@ void main() {
     testWidgets('horizontal profiles keep the primary page and live $layout proxy groups', (tester) async {
       final events = StreamController<dynamic>.broadcast();
       final selections = <dynamic>[], tests = <dynamic>[];
+      final preferences = <String, dynamic>{'proxyLayout': layout};
       final box = await _mount(tester, eventController: events, dashboard: {'status': 'Started'},
-        preferences: {'proxyLayout': layout}, handler: (call) async {
+        preferences: preferences, handler: (call) async {
+          if (call.method == 'preferences.set') {
+            preferences.addAll(json(json(call.arguments)['value']));
+            return preferences;
+          }
           if (call.method == 'profiles.select') {
             final id = json(call.arguments)['id'];
             selections.add(id);
@@ -212,6 +217,10 @@ void main() {
       expect(selections, isEmpty);
       expect(find.text('Local B').hitTestable(), findsOneWidget);
       expect(find.text('Live selector').hitTestable(), findsOneWidget);
+      if (layout == 'List') {
+        await tester.tap(find.byTooltip('Show more'));
+        await tester.pumpAndSettle();
+      }
       await tester.tap(find.byTooltip('Test latency').first);
       await tester.pumpAndSettle();
       expect(tests, ['Live selector']);
