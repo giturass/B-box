@@ -239,7 +239,27 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-2026-11-14，本次配置页顶部精简及工具栏收纳调整基于 `ab20ad1`。本机仅执行静态检查，编译、Flutter/JVM/Go 测试及四组 Android smoke 通过统一 Actions 工作流执行；当前尚未取得本次源码的运行结果。上一轮导航合并的通过记录见下表，界面进度见 [flclash.md](flclash.md#当前验证记录)。本次未触发签名 ARM64 Release 或发布，也未进行 ARM64 实机、真实远程会话或性能验收。
+2026-11-14，配置页顶部精简及工具栏收纳调整的验证源码为 `2be09f60fcf6244f9f30c7899c5da382359701e0`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/43570946186)。core、Root CA、Flutter、Android 构建及四组 smoke 合计 8 个作业全部通过；后续仅补充文档的 Markdown 提交不改变上述验证源码。
+
+- core 的匹配内核 Android ingress-discard、全部 `TestUI`、不含 QUIC 与 `with_quic` 两种 `^TestWARP` race、`with_quic` 的 `^TestUIMASQUE`、路由/HTTP/订阅 race、完整 `experimental/httpdebug` race 和路由接入回归步骤全部通过。
+- Root CA namespace 回归的 6 项测试通过。
+- Flutter 分析、259 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析提示、工具栏与配置卡片的截图检查见 [界面验证记录](flclash.md#当前验证记录)。
+- 已读取 [native-unit-tests](https://github.com/giturass/B-box/actions/runs/43570946186/artifacts/14104319553) 的 13 份 XML，56 项 JVM 测试通过，无失败、错误或跳过；`play` Kotlin 编译和 x86_64 应用/仪器测试 APK 构建通过。
+
+已逐项核对以下 Artifact 的 `results.json` 与 `native-tests.txt`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 41 项原生测试通过，原生状态码全部成功，无失败或跳过；页大小为设备实际读取值。
+
+| 环境与结果产物 | 实际页大小 | 采集来源 |
+| --- | --- | --- |
+| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/43570946186/artifacts/14105061141) | 4096 字节 | `/proc/self/smaps` |
+| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/43570946186/artifacts/14104353812) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/43570946186/artifacts/14105076027) | 4096 字节 | `getconf` |
+| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/43570946186/artifacts/14103694818) | 16384 字节 | `getconf` |
+
+本机仅执行差异、源码约束及文档链接等静态检查，编译及 Go/Flutter/JVM/Android 测试均在 Actions 运行。未覆盖范围：
+
+- 本次未触发签名 ARM64 Release 工作流，也没有发布；Flutter AAR 和 x86_64 测试 APK 不等于可安装的 ARM64 Release。
+- 尚未验收 ARM64 实机上的配置滑动、工具栏菜单及排序操作、真实远程会话或性能；Flutter 截图使用测试桥接数据。
+- 尚未验收 Cloudflare 真实注册/连接、真实网络下的传输兼容性、ARM64 实机网络切换及实际 Root 管理器的 CA 模块安装与重启。
 
 ### 历史验证记录
 

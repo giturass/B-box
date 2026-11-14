@@ -207,7 +207,21 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-2026-11-14，本次配置卡片顶部精简及工具栏收纳调整基于 `ab20ad1`。本机已通过 `git diff --check`、`python3 tools/verify_newui.py` 和文档链接/锚点检查；统一 Actions 将针对本次源码执行，当前尚未取得 Flutter 交互/布局、AAR 构建及 Android smoke 的新结果。上一轮配置合并的通过记录已归入下表，不能替代本次工具栏与菜单的验收。
+2026-11-14，配置卡片顶部精简及工具栏收纳调整的验证源码为 `2be09f60fcf6244f9f30c7899c5da382359701e0`，对应 [Actions 43570946186](https://github.com/giturass/B-box/actions/runs/43570946186) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43570946186/job/132374987419)。Flutter 分析、259 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 84 条 info、0 条 warning/error。更新后的配置排序用例从右上角收纳菜单进入，确认菜单同时提供节点排序，并继续检查原生修订冲突后的草稿与重试；分组测速用例从收纳菜单执行当前分组操作，列表样式保留分组内按钮。
+
+本次实际查看 [newui-validation](https://github.com/giturass/B-box/actions/runs/43570946186/artifacts/14104274398) 的以下截图，路径相对 `build/screenshots/`：
+
+| 截图 | 核对结果 |
+| --- | --- |
+| `360-light-1.0-Profiles-populated.png` | 配置卡片外的标题和独立按钮行已移除，右上角按搜索、添加、更新、收纳排列；下方代理组及选中状态保留 |
+| `360-dark-1.4-Profiles-populated.png` | 大字号深色主题下四个顶部按钮均可辨识，配置卡片和代理卡片未重叠，长文案按既有规则省略 |
+| `360-dark-1.4-Profiles-scrolled.png` | 横向滑动后本地配置进入视口，四个顶部按钮和下方分组保持位置，底栏仍选中配置；卡片随滚动视口裁切 |
+| `navigation/fixed-black.png` | 320 宽纯黑主题及大字号下四个顶部按钮完整显示，无远程订阅时更新按钮禁用；长英文页面标题及底栏文案省略，固定底栏和停服提示各自保留区域 |
+| `800-light-1.0-Profiles-populated.png` | 宽屏使用相同的四个顶部按钮顺序，配置卡片直接排列在分组上方，侧栏保留四个目的地 |
+
+另查看 [API 24 smoke 产物](https://github.com/giturass/B-box/actions/runs/43570946186/artifacts/14105061141) 的 `04-core-proxies.png`，确认实际应用中的导入配置和内核分组同页，配置卡片外无独立标题行，右上角四个按钮按预期排列。
+
+本机已通过 `git diff --check`、`python3 tools/verify_newui.py` 和文档链接/锚点检查。上述 Flutter 截图使用测试桥接数据，Android 截图来自临时 x86_64 模拟器，均属于抽样检查；没有进行全应用逐像素验收或 ARM64 实机视觉、性能及真实远程会话验收。四组 Android smoke 全部通过，产物核对及核心/JVM 覆盖范围见 [应用验证记录](app.md#当前验证记录)。
 
 ### 历史验证记录
 
