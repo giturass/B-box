@@ -4,12 +4,12 @@
 
 下载 APK：[GitHub Releases](https://github.com/giturass/B-box/releases)（Android 7.0+，ARM64）。`newui` 的新界面与功能仍按提交验证；已有 Release 不等同于当前源码。
 
-- Flutter 负责仪表盘、代理、配置、工具及所有子页面；启动器和 Android 分享入口均进入新界面。
+- Flutter 负责全部页面和导航，界面布局及组件来源见 [FlClash UI 使用说明](flclash.md)；启动器和 Android 分享入口均进入新界面。
 - 配置使用 sing-box JSON。代理组、可选节点、测速和路由模式来自 libbox，自动组由内核选择。
 - 保留 VPN、分应用代理、Root/Shizuku 应用查询、远程控制、连接管理和日志。
-- 工具中的“请求”支持 HTTP 抓取、HTTPS MITM、域名筛选、请求详情及 HAR/cURL 导出；[支持范围和限制](libbox.md#httphttps-请求调试)。
+- 工具中的“连接与请求”支持连接管理、HTTP 抓取、HTTPS MITM、域名筛选、请求详情及 HAR/cURL 导出；[支持范围和限制](libbox.md#httphttps-请求调试)。
 - JSON 配置支持 MITM、Map Remote、Header/URL/Body Rewrite、Map Local/API Mock 和 JavaScript 请求/响应改写；[配置说明与示例](libbox.md#json-配置中的-http-改写)。
-- Tailscale、Taildrop、SSH、OpenConnect/OpenVPN 认证、USB/IP、网络诊断和报告通过新页面使用现有后端。
+- Tailscale、Taildrop、SSH、OpenConnect/OpenVPN 认证、USB/IP 和网络诊断通过新页面使用现有后端；[报告后端及入口范围](app.md#界面替换与-android-桥接)。
 - 支持配置和设置备份；B-box 既有包名、数据库及配置保持兼容。
 - 旧 Compose 页面、导航、编辑器及更新下载/静默安装链路已移除。关于页使用独立的 B-box Release 检查；配置订阅更新继续保留。
 - Xposed/LSPosed 特权增强及 Android 5/6 支持已移除；[兼容说明](app.md#已移除能力与兼容入口)。

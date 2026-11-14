@@ -207,7 +207,23 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-2026-11-14，配置/代理合并、设置底栏与仪表盘铅笔入口的改动基于 `aa2d3b4954cfabac26d22dfd66e2c2a86bf90926`。本机已通过 `git diff --check`、`python3 tools/verify_newui.py`、Android smoke 脚本语法及文档链接/锚点检查；这些静态检查不证明运行行为。Flutter 分析、交互/布局、AAR 构建和 Android smoke 将通过统一 Actions 工作流验证，当前尚未取得本次改动的运行结果，也未进行实机视觉验收。
+2026-11-14，配置/代理合并、设置底栏与仪表盘铅笔入口的验证源码为 `2adc1b653bd98acc68929deec19f77dfa04f0022`，对应 [Actions 43562639502](https://github.com/giturass/B-box/actions/runs/43562639502) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43562639502/job/132349577769)。Flutter 分析、259 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 84 条 info、0 条 warning/error。新增的两项交互测试覆盖配置卡片横向滑动、卡片/列表两种代理样式的测速及配置切换；设置导航、铅笔点击和远程分组隔离由更新后的用例覆盖。
+
+本次实际查看 [newui-validation](https://github.com/giturass/B-box/actions/runs/43562639502/artifacts/14101460940) 的以下截图，路径相对 `build/screenshots/`：
+
+| 截图 | 核对结果 |
+| --- | --- |
+| `360-light-1.0-Profiles-populated.png` | 顶部配置文件管理按钮、横向配置卡片及下方代理分组位于同页；当前配置与节点的选中徽标各自显示 |
+| `360-dark-1.4-Profiles-populated.png` | 大字号下配置卡片和代理卡片未重叠，长文案按卡片规则省略，底栏四个入口保持可辨识 |
+| `360-dark-1.4-Profiles-scrolled.png` | 横向滑动后本地配置进入视口，下方仍显示原分组，底栏仍选中配置；右侧卡片随滚动视口裁切 |
+| `navigation/fixed-black.png` | 320 宽纯黑主题及大字号下，顶部配置卡片、停服提示和固定底栏各自保留区域；长英文标题及底栏文案按既有规则省略 |
+| `800-light-1.0-Profiles-populated.png` | 宽屏侧栏依次为仪表盘、配置、工具、设置，配置文件横向排列在代理分组上方 |
+| `360-light-1.0-Settings.png` | 设置作为底栏选中页，显示外观、服务、内核、访问控制、备份与恢复、关于六个入口，顶部无仪表盘按钮残留 |
+| `360-light-1.0-Dashboard-populated.png` | 仪表盘右上角显示 FlClash 铅笔，底栏为四个目的地；状态、网速、模式和配置卡片保持原有布局 |
+
+另查看 [API 24 smoke 产物](https://github.com/giturass/B-box/actions/runs/43562639502/artifacts/14101675282) 的 `01-startup.png`、`04-core-proxies.png` 和 `05-settings.png`，确认实际应用显示仪表盘铅笔、导入配置与运行内核分组同页，以及底栏设置选中态。
+
+本机已通过差异、源码约束、Android smoke 脚本语法及文档链接/锚点等静态检查。上述 Flutter 截图使用测试桥接数据，Android 截图来自临时 x86_64 模拟器，均属于抽样检查；没有进行全应用逐像素验收或 ARM64 实机视觉、性能及真实远程会话验收。四组 Android smoke 全部通过，产物核对及核心/JVM 覆盖范围见 [应用验证记录](app.md#当前验证记录)。
 
 ### 历史验证记录
 
@@ -215,6 +231,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 | 日期 | 主题 | 验证源码 | Actions | 测试 / info | 当时实际查看的截图 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-11-14 | 配置合并首轮测试定位修正 | `6dcc6ed17e49834b6bae4c201ed6d21032f813cd` | [43562160382](https://github.com/giturass/B-box/actions/runs/43562160382) | 259（7 失败） / 87 | 不计为通过：底栏 Settings 提示被误算为仪表盘按钮、折叠分组查找测速按钮，共七项用例失败；修正推送取消尚未完成的作业，截图不作为当前验收 |
 | 2026-11-14 | 代码整理与 MASQUE 网络重置修复 | `06eed8f5f830a90b9853995ced3b2e211deca628` | [43523435178](https://github.com/giturass/B-box/actions/runs/43523435178)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43523435178/job/132223173515)） | 257 / 84 | `requests/unified-related-requests.png`、`requests/requests-pagination.png`、`requests/independent-mitm-config.png`、`navigation/fixed-light.png`、`360-light-1.0-Dashboard-populated.png` |
 | 2026-11-13 | WARP MASQUE 集成 | `e0d77c9a5507a3503c5942c1a0b38bd702dbfd5e` | [43434680819](https://github.com/giturass/B-box/actions/runs/43434680819)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43434680819/job/131916654215)） | 257 / 83 | `requests/unified-related-requests.png` |
 | 2026-11-13 | 图标/主题缓存、代理组通知、JSON 编辑和请求历史分页优化 | `efe9028214cd52ef03f5a8b1e0143006be5ba6ad` | [43407927934](https://github.com/giturass/B-box/actions/runs/43407927934)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43407927934/job/131826877757)） | 257 / 83 | `requests/requests-pagination.png`、`requests/unified-http2-and-connections.png`、`requests/unified-related-requests.png`、`requests/360-1.4-dark-list.png`、`requests/800-1.0-light-list.png`、`360-light-1.0-Proxies-populated.png`、`360-dark-1.4-Proxies-populated.png` |
