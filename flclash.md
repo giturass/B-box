@@ -30,7 +30,7 @@ FlClash 应用层组件位于 [flutter/lib/ui](flutter/lib/ui)，共享控件以
 
 ## 界面复用与业务适配
 
-Flutter 承担仪表盘、代理、配置、工具及所有子页面的导航。复用 FlClash 的控件、字形、形状、排版、字体、动效、弹层及导航；页面状态和操作经 Android 桥接接入 B-box 的 Room 与 libbox。没有引入 FlClash/Mihomo 原生库、Clash 配置模型、Mihomo 配置覆写脚本、订阅转换器或 Clash 专用服务。B-box 请求/响应脚本与定时任务的范围见 [独立脚本与 Cron](libbox.md#独立脚本与-cron)。
+Flutter 承担仪表盘、配置、工具、设置及所有子页面的导航；配置页合并配置文件与代理分组。复用 FlClash 的控件、字形、形状、排版、字体、动效、弹层及导航；页面状态和操作经 Android 桥接接入 B-box 的 Room 与 libbox。没有引入 FlClash/Mihomo 原生库、Clash 配置模型、Mihomo 配置覆写脚本、订阅转换器或 Clash 专用服务。B-box 请求/响应脚本与定时任务的范围见 [独立脚本与 Cron](libbox.md#独立脚本与-cron)。
 
 v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹窗和返回保护；原生操作消息交给 `BannerHost`，采用 Prism 的工具栏避让间距，复制和保存失败反馈期间仍可使用顶部按钮。B-box 表单在输入框上方保留字段标签，脏草稿确认及保存期间禁止退出继续由 `BoxEditGuard` 处理。搜索使用新版回调，连接/日志的可删除关键词由页面维护，并与输入文字共同过滤；排序列表使用 Prism 的最终索引回调，代理标签页显式管理控制器并按组名保留选择。网络速度卡片跟进新版 1.45 最小比例、数值下方的背景曲线及独立重绘区域；外观预览改用逐形状模糊，调色和分组标签按新版测量接口适配。状态参考渲染器同步到 v0.9.3，采用上游普通状态，不引入其 Root 服务边框含义。
 
@@ -38,9 +38,9 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 | --- | --- | --- |
 | 首页与状态 | [dashboard.dart](flutter/lib/pages/dashboard.dart)、[status_panel.dart](flutter/lib/components/status_panel.dart)、[start_toggle.dart](flutter/lib/components/start_toggle.dart) | 复用状态布局、国家徽章、服务按钮形变及网络速率展示；启停调用原生服务流程 |
 | 配置卡与分组概览 | [profile_panel.dart](flutter/lib/components/profile_panel.dart)、[proxy_groups_panel.dart](flutter/lib/components/proxy_groups_panel.dart) | 使用真实配置元数据和内核分组；配置切换按钮固定在右侧，与进入配置的箭头同列居中对齐。代理组、出站、路由规则数字及加载占位与对应标签逐列居中对齐，远端未知数量保持未知 |
-| 代理 | [proxies.dart](flutter/lib/pages/proxies.dart)、[proxy_card.dart](flutter/lib/components/proxy_card.dart)、[proxy_list.dart](flutter/lib/components/proxy_list.dart) | 卡片与列表都使用 libbox 分组；只有可选择的组显示选择操作 |
-| 配置管理 | [profiles.dart](flutter/lib/pages/profiles.dart)、[profile_card.dart](flutter/lib/components/profile_card.dart)、[profile_details.dart](flutter/lib/pages/profile_details.dart) | 复用行高、选中态、相对更新时间、添加菜单、分组表单及排序样式，编辑和导入 sing-box JSON |
-| 首页编辑 | [dashboard_editor.dart](flutter/lib/components/dashboard_editor.dart) | 长按卡片进入原地编辑，保留摇摆、长按排序、移除徽章及添加列表 |
+| 配置页代理区域 | [proxies.dart](flutter/lib/pages/proxies.dart)、[proxy_card.dart](flutter/lib/components/proxy_card.dart)、[proxy_list.dart](flutter/lib/components/proxy_list.dart) | 在配置文件下方显示 libbox 分组，保留卡片/列表、搜索、测速与节点定位；只有可选择的组显示选择操作 |
+| 配置文件管理 | [profiles.dart](flutter/lib/pages/profiles.dart)、[profile_card.dart](flutter/lib/components/profile_card.dart)、[profile_details.dart](flutter/lib/pages/profile_details.dart) | 顶部横向配置卡片复用行高、选中态与相对更新时间，保留添加、更新、排序、编辑和导入 sing-box JSON；切换弹层使用自适应网格 |
+| 首页编辑 | [dashboard_editor.dart](flutter/lib/components/dashboard_editor.dart) | 右上角 FlClash 铅笔按钮或长按卡片进入原地编辑，保留摇摆、长按排序、移除徽章及添加列表 |
 | 内存与局域网 | [memory_panel.dart](flutter/lib/components/memory_panel.dart)、[intranet_panel.dart](flutter/lib/components/intranet_panel.dart) | 分别使用 Go/进程内存和 sing-box 监听配置，不虚构 Mihomo 内存或全局代理端口 |
 | 系统 HTTP 代理 | [system_proxy_panel.dart](flutter/lib/components/system_proxy_panel.dart) | 采用参考版 VPN 卡片的布局、状态徽章和紧凑开关，使用 B-box 自有的大陆轮廓地球字形；开关接入内核上报状态及既有 Android 桥接 |
 | 外观与关于 | [appearance.dart](flutter/lib/pages/appearance.dart)、[about.dart](flutter/lib/pages/about.dart) | 复用主题预览、调色和版本/许可布局，保持 B-box 品牌及其 Release 来源 |
@@ -54,12 +54,12 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 关于页区分完整与未完成的版本检查。部分发布暂时不可访问时显示重试提示，保留已验证候选的下载入口；没有完整结果时不显示“已是最新版本”，也不把旧候选的 APK 作为升级下载。检查范围及缓存策略见 [应用版本检查](app.md#已移除能力与兼容入口)。
 
 - 首次启动直接进入仪表盘，没有免责声明接受门槛。Android 默认显示状态、网络速度、出站模式、配置和代理组五张卡；内存与内网 IP 可选。连接从工具页进入，不提供首页连接卡，旧布局/备份忽略该卡，下一次布局保存清理其键。
-- 手机可选固定或悬浮导航栏。固定样式由 [main.dart](flutter/lib/main.dart) 在页面下方承载 [BoxNavigationBar](flutter/lib/components/navigation_bar.dart)，保留 Prism 的目的地、选中指示和按压反馈；栏体高度为 64 dp，仅追加系统底部安全区。栏体及底部安全区使用主界面背景色，无阴影和表面叠色，随浅色、深色及纯黑主题同步。悬浮样式使用 `NavigationDock`，宽屏使用 `NavigationSidebar`；外观页预览使用相同底色和紧凑比例。
+- 手机底栏依次为仪表盘、配置、工具、设置，可选固定或悬浮样式；宽屏侧栏及外观页预览使用相同顺序。固定样式由 [main.dart](flutter/lib/main.dart) 在页面下方承载 [BoxNavigationBar](flutter/lib/components/navigation_bar.dart)，保留 Prism 的目的地、选中指示和按压反馈；栏体高度为 64 dp，仅追加系统底部安全区。栏体及底部安全区使用主界面背景色，无阴影和表面叠色，随浅色、深色及纯黑主题同步。悬浮样式使用 `NavigationDock`，宽屏使用 `NavigationSidebar`；外观页预览使用相同底色和紧凑比例。
 - [PageSwitcher](flutter/lib/components/page_switcher.dart) 按参考版使用 `PageView` 和保活缓存，滑动或淡入时使用页面快照，跨页切换不会绘制中间页。隐藏页不参与工具栏浮层定位，焦点、语义和原生订阅仍按活动页隔离；宽屏立即切页。
 - 外观页提供主题、纯黑模式、主题色、导航栏样式、标签页动画及液态玻璃，不提供字体选择或自定义字体缩放。应用正文使用默认字体，字号随系统变化并沿用 0.8～1.4 倍的缩放范围；旧偏好的兼容处理见 [app.md](app.md#配置服务应用与备份)。
 - 出站模式只显示内核提供的值。规则、全局、直连使用参考版字形，名称和选中态忽略大小写，排列和切换参数保留内核原值。系统 HTTP 代理卡片按内核能力显示，支持首页编辑中的排序、移除和重新添加；能力暂不可用时保留顺序和隐藏偏好。卡片沿用参考版 VPN 卡片的 48 像素徽章、加粗标题、启用/禁用副标题及紧凑开关；启用时徽章为主题色六瓣形，禁用时为低强调圆形。卡片和首页编辑列表共用 [system_proxy_glyph.dart](flutter/lib/components/system_proxy_glyph.dart) 中的大陆轮廓地球字形，使用共享 Glyph 的线宽与圆角；全局出站模式保留参考版经纬线球体字形。
 - 服务按钮的暂停图形表示停止服务，不新增暂停核心能力。远程会话、启停过渡和不可用操作必须反映真实状态。
-- 仪表盘右上角使用设置按钮，打开 [设置页](flutter/lib/pages/settings.dart)，依次显示外观、服务、内核、访问控制、备份与恢复和关于。服务与内核的具体选项各自保留在二级页面，不再经过“常规”；内核页不显示电量报告开关。
+- 仪表盘右上角恢复 FlClash 的 `AppGlyphs.edit` 铅笔，点击进入现有卡片编辑模式，完成后返回仪表盘。设置从底栏的 [设置页](flutter/lib/pages/settings.dart) 进入，依次显示外观、服务、内核、访问控制、备份与恢复和关于。服务与内核的具体选项各自保留在二级页面，不再经过“常规”；内核页不显示电量报告开关。
 - 工具页依次显示连接与请求、日志、终端、网络诊断、远程控制及按能力显示的端点；网络诊断二级页显示网络质量与 STUN 测试，终端设置仍在终端内。工具页不再展示设置、关于或崩溃/内存/电量报告入口。配置相关入口统一在配置的“编辑”页，具体排列见 [配置页与内核差异](#配置页与内核差异)。
 - 工具页以“连接与请求”作为连接和抓取记录的唯一入口，入口只显示标题，页面标题与入口一致，默认显示全部网络活动。顶部可筛选全部、活动、抓取记录及已结束；活动 HTTP 请求按记录是否完成判断，已结束包括完成的请求和关闭的连接。已完成请求不会把仍存活的 keep-alive 连接标为关闭：活动筛选中没有进行中请求代表它时，仍显示连接行。远程会话展示远端连接及管理操作，隐藏抓取筛选和本机操作，说明 HTTP 调试仅支持本地。
 - 普通 TCP/UDP、未解密 HTTPS 以连接信息展示；已记录 HTTP 请求、TLS/TCP 流和仅域名记录分别成行。一条连接的多个 HTTP/1.1 请求或 HTTP/2 流保留独立行，以精确 `connectionId` 关联；当前筛选结果已有请求代表该连接时省略连接行，不以目标地址或旧抓包 ID 猜测关联。缺少父连接和旧版无关联记录仍可搜索、查看及导出。
@@ -95,7 +95,9 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 ### 配置页与内核差异
 
-配置列表按参考版使用两行卡片、固定行高、选中徽标、更新动画及最多三列的自适应网格。普通配置页首次显示时定位已选配置，切换配置的弹层从顶部打开。添加按钮和空状态按钮均打开菜单，新建入口标为“新建配置”；排序使用分组背景、拖动手柄及拖动浮起效果。长按菜单依次提供编辑、更新（远程配置）、复制链接和二维码（远程配置）、分享、导出及删除，删除标为危险操作。当前选中配置的删除项禁用，停服时也需先切换到其他配置；配置页和切换弹层均在打开确认框前及确认后复核最新选择，原生保护见 [app.md](app.md#配置服务应用与备份)。编辑页显示配置摘要，提供元数据分组表单、分项配置和原始 JSON 编辑入口。
+配置页顶部固定显示“配置文件”和可横向滑动的两行卡片，下方为当前内核的代理分组；配置文件滚动和分组切换使用各自的控制器，滑动卡片不选择配置或切换底栏。卡片保留参考版固定行高、选中徽标和更新动画，进入页面及已选配置变化时定位当前选择。切换配置的弹层仍使用最多三列的自适应网格，并从顶部打开。远程会话顶部显示远程配置摘要，下方使用远端分组，隐藏本机配置卡片及管理操作。
+
+“配置文件”标题行保留添加、更新全部和排序按钮；添加按钮和空状态按钮均打开菜单，新建入口标为“新建配置”。排序使用分组背景、拖动手柄及拖动浮起效果。长按菜单依次提供编辑、更新（远程配置）、复制链接和二维码（远程配置）、分享、导出及删除，删除标为危险操作。当前选中配置的删除项禁用，停服时也需先切换到其他配置；配置页和切换弹层均在打开确认框前及确认后复核最新选择，原生保护见 [app.md](app.md#配置服务应用与备份)。编辑页显示配置摘要，提供元数据分组表单、分项配置和原始 JSON 编辑入口。
 
 服务启动中或停止中，配置列表和已打开的切换弹层禁用配置选择，首页切换配置按钮同步禁用；服务进入运行或停止状态后恢复。原生状态复核见 [app.md](app.md#配置服务应用与备份)。
 
@@ -162,15 +164,15 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 **导航、外观与关于**
 
-- [navigation_test.dart](flutter/test/navigation_test.dart)：固定导航在 320 宽、底部安全区、浅色/深色/纯黑及大字号下的高度、底色、页面边界、标签切换和选中语义，并输出固定栏截图。宽屏通过侧栏实际按钮切页，并在截图前核对当前页；外观与 MITM 页直接检查工具栏操作区域像素，防止隐藏首页的按钮残留；复制反馈和保存失败回归另检查顶部按钮仍可点击。另输出配置编辑与排序弹层在窄屏、大字号和宽屏下的截图，这些是布局回归产物，配置页尚未声明与上游逐像素一致。
+- [navigation_test.dart](flutter/test/navigation_test.dart)：固定导航在 320 宽、底部安全区、浅色/深色/纯黑及大字号下的高度、底色、页面边界、四个目的地顺序、标签切换和选中语义，并输出固定栏截图。窄屏实际横向滑动配置文件并核对底栏及选择不变，输出合并页的滑动前后截图。设置从底栏进入，二级页面返回设置；宽屏通过侧栏实际按钮切页，并在截图前核对当前页。外观与 MITM 页直接检查工具栏操作区域像素，防止隐藏首页的按钮残留；复制反馈和保存失败回归另检查顶部按钮仍可点击。另输出配置编辑与排序弹层在窄屏、大字号和宽屏下的截图，这些是布局回归产物，配置页尚未声明与上游逐像素一致。
 - [appearance_test.dart](flutter/test/appearance_test.dart)：主题选择与重开页面后的偏好，旧字体偏好不覆盖默认字体，系统字号运行时变化和既有缩放上下限。导航、状态、内网 IP、出站模式及请求页面的字号场景通过系统缩放模拟，不依赖已退役的应用偏好。
 - [licenses_test.dart](flutter/test/licenses_test.dart)：异步加载、共享许可按包分组、搜索及完整可选中正文。
 - [about_test.dart](flutter/test/about_test.dart)：版本检查完整/未完成与可升级/不可升级的四种组合，等待时禁止重复请求、未完成提示、APK 下载条件和发布页面入口。
-- [dashboard_editor_test.dart](flutter/test/dashboard_editor_test.dart)、[outbound_mode_test.dart](flutter/test/outbound_mode_test.dart) 和 [terminal_settings_test.dart](flutter/test/terminal_settings_test.dart)：首页卡片的原位编辑情景；出站模式图形与 Android 一致并保留内核顺序和当前选择；停服时从终端页打开 Ghostty 设置并保存原生配置。
+- [dashboard_editor_test.dart](flutter/test/dashboard_editor_test.dart)、[outbound_mode_test.dart](flutter/test/outbound_mode_test.dart) 和 [terminal_settings_test.dart](flutter/test/terminal_settings_test.dart)：铅笔点击及卡片长按进入首页原位编辑，保留卡片状态并检查排序、移除、添加及保存失败；出站模式图形与 Android 一致并保留内核顺序和当前选择；停服时从终端页打开 Ghostty 设置并保存原生配置。
 
 **配置、编辑与备份**
 
-- [profiles_test.dart](flutter/test/profiles_test.dart)：新建与二进制导入的内容/元数据、添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、本地时间的未知占位及原生元数据事件刷新、自动更新校验、选中配置定位、列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、排序冲突及远程会话隔离。
+- [profiles_test.dart](flutter/test/profiles_test.dart)：新建与二进制导入的内容/元数据、添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、本地时间的未知占位及原生元数据事件刷新、自动更新校验、选中配置定位；横向滑动不切页或选择配置，卡片与列表两种代理样式仍能测速并通过原生确认切换配置。列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、排序冲突和远程分组选择及本机配置隔离继续覆盖。
 - [configuration_test.dart](flutter/test/configuration_test.dart)：MITM、HTTP 改写、脚本三种配置及 Cron 草稿通过独立路径保存，HTTP/2、证书校验及 QUIC 显式关闭选项正确保存，关闭改写保留 MITM/脚本，校验失败保留内容，原始编辑按修订写入内容且不改动配置元数据。
 - [code_editor_test.dart](flutter/test/code_editor_test.dart)：加载应用实际的等宽字体，对照 `RenderEditable` 检查行号在折行、宽度/字号变化及滚动后的对齐，覆盖空行、末尾换行和替换内容。选区用例在 0.8、1.0、1.4 倍字号下实际拖动两端手柄，检查跨行选择、折行文档滚动后的定位，以及通过复制菜单取得的原文范围。
 - [backup_test.dart](flutter/test/backup_test.dart)：取消本地选择器不报告成功也不恢复数据，导出使用紧凑 JSON；恢复传递范围与策略，失败后可重试；WebDAV 上传等待服务器确认且不打开本地选择器；WebDAV 表单校验目录 URL，保存失败和取消关闭后保留长输入。
@@ -205,19 +207,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-2026-11-14，代码整理与 MASQUE 网络重置修复的验证源码为 `06eed8f5f830a90b9853995ced3b2e211deca628`，对应 [Actions 43523435178](https://github.com/giturass/B-box/actions/runs/43523435178) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43523435178/job/132223173515)。Flutter 分析、257 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 84 条 info、0 条 warning/error。该源码的界面改动是不改变行为的重构（后端事件处理、请求页面拆分、许可列表命名、MITM 开关构建），没有修改测试文件；后续只补充记录的 Markdown 提交不改变上述验证源码。
-
-本次实际查看 [newui-validation](https://github.com/giturass/B-box/actions/runs/43523435178/artifacts/14083938781) 的以下截图，路径相对 `build/screenshots/`：
-
-| 截图 | 核对结果 |
-| --- | --- |
-| `requests/unified-related-requests.png` | 请求详情的连接字段卡片含来源、网络、协议、入站/出站、规则、链路、流量和应用信息；关联请求卡片列出两条 HTTP/2 请求并标明当前请求，标题栏与卡片未重叠 |
-| `requests/requests-pagination.png` | 滚动列表位于标题栏下方，末尾“显示更多”位于底部搜索栏上方 |
-| `requests/independent-mitm-config.png` | 320 宽深色 MITM 页首先显示证书入口，随后是 HTTPS、域名、HTTP/2、服务器证书校验、TCP 解密和 QUIC 回退开关及 JSON 编辑入口；标题可读，顶部无其他页面的按钮残留 |
-| `navigation/fixed-light.png` | 320 宽浅色代理页显示停服空状态，固定底部导航四个标签可读，代理标签为选中态 |
-| `360-light-1.0-Dashboard-populated.png` | 状态、网速、出站模式和配置卡片依次显示，底部导航未遮挡卡片文字 |
-
-截图使用测试桥接数据，属于抽样检查；没有进行全应用逐像素验收、ARM64 实机视觉或性能测量。核心、JVM、Android smoke 的结果和未覆盖范围见 [应用验证记录](app.md#当前验证记录)。
+2026-11-14，配置/代理合并、设置底栏与仪表盘铅笔入口的改动基于 `aa2d3b4954cfabac26d22dfd66e2c2a86bf90926`。本机已通过 `git diff --check`、`python3 tools/verify_newui.py`、Android smoke 脚本语法及文档链接/锚点检查；这些静态检查不证明运行行为。Flutter 分析、交互/布局、AAR 构建和 Android smoke 将通过统一 Actions 工作流验证，当前尚未取得本次改动的运行结果，也未进行实机视觉验收。
 
 ### 历史验证记录
 
@@ -225,6 +215,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 | 日期 | 主题 | 验证源码 | Actions | 测试 / info | 当时实际查看的截图 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-11-14 | 代码整理与 MASQUE 网络重置修复 | `06eed8f5f830a90b9853995ced3b2e211deca628` | [43523435178](https://github.com/giturass/B-box/actions/runs/43523435178)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43523435178/job/132223173515)） | 257 / 84 | `requests/unified-related-requests.png`、`requests/requests-pagination.png`、`requests/independent-mitm-config.png`、`navigation/fixed-light.png`、`360-light-1.0-Dashboard-populated.png` |
 | 2026-11-13 | WARP MASQUE 集成 | `e0d77c9a5507a3503c5942c1a0b38bd702dbfd5e` | [43434680819](https://github.com/giturass/B-box/actions/runs/43434680819)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43434680819/job/131916654215)） | 257 / 83 | `requests/unified-related-requests.png` |
 | 2026-11-13 | 图标/主题缓存、代理组通知、JSON 编辑和请求历史分页优化 | `efe9028214cd52ef03f5a8b1e0143006be5ba6ad` | [43407927934](https://github.com/giturass/B-box/actions/runs/43407927934)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43407927934/job/131826877757)） | 257 / 83 | `requests/requests-pagination.png`、`requests/unified-http2-and-connections.png`、`requests/unified-related-requests.png`、`requests/360-1.4-dark-list.png`、`requests/800-1.0-light-list.png`、`360-light-1.0-Proxies-populated.png`、`360-dark-1.4-Proxies-populated.png` |
 | 2026-11-13 | 原始 JSON 选区修复 | `74bcbfc9d76b994d5bfb91f3401eee5f1109a9fc` | [43331463838](https://github.com/giturass/B-box/actions/runs/43331463838)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43331463838/job/131576932628)） | 246 / 79 | 未记录截图。修复前的 `208c5675d7c5582925a02c2002a6e1b3c62a2ed9`（[43328760156](https://github.com/giturass/B-box/actions/runs/43328760156)）有六个滚动后的选区用例失败，不计入 |

@@ -5,7 +5,9 @@ import '../components/proxy_list.dart';
 import '../common/proxy_nodes.dart';
 
 class ProxiesPage extends StatefulWidget {
-  const ProxiesPage({super.key});
+  const ProxiesPage({super.key, this.title = 'Proxies', this.header, this.emptyState});
+  final String title;
+  final Widget? header, emptyState;
   @override State<ProxiesPage> createState() => _ProxiesPageState();
 }
 class _ProxiesPageState extends State<ProxiesPage> {
@@ -113,8 +115,25 @@ class _ProxiesPageState extends State<ProxiesPage> {
     }
     final list = box.preferences['proxyLayout'] == 'List';
     if (!groups.any((group) => group['tag'] == _currentGroup)) _currentGroup = groups.firstOrNull?['tag'] as String?;
+    final topPadding = widget.header == null ? context.contentTopPadding : 0.0;
+    final body = groups.isEmpty ? widget.emptyState ?? NullStatus(
+      label: context.tr(box.running ? 'No proxy groups in this configuration' : 'Start the service to view proxy groups'),
+      illustration: NullStatusIllustration.proxies,
+    ) : list ? ProxyListView(
+      key: ValueKey(box.remote ? 'remote:${box.dashboard['remote']}' : 'local:${box.selectedProfileId}'),
+      profileKey: box.remote ? 'remote:${box.dashboard['remote']}' : 'local:${box.selectedProfileId}',
+      topPadding: topPadding,
+      groups: [for (final group in groups) ProxyListGroup(group, _nodes(group))],
+      testing: Set.of(_testing), cardBuilder: _card, onTest: _test,
+    ) : _ProxyTabs(
+      key: ValueKey(groups.map((group) => '${group['tag'].toString().length}:${group['tag']}').join()),
+      initialIndex: groups.indexWhere((group) => group['tag'] == _currentGroup).clamp(0, groups.length - 1),
+      topPadding: topPadding,
+      groups: groups, grid: _grid,
+      onSelected: (index) { if (mounted) setState(() => _currentGroup = groups[index]['tag'] as String); },
+    );
     return Scaffold(
-      title: context.tr('Proxies'),
+      title: context.tr(widget.title),
       searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query)),
       primaryAction: list ? null : IconButtonData(glyph: AppGlyphs.bolt, tooltip: context.tr('Test latency'),
         isLoading: _testing.contains(_currentGroup),
@@ -137,19 +156,9 @@ class _ProxiesPageState extends State<ProxiesPage> {
         PopupMenuItem(glyph: AppGlyphs.connections, label: context.tr('Close connections after switching'), checked: box.preferences['closeConnectionsOnSelect'] == true,
           onPressed: () => box.setPreference('closeConnectionsOnSelect', box.preferences['closeConnectionsOnSelect'] != true)),
       ],
-      body: groups.isEmpty ? NullStatus(
-        label: context.tr(box.running ? 'No proxy groups in this configuration' : 'Start the service to view proxy groups'),
-        illustration: NullStatusIllustration.proxies,
-      ) : list ? ProxyListView(
-        key: ValueKey(box.remote ? 'remote:${box.dashboard['remote']}' : 'local:${box.selectedProfileId}'),
-        profileKey: box.remote ? 'remote:${box.dashboard['remote']}' : 'local:${box.selectedProfileId}',
-        groups: [for (final group in groups) ProxyListGroup(group, _nodes(group))],
-        testing: Set.of(_testing), cardBuilder: _card, onTest: _test,
-      ) : _ProxyTabs(
-        key: ValueKey(groups.map((group) => '${group['tag'].toString().length}:${group['tag']}').join()),
-        initialIndex: groups.indexWhere((group) => group['tag'] == _currentGroup).clamp(0, groups.length - 1),
-        groups: groups, grid: _grid,
-        onSelected: (index) { if (mounted) setState(() => _currentGroup = groups[index]['tag'] as String); },
+      body: widget.header == null ? body : Padding(
+        padding: EdgeInsets.only(top: context.contentTopPadding),
+        child: Column(children: [widget.header!, Expanded(child: body)]),
       ),
     );
   }
@@ -158,9 +167,10 @@ class _ProxiesPageState extends State<ProxiesPage> {
 // Recreated when group identities change, retaining the active group by tag.
 class _ProxyTabs extends StatefulWidget {
   const _ProxyTabs({super.key, required this.groups, required this.initialIndex,
-    required this.onSelected, required this.grid});
+    required this.onSelected, required this.grid, required this.topPadding});
   final List<Json> groups;
   final int initialIndex;
+  final double topPadding;
   final ValueChanged<int> onSelected;
   final Widget Function(Json) grid;
 
@@ -173,7 +183,7 @@ class _ProxyTabsState extends State<_ProxyTabs> with SingleTickerProviderStateMi
   @override void dispose() { _controller.dispose(); super.dispose(); }
 
   @override Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.only(top: context.contentTopPadding),
+    padding: EdgeInsets.only(top: widget.topPadding),
     child: Column(children: [
       Padding(padding: const EdgeInsets.only(bottom: 16), child: GroupTabs(
         controller: _controller, groups: widget.groups, onSelected: widget.onSelected,

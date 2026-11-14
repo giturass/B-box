@@ -4,6 +4,7 @@ import '../widgets.dart';
 import '../components/form.dart';
 import '../components/profile_card.dart';
 import 'profile_details.dart';
+import 'proxies.dart';
 
 // libbox remote_profile.go stores the display name in the URL fragment.
 String remoteProfileLink(Json profile) => Uri(
@@ -81,82 +82,130 @@ class _ProfilesPageState extends State<ProfilesPage> {
       onPressed: profile['id'] == context.box.selectedProfileId ? null : () => _delete(profile)),
   ];
 
+  Widget _card(BuildContext context, Json profile) {
+    final box = context.box;
+    return ProfileCard(
+      key: ValueKey(profile['id']), profile: profile,
+      selected: profile['id'] == box.selectedProfileId,
+      updating: _updating.contains(profile['id']),
+      menuItems: _menu(profile),
+      onPressed: box.transitioning ? null : () async {
+        if (box.transitioning || box.remote) return;
+        if (await box.act('profiles.select', {'id': profile['id']}) && widget.picker && context.mounted) context.safeNestedPop();
+      },
+    );
+  }
+
   @override Widget build(BuildContext context) {
     final box = context.box;
     final profiles = box.profiles;
+    final emptyState = NullStatus(
+      label: context.tr('No profiles yet'), illustration: NullStatusIllustration.profile,
+      description: context.tr('Import a sing-box JSON configuration to get started.'),
+      action: AddProfileMenu(builder: (open) => TonalButton(size: TonalButtonSize.bar, glyph: AppGlyphs.addCircle,
+        label: context.tr('Add profile'), onPressed: open)),
+    );
+    if (!widget.picker) return ProxiesPage(
+      title: 'Profiles',
+      emptyState: !box.remote && profiles.isEmpty ? emptyState : null,
+      header: box.remote ? Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: Column(spacing: 8, children: [
+          Card(onPressed: () => openForm(context, const ProfileDetailsPage()), child: ListItem(
+            leading: const GlyphIcon(AppGlyphs.profiles), title: Text(context.tr('Remote configuration')),
+            subtitle: Text(box.dashboard['remote'].toString()), trailing: const GlyphIcon(AppGlyphs.chevronForward),
+          )),
+          Text(context.tr('Disconnect remote session to edit local profiles'), style: context.listCaptionStyle),
+        ]),
+      ) : profiles.isEmpty ? null : Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Column(spacing: 8, children: [
+          InfoHeader(info: Info(label: context.tr('Profile files'), glyph: AppGlyphs.profiles), actions: [
+            AddProfileMenu(builder: (open) => IconButton(
+              tooltip: context.tr('Add profile'), icon: const GlyphIcon(AppGlyphs.addCircle), onPressed: open,
+            )),
+            IconButton(tooltip: context.tr('Update all'),
+              icon: _updatingAll || _updating.isNotEmpty ? const ActivityIndicator(size: 24) : const GlyphIcon(AppGlyphs.sync),
+              onPressed: _updatingAll || _updating.isNotEmpty || !profiles.any((p) => p['remote'] == true) ? null : _updateAll),
+            IconButton(tooltip: context.tr('Reorder'), icon: const GlyphIcon(AppGlyphs.sort),
+              onPressed: profiles.length < 2 ? null : () => openForm(context, const ProfileOrderPage())),
+          ]),
+          _ProfileStrip(profiles: profiles, selectedId: box.selectedProfileId, itemBuilder: _card),
+        ]),
+      ),
+    );
     return Scaffold(
       title: context.tr('Profiles'),
-      actions: box.remote || profiles.isEmpty || widget.picker ? null : [AddProfileMenu(builder: (open) => IconButton(
-        tooltip: context.tr('Add profile'), icon: const GlyphIcon(AppGlyphs.addCircle),
-        onPressed: open,
-      ))],
-      iconActions: box.remote || widget.picker || profiles.isEmpty ? const [] : [
-        IconButtonData(glyph: AppGlyphs.sync, tooltip: context.tr('Update all'), isLoading: _updatingAll || _updating.isNotEmpty,
-          onPressed: _updatingAll || _updating.isNotEmpty || !profiles.any((p) => p['remote'] == true) ? null : _updateAll),
-        IconButtonData(glyph: AppGlyphs.sort, tooltip: context.tr('Reorder'), onPressed: profiles.length < 2 ? null : () => openForm(context, const ProfileOrderPage())),
-      ],
       body: box.remote ? NullStatus(label: context.tr('Disconnect remote session to edit local profiles'), illustration: NullStatusIllustration.profile) : NullStatusSwitcher(
         isEmpty: profiles.isEmpty,
-        nullStatus: NullStatus(
-          label: context.tr('No profiles yet'), illustration: NullStatusIllustration.profile,
-          description: context.tr('Import a sing-box JSON configuration to get started.'),
-          action: AddProfileMenu(builder: (open) => TonalButton(size: TonalButtonSize.bar, glyph: AppGlyphs.addCircle,
-            label: context.tr('Add profile'), onPressed: open)),
-        ),
-        child: _ProfilesGrid(profiles: profiles, selectedId: box.selectedProfileId, picker: widget.picker,
-          itemBuilder: (context, profile) => ProfileCard(
-            key: ValueKey(profile['id']), profile: profile,
-            selected: profile['id'] == box.selectedProfileId,
-            updating: _updating.contains(profile['id']),
-            menuItems: _menu(profile),
-            onPressed: box.transitioning ? null : () async {
-              if (box.transitioning || box.remote) return;
-              if (await box.act('profiles.select', {'id': profile['id']}) && widget.picker && context.mounted) context.safeNestedPop();
-            },
-          ),
-        ),
+        nullStatus: emptyState,
+        child: _ProfilesGrid(profiles: profiles, itemBuilder: _card),
       ),
     );
   }
 }
 
-class _ProfilesGrid extends StatefulWidget {
-  const _ProfilesGrid({required this.profiles, required this.selectedId, required this.picker, required this.itemBuilder});
+class _ProfileStrip extends StatefulWidget {
+  const _ProfileStrip({required this.profiles, required this.selectedId, required this.itemBuilder});
   final List<Json> profiles;
   final int selectedId;
-  final bool picker;
+  final Widget Function(BuildContext context, Json profile) itemBuilder;
+  @override State<_ProfileStrip> createState() => _ProfileStripState();
+}
+
+class _ProfileStripState extends State<_ProfileStrip> {
+  final _scroll = ScrollController();
+  (int, int, double)? _revealed;
+  @override void dispose() { _scroll.dispose(); super.dispose(); }
+
+  @override Widget build(BuildContext context) {
+    final active = PageActivityScope.isActiveOf(context);
+    final spacing = (context.isMobileView ? 8.0 : 12.0).mAp(context);
+    return SizedBox(height: profileCardHeight(context), child: LayoutBuilder(builder: (context, constraints) {
+      final width = (constraints.maxWidth - 48).clamp(0.0, 300.ap(context)).toDouble();
+      final index = widget.profiles.indexWhere((p) => p['id'] == widget.selectedId);
+      final selection = (widget.selectedId, index, width);
+      if (active && index >= 0 && _revealed != selection) {
+        _revealed = selection;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_scroll.hasClients || widget.selectedId != selection.$1) return;
+          final position = _scroll.position;
+          final start = 16 + index * (width + spacing), end = start + width;
+          if (start >= position.pixels && end <= position.pixels + position.viewportDimension) return;
+          _scroll.jumpTo(((start + end - position.viewportDimension) / 2)
+            .clamp(position.minScrollExtent, position.maxScrollExtent));
+        });
+      }
+      return ListView.separated(
+        key: const PageStorageKey('profile-strip'), controller: _scroll,
+        scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: widget.profiles.length, separatorBuilder: (_, _) => SizedBox(width: spacing),
+        itemBuilder: (context, index) => SizedBox(width: width, child: widget.itemBuilder(context, widget.profiles[index])),
+      );
+    }));
+  }
+}
+
+class _ProfilesGrid extends StatefulWidget {
+  const _ProfilesGrid({required this.profiles, required this.itemBuilder});
+  final List<Json> profiles;
   final Widget Function(BuildContext context, Json profile) itemBuilder;
   @override State<_ProfilesGrid> createState() => _ProfilesGridState();
 }
 
 class _ProfilesGridState extends State<_ProfilesGrid> {
   late final _scroll = sheetScrollController(context);
-  bool _revealed = false;
 
   @override void dispose() { _scroll.dispose(); super.dispose(); }
 
   @override Widget build(BuildContext context) {
-    final active = PageActivityScope.isActiveOf(context);
     final spacing = (context.isMobileView ? 8.0 : 12.0).mAp(context);
     final padding = EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 16 + context.bottomInset);
     final height = profileCardHeight(context);
     return LayoutBuilder(builder: (context, constraints) {
       final columns = ((constraints.maxWidth - 32 + spacing) / (300.ap(context) + spacing)).floor().clamp(1, 3);
-      if (!_revealed && !widget.picker && active && widget.profiles.isNotEmpty) {
-        _revealed = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || !_scroll.hasClients) return;
-          final index = widget.profiles.indexWhere((p) => p['id'] == widget.selectedId);
-          if (index < 0) return;
-          final position = _scroll.position;
-          final top = (index ~/ columns) * (height + spacing);
-          final bottom = top + padding.vertical + height - position.viewportDimension;
-          if (position.pixels >= bottom && position.pixels <= top) return;
-          _scroll.jumpTo(((top + bottom) / 2).clamp(position.minScrollExtent, position.maxScrollExtent));
-        });
-      }
       return GridView.builder(
-        key: PageStorageKey(widget.picker ? 'profile-picker' : 'profiles'),
+        key: const PageStorageKey('profile-picker'),
         controller: _scroll, padding: padding,
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: columns,
           mainAxisSpacing: spacing, crossAxisSpacing: spacing, mainAxisExtent: height),

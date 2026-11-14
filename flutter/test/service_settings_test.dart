@@ -29,7 +29,9 @@ void main() {
     final box = BoxController(channel: channel, events: events.stream);
     await tester.pumpWidget(BoxApp(controller: box));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Settings'));
+    final sidebar = find.byType(NavigationSidebar);
+    await tester.tap(sidebar.evaluate().isEmpty ? find.text('Settings').last
+      : find.descendant(of: sidebar, matching: find.byKey(const ValueKey('Settings'))));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsPage), findsOneWidget);
     expect(find.text('General'), findsNothing);

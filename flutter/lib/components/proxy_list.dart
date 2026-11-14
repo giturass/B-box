@@ -26,8 +26,9 @@ class ProxyListGroup {
 
 class ProxyListView extends StatefulWidget {
   const ProxyListView({super.key, required this.profileKey, required this.groups,
-    required this.testing, required this.cardBuilder, required this.onTest});
+    required this.testing, required this.cardBuilder, required this.onTest, this.topPadding});
   final String profileKey;
+  final double? topPadding;
   final List<ProxyListGroup> groups;
   final Set<String> testing;
   final Widget Function(BuildContext, Json, Json) cardBuilder;
@@ -70,7 +71,7 @@ class _ProxyListViewState extends State<ProxyListView> {
     if (_saving) return;
     if (_controller.hasClients) {
       final position = _controller.position, start = _offsetOf(name);
-      final visibleHeight = max(position.viewportDimension - context.contentTopPadding, 0.0);
+      final visibleHeight = max(position.viewportDimension - (widget.topPadding ?? context.contentTopPadding), 0.0);
       final end = start + _headerHeight(context);
       if (start < position.pixels || end > position.pixels + visibleHeight) {
         final target = start < position.pixels ? start : end - visibleHeight + 24;
@@ -115,7 +116,7 @@ class _ProxyListViewState extends State<ProxyListView> {
     return Scrollbar(controller: _controller, thumbVisibility: true, child: CustomScrollView(
       key: PageStorageKey('proxy-list:${widget.profileKey}'), controller: _controller,
       slivers: [
-        PinnedHeaderSliver(child: SizedBox(height: context.contentTopPadding)),
+        PinnedHeaderSliver(child: SizedBox(height: widget.topPadding ?? context.contentTopPadding)),
         SliverPadding(padding: const EdgeInsets.symmetric(horizontal: _groupInset),
           sliver: _groupColumns == 1 ? SliverMainAxisGroup(slivers: widget.groups.map(buildGroup).toList())
             : SliverCrossAxisGroup(slivers: [for (var column = 0; column < _groupColumns; column++) ...[

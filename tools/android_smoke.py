@@ -185,9 +185,13 @@ def ui_smoke():
             capture("03-vpn-running")
             # Reuse the window that confirmed Running. A second UIAutomator
             # idle wait can time out on the continuously updating dashboard.
-            click("Proxies", current)
+            click("Profiles", current)
             wait_for("Smoke selector")
+            assert matching("Smoke profile", nodes()), "Selected profile is missing above the core proxy groups"
             capture("04-core-proxies")
+            click("Settings")
+            wait_for("Appearance")
+            capture("05-settings")
             click("Dashboard")
             click("Stop")
             wait_for("Not running")

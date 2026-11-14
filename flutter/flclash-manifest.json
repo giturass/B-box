@@ -36,7 +36,7 @@
     "lib/components/proxy_groups_panel.dart": {
       "source": "lib/views/dashboard/widgets/proxy_groups.dart",
       "sourceSHA256": "7ed6bc3e3613e1f5040b86895155c7066e22e28f898dcbe81195c72402355c03",
-      "changes": "Mobile group count, overlapping badges and timeout count adapted to sing-box groups. Migrated to the v0.9.3 prism_ui types and presentation. Subscribe to the dedicated group aspect for count and delay updates."
+      "changes": "Mobile group count, overlapping badges and timeout count adapted to sing-box groups. Migrated to the v0.9.3 prism_ui types and presentation. Subscribe to the dedicated group aspect for count and delay updates. Opens the merged Profiles page with configuration files above the live groups."
     },
     "lib/components/start_toggle.dart": {
       "source": "lib/views/dashboard/widgets/current_outbound.dart",
@@ -56,12 +56,12 @@
     "lib/pages/dashboard.dart": {
       "source": "lib/views/dashboard/widgets/traffic.dart",
       "sourceSHA256": "0d9b65b6ec78bb81df7eea3f262ef0e6e109698db39094e446af168989202413",
-      "changes": "NetworkSpeedCard and SpeedTile layout adapted to sing-box traffic samples; traffic tiles subscribe independently from other dashboard cards. Other cards use B-box capability state. The capability-gated SystemProxyPanel uses the shared editable card order and visibility preferences. Migrated to the v0.9.3 prism_ui types and presentation. The v0.9.3 traffic tiles use a 1.45 aspect ratio minimum and draw the chart behind the figures below the title. The toolbar opens Settings; a standard long press on any card enters the existing in-place editor, preserving tap actions and card keys."
+      "changes": "NetworkSpeedCard and SpeedTile layout adapted to sing-box traffic samples; traffic tiles subscribe independently from other dashboard cards. Other cards use B-box capability state. The capability-gated SystemProxyPanel uses the shared editable card order and visibility preferences. Migrated to the v0.9.3 prism_ui types and presentation. The v0.9.3 traffic tiles use a 1.45 aspect ratio minimum and draw the chart behind the figures below the title. The toolbar restores the FlClash edit-pencil glyph and enters the existing in-place dashboard editor. A standard long press on any card retains the same editor entry, preserving tap actions and card keys."
     },
     "lib/pages/proxies.dart": {
       "source": "lib/views/proxies/card.dart",
       "sourceSHA256": "0e9dc58363dc907150406c2608df88980ac9e4c40f034b00207239cb414744bb",
-      "changes": "Proxy card metrics, text, selection and delay presentation adapted to libbox groups. Only selector groups expose selection; Mihomo pinning and local-provider actions are omitted. Migrated to the v0.9.3 prism_ui types and presentation. Explicit Prism tab controllers are recreated when group identities change, preserving the active group by tag and existing per-group scroll positions. Group updates subscribe separately from application state. Per-group node projections reuse unchanged nodes and filtering/sorting order; unchanged tab grids are retained without rebuilding for another group’s latency update.",
+      "changes": "Proxy card metrics, text, selection and delay presentation adapted to libbox groups. Only selector groups expose selection; Mihomo pinning and local-provider actions are omitted. Migrated to the v0.9.3 prism_ui types and presentation. Explicit Prism tab controllers are recreated when group identities change, preserving the active group by tag and existing per-group scroll positions. Group updates subscribe separately from application state. Per-group node projections reuse unchanged nodes and filtering/sorting order; unchanged tab grids are retained without rebuilding for another group’s latency update. Hosts the merged Profiles page with a profile header and the profile-import empty state. Tabs and list views suppress their toolbar gap beneath the fixed profile header while retaining search, latency tests and group selection.",
       "supportingSources": [
         {
           "source": "lib/views/proxies/tab.dart",
@@ -72,7 +72,7 @@
     "lib/pages/profiles.dart": {
       "source": "lib/views/profiles/profiles.dart",
       "sourceSHA256": "e0fa8370288a6729611df86a4ac117c5e464354658c6af3a9edbeed7aa451a49",
-      "changes": "Anchored add menu with a New profile entry, grouped metadata form, selected-item reveal, adaptive grid, flat profile actions and decorated reorder sheet. Edit opens the configuration editing page with raw content access; the metadata form contains only metadata fields and update time. Copy link, QR code, share and export are direct menu actions. Imports and edits retain sing-box JSON, binary/QRS metadata and Room operations; preserve local/remote type conversion, clipboard import, a 15-minute Android update minimum and serialized native updates. No Mihomo custom generator, providers, overrides, age key or runtime-preview claim. Disable configuration selection in both the page and picker during native service start/stop transitions, and recheck current state when a press callback runs. Disable deletion of the selected profile and recheck selection before and after confirmation in both views. Migrated to the v0.9.3 prism_ui types and presentation.",
+      "changes": "Anchored add menu with a New profile entry, grouped metadata form, selected-item reveal, horizontal profile-file strip above live proxy groups, adaptive picker grid, flat profile actions and decorated reorder sheet. Edit opens the configuration editing page with raw content access; the metadata form contains only metadata fields and update time. Copy link, QR code, share and export are direct menu actions. Imports and edits retain sing-box JSON, binary/QRS metadata and Room operations; preserve local/remote type conversion, clipboard import, a 15-minute Android update minimum and serialized native updates. No Mihomo custom generator, providers, overrides, age key or runtime-preview claim. Disable configuration selection in both the page and picker during native service start/stop transitions, and recheck current state when a press callback runs. Disable deletion of the selected profile and recheck selection before and after confirmation in both views. Migrated to the v0.9.3 prism_ui types and presentation. The merged Profiles page keeps add, update-all and reorder controls above the strip. Profile scrolling has its own controller and does not select a profile or change the home destination. Remote sessions show a remote configuration summary and remote groups without local profile actions.",
       "supportingSources": [
         {
           "source": "lib/views/profiles/add.dart",
@@ -91,7 +91,7 @@
     "lib/components/theme_preview.dart": {
       "source": "lib/views/theme_preview.dart",
       "sourceSHA256": "62840cfee2864210f0b53216ca8fdb94bf1696bceeefc857dcf7c63c3521d1d8",
-      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Docked preview uses the page background and compact proportions to reflect B-box's flat 64 dp navigation bar. Desktop-only controls omitted. Migrated to the v0.9.3 prism_ui types and presentation. Uses v0.9.3 per-shape blur to avoid an offscreen layer for every glass preview frame; the fixed-bar sketch keeps the B-box page background."
+      "changes": "Android appearance presentation adapted to B-box preferences; shared theme preview and color picker retained. Docked preview uses the page background and compact proportions to reflect B-box's flat 64 dp navigation bar. Desktop-only controls omitted. Migrated to the v0.9.3 prism_ui types and presentation. Uses v0.9.3 per-shape blur to avoid an offscreen layer for every glass preview frame; the fixed-bar sketch keeps the B-box page background. Preview destinations follow Dashboard, Profiles, Tools and Settings; the Profiles sketch combines a horizontal profile strip with proxy rows, and Settings shows its own six-entry section."
     },
     "lib/components/palette.dart": {
       "source": "lib/widgets/palette.dart",
@@ -153,12 +153,12 @@
     "lib/pages/tools.dart": {
       "source": "lib/views/tools.dart",
       "sourceSHA256": "aa81cb38649ba5f4c7f48c5a29ad4993fac0362ad1857e937af77f4093d572f9",
-      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools. Uses tool-specific state notifications and shares a visibility-controlled native detail subscription with endpoint pages. Migrated to the v0.9.3 prism_ui types and presentation. Settings and About are under the dashboard Settings entry; Tools lists connections and requests, logs, terminal, network diagnostics, remote control and available endpoints, and omits the three report entries. Logs uses AppGlyphs.code, while Terminal uses the command-prompt shape from AppGlyphs.logs. Network diagnostics immediately follows terminal and opens network quality and STUN tests."
+      "changes": "Android section order and glyphs adapted to Flutter pages for supported sing-box configuration and B-box tools. Uses tool-specific state notifications and shares a visibility-controlled native detail subscription with endpoint pages. Migrated to the v0.9.3 prism_ui types and presentation. Settings and About are under the Settings navigation destination; Tools lists connections and requests, logs, terminal, network diagnostics, remote control and available endpoints, and omits the three report entries. Logs uses AppGlyphs.code, while Terminal uses the command-prompt shape from AppGlyphs.logs. Network diagnostics immediately follows terminal and opens network quality and STUN tests."
     },
     "lib/pages/settings.dart": {
       "source": "lib/views/tools.dart",
       "sourceSHA256": "aa81cb38649ba5f4c7f48c5a29ad4993fac0362ad1857e937af77f4093d572f9",
-      "changes": "Settings sections and shared navigation rows are under the dashboard Settings entry, listing Appearance, Service, Core, Access control, Backup and restore, and About. Service and Core are direct entries with their own option pages, without the General wrapper. Network diagnostics is provided by Tools. The power report switch is omitted, while native settings, service restart confirmation and failure recovery remain unchanged."
+      "changes": "Settings is a primary navigation destination with shared navigation rows, listing Appearance, Service, Core, Access control, Backup and restore, and About. Service and Core are direct entries with their own option pages, without the General wrapper. Network diagnostics is provided by Tools. The power report switch is omitted, while native settings, service restart confirmation and failure recovery remain unchanged."
     },
     "lib/pages/about.dart": {
       "source": "lib/views/about.dart",
@@ -168,7 +168,7 @@
     "lib/components/proxy_list.dart": {
       "source": "lib/views/proxies/list.dart",
       "sourceSHA256": "fa71e7b9d6d8dea7b1935a31b3ae80bcb565273ed45e04801f532ade8f400e9a",
-      "changes": "Pinned rounded group headers, fixed-extent lazy rows, folding motion and group controls adapted to real sing-box groups. Fold state persists per profile; no external group icon URLs are invented. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Pinned rounded group headers, fixed-extent lazy rows, folding motion and group controls adapted to real sing-box groups. Fold state persists per profile; no external group icon URLs are invented. Migrated to the v0.9.3 prism_ui types and presentation. Accepts a top inset override for use beneath the merged profile-file strip; pinned group headers and reveal calculations use the remaining proxy viewport."
     },
     "lib/components/proxy_card.dart": {
       "source": "lib/views/proxies/card.dart",
@@ -268,7 +268,7 @@
     "lib/main.dart": {
       "source": "lib/application.dart",
       "sourceSHA256": "5b89684b6596e0d3529b2ef05c6a499441188b1691c916f500858c3ec9110d2c",
-      "changes": "PrismApp, Prism themes, built-in glass/emoji/text scaling, banner messages and navigation adapted to the existing B-box controller. Banners reserve Prism's toolbar clearance so copy and failure feedback leave toolbar actions accessible. System language and 0.8–1.4 scaling remain; no Flutter or Android identity change. Cache only the current theme for each brightness, comparing the complete color scheme. Locale changes and memory pressure clear theme caches; memory pressure also releases the bounded application-icon cache."
+      "changes": "PrismApp, Prism themes, built-in glass/emoji/text scaling, banner messages and navigation adapted to the existing B-box controller. Banners reserve Prism's toolbar clearance so copy and failure feedback leave toolbar actions accessible. System language and 0.8–1.4 scaling remain; no Flutter or Android identity change. Cache only the current theme for each brightness, comparing the complete color scheme. Locale changes and memory pressure clear theme caches; memory pressure also releases the bounded application-icon cache. Home navigation is Dashboard, Profiles, Tools and Settings; Profiles combines local profile files and live sing-box proxy groups. Settings is a primary destination for docked, floating and sidebar navigation."
     },
     "lib/components/page_switcher.dart": {
       "source": "lib/pages/home.dart",

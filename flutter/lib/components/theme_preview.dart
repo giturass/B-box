@@ -208,7 +208,7 @@ class _ThemeLivePreviewState extends State<ThemeLivePreview>
   }
 }
 
-enum _MiniPage { dashboard, proxies, profiles, tools }
+enum _MiniPage { dashboard, profiles, tools, settings }
 
 /// A phone-shaped sketch of the home page, drawn in [colorScheme].
 ///
@@ -647,12 +647,12 @@ class _PageSketch {
     switch (page) {
       case _MiniPage.dashboard:
         _dashboard(_header(actions: 1));
-      case _MiniPage.proxies:
-        _proxies(_header(actions: 2));
       case _MiniPage.profiles:
         _profiles(_header(actions: 2));
       case _MiniPage.tools:
         _tools(_header(actions: 0));
+      case _MiniPage.settings:
+        _tools(_header(actions: 0), sections: const [6]);
     }
   }
 
@@ -830,30 +830,26 @@ class _PageSketch {
   }
 
   void _profiles(double top) {
-    var y = top;
+    _pill(0.8, top + 0.2, 3.4, 0.5, faint);
     for (var i = 0; i < 3; i++) {
-      _block(_rect(0, y, width, 2.8), card);
-      _pill(1, y + 0.7, 3.4 - i * 0.6, 0.75, line);
-      _pill(
-        4.8 - i * 0.6,
-        y + 0.72,
-        2.6,
-        0.7,
-        colorScheme.primary.withValues(alpha: 0.16),
-      );
-      _pill(1, y + 1.7, 3, 0.5, faint);
-      _pill(width - 4.1, y + 1.15, 1.6, 0.5, faint);
-      if (i == 0) {
-        _dot(width - 1.4, y + 1.4, 0.6, colorScheme.primary);
-      }
-      y += 2.8 + _gap;
+      _dot(width - 0.8 - i * 1.6, top + 0.5, 0.45, line);
     }
+    final cardWidth = width - 2, y = top + 1.3;
+    for (var i = 0; i < 2; i++) {
+      final x = i * (cardWidth + _gap);
+      _block(_rect(x, y, cardWidth, 2.8), card);
+      _pill(x + 1, y + 0.7, 5, 0.75, line);
+      _pill(x + 1, y + 1.7, 3, 0.5, faint);
+      _pill(x + cardWidth - 4.1, y + 1.15, 1.6, 0.5, faint);
+      if (i == 0) _dot(x + cardWidth - 1.4, y + 1.4, 0.6, colorScheme.primary);
+    }
+    _proxies(y + 2.8 + _gap);
   }
 
-  void _tools(double top) {
+  void _tools(double top, {List<int> sections = const [4, 7]}) {
     const rowHeight = 2.4;
     var y = top;
-    for (final rows in [4, 7]) {
+    for (final rows in sections) {
       _pill(0.8, y + 0.2, 1.6 + rows * 0.15, 0.5, faint);
       y += 1.3;
       _block(_rect(0, y, width, rows * rowHeight), card);

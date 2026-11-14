@@ -1,6 +1,6 @@
 import 'package:prism_ui/shapes/shapes.dart';
 import '../widgets.dart';
-import '../pages/proxies.dart';
+import '../pages/profiles.dart';
 import 'shape_badge.dart';
 import 'dashboard_chip.dart';
 
@@ -10,7 +10,7 @@ class ProxyGroupsPanel extends StatelessWidget {
     final box = context.watchBox(BoxAspect.groups), groups = box.groups;
     final timeout = <String>{for (final group in groups) for (final node in rows(group['items']))
       if ((node['testedAt'] as num? ?? 0) > 0 && (node['delay'] as num? ?? 0) <= 0) node['tag'].toString()};
-    return BoxPanel(onTap: groups.isEmpty ? null : () => openForm(context, const ProxiesPage()), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    return BoxPanel(onTap: groups.isEmpty ? null : () => openForm(context, const ProfilesPage()), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       PanelTitle('Proxy groups', AppGlyphs.layers, trailing: Row(mainAxisSize: MainAxisSize.min, spacing: 6, children: [
         if (timeout.isNotEmpty) DashboardChip(label: '${context.tr('Timeout')} ${timeout.length}', tone: DashboardChipTone.warn),
         if (groups.isNotEmpty) const GlyphIcon(AppGlyphs.chevronForward, size: 18),

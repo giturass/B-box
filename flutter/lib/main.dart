@@ -3,9 +3,9 @@ import 'package:flutter/foundation.dart' show LicenseRegistry, LicenseEntryWithL
 import 'package:flutter/services.dart';
 import 'widgets.dart';
 import 'pages/dashboard.dart';
-import 'pages/proxies.dart';
 import 'pages/profiles.dart';
 import 'pages/tools.dart';
+import 'pages/settings.dart';
 import 'pages/taildrop.dart';
 import 'theme_settings.dart';
 import 'components/page_switcher.dart';
@@ -153,10 +153,10 @@ class _HomePageState extends State<HomePage> {
   BoxController? _box;
   bool _handlingIntent = false;
   static const _items = <(String, Glyph)>[
-    ('Dashboard', AppGlyphs.dashboard), ('Proxies', AppGlyphs.proxies),
-    ('Profiles', AppGlyphs.profiles), ('Tools', AppGlyphs.tools),
+    ('Dashboard', AppGlyphs.dashboard), ('Profiles', AppGlyphs.profiles),
+    ('Tools', AppGlyphs.tools), ('Settings', AppGlyphs.settings),
   ];
-  static const _pages = [DashboardPage(), ProxiesPage(), ProfilesPage(), ToolsPage()];
+  static const _pages = [DashboardPage(), ProfilesPage(), ToolsPage(), SettingsPage()];
 
   @override void didChangeDependencies() {
     super.didChangeDependencies();

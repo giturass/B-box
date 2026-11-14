@@ -36,7 +36,7 @@ void main() {
     events.add({'type': 'groups', 'value': [{'tag': 'Large group', 'type': 'Selector', 'selectable': true, 'selected': 'Node 150',
       'items': [for (var index = 0; index < 200; index++) {'tag': 'Node $index', 'type': 'Direct'}]}]});
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Proxies').last);
+    await tester.tap(find.text('Profiles').last);
     await tester.pumpAndSettle();
     expect(find.byType(ProxyListView), findsOneWidget);
     expect(find.byType(ProxyNodeCard), findsNothing);
@@ -85,7 +85,7 @@ void main() {
     ]}]});
     await tester.pumpAndSettle();
     final destination = find.descendant(of: find.byType(NavigationSidebar),
-      matching: find.byKey(const ValueKey('Proxies')));
+      matching: find.byKey(const ValueKey('Profiles')));
     expect(destination.hitTestable(), findsOneWidget);
     await tester.tap(destination);
     await tester.pumpAndSettle();
@@ -118,7 +118,7 @@ void main() {
       {'tag': tag, 'selected': 'Node $tag', 'selectable': true, 'items': [{'tag': 'Node $tag', 'type': 'direct'}]},
     ]});
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Proxies').last);
+    await tester.tap(find.text('Profiles').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Group B'));
     await tester.pumpAndSettle();
@@ -151,7 +151,7 @@ void main() {
     final groups = [group('Group A', 1, 0), group('Group B', 200, 150)];
     events.add({'type': 'groups', 'value': groups});
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Proxies').last);
+    await tester.tap(find.text('Profiles').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Group B'));
     await tester.pumpAndSettle();

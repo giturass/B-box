@@ -75,14 +75,16 @@ void main() {
         await advance();
         expect(control.hitTestable(), findsOneWidget);
       }
-      expect(find.byTooltip('Settings').hitTestable(), findsOneWidget);
+      expect(find.byTooltip('Edit dashboard').hitTestable(), findsOneWidget);
+      expect(find.byTooltip('Settings'), findsNothing);
       expect(find.byTooltip('Dashboard cards'), findsNothing);
       final editTarget = switch (scenario) {
         'reorder' => systemProxy ? find.text(card) : find.byType(StartToggle),
         'failed-save' => find.text(ip),
         _ => find.text('Status'),
       };
-      await tester.longPress(editTarget);
+      if (scenario == 'add-remove') await tester.tap(find.byTooltip('Edit dashboard'));
+      else await tester.longPress(editTarget);
       await advance();
       expect(find.byType(DashboardEditor), findsOneWidget);
       expect(find.byType(EgressDetails), findsNothing);

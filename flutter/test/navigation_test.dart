@@ -38,7 +38,11 @@ void main() {
       const channel = MethodChannel('test.navigation.fixed');
       final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready' ? {
-        'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'},
+        'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped', 'selectedProfileId': 1},
+        'profiles': [
+          {'id': 1, 'name': 'Primary configuration', 'remote': false},
+          {'id': 2, 'name': 'Secondary configuration', 'remote': false},
+        ],
         'preferences': {'theme': dark ? 'dark' : 'light', 'pureBlack': pureBlack, 'floatingNavigation': false},
       } : null);
       final events = StreamController<dynamic>.broadcast();
@@ -52,17 +56,20 @@ void main() {
         child: BoxApp(controller: BoxController(channel: channel, events: events.stream))));
       await tester.pumpAndSettle();
       final bar = find.byType(BoxNavigationBar);
+      expect(tester.widget<BoxNavigationBar>(bar).destinations.map((item) => item.label),
+        ['Dashboard', 'Profiles', 'Tools', 'Settings']);
       expect(tester.getSize(bar).height, 64 + 24);
       expect(tester.getBottomRight(bar).dy, 800);
       expect(tester.getBottomRight(find.byType(PageSwitcher)).dy, tester.getTopLeft(bar).dy);
       final surface = tester.widget<Surface>(find.descendant(of: bar, matching: find.byType(Surface)).first);
       expect(surface.color, Theme.of(tester.element(bar)).scaffoldBackgroundColor);
       if (pureBlack) expect(surface.color, Colors.black);
-      await tester.tap(find.descendant(of: bar, matching: find.text('Proxies')));
+      await tester.tap(find.descendant(of: bar, matching: find.text('Profiles')));
       await tester.pumpAndSettle();
       expect(tester.widget<BoxNavigationBar>(bar).selectedIndex, 1);
+      expect(find.byType(ProfilesPage), findsOneWidget);
       expect(find.byType(ProxiesPage), findsOneWidget);
-      expect(find.ancestor(of: find.descendant(of: bar, matching: find.text('Proxies')),
+      expect(find.ancestor(of: find.descendant(of: bar, matching: find.text('Profiles')),
         matching: find.byWidgetPredicate((widget) => widget is Semantics && widget.properties.selected == true)), findsWidgets);
       expect(tester.takeException(), isNull);
       await tester.runAsync(() async {
@@ -119,11 +126,11 @@ void main() {
         await tester.tap(target);
         await tester.pumpAndSettle();
         expect(tester.widget<PageSwitcher>(find.byType(PageSwitcher)).index,
-          ['Dashboard', 'Proxies', 'Profiles', 'Tools'].indexOf(label));
+          ['Dashboard', 'Profiles', 'Tools', 'Settings'].indexOf(label));
         expect(tester.takeException(), isNull, reason: label);
       }
       await capture('Dashboard');
-      for (final label in ['Proxies', 'Profiles', 'Tools', 'Dashboard']) {
+      for (final label in ['Profiles', 'Tools', 'Settings', 'Dashboard']) {
         await selectTab(label);
         await capture(label);
       }
@@ -142,9 +149,17 @@ void main() {
       ]}]});
       events.add({'type': 'rates', 'value': {'upload': 1024, 'download': 8192}});
       await tester.pumpAndSettle();
-      for (final label in ['Dashboard', 'Profiles', 'Proxies']) {
+      for (final label in ['Dashboard', 'Profiles']) {
         await selectTab(label);
         await capture('$label-populated');
+      }
+      if (size.width < 600) {
+        await tester.drag(find.byKey(const PageStorageKey('profile-strip')), const Offset(-260, 0));
+        await tester.pumpAndSettle();
+        expect(tester.widget<PageSwitcher>(find.byType(PageSwitcher)).index, 1);
+        expect(box.selectedProfileId, 1, reason: 'Scrolling profiles must not select one.');
+        expect(find.text('Local configuration').hitTestable(), findsOneWidget);
+        await capture('Profiles-scrolled');
       }
       await selectTab('Dashboard');
       final rootContext = tester.element(find.byType(HomePage));
@@ -194,9 +209,7 @@ void main() {
       tester.element(find.byType(NetworkDiagnosticsPage)).safeNestedPop();
       await tester.pumpAndSettle();
       expect(find.byType(ToolsPage), findsOneWidget, reason: 'Network diagnostics returns to Tools');
-      await selectTab('Dashboard');
-      await tester.tap(find.byTooltip('Settings'));
-      await tester.pumpAndSettle();
+      await selectTab('Settings');
       expect(find.byType(SettingsPage), findsOneWidget);
       expect(find.text('General'), findsNothing);
       expect(find.text('Allow VPN bypass'), findsNothing);
@@ -226,10 +239,10 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(SettingsPage), findsOneWidget, reason: '$label returns to Settings');
       }
-      tester.element(find.byType(SettingsPage)).safeNestedPop();
-      await tester.pumpAndSettle();
+      await selectTab('Dashboard');
       expect(find.byType(SettingsPage), findsNothing);
-      expect(find.byTooltip('Settings').hitTestable(), findsOneWidget);
+      expect(find.byTooltip('Edit dashboard').hitTestable(), findsOneWidget);
+      expect(find.byTooltip('Settings'), findsNothing);
       for (final (label, page) in <(String, Widget)>[
         ('Profile-edit', const ProfileForm(initial: {'id': 1, 'name': 'Primary sing-box profile',
           'remote': true, 'url': 'https://example.org/config.json', 'autoUpdate': true, 'interval': 60})),

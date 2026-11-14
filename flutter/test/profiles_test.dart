@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/components/profile_card.dart';
+import 'package:b_box_ui/components/proxy_list.dart';
+import 'package:b_box_ui/components/page_switcher.dart';
 import 'package:b_box_ui/pages/profiles.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,7 +14,7 @@ const _local = {'id': 2, 'name': 'Local B', 'remote': false};
 
 Future<BoxController> _mount(WidgetTester tester, {List<Json> profiles = const [_remote, _local],
   int selected = 1, bool remoteSession = false, StreamController<dynamic>? eventController,
-  Json dashboard = const {},
+  Json dashboard = const {}, Json preferences = const {},
   Future<dynamic> Function(MethodCall)? handler}) async {
   tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];
   addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
@@ -25,6 +27,7 @@ Future<BoxController> _mount(WidgetTester tester, {List<Json> profiles = const [
   final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready' ? {
     'version': 'test', 'coreVersion': 'test', 'profiles': profiles,
+    'preferences': preferences,
     'dashboard': {'status': 'Stopped', 'selectedProfileId': selected,
       if (remoteSession) ...{'remote': 'Server', 'remoteConnected': true}, ...dashboard},
   } : await handler?.call(call));
@@ -177,6 +180,50 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final layout in ['Tabs', 'List']) {
+    testWidgets('horizontal profiles keep the primary page and live $layout proxy groups', (tester) async {
+      final events = StreamController<dynamic>.broadcast();
+      final selections = <dynamic>[], tests = <dynamic>[];
+      final box = await _mount(tester, eventController: events, dashboard: {'status': 'Started'},
+        preferences: {'proxyLayout': layout}, handler: (call) async {
+          if (call.method == 'profiles.select') {
+            final id = json(call.arguments)['id'];
+            selections.add(id);
+            events.add({'type': 'dashboard', 'value': {'status': 'Started', 'selectedProfileId': id}});
+          }
+          if (call.method == 'groups.test') tests.add(json(call.arguments)['tag']);
+          return null;
+        });
+      events.add({'type': 'groups', 'value': [
+        {'tag': 'Live selector', 'selected': 'Node A', 'selectable': true, 'items': [
+          {'tag': 'Node A', 'type': 'direct'}, {'tag': 'Node B', 'type': 'direct'},
+        ]},
+      ]});
+      await tester.pumpAndSettle();
+      await _profiles(tester);
+      final strip = find.byKey(const PageStorageKey('profile-strip'));
+      expect(tester.widget<ListView>(strip).scrollDirection, Axis.horizontal);
+      final proxies = layout == 'List' ? find.byType(ProxyListView) : find.byType(TabBarView);
+      expect(tester.getBottomLeft(strip).dy, lessThan(tester.getTopLeft(proxies).dy));
+      await tester.drag(strip, const Offset(-280, 0));
+      await tester.pumpAndSettle();
+      expect(tester.widget<PageSwitcher>(find.byType(PageSwitcher)).index, 1);
+      expect(box.selectedProfileId, 1);
+      expect(selections, isEmpty);
+      expect(find.text('Local B').hitTestable(), findsOneWidget);
+      expect(find.text('Live selector').hitTestable(), findsOneWidget);
+      await tester.tap(find.byTooltip('Test latency').first);
+      await tester.pumpAndSettle();
+      expect(tests, ['Live selector']);
+      await tester.tap(find.text('Local B').hitTestable());
+      await tester.pumpAndSettle();
+      expect(selections, [2]);
+      expect(box.selectedProfileId, 2);
+      expect(tester.widget<PageSwitcher>(find.byType(PageSwitcher)).index, 1);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final picker in [false, true]) {
     testWidgets('selected profiles cannot be deleted, including stale menus and confirmations (picker: $picker)', (tester) async {
       final events = StreamController<dynamic>.broadcast();
@@ -192,7 +239,7 @@ void main() {
         await _profiles(tester);
       }
       ProfileCard card(int id) => tester.widget<ProfileCard>(
-        find.byWidgetPredicate((w) => w is ProfileCard && w.profile['id'] == id).hitTestable());
+        find.byWidgetPredicate((w) => w is ProfileCard && w.profile['id'] == id));
       final staleDelete = card(2).menuItems.last.onPressed!;
       expect(card(1).menuItems.last.onPressed, isNull);
       for (final status in ['Starting', 'Started', 'Stopping', 'Stopped']) {
@@ -242,7 +289,9 @@ void main() {
         } else {
           await _profiles(tester);
         }
-        final localCard = find.byWidgetPredicate((w) => w is ProfileCard && w.profile['id'] == 2).hitTestable();
+        final localCard = find.byWidgetPredicate((w) => w is ProfileCard && w.profile['id'] == 2);
+        await Scrollable.ensureVisible(tester.element(localCard), alignment: .5);
+        await tester.pumpAndSettle();
         final stalePress = tester.widget<ProfileCard>(localCard).onPressed!;
         events.add({'type': 'dashboard', 'value': {'status': blockedStatus, 'selectedProfileId': 1}});
         // The starting indicator animates continuously while the picker is open.
@@ -291,9 +340,15 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('remote sessions expose no local profile actions', (tester) async {
-    await _mount(tester, remoteSession: true, dashboard: {'profileName': 'Private local profile'},
-      profiles: [{'id': 1, 'name': 'Private local profile'}]);
+  testWidgets('remote sessions expose remote groups without local profile actions', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    final selections = <Json>[];
+    await _mount(tester, remoteSession: true, eventController: events,
+      dashboard: {'profileName': 'Private local profile'}, profiles: [{'id': 1, 'name': 'Private local profile'}],
+      handler: (call) async {
+        if (call.method == 'groups.select') selections.add(json(call.arguments));
+        return null;
+      });
     expect(find.text('Remote configuration'), findsOneWidget);
     expect(find.text('Private local profile'), findsNothing);
     await _profiles(tester);
@@ -302,6 +357,18 @@ void main() {
     expect(find.byType(AddProfileMenu), findsNothing);
     expect(find.byTooltip('Update all'), findsNothing);
     expect(find.byTooltip('Reorder'), findsNothing);
+    events.add({'type': 'groups', 'value': [
+      {'tag': 'Remote selector', 'selected': 'Remote A', 'selectable': true, 'items': [
+        {'tag': 'Remote A', 'type': 'direct'}, {'tag': 'Remote B', 'type': 'direct'},
+      ]},
+    ]});
+    await tester.pumpAndSettle();
+    expect(find.text('Remote selector').hitTestable(), findsOneWidget);
+    expect(find.text('Private local profile'), findsNothing);
+    await tester.tap(find.text('Remote B'));
+    await tester.pumpAndSettle();
+    expect(selections, [{'group': 'Remote selector', 'tag': 'Remote B'}]);
+    expect(tester.takeException(), isNull);
   });
 
   test('remote profile links preserve names in the sing-box fragment', () {
