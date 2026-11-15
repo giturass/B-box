@@ -41,6 +41,9 @@ jobs:
       - name: HTTP, routed IP and LAN tests against the matching core
         working-directory: .core
         run: go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1
+      - name: Shared node tests with the protocols of the shipped core
+        working-directory: .core
+        run: go test -ldflags=-checklinkname=0 -tags=with_quic,with_wireguard,with_utls,with_clash_api ./experimental/libbox -run '^TestUINode' -count=1
       - name: WARP MASQUE authentication, HTTP/2 and HTTP/3 tunnel regressions
         working-directory: .core
         run: |
