@@ -10,10 +10,12 @@ double profileCardHeight(BuildContext context) {
 
 class ProfileCard extends StatelessWidget {
   const ProfileCard({super.key, required this.profile, required this.selected,
-    required this.updating, required this.onPressed, required this.menuItems});
+    required this.updating, required this.onPressed, required this.menuItems, this.onEdit});
   final Json profile;
   final bool selected, updating;
   final VoidCallback? onPressed;
+  /// Opens the profile from a button that takes the place of the selection mark.
+  final VoidCallback? onEdit;
   final List<PopupMenuItem> menuItems;
 
   @override Widget build(BuildContext context) {
@@ -40,7 +42,9 @@ class ProfileCard extends StatelessWidget {
               child: updating ? const ActivityIndicator(key: ValueKey('updating'), size: 24)
                 : ProfileUpdateTime(key: const ValueKey('lastUpdate'), milliseconds: (profile['updatedAt'] as num?)?.toInt()),
             ),
-            if (selected) const SelectionBadge(size: 24),
+            if (onEdit != null) TonalButtonTheme(size: TonalButtonSize.compact, child: IconButton(
+              tooltip: context.tr('Edit'), onPressed: updating ? null : onEdit, icon: const GlyphIcon(AppGlyphs.edit)))
+            else if (selected) const SelectionBadge(size: 24),
           ]),
         ),
       ),

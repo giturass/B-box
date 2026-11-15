@@ -2,8 +2,10 @@ import 'dart:async';
 import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/components/profile_card.dart';
+import 'package:b_box_ui/components/proxy_card.dart';
 import 'package:b_box_ui/components/proxy_list.dart';
 import 'package:b_box_ui/components/page_switcher.dart';
+import 'package:b_box_ui/pages/nodes.dart';
 import 'package:b_box_ui/pages/profiles.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -221,13 +223,8 @@ void main() {
         await tester.tap(find.byTooltip('Show more'));
         await tester.pumpAndSettle();
       }
-      if (layout == 'List') {
-        await tester.tap(find.byTooltip('Test latency').first);
-      } else {
-        await tester.tap(find.byTooltip('More').last);
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Test latency').last);
-      }
+      // The group header tests in the list, the toolbar under the tabs.
+      await tester.tap(find.byTooltip('Test latency').first);
       await tester.pumpAndSettle();
       expect(tests, ['Live selector']);
       await tester.tap(find.text('Local B').hitTestable());
@@ -238,6 +235,41 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('shared nodes stand in for the groups of a stopped service and open their editor', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    final calls = <MethodCall>[];
+    await _mount(tester, eventController: events, handler: (call) async {
+      calls.add(call);
+      return call.method == 'nodes.get'
+          ? {'origin': 'library', 'content': '{"type":"vless","tag":"Shared A"}', 'revision': 'r'} : null;
+    });
+    await _profiles(tester);
+    expect(find.text('Add nodes'), findsOneWidget);
+    // Only the profile in use opens from its card.
+    expect(find.descendant(of: find.byType(ProfileCard), matching: find.byTooltip('Edit')), findsOneWidget);
+    expect(tester.widgetList<ProfileCard>(find.byType(ProfileCard)).map((card) => card.onEdit != null), [true, false]);
+    events.add({'type': 'nodes', 'value': {
+      'nodes': [{'tag': 'Shared A', 'type': 'vless', 'source': 's', 'server': 'example.org', 'port': 443}],
+      'sources': [{'id': 's', 'name': 'Subscription', 'url': 'https://example.org/nodes', 'count': 1}],
+    }});
+    await tester.pumpAndSettle();
+    expect(find.text('Add nodes'), findsNothing);
+    expect(find.text('Shared nodes').hitTestable(), findsOneWidget);
+    // Nothing runs the node, so the card has no latency to test.
+    expect(tester.widget<ProxyNodeCard>(find.byType(ProxyNodeCard)).onTest, isNull);
+    await tester.tap(find.byTooltip('More').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Update all'));
+    await tester.pumpAndSettle();
+    expect(calls.map((call) => call.method).where(const {'profiles.update', 'nodes.updateSource'}.contains),
+      ['profiles.update', 'nodes.updateSource']);
+    await tester.tap(find.text('Shared A'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NodeEditorPage), findsOneWidget);
+    expect(calls.where((call) => call.method == 'nodes.get').map((call) => json(call.arguments)['tag']), ['Shared A']);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final picker in [false, true]) {
     testWidgets('selected profiles cannot be deleted, including stale menus and confirmations (picker: $picker)', (tester) async {

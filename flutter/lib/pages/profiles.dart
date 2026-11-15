@@ -33,12 +33,18 @@ class _ProfilesPageState extends State<ProfilesPage> {
     if (_updatingAll || _updating.isNotEmpty) return;
     final box = context.box;
     final profiles = List<Json>.of(box.profiles).where((p) => p['remote'] == true);
+    final sources = rows(box.nodes['sources']);
     setState(() => _updatingAll = true);
     try {
       // Native profile writes share a mutex; keep updates serialized.
       for (final profile in profiles) {
         if (!mounted || box.remote) break;
         await _update(profile);
+      }
+      // The node subscriptions write under the same mutex.
+      for (final source in sources) {
+        if (!mounted || box.remote) break;
+        await box.act('nodes.updateSource', {'id': source['id']});
       }
     } finally { if (mounted) setState(() => _updatingAll = false); }
   }
@@ -85,11 +91,14 @@ class _ProfilesPageState extends State<ProfilesPage> {
 
   Widget _card(BuildContext context, Json profile) {
     final box = context.box;
+    final selected = profile['id'] == box.selectedProfileId;
     return ProfileCard(
       key: ValueKey(profile['id']), profile: profile,
-      selected: profile['id'] == box.selectedProfileId,
+      selected: selected,
       updating: _updating.contains(profile['id']),
       menuItems: _menu(profile),
+      // On the page of the proxies the profile in use opens from its card.
+      onEdit: !widget.picker && selected ? () => openForm(this.context, ProfileDetailsPage(profile: profile)) : null,
       onPressed: box.transitioning ? null : () async {
         if (box.transitioning || box.remote) return;
         if (await box.act('profiles.select', {'id': profile['id']}) && widget.picker && context.mounted) context.safeNestedPop();
@@ -107,20 +116,22 @@ class _ProfilesPageState extends State<ProfilesPage> {
         label: context.tr('Add profile'), onPressed: open)),
     );
     if (!widget.picker) {
+      final updating = _updatingAll || _updating.isNotEmpty;
+      final updatable = profiles.any((p) => p['remote'] == true) || rows(box.nodes['sources']).isNotEmpty;
       return ProxiesPage(
-        title: 'Profiles',
+        title: 'Profiles', library: true,
         emptyState: !box.remote && profiles.isEmpty ? emptyState : null,
+        idleAction: box.remote ? null : AddProfileMenu(builder: (open) => TonalButton(size: TonalButtonSize.bar,
+          glyph: AppGlyphs.addCircle, label: context.tr('Add nodes'), onPressed: open)),
         actions: box.remote ? const [] : [
           AddProfileMenu(builder: (open) => AppBarActionButton(data: IconButtonData(
             glyph: AppGlyphs.addCircle, tooltip: context.tr('Add profile'), onPressed: open,
           ))),
-          AppBarActionButton(data: IconButtonData(
-            glyph: AppGlyphs.sync, tooltip: context.tr('Update all'),
-            isLoading: _updatingAll || _updating.isNotEmpty,
-            onPressed: _updatingAll || _updating.isNotEmpty || !profiles.any((p) => p['remote'] == true) ? null : _updateAll,
-          )),
         ],
-        sortItems: box.remote ? const [] : [
+        menuItems: box.remote ? const [] : [
+          // Remote profiles and node subscriptions, one after another.
+          PopupMenuItem(glyph: AppGlyphs.sync, label: context.tr('Update all'),
+            onPressed: updating || !updatable ? null : _updateAll),
           PopupMenuItem(glyph: AppGlyphs.layers, label: context.tr('Shared nodes'),
             onPressed: () => openPage(context, const NodesPage())),
           PopupMenuItem(glyph: AppGlyphs.sort, label: context.tr('Reorder profiles'),
@@ -266,16 +277,20 @@ class _AddProfileMenuState extends State<AddProfileMenu> {
   @override Widget build(BuildContext context) => AbsorbPointer(absorbing: _busy, child: PopupAnchor(
     targetBuilder: widget.builder,
     popupBuilder: (_) => PopupMenu(items: [
+      // What is read is told apart by its content: a configuration is a profile, anything else holds nodes.
       PopupMenuItem(glyph: AppGlyphs.qrCode, label: context.tr('Scan QR code'), onPressed: () => _import('Scan QR code')),
       PopupMenuItem(glyph: AppGlyphs.importFile, label: context.tr('File'), onPressed: () => _import('File')),
-      PopupMenuItem(glyph: AppGlyphs.cloudDownload, label: context.tr('Import from URL'),
-        onPressed: () => openForm(context, const ProfileForm(initial: {'url': '', 'remote': true}))),
-      PopupMenuItem(glyph: AppGlyphs.cloudSync, label: context.tr('Node subscription'),
-        onPressed: () => openForm(context, const NodeSubscriptionForm())),
       PopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Clipboard'), onPressed: () => _import('Clipboard')),
+      PopupMenuItem(section: PopupMenuSection(title: context.tr('Profile')), glyph: AppGlyphs.cloudDownload,
+        label: context.tr('Import from URL'),
+        onPressed: () => openForm(context, const ProfileForm(initial: {'url': '', 'remote': true}))),
       // Without content the profile starts from the default configuration of libbox.
-      PopupMenuItem(section: const PopupMenuSection(), glyph: AppGlyphs.customize,
-        label: context.tr('New profile'), onPressed: () => openForm(context, const ProfileForm(initial: {}))),
+      PopupMenuItem(glyph: AppGlyphs.customize, label: context.tr('New profile'),
+        onPressed: () => openForm(context, const ProfileForm(initial: {}))),
+      PopupMenuItem(section: PopupMenuSection(title: context.tr('Nodes')), glyph: AppGlyphs.cloudSync,
+        label: context.tr('Node subscription'), onPressed: () => openForm(context, const NodeSubscriptionForm())),
+      PopupMenuItem(glyph: AppGlyphs.add, label: context.tr('New node'),
+        onPressed: () => openForm(context, const NodeEditorPage(tag: ''))),
     ]),
   ));
 }

@@ -9,12 +9,17 @@ import 'nodes.dart';
 const _fixedTypes = {'direct', 'block', 'dns', 'bridge', 'selector', 'urltest', 'tailscale'};
 
 class ProxiesPage extends StatefulWidget {
-  const ProxiesPage({super.key, this.title = 'Proxies', this.header, this.emptyState,
-    this.actions = const [], this.sortItems = const []});
+  const ProxiesPage({super.key, this.title = 'Proxies', this.header, this.emptyState, this.idleAction,
+    this.actions = const [], this.menuItems = const [], this.library = false});
   final String title;
   final Widget? header, emptyState;
+  /// Offered where neither a group nor a shared node is listed.
+  final Widget? idleAction;
   final List<Widget> actions;
-  final List<PopupMenuItem> sortItems;
+  /// Entries of the page around this one, listed before the display options.
+  final List<PopupMenuItem> menuItems;
+  /// Whether the shared nodes follow the groups of the core.
+  final bool library;
   @override State<ProxiesPage> createState() => _ProxiesPageState();
 }
 class _ProxiesPageState extends State<ProxiesPage> {
@@ -29,6 +34,9 @@ class _ProxiesPageState extends State<ProxiesPage> {
   // The nodes marked for one action on all of them; null while a tap selects a node.
   Set<String>? _picked;
   int _pickRevision = 0;
+  Json? _library;
+  Set<String> _tags = const {};
+  bool _hadGroups = false;
 
   @override void dispose() {
     for (final scroll in _scrolls.values) { scroll.dispose(); }
@@ -42,8 +50,9 @@ class _ProxiesPageState extends State<ProxiesPage> {
       duration: context.motionDuration(const Duration(milliseconds: 300)), curve: Curves.easeOutCubic);
   }
 
-  PopupMenuItem _options(String label, Glyph glyph, String key, List<String> values, String fallback) => PopupMenuItem(
-    glyph: glyph, label: context.tr(label), subItems: [for (final value in values)
+  PopupMenuItem _options(String label, Glyph glyph, String key, List<String> values, String fallback,
+      {PopupMenuSection? section}) => PopupMenuItem(
+    section: section, glyph: glyph, label: context.tr(label), subItems: [for (final value in values)
       PopupMenuItem(label: context.tr(value), checked: (context.box.preferences[key] ?? fallback) == value,
         onPressed: () => context.box.setPreference(key, value)),
     ],
@@ -64,6 +73,34 @@ class _ProxiesPageState extends State<ProxiesPage> {
     }
   }
 
+  // The shared nodes as one more group. They are local data under their own name: nothing in
+  // them is selected, and a latency shows only for a node the running configuration holds too.
+  Json? _libraryGroup(BoxController box, List<Json> live) {
+    final label = context.tr('Shared nodes');
+    final nodes = widget.library && !box.remote ? rows(box.nodes['nodes']) : const <Json>[];
+    if (nodes.isEmpty || live.any((group) => group['tag'] == label)) return _library = null;
+    final running = {for (final group in live) for (final node in group['items'] as List<Json>) node['tag']: node};
+    final previous = _library?['items'] as List<Json>? ?? const <Json>[];
+    final before = {for (final node in previous) node['tag']: node};
+    final items = <Json>[];
+    for (final node in nodes) {
+      final tag = node['tag'].toString(), type = nodeSummary(node);
+      final current = running[tag], old = before[tag];
+      items.add(old != null && old['type'] == type && old['live'] == (current != null) &&
+          old['delay'] == current?['delay'] && old['testedAt'] == current?['testedAt'] ? old
+        : {'tag': tag, 'type': type, 'live': current != null, 'delay': current?['delay'], 'testedAt': current?['testedAt']});
+    }
+    // An unchanged list keeps its group, and with it the grid that was built for it.
+    var same = _library?['tag'] == label && previous.length == items.length;
+    for (var index = 0; same && index < items.length; index++) { same = identical(previous[index], items[index]); }
+    if (same) return _library;
+    return _library = {
+      'tag': label, 'library': true, 'selectable': false,
+      'type': context.tr('{count} nodes').replaceFirst('{count}', '${items.length}'),
+      'caption': context.tr('Shared by every profile. Tap a node to edit it.'), 'items': items,
+    };
+  }
+
   List<Json> _nodes(Json group) {
     final prefs = context.box.preferences;
     return _nodeLists.putIfAbsent(group['tag'].toString(), ProxyNodes.new).select(
@@ -73,9 +110,9 @@ class _ProxiesPageState extends State<ProxiesPage> {
   }
 
   // A node of the profile or of the shared nodes can be edited; a group and a built-in way out cannot.
-  bool _editable(Json node) => !context.box.remote &&
-      !_fixedTypes.contains(node['type'].toString().toLowerCase()) &&
-      !context.box.groups.any((group) => group['tag'] == node['tag']);
+  bool _editable(Json group, Json node) => !context.box.remote &&
+      (group['library'] == true || !_fixedTypes.contains(node['type'].toString().toLowerCase())) &&
+      !context.box.groups.any((other) => other['tag'] == node['tag']);
 
   void _pick(String tag) => setState(() {
     final picked = _picked ??= {};
@@ -93,19 +130,24 @@ class _ProxiesPageState extends State<ProxiesPage> {
     for (final group in groups)
       if (list || group['tag'] == _currentGroup)
         for (final node in _nodes(group))
-          if (_editable(node)) node['tag'] as String,
+          if (_editable(group, node)) node['tag'] as String,
   }.toList();
 
   Widget _card(BuildContext context, Json group, Json node) {
     final tag = node['tag'] as String;
-    final editable = _editable(node);
+    final editable = _editable(group, node);
+    final library = group['library'] == true;
+    void edit() => openForm(this.context, NodeEditorPage(tag: tag));
     return ProxyNodeCard(
       group: group, node: node, testing: _testing.contains(group['tag']) || _testing.contains(tag),
-      onSelect: () => _select(group, node), onTest: () => _test(tag),
+      onSelect: () => _select(group, node),
+      // The core tests what it runs: a shared node the configuration leaves out has no latency.
+      onTest: library && node['live'] != true ? null : () => _test(tag),
+      // Nothing is selected among the shared nodes, so a tap there opens the node.
+      onOpen: library && editable ? edit : null,
       picked: _picked?.contains(tag), onPick: editable ? () => _pick(tag) : null,
       menuItems: !editable ? const [] : [
-        PopupMenuItem(section: const PopupMenuSection(), glyph: AppGlyphs.edit, label: this.context.tr('Edit'),
-          onPressed: () => openForm(this.context, NodeEditorPage(tag: tag))),
+        PopupMenuItem(section: const PopupMenuSection(), glyph: AppGlyphs.edit, label: this.context.tr('Edit'), onPressed: edit),
         PopupMenuItem(glyph: AppGlyphs.checkDouble, label: this.context.tr('Select multiple'), onPressed: () => _pick(tag)),
         PopupMenuItem(danger: true, glyph: AppGlyphs.delete, label: this.context.tr('Delete'), onPressed: () => _remove([tag])),
       ],
@@ -144,22 +186,27 @@ class _ProxiesPageState extends State<ProxiesPage> {
 
   @override Widget build(BuildContext context) {
     final box = context.watchBox(BoxAspect.groups);
-    final groups = box.groups;
-    final liveTags = groups.map((group) => group['tag'].toString()).toSet();
-    _nodeLists.removeWhere((tag, _) => !liveTags.contains(tag));
-    _grids.removeWhere((tag, _) => !liveTags.contains(tag));
-    _selectedOffsets.removeWhere((tag, _) => !liveTags.contains(tag));
-    if (_scrolls.keys.any((tag) => !liveTags.contains(tag))) {
+    final live = box.groups;
+    final library = _libraryGroup(box, live);
+    final groups = library == null ? live : [...live, library];
+    final tags = _tags = groups.map((group) => group['tag'].toString()).toSet();
+    _nodeLists.removeWhere((tag, _) => !tags.contains(tag));
+    _grids.removeWhere((tag, _) => !tags.contains(tag));
+    _selectedOffsets.removeWhere((tag, _) => !tags.contains(tag));
+    if (_scrolls.keys.any((tag) => !tags.contains(tag))) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        final current = context.box.groups.map((group) => group['tag'].toString()).toSet();
-        for (final tag in _scrolls.keys.where((tag) => !current.contains(tag)).toList()) {
+        for (final tag in _scrolls.keys.where((tag) => !_tags.contains(tag)).toList()) {
           _scrolls.remove(tag)?.dispose();
         }
       });
     }
     final list = box.preferences['proxyLayout'] == 'List';
+    // Groups that arrive with the service take the place of the shared nodes that stood alone.
+    if (live.isNotEmpty && !_hadGroups && _currentGroup == library?['tag']) _currentGroup = null;
+    _hadGroups = live.isNotEmpty;
     if (!groups.any((group) => group['tag'] == _currentGroup)) _currentGroup = groups.firstOrNull?['tag'] as String?;
+    final testable = box.running && _currentGroup != null && _currentGroup != library?['tag'];
     // Nodes that left the groups, and a session that cannot edit, end what was marked.
     if (box.remote) _picked = null;
     final picked = _picked;
@@ -167,9 +214,11 @@ class _ProxiesPageState extends State<ProxiesPage> {
     final pickable = picked == null ? const <String>[] : _pickable(groups, list);
     final allPicked = picked != null && pickable.isNotEmpty && picked.containsAll(pickable);
     final topPadding = widget.header == null ? context.contentTopPadding : 0.0;
-    final body = groups.isEmpty ? widget.emptyState ?? NullStatus(
+    final body = live.isEmpty && widget.emptyState != null ? widget.emptyState! : groups.isEmpty ? NullStatus(
       label: context.tr(box.running ? 'No proxy groups in this configuration' : 'Start the service to view proxy groups'),
       illustration: NullStatusIllustration.proxies,
+      description: widget.idleAction == null ? null : context.tr('Imported nodes are shared by every profile.'),
+      action: widget.idleAction,
     ) : list ? ProxyListView(
       key: ValueKey(box.remote ? 'remote:${box.dashboard['remote']}' : 'local:${box.selectedProfileId}'),
       profileKey: box.remote ? 'remote:${box.dashboard['remote']}' : 'local:${box.selectedProfileId}',
@@ -197,16 +246,19 @@ class _ProxiesPageState extends State<ProxiesPage> {
         IconButtonData(glyph: AppGlyphs.delete, tooltip: context.tr('Delete'),
           onPressed: picked.isEmpty ? null : () => _remove(picked.toList())),
       ],
-      actions: picked == null ? widget.actions : null,
-      primaryAction: list || picked != null ? null : IconButtonData(glyph: AppGlyphs.bolt, tooltip: context.tr('Test latency'),
-        isLoading: _testing.contains(_currentGroup),
-        onPressed: box.running && _currentGroup != null ? () => _test(_currentGroup!) : null),
+      // The latency test stays in the bar: folded with the icons below it would leave a phone's bar.
+      actions: picked != null ? null : [
+        if (!list) AppBarActionButton(data: IconButtonData(glyph: AppGlyphs.bolt, tooltip: context.tr('Test latency'),
+          isLoading: _testing.contains(_currentGroup), onPressed: testable ? () => _test(_currentGroup!) : null)),
+        ...widget.actions,
+      ],
       iconActions: [
         if (!list && picked == null) IconButtonData(glyph: AppGlyphs.locate, tooltip: context.tr('Scroll to selected'), onPressed: groups.isEmpty ? null : _locate),
       ],
       menuItems: picked != null ? const [] : [
-        _options('Style', AppGlyphs.appsList, 'proxyLayout', const ['Tabs', 'List'], 'Tabs'),
-        ...widget.sortItems,
+        ...widget.menuItems,
+        _options('Style', AppGlyphs.appsList, 'proxyLayout', const ['Tabs', 'List'], 'Tabs',
+          section: widget.menuItems.isEmpty ? null : const PopupMenuSection()),
         _options('Node sort', AppGlyphs.sort, 'proxySort', const ['Default', 'Latency', 'Name'], 'Default'),
         _options('Layout', AppGlyphs.dashboard, 'proxyDensity', const ['Tight', 'Standard', 'Loose'], 'Standard'),
         _options('Size', AppGlyphs.textSize, 'proxyCardSize', const ['Compact', 'Standard', 'Loose'], 'Standard'),
@@ -215,7 +267,7 @@ class _ProxiesPageState extends State<ProxiesPage> {
           section: const PopupMenuSection(), onPressed: () => box.setPreference('hideTimeoutProxies', box.preferences['hideTimeoutProxies'] != true)),
         PopupMenuItem(glyph: AppGlyphs.bolt, label: context.tr('Test all'), onPressed: () async {
           if (!box.running) return;
-          for (final group in groups) { await _test(group['tag'] as String); }
+          for (final group in live) { await _test(group['tag'] as String); }
         }),
         PopupMenuItem(glyph: AppGlyphs.connections, label: context.tr('Close connections after switching'), checked: box.preferences['closeConnectionsOnSelect'] == true,
           onPressed: () => box.setPreference('closeConnectionsOnSelect', box.preferences['closeConnectionsOnSelect'] != true)),
@@ -253,7 +305,9 @@ class _ProxyTabsState extends State<_ProxyTabs> with SingleTickerProviderStateMi
         controller: _controller, groups: widget.groups, onSelected: widget.onSelected,
       )),
       Expanded(child: TabBarView(controller: _controller, children: [for (final group in widget.groups) Column(children: [
-        if (group['selectable'] != true) Padding(padding: const EdgeInsets.only(top: 8), child: Text(context.tr('Automatic selection'), style: context.listCaptionStyle)),
+        if (group['selectable'] != true) Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Text(group['caption'] as String? ?? context.tr('Automatic selection'),
+            textAlign: TextAlign.center, style: context.listCaptionStyle)),
         Expanded(child: widget.grid(group)),
       ])])),
     ]),

@@ -224,6 +224,8 @@ class _GroupSliverState extends State<_GroupSliver> with SingleTickerProviderSta
   Widget _pinnedHeader(bool unfolded) {
     final height = _headerHeight(context);
     final groupExtent = height + (_controller.isDismissed ? 0 : _rowsExtent);
+    // The shared nodes hold no selection to scroll to, and the core tests only its own groups.
+    final library = widget.group.group['library'] == true;
     (double, double, double, Color)? previous;
     Widget? header;
     return SliverLayoutBuilder(builder: (context, constraints) {
@@ -243,8 +245,9 @@ class _GroupSliverState extends State<_GroupSliver> with SingleTickerProviderSta
         Positioned(top: -cover, left: 0, right: 0, height: cover + height / 2, child: ColoredBox(color: pageColor)),
         SizedBox(height: height, child: ProxyGroupHeader(group: widget.group.group, expanded: widget.expanded,
           unfolded: unfolded, floating: floating, lift: lift, testing: widget.testing.contains(widget.group.name),
-          onToggle: () => widget.onToggle(widget.group.name), onLocate: () => widget.onLocate(widget.group.name),
-          onTest: () => widget.onTest(widget.group.name))),
+          onToggle: () => widget.onToggle(widget.group.name),
+          onLocate: library ? null : () => widget.onLocate(widget.group.name),
+          onTest: library ? null : () => widget.onTest(widget.group.name))),
       ])));
     });
   }
@@ -256,7 +259,9 @@ class ProxyGroupHeader extends StatelessWidget {
   final Json group;
   final bool expanded, unfolded, testing;
   final double floating, lift;
-  final VoidCallback onToggle, onLocate, onTest;
+  final VoidCallback onToggle;
+  /// Null for a group without a selection and a latency test, which then shows its type when open too.
+  final VoidCallback? onLocate, onTest;
 
   @override Widget build(BuildContext context) {
     final colors = context.colorScheme;
@@ -279,12 +284,12 @@ class ProxyGroupHeader extends StatelessWidget {
                 Flexible(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
                   EmojiText(group['tag'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyle.callout.of(context, emphasized: true)),
                   const SizedBox(height: 2),
-                  Flexible(child: EmojiText(group['selected'] as String? ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
+                  Flexible(child: EmojiText(group['selected'] as String? ?? group['caption'] as String? ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
                     style: AppTextStyle.caption1.of(context, emphasized: true).toLight)),
                 ])),
               ])),
               TonalButtonTheme(size: TonalButtonSize.compact, child: Row(children: [
-                if (expanded) TonalButtonGroup(size: TonalButtonSize.compact, children: [
+                if (expanded && onTest != null) TonalButtonGroup(size: TonalButtonSize.compact, children: [
                   IconButton(tooltip: context.tr('Scroll to selected'), onPressed: onLocate, iconSize: 19, icon: const GlyphIcon(AppGlyphs.locate)),
                   IconButton(tooltip: context.tr('Test latency'), onPressed: testing || !context.box.running ? null : onTest,
                     icon: testing ? ActivityIndicator(size: TonalButtonSize.compact.icon) : const GlyphIcon(AppGlyphs.bolt)),
