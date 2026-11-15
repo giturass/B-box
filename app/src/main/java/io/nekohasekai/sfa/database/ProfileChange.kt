@@ -8,7 +8,9 @@ internal object ProfileChange {
     suspend fun apply(
         save: suspend () -> Unit,
         restore: List<suspend () -> Unit>,
-        restoreBarrier: suspend (suspend () -> Unit) -> Unit = { it() },
+        // Null restores without a barrier. A suspend lambda as the default crashes the compiler
+        // when a caller is lowered before this file.
+        restoreBarrier: (suspend (suspend () -> Unit) -> Unit)? = null,
         applyService: suspend (recover: Boolean) -> Unit,
     ) {
         var applyAttempted = false
@@ -19,17 +21,18 @@ internal object ProfileChange {
         } catch (error: Exception) {
             withContext(NonCancellable) {
                 var restored = true
-                try {
-                    restoreBarrier {
-                        for (task in restore) {
-                            try {
-                                task()
-                            } catch (failure: Exception) {
-                                restored = false
-                                error.addSuppressed(failure)
-                            }
+                val restoreAll: suspend () -> Unit = {
+                    for (task in restore) {
+                        try {
+                            task()
+                        } catch (failure: Exception) {
+                            restored = false
+                            error.addSuppressed(failure)
                         }
                     }
+                }
+                try {
+                    if (restoreBarrier == null) restoreAll() else restoreBarrier(restoreAll)
                 } catch (failure: Exception) {
                     restored = false
                     error.addSuppressed(failure)
