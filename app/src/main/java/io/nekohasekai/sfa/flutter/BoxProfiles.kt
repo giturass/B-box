@@ -215,7 +215,7 @@ internal class BoxProfiles(
         val interval = (args["interval"] as? Number)?.toInt() ?: 60
         require(interval >= 15) { "Update interval must be at least 15 minutes" }
         val content = args["content"] as? String ?: if (id == 0L) {
-            if (url.isNotEmpty()) download(url) else "{}"
+            if (url.isNotEmpty()) download(url) else Libbox.getUIDefaultConfig().value
         } else null
         content?.let { validate(Libbox.removeUIRetiredCaptureOptions(it)) }
         return PreparedSave(id, name, url, interval, url.isNotEmpty() && args["autoUpdate"] == true,

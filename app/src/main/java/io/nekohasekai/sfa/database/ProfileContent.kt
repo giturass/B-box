@@ -24,8 +24,9 @@ internal object ProfileContent {
     fun revision(content: String): String = MessageDigest.getInstance("SHA-256")
         .digest(content.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
-    fun validate(content: String) {
-        Libbox.checkConfig(content)
+    /** A profile is checked the way it runs, with the shared nodes it takes. */
+    fun validate(content: String, library: String = NodeLibrary.read()) {
+        Libbox.checkConfig(NodeLibrary.expand(content, library))
     }
 
     fun requireStableService(status: Status = BoxService.currentStatus) {

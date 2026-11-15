@@ -37,6 +37,8 @@ class BoxController extends ChangeNotifier {
   Json toolState = {}, stun = {}, quality = {}, inbox = {}, ping = {};
   Json terminal = {};
   Json memory = {}, lan = {};
+  /// The shared nodes and their subscriptions, without the credentials of a node.
+  Json nodes = {};
   List<Json> transfers = [], usbDevices = [];
   List<Json> outbounds = [];
   List<Json> profiles = [], groups = [], connections = [], logs = [];
@@ -217,6 +219,7 @@ class BoxController extends ChangeNotifier {
       systemAccentColor = (result['systemAccentColor'] as num?)?.toInt() ?? 0xff007aff;
       if (unchanged('dashboard')) _setDashboard(json(result['dashboard']));
       if (unchanged('profiles')) profiles = rows(result['profiles']);
+      if (unchanged('nodes')) nodes = json(result['nodes']);
       if (unchanged('settings')) settings = json(result['settings']);
       if (unchanged('preferences')) preferences = json(result['preferences']);
       if (unchanged('lan') && result['lan'] is Map) lan = json(result['lan']);
@@ -319,6 +322,9 @@ class BoxController extends ChangeNotifier {
         profilesRevision++;
         _profileStats.clear();
         profiles = rows(value);
+        return const [BoxAspect.state];
+      case 'nodes':
+        nodes = json(value);
         return const [BoxAspect.state];
       case 'settings':
         settings = json(value);

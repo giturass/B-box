@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.flutter
 
+import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -82,6 +83,9 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     }
     private val reports = BoxReports(activity)
     private val profiles = BoxProfiles(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) {
+        recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
+    }
+    private val nodes = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) {
         recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
     }
     private val capture = BoxCapture(activity)
@@ -221,6 +225,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             "dashboard" -> invokeDashboard(method, args)
             "service" -> invokeService(method, args)
             "profiles" -> invokeProfiles(method, args)
+            "nodes" -> invokeNodes(method, args)
             "capture" -> invokeCapture(method, args)
             "groups", "mode", "systemProxy" -> invokeProxy(method, args)
             "connections" -> invokeConnections(method, args)
@@ -271,6 +276,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         val initialProfiles = async(Dispatchers.IO) { profiles.list() }
         val initialSettings = async(Dispatchers.IO) { settings() }
         val initialPreferences = async(Dispatchers.IO) { readPreferences() }
+        val initialNodes = async(Dispatchers.IO) { nodeState() }
         // The dashboard and the pending intent are read only after the stored state has loaded.
         val profileList = initialProfiles.await()
         val settingValues = initialSettings.await()
@@ -281,6 +287,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             "systemAccentColor" to systemAccentColor(),
             "dashboard" to dashboard.uiState.value.toWire(),
             "profiles" to profileList,
+            "nodes" to initialNodes.await(),
             "settings" to settingValues,
             "preferences" to preferenceValues,
             "intent" to activity.takeIntent(),
@@ -394,7 +401,12 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
 
     private fun decodeDocument(uri: Uri): Map<String, Any?> {
         val (name, bytes) = activity.readDocument(uri)
-        return profiles.decode(bytes, name)
+        return try {
+            profiles.decode(bytes, name)
+        } catch (e: Exception) {
+            // A document that is no configuration may hold proxy nodes.
+            mapOf("nodes" to (nodes.detect(bytes.toString(Charsets.UTF_8)) ?: throw e))
+        }
     }
 
     private suspend fun importResource(args: Map<String, Any?>): Map<String, Any?>? {
@@ -431,6 +443,61 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 mapOf("name" to (uri.host ?: "Profile"), "url" to value)
             }
             else -> withContext(Dispatchers.IO) { decodeDocument(uri) }
+        }
+    }
+
+    private suspend fun invokeNodes(method: String, args: Map<String, Any?>): Any? {
+        when (method) {
+            "nodes.parse" -> return withContext(Dispatchers.IO) { nodes.parse(args.string("content")) }
+            "nodes.detect" -> return withContext(Dispatchers.IO) { nodes.detect(args.string("content")) }
+            "nodes.clipboard" -> return clipboardNodes()
+            "nodes.get" -> return localProfiles { nodes.get(args.string("tag")) }
+            "nodes.add" -> return changeNodes { nodes.add(args.string("nodes")).also { ensureProfile(args) } }
+            "nodes.set" -> changeNodes { nodes.set(args.string("tag"), args.string("content"), args["revision"] as? String) }
+            "nodes.remove" -> changeNodes { nodes.remove((args["tags"] as List<*>).map { it as String }) }
+            "nodes.subscribe", "nodes.updateSource" -> return subscribeNodes(args)
+            "nodes.saveSource" -> changeNodes { nodes.saveSource(nodes.subscription(args)) }
+            "nodes.removeSource" -> changeNodes { nodes.removeSource(args.string("id")) }
+            else -> return toolBridge.invoke(method, args)
+        }
+        return null
+    }
+
+    private suspend fun subscribeNodes(args: Map<String, Any?>): Map<String, Any?> {
+        val session = CommandTarget.localSession()
+        // The subscription downloads before entering the operation lock.
+        val (subscription, parsed) = withContext(Dispatchers.IO) {
+            val subscription = if (args["url"] is String) nodes.subscription(args) else nodes.subscription(args.string("id"))
+            subscription to nodes.fetch(subscription)
+        }
+        return changeNodes(session) {
+            nodes.commit(subscription, parsed) { CommandTarget.requireLocalSession(session) }.also { ensureProfile(args) }
+        }
+    }
+
+    // Nodes imported before any profile exists get the default one to run with.
+    private suspend fun ensureProfile(args: Map<String, Any?>) {
+        val name = args["profileName"] as? String ?: return
+        if (ProfileManager.list().isEmpty()) profiles.save(mapOf("name" to name))
+    }
+
+    /** The node links copied since the last look, as libbox parsed them, or null. */
+    private suspend fun clipboardNodes(): String? {
+        val clipboard = activity.getSystemService(ClipboardManager::class.java) ?: return null
+        // The description is read first: the system announces every read of the text itself.
+        val description = clipboard.primaryClipDescription ?: return null
+        if (!description.hasMimeType("text/*")) return null
+        if (android.os.Build.VERSION.SDK_INT >= 26 && description.timestamp != 0L) {
+            if (description.timestamp == preferences.getLong("clipboardStamp", 0L)) return null
+            preferences.edit().putLong("clipboardStamp", description.timestamp).apply()
+        }
+        val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()?.trim().orEmpty()
+        if (text.length !in 8..262144) return null
+        return withContext(Dispatchers.IO) {
+            val revision = ProfileContent.revision(text)
+            if (revision == preferences.getString("clipboardNodes", null)) return@withContext null
+            preferences.edit().putString("clipboardNodes", revision).apply()
+            nodes.detect(text, links = true)
         }
     }
 
@@ -639,6 +706,23 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
 
     private suspend fun <T> changeProfiles(session: Long = CommandTarget.localSession(), block: suspend () -> T): T =
         localProfiles(session) { block().also { publishProfiles() } }
+
+    private suspend fun <T> changeNodes(session: Long = CommandTarget.localSession(), block: suspend () -> T): T = localProfiles(session) {
+        try {
+            block()
+        } finally {
+            withContext(NonCancellable) { publishNodes() }
+        }
+    }
+
+    private suspend fun publishNodes() {
+        emit("nodes", withContext(Dispatchers.IO) { nodeState() })
+        publishProfiles()
+    }
+
+    // An unreadable document is reported when it is used, not while the interface loads.
+    private fun nodeState(): Map<String, Any?> = runCatching { nodes.state() }
+        .getOrDefault(mapOf("nodes" to emptyList<Any>(), "sources" to emptyList<Any>()))
 
     private suspend fun publishProfiles() {
         val value = withContext(Dispatchers.IO) { profiles.list() }
