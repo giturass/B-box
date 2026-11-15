@@ -38,8 +38,8 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 | --- | --- | --- |
 | 首页与状态 | [dashboard.dart](flutter/lib/pages/dashboard.dart)、[status_panel.dart](flutter/lib/components/status_panel.dart)、[start_toggle.dart](flutter/lib/components/start_toggle.dart) | 复用状态布局、国家徽章、服务按钮形变及网络速率展示；启停调用原生服务流程 |
 | 配置卡与分组概览 | [profile_panel.dart](flutter/lib/components/profile_panel.dart)、[proxy_groups_panel.dart](flutter/lib/components/proxy_groups_panel.dart) | 使用真实配置元数据和内核分组；配置切换按钮固定在右侧，与进入配置的箭头同列居中对齐。代理组、出站、路由规则数字及加载占位与对应标签逐列居中对齐，远端未知数量保持未知 |
-| 配置页代理区域 | [proxies.dart](flutter/lib/pages/proxies.dart)、[proxy_card.dart](flutter/lib/components/proxy_card.dart)、[proxy_list.dart](flutter/lib/components/proxy_list.dart) | 在配置文件下方显示 libbox 分组，保留卡片/列表、搜索、测速与节点定位；只有可选择的组显示选择操作 |
-| 配置文件管理 | [profiles.dart](flutter/lib/pages/profiles.dart)、[profile_card.dart](flutter/lib/components/profile_card.dart)、[profile_details.dart](flutter/lib/pages/profile_details.dart) | 顶部横向配置卡片复用行高、选中态与相对更新时间，保留添加、更新、排序、编辑和导入 sing-box JSON；切换弹层使用自适应网格 |
+| 配置页代理区域 | [proxies.dart](flutter/lib/pages/proxies.dart)、[proxy_card.dart](flutter/lib/components/proxy_card.dart)、[proxy_list.dart](flutter/lib/components/proxy_list.dart) | 在配置文件下方显示 libbox 分组，保留卡片/列表、搜索、测速与节点定位；只有可选择的组显示选择操作。本机会话在分组之后附加“共享节点”，停服时也可查看和编辑 |
+| 配置文件管理 | [profiles.dart](flutter/lib/pages/profiles.dart)、[profile_card.dart](flutter/lib/components/profile_card.dart)、[profile_details.dart](flutter/lib/pages/profile_details.dart) | 顶部横向配置卡片复用行高、选中态与相对更新时间，保留添加、更新、排序、编辑和导入 sing-box JSON；当前配置的卡片以铅笔按钮进入编辑，切换弹层使用自适应网格 |
 | 首页编辑 | [dashboard_editor.dart](flutter/lib/components/dashboard_editor.dart) | 右上角 FlClash 铅笔按钮或长按卡片进入原地编辑，保留摇摆、长按排序、移除徽章及添加列表 |
 | 内存与局域网 | [memory_panel.dart](flutter/lib/components/memory_panel.dart)、[intranet_panel.dart](flutter/lib/components/intranet_panel.dart) | 分别使用 Go/进程内存和 sing-box 监听配置，不虚构 Mihomo 内存或全局代理端口 |
 | 系统 HTTP 代理 | [system_proxy_panel.dart](flutter/lib/components/system_proxy_panel.dart) | 采用参考版 VPN 卡片的布局、状态徽章和紧凑开关，使用 B-box 自有的大陆轮廓地球字形；开关接入内核上报状态及既有 Android 桥接 |
@@ -95,9 +95,11 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 ### 配置页与内核差异
 
-配置页顶部仅显示可横向滑动的两行卡片，下方为当前内核的代理分组；配置文件滚动和分组切换使用各自的控制器，滑动卡片不选择配置或切换底栏。卡片保留参考版固定行高、选中徽标和更新动画，进入页面及已选配置变化时定位当前选择。切换配置的弹层仍使用最多三列的自适应网格，并从顶部打开。远程会话顶部显示远程配置摘要，下方使用远端分组，隐藏本机配置卡片及管理操作。
+配置页顶部仅显示可横向滑动的两行卡片，下方为当前内核的代理分组；配置文件滚动和分组切换使用各自的控制器，滑动卡片不选择配置或切换底栏。卡片保留参考版固定行高和更新动画，进入页面及已选配置变化时定位当前选择；顶部当前配置的卡片以铅笔按钮代替选中徽标，点击进入编辑页，更新期间禁用。切换配置的弹层仍使用最多三列的自适应网格和选中徽标，并从顶部打开。远程会话顶部显示远程配置摘要，下方使用远端分组，隐藏本机配置卡片及管理操作。
 
-页面右上角依次为搜索、添加、更新全部和收纳菜单；配置卡片外不再显示“配置文件”标题及独立管理按钮行。添加按钮和空状态按钮均打开菜单，新建入口标为“新建配置”。配置文件排序和节点排序并列放在收纳菜单中，测速及节点定位沿用工具栏收纳逻辑；配置文件不足两个时禁用排序，没有远程订阅或正在更新时禁用更新全部。配置排序使用分组背景、拖动手柄及拖动浮起效果。长按菜单依次提供编辑、更新（远程配置）、复制链接和二维码（远程配置）、分享、导出及删除，删除标为危险操作。当前选中配置的删除项禁用，停服时也需先切换到其他配置；配置页和切换弹层均在打开确认框前及确认后复核最新选择，原生保护见 [app.md](app.md#配置服务应用与备份)。编辑页显示配置摘要，提供元数据分组表单、分项配置和原始 JSON 编辑入口。
+页面右上角依次为搜索、当前分组测速、添加和收纳菜单；配置卡片外不再显示“配置文件”标题及独立管理按钮行。卡片样式下测速按钮固定在工具栏、不参与收纳，列表样式由各分组标题测速；节点定位沿用工具栏收纳逻辑。添加按钮和空状态按钮打开同一菜单，分为三段：扫描二维码、文件和剪贴板按读到的内容区分配置与节点，“配置”段提供从 URL 导入和“新建配置”，“节点”段提供节点订阅和新建节点。收纳菜单首段为全部更新、共享节点和配置排序，其后是样式、节点排序、布局、尺寸等显示选项；全部更新依次更新远程配置和节点订阅，两者都没有或正在更新时禁用，配置文件不足两个时禁用排序。配置排序使用分组背景、拖动手柄及拖动浮起效果。长按菜单依次提供编辑、更新（远程配置）、复制链接和二维码（远程配置）、分享、导出及删除，删除标为危险操作。当前选中配置的删除项禁用，停服时也需先切换到其他配置；配置页和切换弹层均在打开确认框前及确认后复核最新选择，原生保护见 [app.md](app.md#配置服务应用与备份)。编辑页显示配置摘要，提供元数据分组表单、分项配置和原始 JSON 编辑入口。
+
+本机会话在内核分组之后附加“共享节点”分组，内容来自节点库而不是内核，名称与内核分组重名时不显示。分组中没有选中项：点按节点打开编辑，长按提供编辑、多选和删除；只有运行中的配置同样包含的节点才显示延迟并可测速，工具栏测速在该分组禁用。服务未启动时它单独显示，内核分组随服务出现后切回第一个内核分组；远程会话不显示。内核分组的节点点按即选择，长按菜单不含“选择”项，配置或共享节点中定义的节点同样提供编辑、多选和删除，多选时工具栏显示数量、全选和删除。既没有内核分组也没有共享节点时，空状态提供“添加节点”按钮；没有配置文件时仍先显示添加配置的空状态。
 
 服务启动中或停止中，配置列表和已打开的切换弹层禁用配置选择，首页切换配置按钮同步禁用；服务进入运行或停止状态后恢复。原生状态复核见 [app.md](app.md#配置服务应用与备份)。
 
@@ -172,7 +174,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 **配置、编辑与备份**
 
-- [profiles_test.dart](flutter/test/profiles_test.dart)：新建与二进制导入的内容/元数据、添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、本地时间的未知占位及原生元数据事件刷新、自动更新校验、选中配置定位；横向滑动不切页或选择配置，卡片与列表两种代理样式仍能测速并通过原生确认切换配置。列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、通过右上角收纳菜单进入配置排序后的冲突恢复，以及远程分组选择及本机配置隔离继续覆盖。
+- [profiles_test.dart](flutter/test/profiles_test.dart)：新建与二进制导入的内容/元数据、添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、本地时间的未知占位及原生元数据事件刷新、自动更新校验、选中配置定位；横向滑动不切页或选择配置，卡片与列表两种代理样式仍能测速并通过原生确认切换配置，卡片样式从工具栏按钮测速。停服时的“添加节点”空状态、当前配置的铅笔按钮、共享节点分组、收纳菜单的全部更新依次更新远程配置与节点订阅，以及点按共享节点进入编辑均有覆盖。列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、通过右上角收纳菜单进入配置排序后的冲突恢复，以及远程分组选择及本机配置隔离继续覆盖。
 - [configuration_test.dart](flutter/test/configuration_test.dart)：MITM、HTTP 改写、脚本三种配置及 Cron 草稿通过独立路径保存，HTTP/2、证书校验及 QUIC 显式关闭选项正确保存，关闭改写保留 MITM/脚本，校验失败保留内容，原始编辑按修订写入内容且不改动配置元数据。
 - [code_editor_test.dart](flutter/test/code_editor_test.dart)：加载应用实际的等宽字体，对照 `RenderEditable` 检查行号在折行、宽度/字号变化及滚动后的对齐，覆盖空行、末尾换行和替换内容。选区用例在 0.8、1.0、1.4 倍字号下实际拖动两端手柄，检查跨行选择、折行文档滚动后的定位，以及通过复制菜单取得的原文范围。
 - [backup_test.dart](flutter/test/backup_test.dart)：取消本地选择器不报告成功也不恢复数据，导出使用紧凑 JSON；恢复传递范围与策略，失败后可重试；WebDAV 上传等待服务器确认且不打开本地选择器；WebDAV 表单校验目录 URL，保存失败和取消关闭后保留长输入。
@@ -207,21 +209,22 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-2026-11-14，配置卡片顶部精简及工具栏收纳调整的验证源码为 `2be09f60fcf6244f9f30c7899c5da382359701e0`，对应 [Actions 43570946186](https://github.com/giturass/B-box/actions/runs/43570946186) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43570946186/job/132374987419)。Flutter 分析、259 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 84 条 info、0 条 warning/error。更新后的配置排序用例从右上角收纳菜单进入，确认菜单同时提供节点排序，并继续检查原生修订冲突后的草稿与重试；分组测速用例从收纳菜单执行当前分组操作，列表样式保留分组内按钮。
+2026-11-15，配置页重新设计的验证源码为 `d1282569f242832437824865a0f6e1cf84b8599e`，对应 [Actions 43723480439](https://github.com/giturass/B-box/actions/runs/43723480439) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43723480439/job/132840276393)。Flutter 分析、260 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 84 条 info、0 条 warning/error。新增用例覆盖停服时的“添加节点”空状态、仅当前配置卡片提供铅笔、共享节点分组及其卡片不提供测速、收纳菜单的全部更新依次调用远程配置与节点订阅的更新，以及点按共享节点打开节点编辑；卡片样式的分组测速用例改为点击工具栏按钮，列表样式保留分组内按钮。
 
-本次实际查看 [newui-validation](https://github.com/giturass/B-box/actions/runs/43570946186/artifacts/14104274398) 的以下截图，路径相对 `build/screenshots/`：
+本次实际查看 [newui-validation](https://github.com/giturass/B-box/actions/runs/43723480439/artifacts/14165772204) 的以下截图，路径相对 `build/screenshots/`：
 
 | 截图 | 核对结果 |
 | --- | --- |
-| `360-light-1.0-Profiles-populated.png` | 配置卡片外的标题和独立按钮行已移除，右上角按搜索、添加、更新、收纳排列；下方代理组及选中状态保留 |
-| `360-dark-1.4-Profiles-populated.png` | 大字号深色主题下四个顶部按钮均可辨识，配置卡片和代理卡片未重叠，长文案按既有规则省略 |
-| `360-dark-1.4-Profiles-scrolled.png` | 横向滑动后本地配置进入视口，四个顶部按钮和下方分组保持位置，底栏仍选中配置；卡片随滚动视口裁切 |
-| `navigation/fixed-black.png` | 320 宽纯黑主题及大字号下四个顶部按钮完整显示，无远程订阅时更新按钮禁用；长英文页面标题及底栏文案省略，固定底栏和停服提示各自保留区域 |
-| `800-light-1.0-Profiles-populated.png` | 宽屏使用相同的四个顶部按钮顺序，配置卡片直接排列在分组上方，侧栏保留四个目的地 |
+| `360-light-1.0-Profiles-populated.png` | 右上角依次为搜索、测速、添加和收纳；当前配置的卡片在更新时间右侧显示铅笔，不再显示选中标记；下方分组、选中节点及延迟保留 |
+| `360-dark-1.4-Profiles-populated.png` | 大字号深色主题下四个顶部按钮和铅笔均可辨识，配置名按既有规则省略，配置卡片与代理卡片未重叠 |
+| `360-dark-1.4-Profiles-scrolled.png` | 横向滑动后铅笔随当前配置的卡片移动，进入视口的本地配置不显示铅笔；顶部按钮、分组和底栏保持位置 |
+| `360-light-1.0-Profiles.png` | 没有配置时保留添加配置的空状态，测速按钮禁用，其余三个顶部按钮可用 |
+| `navigation/fixed-black.png` | 320 宽纯黑主题及大字号、停服且没有共享节点时，分组区域显示启动服务的说明、共享节点提示和“Add nodes”按钮；测速按钮禁用，四个顶部按钮完整显示，页面标题及底栏文案省略 |
+| `800-light-1.0-Profiles-populated.png` | 宽屏使用相同的四个按钮顺序，当前配置的卡片显示铅笔，另一配置不显示 |
 
-另查看 [API 24 smoke 产物](https://github.com/giturass/B-box/actions/runs/43570946186/artifacts/14105061141) 的 `04-core-proxies.png`，确认实际应用中的导入配置和内核分组同页，配置卡片外无独立标题行，右上角四个按钮按预期排列。
+另查看 [API 24 smoke 产物](https://github.com/giturass/B-box/actions/runs/43723480439/artifacts/14166127563) 的 `04-core-proxies.png`，确认实际应用中右上角为同样的四个按钮，导入的当前配置卡片显示铅笔，内核分组和节点卡片位于其下。
 
-本机已通过 `git diff --check`、`python3 tools/verify_newui.py` 和文档链接/锚点检查。上述 Flutter 截图使用测试桥接数据，Android 截图来自临时 x86_64 模拟器，均属于抽样检查；没有进行全应用逐像素验收或 ARM64 实机视觉、性能及真实远程会话验收。四组 Android smoke 全部通过，产物核对及核心/JVM 覆盖范围见 [应用验证记录](app.md#当前验证记录)。
+本机已通过 `git diff --check`、`python3 tools/verify_newui.py` 和文档链接/锚点检查。上述 Flutter 截图使用测试桥接数据，Android 截图来自临时 x86_64 模拟器，均属于抽样检查。共享节点分组、分段的添加菜单和收纳菜单只有交互测试，没有截图；没有进行全应用逐像素验收或 ARM64 实机视觉、性能及真实远程会话验收。同一运行的四组 Android smoke 全部通过，产物核对及核心/JVM 覆盖范围见 [应用验证记录](app.md#当前验证记录)；此后仅更新文档和来源清单说明的提交不改变上述验证源码。
 
 ### 历史验证记录
 
@@ -229,6 +232,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 | 日期 | 主题 | 验证源码 | Actions | 测试 / info | 当时实际查看的截图 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-11-14 | 配置卡片顶部精简及工具栏收纳调整 | `2be09f60fcf6244f9f30c7899c5da382359701e0` | [43570946186](https://github.com/giturass/B-box/actions/runs/43570946186)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43570946186/job/132374987419)） | 259 / 84 | `360-light-1.0-Profiles-populated.png`、`360-dark-1.4-Profiles-populated.png`、`360-dark-1.4-Profiles-scrolled.png`、`navigation/fixed-black.png`、`800-light-1.0-Profiles-populated.png`；另查看 API 24 smoke 的 `04-core-proxies.png`，详见 Git `d128256:flclash.md` |
 | 2026-11-14 | 配置/代理合并、设置底栏与仪表盘铅笔 | `2adc1b653bd98acc68929deec19f77dfa04f0022` | [43562639502](https://github.com/giturass/B-box/actions/runs/43562639502) | 259 / 84 | 配置滑动前后、深浅主题/大字号、固定底栏、宽屏、设置与仪表盘共七张 Flutter 截图；API 24 启动、分组、设置三张模拟器截图，详见 Git `ab20ad1:flclash.md` |
 | 2026-11-14 | 配置合并首轮测试定位修正 | `6dcc6ed17e49834b6bae4c201ed6d21032f813cd` | [43562160382](https://github.com/giturass/B-box/actions/runs/43562160382) | 259（7 失败） / 87 | 不计为通过：底栏 Settings 提示被误算为仪表盘按钮、折叠分组查找测速按钮，共七项用例失败；修正推送取消尚未完成的作业，截图不作为当前验收 |
 | 2026-11-14 | 代码整理与 MASQUE 网络重置修复 | `06eed8f5f830a90b9853995ced3b2e211deca628` | [43523435178](https://github.com/giturass/B-box/actions/runs/43523435178)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43523435178/job/132223173515)） | 257 / 84 | `requests/unified-related-requests.png`、`requests/requests-pagination.png`、`requests/independent-mitm-config.png`、`navigation/fixed-light.png`、`360-light-1.0-Dashboard-populated.png` |
