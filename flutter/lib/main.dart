@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show LicenseRegistry, LicenseEntryWithL
 import 'package:flutter/services.dart';
 import 'widgets.dart';
 import 'pages/dashboard.dart';
+import 'pages/nodes.dart';
 import 'pages/profiles.dart';
 import 'pages/tools.dart';
 import 'pages/settings.dart';
@@ -146,24 +147,47 @@ class HomePage extends StatefulWidget {
   @override State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int _index = 0;
   bool _sidebarExpanded = false;
   StreamSubscription<String>? _intents;
   BoxController? _box;
-  bool _handlingIntent = false;
+  bool _handlingIntent = false, _readingClipboard = false;
   static const _items = <(String, Glyph)>[
     ('Dashboard', AppGlyphs.dashboard), ('Profiles', AppGlyphs.profiles),
     ('Tools', AppGlyphs.tools), ('Settings', AppGlyphs.settings),
   ];
   static const _pages = [DashboardPage(), ProfilesPage(), ToolsPage(), SettingsPage()];
 
+  @override void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); }
+
   @override void didChangeDependencies() {
     super.didChangeDependencies();
     if (_box != null) return;
     _box = context.box;
     _intents = _box!.intents.stream.listen((_) => _drainIntents());
-    WidgetsBinding.instance.addPostFrameCallback((_) => _drainIntents());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _drainIntents();
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) _offerClipboard();
+    });
+  }
+
+  @override void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _offerClipboard();
+  }
+
+  // Android shows the clipboard to the focused app alone, so it is read once the window is resumed.
+  // The bridge answers each copied text once, and only when it is made of node links.
+  Future<void> _offerClipboard() async {
+    final box = _box;
+    if (box == null || _readingClipboard || box.remote || box.preferences['clipboardImport'] == false) return;
+    _readingClipboard = true;
+    try {
+      final parsed = await box.call('nodes.clipboard');
+      if (parsed is String && mounted) await offerClipboardNodes(context, parsed);
+    } catch (_) {
+      // Nothing was asked for; the import menus report their own failures.
+    } finally { _readingClipboard = false; }
   }
 
   Future<void> _drainIntents() async {
@@ -183,11 +207,15 @@ class _HomePageState extends State<HomePage> {
         return;
       }
       final data = json(await _box!.call('profiles.decodeIntent', {'uri': uri}));
-      if (mounted) await openForm(context, ProfileForm(initial: data));
+      if (mounted) await openImport(context, data);
     } catch (error) { _box!.report(error); }
   }
 
-  @override void dispose() { _intents?.cancel(); super.dispose(); }
+  @override void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _intents?.cancel();
+    super.dispose();
+  }
 
   @override Widget build(BuildContext context) {
     final mobile = context.isMobileView;

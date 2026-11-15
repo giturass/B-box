@@ -366,6 +366,18 @@ const _zh = <String, String>{
   'Clipboard import': '从剪贴板导入', 'Clipboard export': '导出到剪贴板',
   'Show apps without Internet permission': '显示无网络权限应用', 'Application query failed': '应用查询失败',
   'Access control is disabled': '应用访问控制未开启', 'Only selected apps use the VPN': '仅选中的应用使用 VPN', 'Selected apps bypass the VPN': '选中的应用绕过 VPN',
+  'Shared nodes': '共享节点', 'Nodes': '节点', 'Subscriptions': '订阅', 'Node subscription': '节点订阅',
+  'Import nodes': '导入节点', 'Nodes imported': '已导入节点', 'Add nodes': '添加节点', 'New node': '新建节点', 'Skipped': '已跳过',
+  'Select multiple': '多选', '{count} selected': '已选择 {count} 项',
+  'Delete this node?': '删除此节点？', 'Delete the selected nodes?': '删除所选节点？',
+  'Delete this subscription?': '删除此订阅？', 'Its nodes are deleted with it.': '其节点将一并删除。',
+  'Import nodes from the clipboard?': '导入剪贴板中的节点？', 'Offer copied node links': '提示导入已复制的节点链接',
+  'No shared nodes': '暂无共享节点',
+  'Import share links, a subscription or a file. Every profile can use these nodes.': '导入分享链接、订阅或文件，所有配置均可使用这些节点。',
+  'Nodes served by proxy providers are not included.': '不包含由代理提供者下发的节点。',
+  'Imported nodes are shared by every profile.': '导入的节点可被所有配置共用。',
+  'Enter an HTTP or HTTPS subscription URL': '请输入 HTTP 或 HTTPS 订阅链接',
+  'Share links, Base64, Clash, SIP008 and sing-box subscriptions are read for their nodes only.': '支持分享链接、Base64、Clash、SIP008 与 sing-box 订阅，仅读取其中的节点。',
 };
 
 extension BoxLocalization on BuildContext {

@@ -4,6 +4,7 @@ import '../widgets.dart';
 import '../components/form.dart';
 import '../components/profile_card.dart';
 import 'profile_details.dart';
+import 'nodes.dart';
 import 'proxies.dart';
 
 // libbox remote_profile.go stores the display name in the URL fragment.
@@ -120,6 +121,8 @@ class _ProfilesPageState extends State<ProfilesPage> {
           )),
         ],
         sortItems: box.remote ? const [] : [
+          PopupMenuItem(glyph: AppGlyphs.layers, label: context.tr('Shared nodes'),
+            onPressed: () => openPage(context, const NodesPage())),
           PopupMenuItem(glyph: AppGlyphs.sort, label: context.tr('Reorder profiles'),
             onPressed: profiles.length < 2 ? null : () => openForm(context, const ProfileOrderPage())),
         ],
@@ -236,8 +239,14 @@ Future<void> _importProfile(BuildContext context, String source) async {
       case 'Scan QR code':
         data = await openPage<Json>(context, const ScanPage());
     }
-    if (data != null && context.mounted) await openForm(context, ProfileForm(initial: data));
+    if (data != null && context.mounted) await openImport(context, data);
   } catch (error) { box.report(error); }
+}
+
+/// Opens what an import decoded: the nodes of a link or a subscription, or the form of a profile.
+Future<void> openImport(BuildContext context, Json data) async {
+  final nodes = data['nodes'];
+  await openForm(context, nodes is String ? NodeImportPage(parsed: nodes) : ProfileForm(initial: data));
 }
 
 class AddProfileMenu extends StatefulWidget {
@@ -261,9 +270,12 @@ class _AddProfileMenuState extends State<AddProfileMenu> {
       PopupMenuItem(glyph: AppGlyphs.importFile, label: context.tr('File'), onPressed: () => _import('File')),
       PopupMenuItem(glyph: AppGlyphs.cloudDownload, label: context.tr('Import from URL'),
         onPressed: () => openForm(context, const ProfileForm(initial: {'url': '', 'remote': true}))),
+      PopupMenuItem(glyph: AppGlyphs.cloudSync, label: context.tr('Node subscription'),
+        onPressed: () => openForm(context, const NodeSubscriptionForm())),
       PopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Clipboard'), onPressed: () => _import('Clipboard')),
+      // Without content the profile starts from the default configuration of libbox.
       PopupMenuItem(section: const PopupMenuSection(), glyph: AppGlyphs.customize,
-        label: context.tr('New profile'), onPressed: () => openForm(context, const ProfileForm(initial: {'content': '{}'}))),
+        label: context.tr('New profile'), onPressed: () => openForm(context, const ProfileForm(initial: {}))),
     ]),
   ));
 }
@@ -286,10 +298,12 @@ class _AddProfilePageState extends State<AddProfilePage> {
       generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.link), title: Text(context.tr('Import from URL')),
           widget: const ProfileForm(initial: {'url': '', 'remote': true}), forceFull: false),
+        ListItem.open(leading: const GlyphIcon(AppGlyphs.cloudSync), title: Text(context.tr('Node subscription')),
+          widget: const NodeSubscriptionForm(), forceFull: false),
         for (final item in [('File', AppGlyphs.profiles), ('Clipboard', AppGlyphs.copy), ('Scan QR code', AppGlyphs.qrCode)])
           ListItem(leading: GlyphIcon(item.$2), title: Text(context.tr(item.$1)), onTap: _loading ? null : () => _import(item.$1)),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.add), title: Text(context.tr('New profile')),
-          widget: const ProfileForm(initial: {'content': '{}'}), forceFull: false),
+          widget: const ProfileForm(initial: {}), forceFull: false),
       ], footer: context.tr('This URL must serve a sing-box JSON configuration.')),
     ],
   );
@@ -299,6 +313,9 @@ Future<Json> decodeImport(BoxController box, String text) async {
   if (text.startsWith('https://') || text.startsWith('http://') || text.startsWith('sing-box://')) {
     return json(await box.call('profiles.decodeIntent', {'uri': text}));
   }
+  // Share links and subscription texts hold nodes only; a whole configuration stays a profile.
+  final nodes = await box.call('nodes.detect', {'content': text});
+  if (nodes is String) return {'nodes': nodes};
   await box.call('config.check', {'content': text});
   return {'name': 'Imported profile', 'content': text};
 }

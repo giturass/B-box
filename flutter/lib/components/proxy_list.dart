@@ -26,9 +26,11 @@ class ProxyListGroup {
 
 class ProxyListView extends StatefulWidget {
   const ProxyListView({super.key, required this.profileKey, required this.groups,
-    required this.testing, required this.cardBuilder, required this.onTest, this.topPadding});
+    required this.testing, required this.cardBuilder, required this.onTest, this.topPadding, this.revision});
   final String profileKey;
   final double? topPadding;
+  /// Changes when the cards have to be built again for a reason the groups do not show.
+  final Object? revision;
   final List<ProxyListGroup> groups;
   final Set<String> testing;
   final Widget Function(BuildContext, Json, Json) cardBuilder;
@@ -110,7 +112,7 @@ class _ProxyListViewState extends State<ProxyListView> {
     Widget buildGroup(ProxyListGroup group) => _GroupSliver(
       key: ValueKey(group.name), group: group, columns: _columns, gap: _gap,
       extent: ProxyCardMetrics.of(context, context.box.preferences).rowExtent,
-      expanded: _unfolded!.contains(group.name), testing: widget.testing,
+      expanded: _unfolded!.contains(group.name), testing: widget.testing, revision: widget.revision,
       cardBuilder: widget.cardBuilder, onToggle: _toggle, onLocate: _locate, onTest: widget.onTest,
     );
     return Scrollbar(controller: _controller, thumbVisibility: true, child: CustomScrollView(
@@ -135,8 +137,9 @@ class _ProxyListViewState extends State<ProxyListView> {
 class _GroupSliver extends StatefulWidget {
   const _GroupSliver({super.key, required this.group, required this.columns, required this.gap,
     required this.extent, required this.expanded, required this.testing, required this.cardBuilder,
-    required this.onToggle, required this.onLocate, required this.onTest});
+    required this.onToggle, required this.onLocate, required this.onTest, this.revision});
   final ProxyListGroup group;
+  final Object? revision;
   final int columns;
   final double gap, extent;
   final bool expanded;
@@ -166,7 +169,8 @@ class _GroupSliverState extends State<_GroupSliver> with SingleTickerProviderSta
       widget.expanded ? _controller.forward() : _controller.reverse();
     }
     if (widget.group.group != oldWidget.group.group || !listEquals(widget.group.nodes, oldWidget.group.nodes) ||
-        widget.columns != oldWidget.columns || widget.extent != oldWidget.extent || !setEquals(widget.testing, oldWidget.testing)) {
+        widget.columns != oldWidget.columns || widget.extent != oldWidget.extent || !setEquals(widget.testing, oldWidget.testing) ||
+        widget.revision != oldWidget.revision) {
       _rows = null;
     }
   }

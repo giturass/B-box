@@ -25,14 +25,22 @@ int proxyColumns(double width, Json preferences) {
 
 class ProxyNodeCard extends StatelessWidget {
   const ProxyNodeCard({super.key, required this.group, required this.node,
-    required this.testing, required this.onSelect, required this.onTest});
+    required this.testing, required this.onSelect, required this.onTest,
+    this.menuItems = const [], this.picked, this.onPick});
   final Json group, node;
   final bool testing;
   final VoidCallback onSelect, onTest;
+  /// Entries of the page, listed after those of the card.
+  final List<PopupMenuItem> menuItems;
+  /// Whether the card is marked while several nodes are chosen; null outside that mode.
+  final bool? picked;
+  final VoidCallback? onPick;
 
   @override Widget build(BuildContext context) {
     final metrics = ProxyCardMetrics.of(context, context.box.preferences);
     final selected = group['selected'] == node['tag'];
+    final picking = picked != null;
+    final marked = picked ?? selected;
     final delay = (node['delay'] as num?)?.toInt() ?? 0;
     final tested = (node['testedAt'] as num? ?? 0) > 0;
     final delayText = delay > 0 ? '$delay ms' : tested ? context.tr('Unreachable') : '—';
@@ -40,25 +48,24 @@ class ProxyNodeCard extends StatelessWidget {
         ? context.colorScheme.error : delay < 300 ? context.colorScheme.success : context.colorScheme.warning;
     return ContextMenuRegion(
       key: ValueKey((group['tag'], node['tag'])),
-      menuItems: [
-        if (group['selectable'] == true)
-          PopupMenuItem(glyph: AppGlyphs.checkCircle, label: context.tr('Select'), checked: selected,
-            onPressed: context.box.running ? onSelect : null),
+      // A tap selects the node; while several are chosen it marks the card and the menu is off.
+      menuItems: picking ? null : [
         PopupMenuItem(glyph: AppGlyphs.bolt, label: context.tr('Test latency'),
           onPressed: context.box.running && !testing ? onTest : null),
         PopupMenuItem(glyph: AppGlyphs.info, label: context.tr('Details'), onPressed: () => openForm(context, BoxPage(title: 'Details', children: [
           DetailRows({'Name': node['tag'], 'Protocol': node['type'], 'Latency': delayText, 'Proxy groups': group['tag']}),
         ]))),
+        ...menuItems,
       ],
       child: Card(
-        radius: AppCorner.lg, enterActionsOnRight: true, isSelected: selected,
-        onPressed: group['selectable'] == true && context.box.running ? onSelect : null,
+        radius: AppCorner.lg, enterActionsOnRight: true, isSelected: marked,
+        onPressed: picking ? onPick : group['selectable'] == true && context.box.running ? onSelect : null,
         child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Column(
           mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Expanded(child: SizedBox(height: metrics.nameHeight, child: EmojiText(node['tag'].toString(),
                 maxLines: metrics.compact ? 1 : 2, overflow: TextOverflow.ellipsis, style: AppTextStyle.subheadline.of(context)))),
-              if (selected) const Padding(padding: EdgeInsetsDirectional.only(start: 4), child: SelectionBadge()),
+              if (marked) const Padding(padding: EdgeInsetsDirectional.only(start: 4), child: SelectionBadge()),
             ]),
             const SizedBox(height: 8),
             if (metrics.loose) SizedBox(height: metrics.detailHeight, child: Text(node['type'].toString(), maxLines: 1,
@@ -69,7 +76,7 @@ class ProxyNodeCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis, style: AppTextStyle.footnote.of(context).copyWith(color: context.colorScheme.onSurface.opacity80)))),
               if (!metrics.loose) const SizedBox(width: 4),
               Flexible(child: Semantics(button: true, label: context.tr('Test latency'), child: GestureDetector(
-                behavior: HitTestBehavior.opaque, onTap: context.box.running && !testing ? onTest : null,
+                behavior: HitTestBehavior.opaque, onTap: picking ? onPick : context.box.running && !testing ? onTest : null,
                 child: FadeBox(alignment: metrics.loose ? Alignment.centerLeft : Alignment.centerRight, child: testing
                   ? ActivityIndicator(size: metrics.delayHeight)
                   : !tested ? GlyphIcon(AppGlyphs.bolt, size: metrics.delayHeight)

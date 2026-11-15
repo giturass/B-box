@@ -23,7 +23,7 @@ internal object BoxPreferences {
         activeValues.forEach { (key, value) ->
             val valid = when (key) {
                 in choices -> value in choices.getValue(key)
-                "floatingNavigation", "closeConnectionsOnSelect", "hideTimeoutProxies", "pureBlack", "systemColor" -> value is Boolean
+                "floatingNavigation", "closeConnectionsOnSelect", "hideTimeoutProxies", "pureBlack", "systemColor", "clipboardImport" -> value is Boolean
                 "proxyColumns" -> value is Number && value.toDouble() == value.toInt().toDouble() && value.toInt() in 1..4
                 "proxyUnfolded" -> value is Map<*, *> && value.size <= 128 && value.all { (profile, groups) ->
                     profile is String && profile.length in 1..4096 && groups is List<*> && groups.size <= 4096 &&
