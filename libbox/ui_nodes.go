@@ -867,6 +867,55 @@ func RemoveUINodeSource(library, sourceID string) (*StringBox, error) {
 	return lib.result()
 }
 
+// MergeUINodes returns a library with the sources and nodes of another one,
+// as a restored backup brings them. A source or node of the other library
+// replaces the one held under its id or name and everything else stays in
+// its place, so an empty library becomes the other one. The nodes that come
+// in pass the checks of an import.
+func MergeUINodes(library, incoming string) (*StringBox, error) {
+	lib, err := uiNodeLibraryDecode(library)
+	if err != nil {
+		return nil, err
+	}
+	other, err := uiNodeLibraryDecode(incoming)
+	if err != nil {
+		return nil, err
+	}
+	ctx := baseContext(nil)
+	nodes := make([]*uiNodeObject, len(other.nodes))
+	position := make(map[string]int, len(other.nodes))
+	for index, entry := range other.nodes {
+		if _, err = uiNodeCheck(ctx, entry.node); err != nil {
+			return nil, err
+		}
+		nodes[index] = entry.node
+		position[entry.node.text("tag")] = index
+	}
+	if refusals := uiNodeConstruct(ctx, nodes); len(refusals) > 0 {
+		return nil, E.New(nodes[refusals[0].index].text("tag"), ": ", refusals[0].reason)
+	}
+	for _, source := range other.sources {
+		if index := lib.sourceIndex(source.text("id")); index >= 0 {
+			lib.sources[index] = source
+		} else {
+			lib.sources = append(lib.sources, source)
+		}
+	}
+	replaced := make([]bool, len(other.nodes))
+	for index, entry := range lib.nodes {
+		if at, exists := position[entry.node.text("tag")]; exists {
+			lib.nodes[index] = other.nodes[at]
+			replaced[at] = true
+		}
+	}
+	for index, entry := range other.nodes {
+		if !replaced[index] {
+			lib.nodes = append(lib.nodes, entry)
+		}
+	}
+	return lib.result()
+}
+
 // A reference is a place in a configuration that names an outbound.
 type uiNodeReference struct {
 	path   string

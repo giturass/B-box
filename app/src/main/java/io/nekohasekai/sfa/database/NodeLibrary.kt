@@ -18,7 +18,17 @@ internal object NodeLibrary {
     fun registerCallback(callback: () -> Unit) { callbacks += callback }
     fun unregisterCallback(callback: () -> Unit) { callbacks -= callback }
 
-    fun read(): String = file.let { if (it.isFile) it.readText() else "" }
+    fun read(): String = snapshot().orEmpty()
+
+    /** The stored document, or null before the first one is written. [restore] returns to it. */
+    fun snapshot(): String? = file.takeIf { it.isFile }?.readText()
+
+    fun restore(snapshot: String?) {
+        if (snapshot != null) write(snapshot) else check(!file.exists() || file.delete()) { "Unable to restore shared nodes" }
+    }
+
+    /** The shared nodes with those of a backup: alone when it replaces them, otherwise in place of the ones it names. */
+    fun merge(library: String, backup: String): String = Libbox.mergeUINodes(library, backup).value
 
     /** The configuration the core checks and runs: the profile with the shared nodes it takes. */
     fun expand(config: String, library: String = read()): String = Libbox.expandUINodes(config, library).value
@@ -39,8 +49,8 @@ internal object NodeLibrary {
         beforeSave: suspend () -> Unit = { ProfileContent.requireStableService() },
         applySelected: suspend (recover: Boolean) -> Unit,
     ) {
-        val existed = file.isFile
-        val previous = read()
+        val stored = snapshot()
+        val previous = stored.orEmpty()
         if (library == previous) return
         val selected = ProfileManager.get(Settings.selectedProfile)?.let { File(it.typed.path) }
             ?.takeIf { it.isFile }?.readText().orEmpty()
@@ -59,9 +69,7 @@ internal object NodeLibrary {
                         write(library)
                     }
                 },
-                restore = listOf<suspend () -> Unit>({
-                    if (existed) write(previous) else check(!file.exists() || file.delete()) { "Unable to restore shared nodes" }
-                }),
+                restore = listOf<suspend () -> Unit>({ restore(stored) }),
                 restoreBarrier = { work -> ProfileContent.snapshotMutex.withLock { work() } },
                 applyService = { recover -> if (apply) applySelected(recover) },
             )

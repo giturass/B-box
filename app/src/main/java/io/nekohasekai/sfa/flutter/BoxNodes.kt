@@ -147,14 +147,33 @@ internal class BoxNodes(
             return (0 until sources.length()).map { stored(sources.getJSONObject(it)) }
         }
 
+        private fun address(url: String): URI {
+            val address = runCatching { URI(url) }.getOrNull()
+            require(address != null && address.scheme in listOf("https", "http") && !address.host.isNullOrBlank()) { "Enter an HTTP or HTTPS subscription URL" }
+            return address
+        }
+
+        /** Refuses shared nodes with a subscription that could not have been saved here, as a backup may hold one. */
+        fun requireSources(library: String) {
+            val sources = (if (library.isBlank()) null else JSONObject(library).optJSONArray("sources")) ?: return
+            for (index in 0 until sources.length()) {
+                val source = sources.optJSONObject(index)
+                val interval = source?.opt("interval") ?: 60
+                val updated = source?.opt("updated") ?: 0
+                require(source != null && source.opt("id") is String && (source.opt("name") ?: "") is String &&
+                    (source.opt("auto_update") ?: false) is Boolean && interval is Int && interval >= 15 &&
+                    (updated is Int && updated >= 0 || updated is Long && updated >= 0) &&
+                    runCatching { address(source.opt("url") as? String ?: "") }.isSuccess) { "Invalid node subscription" }
+            }
+        }
+
         private fun stored(source: JSONObject) = Subscription(source.getString("id"), source.optString("name"), source.optString("url"),
             source.optBoolean("auto_update"), source.optInt("interval", 60), source.optLong("updated"))
     }
 
     fun subscription(args: Map<String, Any?>): Subscription {
         val url = (args["url"] as? String)?.trim().orEmpty()
-        val address = runCatching { URI(url) }.getOrNull()
-        require(address != null && address.scheme in listOf("https", "http") && !address.host.isNullOrBlank()) { "Enter an HTTP or HTTPS subscription URL" }
+        val address = address(url)
         val interval = (args["interval"] as? Number)?.toInt() ?: 60
         require(interval >= 15) { "Update interval must be at least 15 minutes" }
         val name = (args["name"] as? String)?.trim().orEmpty().ifEmpty { address.host }

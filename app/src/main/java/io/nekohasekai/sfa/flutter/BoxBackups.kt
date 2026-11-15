@@ -1,7 +1,9 @@
 package io.nekohasekai.sfa.flutter
 
+import io.nekohasekai.sfa.bg.UpdateNodeWork
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.constant.Status
+import io.nekohasekai.sfa.database.NodeLibrary
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
@@ -49,7 +51,7 @@ internal class BoxBackups(
             profile.toWire() + mapOf("key" to profileKey(profile, origin), "content" to content)
         }
         val backup = mapOf("format" to "bbox-1", "origin" to origin, "createdAt" to System.currentTimeMillis(),
-            "selectedProfile" to Settings.selectedProfile, "profiles" to profiles,
+            "selectedProfile" to Settings.selectedProfile, "profiles" to profiles, "nodes" to NodeLibrary.read(),
             "preferences" to readPreferences(), "settings" to editableSettings(),
             "terminal" to terminal.backupSnapshot(), "webdav" to webdav.snapshot(),
             "servers" to RemoteServerManager.list().map { mapOf("name" to it.name, "url" to it.url, "secret" to it.secret) })
@@ -60,12 +62,25 @@ internal class BoxBackups(
 
     suspend fun read(bytes: ByteArray, scope: String): Map<String, Any?> {
         val backup = jsonObject(JSONObject(bytes.toString(Charsets.UTF_8)))
-        validate(backup, scope)
+        // Which shared nodes stay is decided with the strategy; a backup has to be usable with its own.
+        validate(backup, scope, restoredNodes(backup, overriding = true))
         return backup
     }
 
+    /**
+     * The shared nodes a restore leaves: those of the backup, and unless it is [overriding] the
+     * present ones it does not name. A backup made before there were shared nodes changes none.
+     */
+    private fun restoredNodes(backup: Map<String, Any?>, overriding: Boolean): String {
+        val current = NodeLibrary.read()
+        val nodes = backup["nodes"] ?: return current
+        require(nodes is String) { "Invalid backup nodes" }
+        if (nodes.isBlank() && current.isBlank()) return current
+        return NodeLibrary.merge(if (overriding) "" else current, nodes).also { BoxNodes.requireSources(it) }
+    }
+
     @Suppress("UNCHECKED_CAST")
-    private suspend fun validate(backup: Map<String, Any?>, scope: String): List<Map<String, Any?>> {
+    private suspend fun validate(backup: Map<String, Any?>, scope: String, nodes: String): List<Map<String, Any?>> {
         require(scope in setOf("all", "profiles")) { "Invalid restore scope" }
         require(backup["format"] == "bbox-1") { "Unsupported B-box backup format" }
         backup["origin"]?.let { require(validUUID(it)) { "Invalid backup origin" } }
@@ -74,7 +89,7 @@ internal class BoxBackups(
         require(entries.size <= 1000) { "Backup contains too many profiles" }
         entries.forEach { entry ->
             require((entry["name"] as? String)?.let { it.isNotBlank() && it.length <= 4096 } == true) { "Profile name is required" }
-            BoxProfiles.validate(entry["content"] as? String ?: error("Missing profile content"))
+            ProfileContent.validate(entry["content"] as? String ?: error("Missing profile content"), nodes)
             require(entry["url"] == null || entry["url"] is String) { "Invalid profile URL" }
             val url = entry["url"] as? String ?: ""
             if (url.isNotEmpty()) BoxProfiles.validateUrl(url)
@@ -110,18 +125,23 @@ internal class BoxBackups(
 
     suspend fun restore(backup: Map<String, Any?>, scope: String, strategy: String): Int {
         require(strategy in setOf("Compatible", "Override")) { "Invalid restore strategy" }
-        val entries = validate(backup, scope)
+        val overriding = strategy == "Override"
         val count = ProfileContent.mutex.withLock {
+            // Checked under the lock: the profiles have to run with the shared nodes this restore leaves.
+            val nodes = restoredNodes(backup, overriding)
+            val entries = validate(backup, scope, nodes)
             ProfileContent.requireStableService(activity.serviceStatus.value)
-            Restore(backup, entries, full = scope == "all", overriding = strategy == "Override", previous = priorState()).run()
+            Restore(backup, entries, nodes, full = scope == "all", overriding = overriding, previous = priorState()).run()
         }
         UpdateProfileWork.reconfigureUpdater()
+        UpdateNodeWork.reconfigureUpdater()
         return count
     }
 
     private suspend fun priorState() = PriorState(
         running = activity.serviceStatus.value == Status.Started,
         profiles = ProfileManager.list(),
+        nodes = NodeLibrary.snapshot(),
         servers = RemoteServerManager.list(),
         selection = Settings.selectedProfile,
         mode = Settings.serviceMode,
@@ -135,6 +155,7 @@ internal class BoxBackups(
     private class PriorState(
         val running: Boolean,
         val profiles: List<Profile>,
+        val nodes: String?,
         val servers: List<RemoteServer>,
         val selection: Long,
         val mode: String,
@@ -148,6 +169,7 @@ internal class BoxBackups(
     private inner class Restore(
         private val backup: Map<String, Any?>,
         private val entries: List<Map<String, Any?>>,
+        private val nodes: String,
         private val full: Boolean,
         private val overriding: Boolean,
         private val previous: PriorState,
@@ -162,6 +184,7 @@ internal class BoxBackups(
         // Profile IDs in the backup, to the IDs of the profiles they were restored as.
         private val mapping = mutableMapOf<Long, Long>()
         private val restored = mutableListOf<Profile>()
+        private val nodesChange = nodes != previous.nodes.orEmpty()
         private var newFont: File? = null
 
         // Set when a rollback step fails; the staged copies are then kept.
@@ -184,6 +207,7 @@ internal class BoxBackups(
         /** Writes the backup and returns the resulting profiles. The caller holds [ProfileContent.snapshotMutex]. */
         private suspend fun write(): List<Profile> {
             ProfileContent.requireStableService(activity.serviceStatus.value)
+            if (nodesChange) NodeLibrary.write(nodes)
             ProfileManager.transaction {
                 restoreProfiles()
                 if (full) restoreServers()
@@ -297,6 +321,7 @@ internal class BoxBackups(
                     }
                 }
                 for ((file, original) in originals) attempt { rollBackFile(file, original) }
+                if (nodesChange) attempt { NodeLibrary.restore(previous.nodes) }
                 attempt { Settings.saveProfileSelection(previous.selection, previous.mode) }
                 if (full) {
                     attempt { writeSettings(previous.settings) }

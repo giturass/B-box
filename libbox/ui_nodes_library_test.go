@@ -113,3 +113,46 @@ func TestUINodeLibraryRefusesNodes(t *testing.T) {
 		}
 	}
 }
+
+func TestUINodeLibraryMerge(t *testing.T) {
+	held := func(source, node string) string { return `{"source":"` + source + `","node":` + node + `}` }
+	current := `{"version":1,"sources":[{"id":"sub","name":"Old"},{"id":"kept","name":"Kept"}],"nodes":[` +
+		held("", uiNodeTestNode("Manual", "198.51.100.1")) + "," + held("sub", uiNodeTestNode("S1", "198.51.100.2")) + "," +
+		held("kept", uiNodeTestNode("K1", "198.51.100.3")) + `]}`
+	backup := `{"version":1,"sources":[{"id":"sub","name":"New"},{"id":"more","name":"More"}],"nodes":[` +
+		held("more", uiNodeTestNode("M1", "198.51.100.4")) + "," + held("sub", uiNodeTestNode("Manual", "198.51.100.5")) + `]}`
+	// An empty library becomes the one that comes in.
+	written, err := RemoveUINodes(backup, `[]`)
+	alone, mergeErr := MergeUINodes("", backup)
+	if value := uiNodeTestValue(t, "into nothing", alone, mergeErr); value != uiNodeTestValue(t, "backup", written, err) {
+		t.Errorf("an empty library became %s", value)
+	}
+	// What comes in replaces what is held under that id or name, in its place.
+	merged, err := MergeUINodes(current, backup)
+	library := uiNodeTestObject(t, uiNodeTestValue(t, "merge", merged, err))
+	var sources, owners []string
+	for _, item := range library.list("sources") {
+		source, _ := item.(*uiNodeObject)
+		sources = append(sources, source.text("id")+":"+source.text("name"))
+	}
+	for _, item := range library.list("nodes") {
+		entry, _ := item.(*uiNodeObject)
+		owners = append(owners, entry.object("node").text("tag")+"@"+entry.text("source"))
+	}
+	if found := strings.Join(sources, ","); found != "sub:New,kept:Kept,more:More" {
+		t.Errorf("sources are %s", found)
+	}
+	if found := strings.Join(owners, ","); found != "Manual@sub,S1@sub,K1@kept,M1@more" {
+		t.Errorf("nodes belong to %s", found)
+	}
+	if server := uiNodeTestFind(library.list("nodes"), "Manual").text("server"); server != "198.51.100.5" {
+		t.Errorf("the replaced node connects to %s", server)
+	}
+	// Nothing comes in unchecked.
+	_, err = MergeUINodes(current, `{"version":1,"nodes":[{"source":"","node":{"type":"direct","tag":"Direct"}}]}`)
+	uiNodeTestFails(t, "a group in a backup", err, "Direct: direct is not a proxy node type")
+	_, err = MergeUINodes(current, `{"version":2}`)
+	uiNodeTestFails(t, "an unknown backup", err, "unsupported node library version")
+	_, err = MergeUINodes(`{"version":2}`, backup)
+	uiNodeTestFails(t, "an unknown library", err, "unsupported node library version")
+}

@@ -95,7 +95,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private val preferences = activity.getSharedPreferences("flclash_ui", 0)
     private val webdav = BoxWebDAV(activity)
     private val backups = BoxBackups(activity, ::settings, ::patchSettings,
-        { restart, recover -> withContext(Dispatchers.Main) { activity.applyProfile(restart, recover) } }, ::publishProfiles, ::emit, webdav)
+        { restart, recover -> withContext(Dispatchers.Main) { activity.applyProfile(restart, recover) } }, ::publishNodes, ::emit, webdav)
     private val rates = object : CommandClient.Handler {
         override fun updateStatus(status: StatusMessage) {
             if (::dashboardDetails.isInitialized) dashboardDetails.remoteMemory = status.memory
