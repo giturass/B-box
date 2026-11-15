@@ -22,7 +22,9 @@ import io.nekohasekai.sfa.backend.connections.ConnectionsViewModel
 import io.nekohasekai.sfa.backend.dashboard.DashboardViewModel
 import io.nekohasekai.sfa.backend.dashboard.groups.GroupsViewModel
 import io.nekohasekai.sfa.backend.log.LogViewModel
+import io.nekohasekai.sfa.bg.UpdateNodeWork
 import io.nekohasekai.sfa.constant.Status
+import io.nekohasekai.sfa.database.NodeLibrary
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.RemoteServer
@@ -101,6 +103,9 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         }
     }
     private val profileCallback: () -> Unit = { scope.launch { operations.withLock { publishProfiles() } } }
+    // A node change of the bridge is published where it ends; this one follows the subscription worker.
+    @Volatile private var changingNodes = false
+    private val nodeCallback: () -> Unit = { if (!changingNodes) scope.launch { operations.withLock { publishNodes() } } }
     private val initialize = scope.async {
         withContext(Dispatchers.IO) {
             Settings.dataStore.initialize()
@@ -115,6 +120,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         dashboardDetails = BoxDashboard(activity, ::emit)
         dashboard.commandClient.addHandler(rates)
         ProfileManager.registerCallback(profileCallback)
+        NodeLibrary.registerCallback(nodeCallback)
         PackageQueryManager.registerListeners()
         RemoteControlManager.restore()
         scope.launch {
@@ -455,9 +461,15 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             "nodes.add" -> return changeNodes { nodes.add(args.string("nodes")).also { ensureProfile(args) } }
             "nodes.set" -> changeNodes { nodes.set(args.string("tag"), args.string("content"), args["revision"] as? String) }
             "nodes.remove" -> changeNodes { nodes.remove((args["tags"] as List<*>).map { it as String }) }
-            "nodes.subscribe", "nodes.updateSource" -> return subscribeNodes(args)
-            "nodes.saveSource" -> changeNodes { nodes.saveSource(nodes.subscription(args)) }
-            "nodes.removeSource" -> changeNodes { nodes.removeSource(args.string("id")) }
+            "nodes.subscribe", "nodes.updateSource" -> return subscribeNodes(args).also { UpdateNodeWork.reconfigureUpdater() }
+            "nodes.saveSource" -> {
+                changeNodes { nodes.saveSource(nodes.subscription(args)) }
+                UpdateNodeWork.reconfigureUpdater()
+            }
+            "nodes.removeSource" -> {
+                changeNodes { nodes.removeSource(args.string("id")) }
+                UpdateNodeWork.reconfigureUpdater()
+            }
             else -> return toolBridge.invoke(method, args)
         }
         return null
@@ -470,8 +482,9 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             val subscription = if (args["url"] is String) nodes.subscription(args) else nodes.subscription(args.string("id"))
             subscription to nodes.fetch(subscription)
         }
+        // An update of a stored subscription keeps what was edited while it downloaded.
         return changeNodes(session) {
-            nodes.commit(subscription, parsed) { CommandTarget.requireLocalSession(session) }.also { ensureProfile(args) }
+            nodes.commit(subscription, parsed, refresh = args["url"] !is String) { CommandTarget.requireLocalSession(session) }.also { ensureProfile(args) }
         }
     }
 
@@ -708,9 +721,11 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         localProfiles(session) { block().also { publishProfiles() } }
 
     private suspend fun <T> changeNodes(session: Long = CommandTarget.localSession(), block: suspend () -> T): T = localProfiles(session) {
+        changingNodes = true
         try {
             block()
         } finally {
+            changingNodes = false
             withContext(NonCancellable) { publishNodes() }
         }
     }
@@ -831,6 +846,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         if (::dashboard.isInitialized) {
             dashboard.commandClient.removeHandler(rates)
             ProfileManager.unregisterCallback(profileCallback)
+            NodeLibrary.unregisterCallback(nodeCallback)
             PackageQueryManager.unregisterListeners()
             if (connectionsVisible.value) connections.setVisible(false)
             toolBridge.close()

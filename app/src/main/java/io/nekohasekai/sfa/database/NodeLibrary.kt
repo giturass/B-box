@@ -4,6 +4,7 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
 import kotlinx.coroutines.sync.withLock
 import java.io.File
+import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * The proxy nodes every profile can use, stored as the document libbox reads and edits.
@@ -11,6 +12,11 @@ import java.io.File
  */
 internal object NodeLibrary {
     private val file get() = File(Application.application.filesDir, "nodes/library.json")
+    private val callbacks = CopyOnWriteArraySet<() -> Unit>()
+
+    /** Called after the shared nodes were replaced, also by the worker that updates subscriptions. */
+    fun registerCallback(callback: () -> Unit) { callbacks += callback }
+    fun unregisterCallback(callback: () -> Unit) { callbacks -= callback }
 
     fun read(): String = file.let { if (it.isFile) it.readText() else "" }
 
@@ -45,18 +51,23 @@ internal object NodeLibrary {
             apply = expanded != runCatching { expand(selected, previous) }.getOrNull()
         }
         if (apply) beforeSave()
-        ProfileChange.apply(
-            save = {
-                ProfileContent.snapshotMutex.withLock {
-                    if (apply) beforeSave()
-                    write(library)
-                }
-            },
-            restore = listOf<suspend () -> Unit>({
-                if (existed) write(previous) else check(!file.exists() || file.delete()) { "Unable to restore shared nodes" }
-            }),
-            restoreBarrier = { work -> ProfileContent.snapshotMutex.withLock { work() } },
-            applyService = { recover -> if (apply) applySelected(recover) },
-        )
+        try {
+            ProfileChange.apply(
+                save = {
+                    ProfileContent.snapshotMutex.withLock {
+                        if (apply) beforeSave()
+                        write(library)
+                    }
+                },
+                restore = listOf<suspend () -> Unit>({
+                    if (existed) write(previous) else check(!file.exists() || file.delete()) { "Unable to restore shared nodes" }
+                }),
+                restoreBarrier = { work -> ProfileContent.snapshotMutex.withLock { work() } },
+                applyService = { recover -> if (apply) applySelected(recover) },
+            )
+        } finally {
+            // Listeners read the nodes that remain, whether the change was kept or taken back.
+            callbacks.forEach { it() }
+        }
     }
 }

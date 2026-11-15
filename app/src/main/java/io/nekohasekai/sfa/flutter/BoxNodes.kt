@@ -134,7 +134,22 @@ internal class BoxNodes(
         if (remaining != null) replace(remaining)
     }
 
-    internal class Subscription(val id: String, val name: String, val url: String, val autoUpdate: Boolean, val interval: Int)
+    /** [updated] is the time of the last read in milliseconds, zero for a subscription that is not stored yet. */
+    internal class Subscription(val id: String, val name: String, val url: String, val autoUpdate: Boolean, val interval: Int, val updated: Long = 0) {
+        fun due(now: Long): Boolean = autoUpdate && now - updated >= interval * 60_000L
+    }
+
+    companion object {
+        /** The subscriptions as they are stored, for the worker that keeps them up to date. */
+        fun subscriptions(): List<Subscription> {
+            val library = NodeLibrary.read()
+            val sources = (if (library.isBlank()) null else JSONObject(library).optJSONArray("sources")) ?: return emptyList()
+            return (0 until sources.length()).map { stored(sources.getJSONObject(it)) }
+        }
+
+        private fun stored(source: JSONObject) = Subscription(source.getString("id"), source.optString("name"), source.optString("url"),
+            source.optBoolean("auto_update"), source.optInt("interval", 60), source.optLong("updated"))
+    }
 
     fun subscription(args: Map<String, Any?>): Subscription {
         val url = (args["url"] as? String)?.trim().orEmpty()
@@ -147,8 +162,7 @@ internal class BoxNodes(
     }
 
     suspend fun subscription(id: String): Subscription = mutex.withLock {
-        val source = source(NodeLibrary.read(), id) ?: error("Subscription no longer exists")
-        Subscription(id, source.optString("name"), source.optString("url"), source.optBoolean("auto_update"), source.optInt("interval", 60))
+        stored(source(NodeLibrary.read(), id) ?: error("Subscription no longer exists"))
     }
 
     private fun source(library: String, id: String): JSONObject? {
@@ -160,14 +174,24 @@ internal class BoxNodes(
     /** Downloads outside every lock. The result is the text libbox parsed the subscription into. */
     suspend fun fetch(subscription: Subscription): String = parse(download(subscription.url))
 
-    /** Stores a subscription with the nodes it served, replacing those it served before. */
-    suspend fun commit(subscription: Subscription, parsed: String, beforeCommit: () -> Unit = {}): Map<String, Any?> = mutex.withLock {
+    /**
+     * Stores a subscription with the nodes it served, replacing those it served before.
+     * With [refresh] only the nodes and the time change: what was edited during the download is
+     * kept, and the nodes have to come from the address that is stored.
+     */
+    suspend fun commit(subscription: Subscription, parsed: String, refresh: Boolean = false, beforeCommit: () -> Unit = {}): Map<String, Any?> = mutex.withLock {
         beforeCommit()
         val current = NodeLibrary.read()
         val id = subscription.id.ifEmpty { UUID.randomUUID().toString() }
-        require(subscription.id.isEmpty() || source(current, id) != null) { "Subscription no longer exists" }
-        val source = JSONObject().put("id", id).put("name", subscription.name).put("url", subscription.url)
-            .put("auto_update", subscription.autoUpdate).put("interval", subscription.interval).put("updated", System.currentTimeMillis())
+        val existing = if (subscription.id.isEmpty()) null else source(current, id) ?: error("Subscription no longer exists")
+        val source = if (refresh && existing != null) {
+            require(existing.optString("url") == subscription.url) { "Subscription changed while it was updating" }
+            existing
+        } else {
+            JSONObject().put("id", id).put("name", subscription.name).put("url", subscription.url)
+                .put("auto_update", subscription.autoUpdate).put("interval", subscription.interval)
+        }
+        source.put("updated", System.currentTimeMillis())
         val update = Libbox.replaceUINodeSource(Libbox.setUINodeSource(current, source.toString()).value, id, parsed)
         replace(update.library)
         mapOf("added" to update.added, "skipped" to JSONObject(parsed).optJSONArray("skipped")?.length())
