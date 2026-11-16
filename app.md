@@ -242,9 +242,24 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-2026-11-16，本次工作树改为配置文件内节点保存、远端更新合并、默认配置常驻和配置卡片对齐。新增回归覆盖默认配置持久身份、配置切换修订冲突、节点追加/编辑/删除、手动及后台订阅合并和失败恢复；具体用例按下方源码及 [核心](libbox.md#回归文件覆盖)、[Flutter](flclash.md#验证与升级参考版本) 文档维护。
+2026-11-16，配置文件内节点保存、远端更新合并、默认配置常驻和配置卡片对齐的验证源码为 `041325d4824cfae8f115f25021f0f7a8160c68aa`，对应 [Actions 43875039054](https://github.com/giturass/B-box/actions/runs/43875039054)，8 个作业全部通过。新增回归覆盖默认配置持久身份、配置切换修订冲突、节点追加/编辑/删除、手动及后台订阅合并和失败恢复；用例范围见 [Android 仪器测试](#android-仪器测试)、[核心](libbox.md#回归文件覆盖) 和 [Flutter](flclash.md#验证与升级参考版本) 文档。
 
-当前尚未运行对应源码的 Actions；旧运行和已有 Release 不代表本次变更通过。本机只进行静态检查，Go、Flutter、JVM、Android 测试和编译须在 [统一工作流](.github/workflows/newui.yml) 验证。未进行 ARM64 实机视觉、真实订阅网络及远程会话验收，也未触发签名 Release 或发布。
+- `root-ca` 与 [core 作业](https://github.com/giturass/B-box/actions/runs/43875039054/job/133325897819) 通过：完整 UI 扩展、发布协议标签下的节点配置、WARP HTTP/2 与 HTTP/3、路由/出口/HTTP/订阅及 HTTP/MITM race 回归均成功。
+- [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43875039054/job/133325897659) 的分析、271 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析为 84 条 info、0 条 warning/error，实际截图抽样见 [界面记录](flclash.md#当前验证记录)。
+- [Android 作业](https://github.com/giturass/B-box/actions/runs/43875039054/job/133325897214) 的 x86_64 libbox、Flutter Debug AAR、两个 flavor 的 Kotlin 编译及模拟器 APK 构建通过；逐份读取 [native-unit-tests](https://github.com/giturass/B-box/actions/runs/43875039054/artifacts/14230187523) 的 13 份 XML，56 项 JVM 测试通过，无 failure/error/skipped。
+
+四组模拟器产物的 `results.json` 均核对为上述源码 SHA，UI 与原生回归均通过；各组 `native-tests.txt` 为 `OK (44 tests)`，44 个完成状态码均为 0。实际页大小与采集来源如下：
+
+| 环境与产物 | 实际页大小 / 来源 | UI / 原生测试 |
+| --- | --- | --- |
+| [API 24](https://github.com/giturass/B-box/actions/runs/43875039054/artifacts/14231330378) | 4096 字节 / `/proc/self/smaps` | 通过 / 44 项通过 |
+| [API 31](https://github.com/giturass/B-box/actions/runs/43875039054/artifacts/14229994378) | 4096 字节 / `getconf` | 通过 / 44 项通过 |
+| [API 36](https://github.com/giturass/B-box/actions/runs/43875039054/artifacts/14230852156) | 4096 字节 / `getconf` | 通过 / 44 项通过 |
+| [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/43875039054/artifacts/14231220664) | 16384 字节 / `getconf` | 通过 / 44 项通过 |
+
+实际抽样查看 API 24 的 `02-profile-files.png`：本地默认配置与新导入的远端配置同时显示，导入未改变默认选择，随后可以选择导入项。`04-core-proxies.png` 显示选中的配置文件卡片占满带左右间距的内容区域，真实核心分组、文件铅笔和底栏同页且没有重叠。本轮完整验证通过；此前失败及取消运行保留在历史记录中，API 24 模拟器的系统图形线程崩溃本轮未重现。
+
+本机通过 `git diff --check`、`python3 tools/verify_newui.py` 及三份领域文档的 466 个本地链接/锚点检查；Go、Flutter、JVM 和 Android 测试及构建均在上述 Actions 运行。未进行 ARM64 实机视觉、真实订阅网络及远程会话验收，也未触发签名 Release 或发布。
 
 ### 历史验证记录
 
@@ -252,6 +267,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 | 日期 | 主题 | 验证源码 | Actions | 范围与备注 |
 | --- | --- | --- | --- | --- |
+| 2026-11-16 | 配置内节点与默认配置初次 smoke | `662f6eedd569759c3ee1cc7cad0707cee3f19827` | [43869161640](https://github.com/giturass/B-box/actions/runs/43869161640) | 整套未通过：core、Flutter、Android 构建与 56 项 JVM 通过，四组 UI 均未点中合并语义的切换按钮；API 31/普通 API 36 原生各 43/44，唯一失败是备份用例的即时锁断言；API 36 / 16 KiB 原生 44 项通过；API 24 原生完成 21 项后因模拟器 system_server 图形线程崩溃中断。实际页大小为 4096/4096/4096/16384 字节；后续 Flutter 测试修正的取消运行见 [界面历史](flclash.md#历史验证记录) |
 | 2026-11-14 | 配置页顶部精简及工具栏收纳 | `2be09f60fcf6244f9f30c7899c5da382359701e0` | [43570946186](https://github.com/giturass/B-box/actions/runs/43570946186) | 8 个作业通过；259 项 Flutter；56 项 JVM；API 24/31/36 及 16 KiB 四组各 41 项原生测试，未触发 ARM64 Release；详细核对见 Git `26ff355:app.md` |
 | 2026-11-14 | 配置/代理合并、设置底栏与仪表盘铅笔 | `2adc1b653bd98acc68929deec19f77dfa04f0022` | [43562639502](https://github.com/giturass/B-box/actions/runs/43562639502) | 8 个作业通过；259 项 Flutter；56 项 JVM；API 24/31/36 及 16 KiB 四组各 41 项原生测试，未触发 ARM64 Release |
 | 2026-11-14 | 代码整理与 MASQUE 网络重置修复 | `06eed8f5f830a90b9853995ced3b2e211deca628` | [43523435178](https://github.com/giturass/B-box/actions/runs/43523435178) | 8 个 job 通过；56 项 JVM；API 24/31/36 及 16 KiB 四组各 41 项原生测试；同源码 core 第二次重跑也通过，未触发 ARM64 Release |

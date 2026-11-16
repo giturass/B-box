@@ -37,7 +37,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 | 区域 | 主要实现 | 当前适配 |
 | --- | --- | --- |
 | 首页与状态 | [dashboard.dart](flutter/lib/pages/dashboard.dart)、[status_panel.dart](flutter/lib/components/status_panel.dart)、[start_toggle.dart](flutter/lib/components/start_toggle.dart) | 复用状态布局、国家徽章、服务按钮形变及网络速率展示；启停调用原生服务流程 |
-| 配置卡与分组概览 | [profile_panel.dart](flutter/lib/components/profile_panel.dart)、[proxy_groups_panel.dart](flutter/lib/components/proxy_groups_panel.dart) | 使用真实配置元数据和内核分组；配置切换按钮固定在右侧，与进入配置的箭头同列居中对齐。代理组、出站、路由规则数字及加载占位与对应标签逐列居中对齐，远端未知数量保持未知 |
+| 配置卡与分组概览 | [profile_panel.dart](flutter/lib/components/profile_panel.dart)、[proxy_groups_panel.dart](flutter/lib/components/proxy_groups_panel.dart) | 使用真实配置元数据和内核分组；配置切换按钮固定在右侧，与进入配置的箭头同列居中对齐，按钮名称位于其独立 32 dp 点击语义中。代理组、出站、路由规则数字及加载占位与对应标签逐列居中对齐，远端未知数量保持未知 |
 | 配置页代理区域 | [proxies.dart](flutter/lib/pages/proxies.dart)、[proxy_card.dart](flutter/lib/components/proxy_card.dart)、[proxy_list.dart](flutter/lib/components/proxy_list.dart) | 在配置文件下方显示 libbox 分组，保留卡片/列表、搜索、测速与节点定位；只有可选择的组显示选择操作。本机停服时显示所选配置文件中的节点并允许编辑，运行时显示真实内核分组 |
 | 配置文件管理 | [profiles.dart](flutter/lib/pages/profiles.dart)、[profile_card.dart](flutter/lib/components/profile_card.dart)、[profile_details.dart](flutter/lib/pages/profile_details.dart) | 顶部横向配置卡片复用行高、选中态与相对更新时间，卡片外边框与代理区域使用相同的 16 dp 左右间距；默认配置文件与已有配置一同显示，保留添加、更新、排序、编辑和导入 sing-box JSON；当前配置的卡片以铅笔按钮进入编辑，切换弹层使用自适应网格 |
 | 首页编辑 | [dashboard_editor.dart](flutter/lib/components/dashboard_editor.dart) | 右上角 FlClash 铅笔按钮或长按卡片进入原地编辑，保留摇摆、长按排序、移除徽章及添加列表 |
@@ -213,14 +213,31 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-本次取消共享节点、改为配置内追加节点及配置卡片等宽对齐的源码尚未运行 Flutter 分析、交互/布局测试、AAR 构建或设备验收。新增回归用例与静态源码检查不代表运行结果；此前已通过的 Actions 仅作为历史记录。
+2026-11-16，取消共享节点、改为配置内追加节点、配置卡片等宽对齐及首页配置切换语义修复的验证源码为 `041325d4824cfae8f115f25021f0f7a8160c68aa`，对应 [Actions 43875039054](https://github.com/giturass/B-box/actions/runs/43875039054) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43875039054/job/133325897659)。Flutter 分析、271 项交互/布局测试和 ARM64 Debug/Release Flutter AAR 构建通过；分析包含 84 条 info、0 条 warning/error。CI 同时通过 `python3 tools/verify_newui.py`，AAR 产物见 [flutter-aar-arm64](https://github.com/giturass/B-box/actions/runs/43875039054/artifacts/14229613000)。
+
+新增用例覆盖停服时仅显示所选配置的节点、来自其他配置的快照隔离、配置内节点编辑及新增、节点导入/删除携带配置修订和切换期间的原目标保护、冲突保留预览、运行后显示真实核心分组、默认配置在已有文件旁显示且不可删除或转远端，以及手机、1.4 倍字号和宽屏下配置卡片边框与代理区域等宽对齐。首页“切换配置”的两项语义回归确认名称属于独立 32 dp 点击区域、父配置卡片不合并该标签，经实际 `SemanticsAction.tap` 打开配置选择弹层并选择配置，以及 Starting/Stopping 时保留按钮区域但移除点击动作、Stopped 时恢复。测试在主体的 `finally` 中释放语义句柄。
+
+本次实际抽样查看该源码 [newui-validation](https://github.com/giturass/B-box/actions/runs/43875039054/artifacts/14230307191) 的以下截图，路径相对 `build/screenshots/`：
+
+| 截图 | 核对结果 |
+| --- | --- |
+| `360-light-1.0-Profiles-populated.png` | 配置卡片左右边缘为 16/344 dp，与两列代理卡片区域左右边缘一致 |
+| `360-dark-1.4-Profiles-populated.png` | 配置卡片左右边缘为 16/344 dp；标题按规则省略，更新时间与铅笔没有重叠 |
+| `360-dark-1.4-Profiles-scrolled.png` | 横向滚动只移动配置文件卡片，代理区域与固定底栏保持稳定 |
+| `800-light-1.0-Profiles-populated.png` | 配置卡片左右边缘为 64/784 dp，左侧包括 48 dp 侧栏和 16 dp 内容间距，与代理区域的外部视口等宽；稀疏节点卡片保留其网格列宽 |
+
+这些 Flutter 截图使用测试桥接数据，属于配置卡片布局的抽样检查。新增配置内节点及首页切换流程有交互测试，尚未覆盖其全部截图、全应用逐像素验收、ARM64 真机视觉/性能、真实远程会话或当前源码签名 Release APK 验收。Android 默认文件及 smoke 验证结果由 [应用验证记录](app.md#当前验证记录) 维护。
 
 ### 历史验证记录
 
-下表索引此前记录过的 Flutter 运行，只用于查询，不是当前源码的通过声明；各次均包含 Flutter 分析、交互/布局测试和 ARM64 Debug/Release Flutter AAR 构建，分析结果无 warning/error。截图路径相对各次 `newui-validation` 的 `build/screenshots/`，逐张的核对结论和未覆盖范围保留在 Git 历史，可用 `git show 06eed8f5f830a90b9853995ced3b2e211deca628:flclash.md` 查看整理前的完整记录。对应的核心与 Android 结果见 [app.md](app.md#历史验证记录)。
+下表索引此前记录过的 Flutter 运行，只用于查询，不是当前源码的通过声明；成功行均包含 Flutter 分析、交互/布局测试和 ARM64 Debug/Release Flutter AAR 构建，分析结果无 warning/error；失败或取消的运行按表注明，不能作为通过依据。截图路径相对各次 `newui-validation` 的 `build/screenshots/`，逐张的核对结论和未覆盖范围保留在 Git 历史，可用 `git show 06eed8f5f830a90b9853995ced3b2e211deca628:flclash.md` 查看整理前的完整记录。对应的核心与 Android 结果见 [app.md](app.md#历史验证记录)。
 
 | 日期 | 主题 | 验证源码 | Actions | 测试 / info | 当时实际查看的截图 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-11-16 | 首页切换语义测试句柄清理 | `eb81cc5820d6073e0b0a004d71ea912d0056aff6` | [43874301204](https://github.com/giturass/B-box/actions/runs/43874301204)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43874301204/job/133323252873)） | 269 通过、2 失败 / 84 | 两项新增语义测试的功能断言完成，结束验证时句柄仍 active；Flutter AAR 跳过，修正推送取消整次运行 |
+| 2026-11-16 | 首页切换语义测试查找修正 | `cc8a786cd131c3cf44e239154e61f444987aaa08` | [43873540377](https://github.com/giturass/B-box/actions/runs/43873540377)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43873540377/job/133320593495)） | 269 通过、2 失败 / 84 | 两项新增用例用 `byTooltip` 查找已排除提示语义的 Prism 控件，在进入语义断言前失败；Flutter AAR 跳过，修正推送取消整次运行 |
+| 2026-11-16 | 配置内节点与等宽布局 | `662f6eedd569759c3ee1cc7cad0707cee3f19827` | [43869161640](https://github.com/giturass/B-box/actions/runs/43869161640)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43869161640/job/133305587339)） | 269 / 84 | Flutter 分析、测试及两种 AAR 通过；抽样查看 360 浅色、360 深色 1.4 倍、横向滚动和 800 浅色配置页，边框分别为 16/344、64/784 dp，与代理区域等宽，文字/铅笔/底栏无重叠；Android API 24 smoke 随后发现首页切换提示语义合并到整张卡片，不能作为当前验收 |
+| 2026-11-16 | 配置内节点与等宽布局首轮 | `359ef06801f42f36b9207cda1786ce6de92280e7` | [43868300388](https://github.com/giturass/B-box/actions/runs/43868300388)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43868300388/job/133302439776)） | 267 通过、2 失败 / 84 | 不计为通过：新建节点菜单项未进入可点击区域，800 宽用例误点非导航文字；Flutter AAR 构建跳过，整次运行因修正推送取消。截图为失败源码的预检查产物，不作为最终验收 |
 | 2026-11-15 | 配置页重新设计 | `d1282569f242832437824865a0f6e1cf84b8599e` | [43723480439](https://github.com/giturass/B-box/actions/runs/43723480439)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43723480439/job/132840276393)） | 260 / 84 | 360 宽深浅主题与大字号配置页、配置滑动、空状态、固定黑色底栏、800 宽配置页和 API 24 smoke `04-core-proxies.png`；当时共享节点仅有交互覆盖，抽样截图结论与未覆盖范围详见 Git `d128256:flclash.md` |
 | 2026-11-14 | 配置卡片顶部精简及工具栏收纳调整 | `2be09f60fcf6244f9f30c7899c5da382359701e0` | [43570946186](https://github.com/giturass/B-box/actions/runs/43570946186)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43570946186/job/132374987419)） | 259 / 84 | `360-light-1.0-Profiles-populated.png`、`360-dark-1.4-Profiles-populated.png`、`360-dark-1.4-Profiles-scrolled.png`、`navigation/fixed-black.png`、`800-light-1.0-Profiles-populated.png`；另查看 API 24 smoke 的 `04-core-proxies.png`，详见 Git `d128256:flclash.md` |
 | 2026-11-14 | 配置/代理合并、设置底栏与仪表盘铅笔 | `2adc1b653bd98acc68929deec19f77dfa04f0022` | [43562639502](https://github.com/giturass/B-box/actions/runs/43562639502) | 259 / 84 | 配置滑动前后、深浅主题/大字号、固定底栏、宽屏、设置与仪表盘共七张 Flutter 截图；API 24 启动、分组、设置三张模拟器截图，详见 Git `ab20ad1:flclash.md` |
