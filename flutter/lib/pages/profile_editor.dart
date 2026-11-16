@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import '../widgets.dart';
 import '../components/code_editor.dart';
+import '../components/profile_card.dart';
 
 class ProfileEditor extends StatefulWidget {
   const ProfileEditor({super.key, required this.profile});
@@ -83,7 +84,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
 
   @override Widget build(BuildContext context) => BoxEditGuard(dirty: _dirty, busy: _saving || _checking || _loading,
     child: Scaffold(
-      title: widget.profile['name'].toString() + (_dirty ? ' •' : ''),
+      title: profileDisplayName(context, widget.profile) + (_dirty ? ' •' : ''),
       isLoading: _saving || _checking || _loading || (_original == null && _error == null),
       confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'),
         onPressed: _saving || _checking || _loading || _original == null ? null : _save),
@@ -107,7 +108,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
             child: SelectableText(_error!, style: TextStyle(color: context.colorScheme.onErrorContainer)),
           ),
           if (widget.profile['remote'] == true) Padding(padding: const EdgeInsets.all(12), child: Text(
-            context.tr('Configuration changes will replace the remote content until its next update.'), style: context.listCaptionStyle,
+            context.tr('Remote updates replace manual edits and keep added nodes.'), style: context.listCaptionStyle,
           )),
           Expanded(child: _original == null
               ? _error == null ? const SizedBox.shrink() : ErrorState(_error!, retry: _load)

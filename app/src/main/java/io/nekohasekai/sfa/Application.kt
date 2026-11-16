@@ -18,7 +18,6 @@ import io.nekohasekai.sfa.bg.AppChangeReceiver
 import io.nekohasekai.sfa.bg.CrashReportManager
 import io.nekohasekai.sfa.bg.OOMReportManager
 import io.nekohasekai.sfa.bg.PowerReportManager
-import io.nekohasekai.sfa.bg.UpdateNodeWork
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.backend.tools.TaildropFiles
 import io.nekohasekai.sfa.constant.Bugs
@@ -63,13 +62,13 @@ class Application : Application() {
         GlobalScope.launch(Dispatchers.IO) {
             Settings.dataStore.initialize()
             WorkManager.getInstance(this@Application).cancelUniqueWork("AutoUpdate")
+            WorkManager.getInstance(this@Application).cancelUniqueWork("UpdateNodes")
             runCatching {
                 setupLibbox()
             }.onFailure {
                 Log.w("Application", "setup libbox: ${it.message}")
             }
             UpdateProfileWork.reconfigureUpdater()
-            UpdateNodeWork.reconfigureUpdater()
             TaildropFiles.cleanCache()
         }
 

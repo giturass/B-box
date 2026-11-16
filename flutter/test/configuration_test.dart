@@ -11,6 +11,14 @@ import 'support/errors.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('configuration JSON strips only a leading local-node metadata comment', () {
+    const source = '{"url":"https://example.org/path","text":"// b-box-local-nodes: [\\"inner\\"]"}';
+    expect(decodeConfigJson('// b-box-local-nodes: ["Local"]\n$source'), jsonDecode(source));
+    expect(decodeConfigJson(source), jsonDecode(source));
+    expect(() => decodeConfigJson('// unrelated comment\n$source'), throwsFormatException);
+    expect(() => decodeConfigJson('// b-box-local-nodes: [1]\n$source'), throwsFormatException);
+  });
+
   test('config changes retain unrelated sing-box fields and rejected writes retain the loaded config', () async {
     const channel = MethodChannel('test.config-store');
     final original = <String, dynamic>{
@@ -19,7 +27,8 @@ void main() {
       'outbounds': [{'type': 'direct', 'tag': 'direct'}],
       'experimental': {'cache_file': {'enabled': true}},
     };
-    String content = jsonEncode(original), revision = 'revision-1';
+    const marker = '// b-box-local-nodes: ["Local"]\n';
+    String content = marker + jsonEncode(original), revision = 'revision-1';
     Json? written;
     bool reject = false;
     Json wire() => {'content': content, 'formatted': content, 'revision': revision, 'stats': {}};
@@ -30,8 +39,8 @@ void main() {
         final args = json(call.arguments);
         expect(args['revision'], revision);
         if (reject) throw PlatformException(code: 'config', message: 'DNS server does not exist');
-        content = args['content'] as String;
-        written = json(jsonDecode(content));
+        content = marker + (args['content'] as String);
+        written = json(decodeConfigJson(content));
         revision = 'revision-2';
         return wire();
       }
@@ -227,7 +236,7 @@ void main() {
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
       if (call.method == 'ready') return {'version': 'test', 'coreVersion': 'test', 'preferences': {'locale': 'en'}, 'dashboard': {'status': 'Stopped'}};
-      if (call.method == 'profiles.config') return wire('{}', 'loaded-revision');
+      if (call.method == 'profiles.config') return wire('// b-box-local-nodes: ["Local"]\n{}', 'loaded-revision');
       if (call.method == 'profiles.write') return wire(json(call.arguments)['content'] as String, 'saved-revision');
       return null;
     });
@@ -238,7 +247,7 @@ void main() {
     openPage(tester.element(find.byType(HomePage)), const ProfileEditor(profile: {'id': 7, 'name': 'Remote', 'remote': true, 'url': 'https://example.org/profile.json'}));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('code-line-1')), findsOneWidget);
-    const content = '{\n  "outbounds":[{"type":"direct","tag":"direct"}]\n}';
+    const content = '// b-box-local-nodes: ["Local"]\n{\n  "outbounds":[{"type":"direct","tag":"direct"}]\n}';
     await tester.enterText(find.byType(TextField).last, content);
     await tester.pump();
     expect(find.byKey(const ValueKey('code-line-3')), findsOneWidget);

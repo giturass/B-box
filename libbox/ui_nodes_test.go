@@ -40,17 +40,48 @@ func uiNodeTestText(value any) string {
 	return content
 }
 
-// uiNodeTestTags joins the names of nodes, or of the entries of a library.
+// uiNodeTestNode is a node every build of the core constructs.
+func uiNodeTestNode(tag, server string) string {
+	return `{"type":"shadowsocks","tag":"` + tag + `","server":"` + server + `","server_port":8388,"method":"aes-256-gcm","password":"password"}`
+}
+
+func uiNodeTestVia(tag, server, detour string) string {
+	return strings.Replace(uiNodeTestNode(tag, server), `}`, `,"detour":"`+detour+`"}`, 1)
+}
+
+func uiNodeTestValue(t *testing.T, name string, result *StringBox, err error) string {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	return result.Value
+}
+
+func uiNodeTestFails(t *testing.T, name string, err error, want string) {
+	t.Helper()
+	if err == nil {
+		t.Errorf("%s: no error, want %q", name, want)
+	} else if err.Error() != want {
+		t.Errorf("%s: %v, want %q", name, err, want)
+	}
+}
+
 func uiNodeTestTags(list []any) string {
-	tags := make([]string, 0, len(list))
+	var tags []string
 	for _, item := range list {
 		node, _ := item.(*uiNodeObject)
-		if entry := node.object("node"); entry != nil {
-			node = entry
-		}
 		tags = append(tags, node.text("tag"))
 	}
 	return strings.Join(tags, ",")
+}
+
+func uiNodeTestMembers(root *uiNodeObject, tag string) string {
+	var members []string
+	for _, item := range uiNodeTestFind(root.list("outbounds"), tag).list("outbounds") {
+		member, _ := item.(string)
+		members = append(members, member)
+	}
+	return strings.Join(members, ",")
 }
 
 // uiNodeTestSkipped joins the nodes a result left out as name: reason.
@@ -76,9 +107,6 @@ func uiNodeTestParse(t *testing.T, content string) *uiNodeObject {
 func uiNodeTestFind(list []any, tag string) *uiNodeObject {
 	for _, item := range list {
 		node, _ := item.(*uiNodeObject)
-		if entry := node.object("node"); entry != nil {
-			node = entry
-		}
 		if node.text("tag") == tag {
 			return node
 		}

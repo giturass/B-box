@@ -57,6 +57,8 @@ Flutter 从 `ready` 和配置/设置变更事件取得配置列表与设置，�
 Cloudflare WARP MASQUE 使用新增的 sing-box `masque` 出站，通过既有 JSON 导入/编辑和 `Libbox.checkConfig` 校验。字段、凭据及示例由 [核心文档](libbox.md#cloudflare-warp-masque) 维护。
 
 - 保存前检查内容修订和完整 `Libbox.checkConfig`，以原子写入替换内容。分项配置编辑原生 DNS、路由、规则集、入站、出站、端点和日志；原始 JSON 编辑保留配置元数据及订阅 URL。
+- [BoxNodes.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxNodes.kt) 将新建和导入节点直接追加到所选配置的 `outbounds` / `endpoints`，编辑及删除也只写该配置。节点操作固定配置 ID 和内容修订，在持久化前复核选择；停服可以保存，运行中沿用服务应用及失败恢复。没有共享节点库、运行时注入、独立节点订阅或对应备份数据，不读取或迁移旧共享节点。节点解析、分组成员和本地追加标记见 [核心说明](libbox.md#节点导入与配置合并)。
+- 默认配置是带 `TypedProfile.isDefault` 身份的实际本地配置；启动和读取配置列表时检查并在缺少时创建，即使已有配置也显示。默认配置可以改名和编辑内容，保持本地类型并禁止删除；创建时保留已有选择，未选择配置时自动选择默认配置。备份携带默认身份，兼容恢复匹配本机默认项，旧备份没有该身份时后续补建。
 - 普通应用设置、查询策略/托管扫描结果、终端设置、配置选择及服务模式通过 [RoomPreferenceDataStore.kt](app/src/main/java/io/nekohasekai/sfa/database/preference/RoomPreferenceDataStore.kt) 的确认事务保存；只有 Room 提交成功才发布缓存并向调用方返回成功。查询策略先用于扫描，成功后与其他设置一起提交。保留的同步属性写入在失败时恢复缓存，`flush()` 报告此前尚未报告的错误，较早写入的完成或失败不能覆盖后续排队的值；服务清理与广播结束不因刷盘失败中断。字符串集合按 UTF-8 字节长度编码，支持中文及 emoji。
 - 本地配置创建时在 Room 记录时间，原始 JSON 编辑、分项配置编辑及局域网入站变更成功保存内容时更新 `lastUpdated`；无内容变化和仅编辑名称等元数据不刷新时间。保存或应用失败与内容一起恢复旧时间。远程配置的该字段仍表示订阅更新时间，手动 JSON 编辑不覆盖它；没有时间记录的旧配置保持未知。界面展示见 [flclash.md](flclash.md#配置页与内核差异)。
 - 运行中修改选中配置需应用到服务：模式相同时重载，模式变化时停止并重新走权限/启动流程。需要重启时通过 [ServiceStartResult.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ServiceStartResult.kt) 等待 Started 回调；失败或超时恢复旧文件/设置并尝试恢复原服务。停服时普通保存不会自动启动 VPN。
@@ -67,6 +69,7 @@ Cloudflare WARP MASQUE 使用新增的 sing-box `masque` 出站，通过既有 J
 - 运行中重载缺少 Wi-Fi 规则所需定位权限时，RPC 返回失败并回滚旧配置，确认原服务恢复后结束操作；不会发送可能在回滚后再次启动服务的定位授权回调。初次启动仍保留系统定位授权流程，停服保存后再启动也沿用该流程。运行配置快照在权限检查成功后发布。
 - 删除配置在同一互斥区内检查最新选择，禁止删除当前选中的配置，停服时也需先切换到其他配置。拒绝操作不改文件、数据库、选择或服务；不再通过删除操作自动选择其他配置。
 - URL 导入、手动及后台订阅更新共用 [HTTPClient.kt](app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt) 和可取消的核心下载接口，不设固定下载容量或总时限；协程取消在阻塞的 gomobile 调用仍在运行时关闭 `UIHTTPTask`，等待网络退出，接口语义见 [HTTP 与 WebDAV](libbox.md#http-与-webdav)。网络下载在配置及桥接操作锁外执行，下载失败不进入保存或服务应用。更新提交时通过 [ProfileSubscription.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileSubscription.kt) 复核配置存在、URL、类型、路径、修订、更新时间和自动更新计划；编辑、删除或另一轮更新后的旧结果不能覆盖当前数据。桥接提交另检查本地会话身份，切换会话后的迟到下载需要重试。
+- 手动和后台远端配置更新通过 `ProfileSubscription.mergedContentLocked` 合并下载内容与当前文件里标记的本地追加节点，再统一校验、原子保存和应用。远端节点以新版本为准，不保留订阅已删除的旧节点；本地新增节点同名时重命名并更新其引用。合并后依赖不可用或配置校验/服务应用失败，保留或恢复原文件和订阅时间，不丢弃本地节点。原始 JSON 和分项编辑、资源导入及格式化保存会保留仍存在的本地追加标记；其他手动改动仍由后续远端更新覆盖。
 - [UpdateProfileWork.kt](app/src/main/java/io/nekohasekai/sfa/bg/UpdateProfileWork.kt) 在同一互斥区内完成每个订阅的保存、应用和恢复，应用失败请求重试。[BackgroundProfileService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BackgroundProfileService.kt) 通过本机服务连接确认状态，模式相同重载，模式变化及失败恢复时等待停止和 Started 回调；后台重启所需 VPN/通知权限未授予时更新失败并回滚。更新未选中配置或停服时不启动服务，远程会话不接收本机订阅的重载。
 - 服务设置页的 VPN 绕过、自动重定向和动态通知开关保存后，运行中的本地服务自动停止并重新走权限/启动流程，确认 Started 后完成操作。[ServiceSettingsChange.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ServiceSettingsChange.kt) 在保存或重启失败时恢复原设置，仅在设置恢复成功后尝试恢复原服务；恢复失败保留原错误与恢复错误，不启动未恢复的设置。停止状态只保存设置，远程会话不触发本机或远端重启。
 - Root 自动重定向的系统 BPF map 兼容范围和核心补丁见 [libbox.md](libbox.md#android-自动重定向兼容)。Android 桥接继续沿用上游的启动、错误传递及 Root 服务死亡清理流程。
@@ -239,27 +242,9 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-2026-11-14，配置页顶部精简及工具栏收纳调整的验证源码为 `2be09f60fcf6244f9f30c7899c5da382359701e0`，对应 [Unit tests and regression](https://github.com/giturass/B-box/actions/runs/43570946186)。core、Root CA、Flutter、Android 构建及四组 smoke 合计 8 个作业全部通过；后续仅补充文档的 Markdown 提交不改变上述验证源码。
+2026-11-16，本次工作树改为配置文件内节点保存、远端更新合并、默认配置常驻和配置卡片对齐。新增回归覆盖默认配置持久身份、配置切换修订冲突、节点追加/编辑/删除、手动及后台订阅合并和失败恢复；具体用例按下方源码及 [核心](libbox.md#回归文件覆盖)、[Flutter](flclash.md#验证与升级参考版本) 文档维护。
 
-- core 的匹配内核 Android ingress-discard、全部 `TestUI`、不含 QUIC 与 `with_quic` 两种 `^TestWARP` race、`with_quic` 的 `^TestUIMASQUE`、路由/HTTP/订阅 race、完整 `experimental/httpdebug` race 和路由接入回归步骤全部通过。
-- Root CA namespace 回归的 6 项测试通过。
-- Flutter 分析、259 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过；分析提示、工具栏与配置卡片的截图检查见 [界面验证记录](flclash.md#当前验证记录)。
-- 已读取 [native-unit-tests](https://github.com/giturass/B-box/actions/runs/43570946186/artifacts/14104319553) 的 13 份 XML，56 项 JVM 测试通过，无失败、错误或跳过；`play` Kotlin 编译和 x86_64 应用/仪器测试 APK 构建通过。
-
-已逐项核对以下 Artifact 的 `results.json` 与 `native-tests.txt`：源码 SHA 均与上述提交一致，每组 UI smoke 和全部 41 项原生测试通过，原生状态码全部成功，无失败或跳过；页大小为设备实际读取值。
-
-| 环境与结果产物 | 实际页大小 | 采集来源 |
-| --- | --- | --- |
-| [API 24 / Android 7 / google_apis](https://github.com/giturass/B-box/actions/runs/43570946186/artifacts/14105061141) | 4096 字节 | `/proc/self/smaps` |
-| [API 31 / Android 12 / google_apis](https://github.com/giturass/B-box/actions/runs/43570946186/artifacts/14104353812) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis](https://github.com/giturass/B-box/actions/runs/43570946186/artifacts/14105076027) | 4096 字节 | `getconf` |
-| [API 36 / Android 16 / google_apis_ps16k](https://github.com/giturass/B-box/actions/runs/43570946186/artifacts/14103694818) | 16384 字节 | `getconf` |
-
-本机仅执行差异、源码约束及文档链接等静态检查，编译及 Go/Flutter/JVM/Android 测试均在 Actions 运行。未覆盖范围：
-
-- 本次未触发签名 ARM64 Release 工作流，也没有发布；Flutter AAR 和 x86_64 测试 APK 不等于可安装的 ARM64 Release。
-- 尚未验收 ARM64 实机上的配置滑动、工具栏菜单及排序操作、真实远程会话或性能；Flutter 截图使用测试桥接数据。
-- 尚未验收 Cloudflare 真实注册/连接、真实网络下的传输兼容性、ARM64 实机网络切换及实际 Root 管理器的 CA 模块安装与重启。
+当前尚未运行对应源码的 Actions；旧运行和已有 Release 不代表本次变更通过。本机只进行静态检查，Go、Flutter、JVM、Android 测试和编译须在 [统一工作流](.github/workflows/newui.yml) 验证。未进行 ARM64 实机视觉、真实订阅网络及远程会话验收，也未触发签名 Release 或发布。
 
 ### 历史验证记录
 
@@ -267,6 +252,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 | 日期 | 主题 | 验证源码 | Actions | 范围与备注 |
 | --- | --- | --- | --- | --- |
+| 2026-11-14 | 配置页顶部精简及工具栏收纳 | `2be09f60fcf6244f9f30c7899c5da382359701e0` | [43570946186](https://github.com/giturass/B-box/actions/runs/43570946186) | 8 个作业通过；259 项 Flutter；56 项 JVM；API 24/31/36 及 16 KiB 四组各 41 项原生测试，未触发 ARM64 Release；详细核对见 Git `26ff355:app.md` |
 | 2026-11-14 | 配置/代理合并、设置底栏与仪表盘铅笔 | `2adc1b653bd98acc68929deec19f77dfa04f0022` | [43562639502](https://github.com/giturass/B-box/actions/runs/43562639502) | 8 个作业通过；259 项 Flutter；56 项 JVM；API 24/31/36 及 16 KiB 四组各 41 项原生测试，未触发 ARM64 Release |
 | 2026-11-14 | 代码整理与 MASQUE 网络重置修复 | `06eed8f5f830a90b9853995ced3b2e211deca628` | [43523435178](https://github.com/giturass/B-box/actions/runs/43523435178) | 8 个 job 通过；56 项 JVM；API 24/31/36 及 16 KiB 四组各 41 项原生测试；同源码 core 第二次重跑也通过，未触发 ARM64 Release |
 | 2026-11-13 | Cloudflare WARP MASQUE | `e0d77c9a5507a3503c5942c1a0b38bd702dbfd5e` | [43434680819](https://github.com/giturass/B-box/actions/runs/43434680819) | 8 个 job 通过；56 项 JVM；API 24/31/36 及 16 KiB 四组各 41 项原生测试。同一源码的 [ARM64 Release](https://github.com/giturass/B-box/actions/runs/43435512552) 以 `publish_release=false` 构建并校验签名 APK，未发布 |

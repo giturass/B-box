@@ -22,9 +22,7 @@ import io.nekohasekai.sfa.backend.connections.ConnectionsViewModel
 import io.nekohasekai.sfa.backend.dashboard.DashboardViewModel
 import io.nekohasekai.sfa.backend.dashboard.groups.GroupsViewModel
 import io.nekohasekai.sfa.backend.log.LogViewModel
-import io.nekohasekai.sfa.bg.UpdateNodeWork
 import io.nekohasekai.sfa.constant.Status
-import io.nekohasekai.sfa.database.NodeLibrary
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.RemoteServer
@@ -102,14 +100,12 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             emit("rates", mapOf("upload" to status.uplink, "download" to status.downlink, "memoryBytes" to status.memory))
         }
     }
-    private val profileCallback: () -> Unit = { scope.launch { operations.withLock { publishProfiles() } } }
-    // A node change of the bridge is published where it ends; this one follows the subscription worker.
-    @Volatile private var changingNodes = false
-    private val nodeCallback: () -> Unit = { if (!changingNodes) scope.launch { operations.withLock { publishNodes() } } }
+    private val profileCallback: () -> Unit = { scope.launch { operations.withLock { publishProfiles(ensureDefault = false) } } }
     private val initialize = scope.async {
         withContext(Dispatchers.IO) {
             Settings.dataStore.initialize()
             Application.application.setupLibbox()
+            profiles.ensureDefault()
         }
         val provider = ViewModelProvider(activity)
         dashboard = provider[DashboardViewModel::class.java]
@@ -120,7 +116,6 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         dashboardDetails = BoxDashboard(activity, ::emit)
         dashboard.commandClient.addHandler(rates)
         ProfileManager.registerCallback(profileCallback)
-        NodeLibrary.registerCallback(nodeCallback)
         PackageQueryManager.registerListeners()
         RemoteControlManager.restore()
         scope.launch {
@@ -457,41 +452,19 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             "nodes.parse" -> return withContext(Dispatchers.IO) { nodes.parse(args.string("content")) }
             "nodes.detect" -> return withContext(Dispatchers.IO) { nodes.detect(args.string("content")) }
             "nodes.clipboard" -> return clipboardNodes()
-            "nodes.get" -> return localProfiles { nodes.get(args.string("tag")) }
-            "nodes.add" -> return changeNodes { nodes.add(args.string("nodes")).also { ensureProfile(args) } }
-            "nodes.set" -> changeNodes { nodes.set(args.string("tag"), args.string("content"), args["revision"] as? String) }
-            "nodes.remove" -> changeNodes { nodes.remove((args["tags"] as List<*>).map { it as String }) }
-            "nodes.subscribe", "nodes.updateSource" -> return subscribeNodes(args).also { UpdateNodeWork.reconfigureUpdater() }
-            "nodes.saveSource" -> {
-                changeNodes { nodes.saveSource(nodes.subscription(args)) }
-                UpdateNodeWork.reconfigureUpdater()
+            "nodes.list" -> return localProfiles {
+                if (args["profileId"] is Number) require(args.long("profileId") == Settings.selectedProfile) { "Selected profile changed; reload it before saving" }
+                nodeState()
             }
-            "nodes.removeSource" -> {
-                changeNodes { nodes.removeSource(args.string("id")) }
-                UpdateNodeWork.reconfigureUpdater()
-            }
+            "nodes.get" -> return localProfiles { nodes.get(args.string("tag"), args.long("profileId")) }
+            "nodes.add" -> return changeNodes { nodes.add(args.string("nodes"), args.long("profileId"), args.string("profileRevision")) }
+            "nodes.set" -> changeNodes { nodes.set(args.string("tag"), args.string("content"), args["revision"] as? String,
+                args.long("profileId"), args.string("profileRevision")) }
+            "nodes.remove" -> changeNodes { nodes.remove((args["tags"] as List<*>).map { it as String },
+                args.long("profileId"), args.string("profileRevision")) }
             else -> return toolBridge.invoke(method, args)
         }
         return null
-    }
-
-    private suspend fun subscribeNodes(args: Map<String, Any?>): Map<String, Any?> {
-        val session = CommandTarget.localSession()
-        // The subscription downloads before entering the operation lock.
-        val (subscription, parsed) = withContext(Dispatchers.IO) {
-            val subscription = if (args["url"] is String) nodes.subscription(args) else nodes.subscription(args.string("id"))
-            subscription to nodes.fetch(subscription)
-        }
-        // An update of a stored subscription keeps what was edited while it downloaded.
-        return changeNodes(session) {
-            nodes.commit(subscription, parsed, refresh = args["url"] !is String) { CommandTarget.requireLocalSession(session) }.also { ensureProfile(args) }
-        }
-    }
-
-    // Nodes imported before any profile exists get the default one to run with.
-    private suspend fun ensureProfile(args: Map<String, Any?>) {
-        val name = args["profileName"] as? String ?: return
-        if (ProfileManager.list().isEmpty()) profiles.save(mapOf("name" to name))
     }
 
     /** The node links copied since the last look, as libbox parsed them, or null. */
@@ -721,27 +694,40 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         localProfiles(session) { block().also { publishProfiles() } }
 
     private suspend fun <T> changeNodes(session: Long = CommandTarget.localSession(), block: suspend () -> T): T = localProfiles(session) {
-        changingNodes = true
+        var failure: Exception? = null
         try {
             block()
+        } catch (error: Exception) {
+            failure = error
+            throw error
         } finally {
-            changingNodes = false
-            withContext(NonCancellable) { publishNodes() }
+            withContext(NonCancellable) {
+                try {
+                    publishProfiles(ensureDefault = failure == null)
+                } catch (error: Exception) {
+                    failure?.addSuppressed(error) ?: throw error
+                }
+            }
         }
     }
 
-    private suspend fun publishNodes() {
-        emit("nodes", withContext(Dispatchers.IO) { nodeState() })
-        publishProfiles()
-    }
+    private suspend fun publishNodes(successful: Boolean) = publishProfiles(ensureDefault = successful)
 
     // An unreadable document is reported when it is used, not while the interface loads.
-    private fun nodeState(): Map<String, Any?> = runCatching { nodes.state() }
-        .getOrDefault(mapOf("nodes" to emptyList<Any>(), "sources" to emptyList<Any>()))
+    private suspend fun nodeState(): Map<String, Any?> = try {
+        nodes.state()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        mapOf("profileId" to Settings.selectedProfile, "profileRevision" to "", "nodes" to emptyList<Any>())
+    }
 
-    private suspend fun publishProfiles() {
-        val value = withContext(Dispatchers.IO) { profiles.list() }
+    private suspend fun publishProfiles(ensureDefault: Boolean = true) {
+        val value = withContext(Dispatchers.IO) {
+            if (ensureDefault) profiles.list() else ProfileManager.list().map { it.toWire() }
+        }
         emit("profiles", value)
+        emit("nodes", withContext(Dispatchers.IO) { nodeState() })
         if (::dashboard.isInitialized) emit("dashboard", dashboard.uiState.value.toWire())
         if (::dashboardDetails.isInitialized) dashboardDetails.invalidateNetwork()
     }
@@ -846,7 +832,6 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         if (::dashboard.isInitialized) {
             dashboard.commandClient.removeHandler(rates)
             ProfileManager.unregisterCallback(profileCallback)
-            NodeLibrary.unregisterCallback(nodeCallback)
             PackageQueryManager.unregisterListeners()
             if (connectionsVisible.value) connections.setVisible(false)
             toolBridge.close()

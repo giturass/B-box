@@ -34,6 +34,8 @@ runs:
       run: |
         git -C .core apply --check ../libbox/libbox-no-legacy.patch
         git -C .core apply ../libbox/libbox-no-legacy.patch
+        git -C .core apply --check ../libbox/node-profile.patch
+        git -C .core apply ../libbox/node-profile.patch
         python3 tools/patch_sing_tun.py .core
         python3 tools/patch_warp_masque.py .core
         python3 tools/patch_httpdebug.py .core

@@ -1,9 +1,6 @@
 package libbox
 
-// B-box shared node library and its expansion into sing-box configurations.
-// A profile stays sing-box JSON: an empty string in a selector or urltest
-// member list stands for every shared node, and a node named explicitly is
-// supplied from the library when the profile does not define it. Documents are
+// B-box node parsing and editing of sing-box configurations. Documents are
 // edited as ordered values, so key order, fields unknown to this code and
 // integers beyond float64 precision reach the core unchanged.
 import (
@@ -479,8 +476,8 @@ type uiNodeRefusal struct {
 // uiNodeConstruct builds nodes the way a starting service does and returns
 // the ones the core refuses, in order. Options that decode can still fail
 // there: an unknown cipher, a malformed key, a protocol left out of the
-// build. One such node would keep every profile that uses the shared nodes
-// from starting. The nodes must have passed uiNodeCheck.
+// build. One such node would keep its configuration from starting. The nodes
+// must have passed uiNodeCheck.
 func uiNodeConstruct(ctx context.Context, nodes []*uiNodeObject) []uiNodeRefusal {
 	var refusals []uiNodeRefusal
 	for _, key := range []string{"outbounds", "endpoints"} {
@@ -518,402 +515,6 @@ func uiNodeConstruct(ctx context.Context, nodes []*uiNodeObject) []uiNodeRefusal
 	}
 	slices.SortFunc(refusals, func(left, right uiNodeRefusal) int { return left.index - right.index })
 	return refusals
-}
-
-type uiNodeEntry struct {
-	source string
-	node   *uiNodeObject
-}
-
-// The library is one document: subscription sources with metadata this code
-// does not interpret, and the nodes in display order, each owned by a source
-// or, with an empty source, entered by hand. Names are unique across it.
-type uiNodeLibrary struct {
-	sources []*uiNodeObject
-	nodes   []uiNodeEntry
-}
-
-func uiNodeLibraryDecode(content string) (*uiNodeLibrary, error) {
-	library := &uiNodeLibrary{}
-	if strings.TrimSpace(content) == "" {
-		return library, nil
-	}
-	root, err := uiNodeDecodeObject(content)
-	if err != nil {
-		return nil, E.Cause(err, "decode node library")
-	}
-	if version, _ := root.get("version").(uiNodeNumber); version != "1" {
-		return nil, E.New("unsupported node library version")
-	}
-	sources := make(map[string]bool)
-	for _, item := range root.list("sources") {
-		source, _ := item.(*uiNodeObject)
-		id := source.text("id")
-		if id == "" || sources[id] {
-			return nil, E.New("invalid node library source")
-		}
-		sources[id] = true
-		library.sources = append(library.sources, source)
-	}
-	tags := make(map[string]bool)
-	for _, item := range root.list("nodes") {
-		entry, _ := item.(*uiNodeObject)
-		node, source := entry.object("node"), entry.text("source")
-		tag := node.text("tag")
-		if tag == "" || tags[tag] || node.text("type") == "" || source != "" && !sources[source] {
-			return nil, E.New("invalid node library entry")
-		}
-		tags[tag] = true
-		library.nodes = append(library.nodes, uiNodeEntry{source, node})
-	}
-	return library, nil
-}
-
-func (l *uiNodeLibrary) encode() (string, error) {
-	sources := make([]any, len(l.sources))
-	for index, source := range l.sources {
-		sources[index] = source
-	}
-	nodes := make([]any, len(l.nodes))
-	for index, entry := range l.nodes {
-		nodes[index] = uiNodeOf("source", entry.source, "node", entry.node)
-	}
-	return uiNodeEncode(uiNodeOf("version", uiNodeInt(1), "sources", sources, "nodes", nodes), false)
-}
-
-func (l *uiNodeLibrary) result() (*StringBox, error) {
-	content, err := l.encode()
-	if err != nil {
-		return nil, err
-	}
-	return wrapString(content), nil
-}
-
-func (l *uiNodeLibrary) index(tag string) int {
-	return slices.IndexFunc(l.nodes, func(entry uiNodeEntry) bool { return entry.node.text("tag") == tag })
-}
-
-func (l *uiNodeLibrary) sourceIndex(id string) int {
-	return slices.IndexFunc(l.sources, func(source *uiNodeObject) bool { return source.text("id") == id })
-}
-
-// place inserts nodes for a source at position. A node the source already
-// holds under its name, or under a numbered variant of that name, is not
-// added again; any other collision takes the next free number. A detour
-// inside the batch follows the name its target ended up with, which keeps a
-// repeated import from growing the library.
-func (l *uiNodeLibrary) place(sourceID string, position int, incoming []*uiNodeObject) (int, int) {
-	existing := make(map[string]uiNodeEntry, len(l.nodes))
-	for _, entry := range l.nodes {
-		existing[entry.node.text("tag")] = entry
-	}
-	first := make(map[string]int, len(incoming))
-	for index, node := range incoming {
-		if _, exists := first[node.text("tag")]; !exists {
-			first[node.text("tag")] = index
-		}
-	}
-	const visiting, done = 1, 2
-	state := make([]int, len(incoming))
-	final := make([]string, len(incoming))
-	keep := make([]bool, len(incoming))
-	placed := make(map[string]*uiNodeObject, len(incoming))
-	var resolve func(index int)
-	resolve = func(index int) {
-		if state[index] != 0 {
-			return
-		}
-		state[index] = visiting
-		node := incoming[index]
-		if target, exists := first[node.text("detour")]; exists && target != index {
-			resolve(target)
-			if state[target] == done {
-				node.set("detour", final[target])
-			}
-		}
-		base := node.text("tag")
-		candidate := base
-		for number := 2; ; number++ {
-			if other, exists := placed[candidate]; exists {
-				if uiNodeSame(other, node) {
-					break
-				}
-			} else if entry, exists := existing[candidate]; exists {
-				if entry.source == sourceID && uiNodeSame(entry.node, node) {
-					break
-				}
-			} else {
-				node.set("tag", candidate)
-				placed[candidate] = node
-				keep[index] = true
-				break
-			}
-			candidate = base + " " + strconv.Itoa(number)
-		}
-		final[index] = candidate
-		state[index] = done
-	}
-	for index := range incoming {
-		resolve(index)
-	}
-	entries := make([]uiNodeEntry, 0, len(incoming))
-	for index, node := range incoming {
-		if keep[index] {
-			entries = append(entries, uiNodeEntry{sourceID, node})
-		}
-	}
-	l.nodes = slices.Insert(l.nodes, position, entries...)
-	return len(entries), len(incoming) - len(entries)
-}
-
-// dependent names a remaining node whose detour is one of the removed names.
-func (l *uiNodeLibrary) dependent(removed map[string]bool) error {
-	for _, entry := range l.nodes {
-		if detour := entry.node.text("detour"); detour != "" && removed[detour] {
-			return E.New(detour, " is the detour of ", entry.node.text("tag"))
-		}
-	}
-	return nil
-}
-
-// UINodeUpdate is a library after nodes were added to it.
-type UINodeUpdate struct {
-	Library string
-	Added   int32
-	Skipped int32
-}
-
-func uiNodeAdd(libraryContent, sourceID, nodesContent string, replace bool) (*UINodeUpdate, error) {
-	library, err := uiNodeLibraryDecode(libraryContent)
-	if err != nil {
-		return nil, err
-	}
-	if (replace || sourceID != "") && library.sourceIndex(sourceID) < 0 {
-		return nil, E.New("unknown node source: ", sourceID)
-	}
-	incoming, err := uiNodeList(nodesContent)
-	if err != nil {
-		return nil, err
-	}
-	ctx := baseContext(nil)
-	for _, node := range incoming {
-		if _, err = uiNodeCheck(ctx, node); err != nil {
-			return nil, err
-		}
-	}
-	if refusals := uiNodeConstruct(ctx, incoming); len(refusals) > 0 {
-		return nil, E.New(incoming[refusals[0].index].text("tag"), ": ", refusals[0].reason)
-	}
-	position := len(library.nodes)
-	if replace {
-		// An update that finds nothing is a failed download or a portal page,
-		// not a subscription that lost every node.
-		if len(incoming) == 0 {
-			return nil, E.New("the subscription contains no usable node")
-		}
-		kept := make([]uiNodeEntry, 0, len(library.nodes))
-		position = -1
-		for _, entry := range library.nodes {
-			if entry.source != sourceID {
-				kept = append(kept, entry)
-			} else if position < 0 {
-				position = len(kept)
-			}
-		}
-		if position < 0 {
-			position = len(kept)
-		}
-		library.nodes = kept
-	} else {
-		for index, entry := range library.nodes {
-			if entry.source == sourceID {
-				position = index + 1
-			}
-		}
-	}
-	added, skipped := library.place(sourceID, position, incoming)
-	content, err := library.encode()
-	if err != nil {
-		return nil, err
-	}
-	return &UINodeUpdate{Library: content, Added: int32(added), Skipped: int32(skipped)}, nil
-}
-
-// AddUINodes adds parsed nodes to a subscription source, or with an empty
-// source to the nodes entered by hand.
-func AddUINodes(library, sourceID, nodes string) (*UINodeUpdate, error) {
-	return uiNodeAdd(library, sourceID, nodes, false)
-}
-
-// ReplaceUINodeSource gives a subscription source its updated nodes in the
-// place the previous ones had.
-func ReplaceUINodeSource(library, sourceID, nodes string) (*UINodeUpdate, error) {
-	return uiNodeAdd(library, sourceID, nodes, true)
-}
-
-// SetUINode replaces the node named tag, or with an empty tag adds a node
-// entered by hand. A new name is carried into the detours of other shared
-// nodes; profiles naming the old one are the caller's to check.
-func SetUINode(library, tag, node string) (*StringBox, error) {
-	lib, err := uiNodeLibraryDecode(library)
-	if err != nil {
-		return nil, err
-	}
-	edited, err := uiNodeDecodeObject(node)
-	if err != nil {
-		return nil, err
-	}
-	ctx := baseContext(nil)
-	if _, err = uiNodeCheck(ctx, edited); err != nil {
-		return nil, err
-	}
-	if refusals := uiNodeConstruct(ctx, []*uiNodeObject{edited}); len(refusals) > 0 {
-		return nil, E.New(edited.text("tag"), ": ", refusals[0].reason)
-	}
-	name := edited.text("tag")
-	if name != tag && lib.index(name) >= 0 {
-		return nil, E.New("a node named ", name, " already exists")
-	}
-	if tag == "" {
-		position := len(lib.nodes)
-		for index, entry := range lib.nodes {
-			if entry.source == "" {
-				position = index + 1
-			}
-		}
-		lib.nodes = slices.Insert(lib.nodes, position, uiNodeEntry{node: edited})
-		return lib.result()
-	}
-	index := lib.index(tag)
-	if index < 0 {
-		return nil, E.New("node not found: ", tag)
-	}
-	lib.nodes[index].node = edited
-	if name != tag {
-		for _, entry := range lib.nodes {
-			if entry.node.text("detour") == tag {
-				entry.node.set("detour", name)
-			}
-		}
-	}
-	return lib.result()
-}
-
-// RemoveUINodes removes shared nodes. Profiles are never edited here, so the
-// caller first asks FindUINodeReferences which of them name the nodes.
-func RemoveUINodes(library, tags string) (*StringBox, error) {
-	lib, err := uiNodeLibraryDecode(library)
-	if err != nil {
-		return nil, err
-	}
-	names, err := uiNodeTextList(tags)
-	if err != nil {
-		return nil, err
-	}
-	removed := make(map[string]bool, len(names))
-	for _, name := range names {
-		removed[name] = true
-	}
-	lib.nodes = slices.DeleteFunc(lib.nodes, func(entry uiNodeEntry) bool { return removed[entry.node.text("tag")] })
-	if err = lib.dependent(removed); err != nil {
-		return nil, err
-	}
-	return lib.result()
-}
-
-// SetUINodeSource adds a subscription source or replaces its metadata.
-func SetUINodeSource(library, source string) (*StringBox, error) {
-	lib, err := uiNodeLibraryDecode(library)
-	if err != nil {
-		return nil, err
-	}
-	edited, err := uiNodeDecodeObject(source)
-	if err != nil {
-		return nil, err
-	}
-	id := edited.text("id")
-	if id == "" {
-		return nil, E.New("a node source needs an id")
-	}
-	if index := lib.sourceIndex(id); index >= 0 {
-		lib.sources[index] = edited
-	} else {
-		lib.sources = append(lib.sources, edited)
-	}
-	return lib.result()
-}
-
-// RemoveUINodeSource removes a subscription source with its nodes.
-func RemoveUINodeSource(library, sourceID string) (*StringBox, error) {
-	lib, err := uiNodeLibraryDecode(library)
-	if err != nil {
-		return nil, err
-	}
-	index := lib.sourceIndex(sourceID)
-	if index < 0 {
-		return lib.result()
-	}
-	removed := make(map[string]bool)
-	for _, entry := range lib.nodes {
-		if entry.source == sourceID {
-			removed[entry.node.text("tag")] = true
-		}
-	}
-	lib.sources = slices.Delete(lib.sources, index, index+1)
-	lib.nodes = slices.DeleteFunc(lib.nodes, func(entry uiNodeEntry) bool { return entry.source == sourceID })
-	if err = lib.dependent(removed); err != nil {
-		return nil, err
-	}
-	return lib.result()
-}
-
-// MergeUINodes returns a library with the sources and nodes of another one,
-// as a restored backup brings them. A source or node of the other library
-// replaces the one held under its id or name and everything else stays in
-// its place, so an empty library becomes the other one. The nodes that come
-// in pass the checks of an import.
-func MergeUINodes(library, incoming string) (*StringBox, error) {
-	lib, err := uiNodeLibraryDecode(library)
-	if err != nil {
-		return nil, err
-	}
-	other, err := uiNodeLibraryDecode(incoming)
-	if err != nil {
-		return nil, err
-	}
-	ctx := baseContext(nil)
-	nodes := make([]*uiNodeObject, len(other.nodes))
-	position := make(map[string]int, len(other.nodes))
-	for index, entry := range other.nodes {
-		if _, err = uiNodeCheck(ctx, entry.node); err != nil {
-			return nil, err
-		}
-		nodes[index] = entry.node
-		position[entry.node.text("tag")] = index
-	}
-	if refusals := uiNodeConstruct(ctx, nodes); len(refusals) > 0 {
-		return nil, E.New(nodes[refusals[0].index].text("tag"), ": ", refusals[0].reason)
-	}
-	for _, source := range other.sources {
-		if index := lib.sourceIndex(source.text("id")); index >= 0 {
-			lib.sources[index] = source
-		} else {
-			lib.sources = append(lib.sources, source)
-		}
-	}
-	replaced := make([]bool, len(other.nodes))
-	for index, entry := range lib.nodes {
-		if at, exists := position[entry.node.text("tag")]; exists {
-			lib.nodes[index] = other.nodes[at]
-			replaced[at] = true
-		}
-	}
-	for index, entry := range other.nodes {
-		if !replaced[index] {
-			lib.nodes = append(lib.nodes, entry)
-		}
-	}
-	return lib.result()
 }
 
 // A reference is a place in a configuration that names an outbound.
@@ -963,6 +564,11 @@ func uiNodeCollectReferences(value any, path string, keys []string, references *
 	switch value := value.(type) {
 	case *uiNodeObject:
 		for _, key := range value.keys {
+			// HTTP header names and Tor option names are caller data, not
+			// sing-box option keys, even when named detour/default/outbounds.
+			if key == "headers" || key == "torrc" {
+				continue
+			}
 			item, itemPath := value.values[key], path+"."+key
 			if slices.Contains(keys, key) {
 				if tag, isText := item.(string); isText {
@@ -1016,220 +622,21 @@ func uiNodeFind(root *uiNodeObject, tag string) (string, int) {
 	return "", -1
 }
 
-// uiNodeDetourResolves follows a shared node's detours to an outbound the
-// configuration can dial. A chain that ends at a missing name would stop the
-// whole configuration from starting, and one that ends at a group of the
-// configuration would loop once the node became a member of that group.
-func uiNodeDetourResolves(tag string, shared map[string]*uiNodeObject, defined, groups map[string]bool) bool {
-	for range len(shared) + 1 {
-		detour := shared[tag].text("detour")
-		if detour == "" {
-			return true
-		}
-		if defined[detour] {
-			return !groups[detour]
-		}
-		if shared[detour] == nil {
-			return false
-		}
-		tag = detour
-	}
-	return false
-}
-
-func uiNodeExpand(ctx context.Context, config, libraryContent string) (string, error) {
-	library, err := uiNodeLibraryDecode(libraryContent)
-	if err != nil {
-		return "", err
-	}
-	if len(library.nodes) == 0 && !strings.Contains(config, `""`) {
-		return config, nil
-	}
-	// A document that cannot be read here is left for the core to reject in
-	// its own words.
+// GetUINode returns a configuration node for editing as {"endpoint","content"}.
+func GetUINode(config, tag string) (*StringBox, error) {
 	root, err := uiNodeDecodeObject(config)
 	if err != nil {
-		return config, nil
+		return nil, err
 	}
-	outbounds, isList := root.optionalList("outbounds")
-	if !isList {
-		return config, nil
+	key, index := uiNodeFind(root, tag)
+	if index < 0 {
+		return nil, E.New("node not found: ", tag)
 	}
-	endpoints, isList := root.optionalList("endpoints")
-	if !isList {
-		return config, nil
-	}
-	defined := uiNodeDefined(root)
-	var groups []*uiNodeObject
-	groupTags := make(map[string]bool)
-	fallback := ""
-	for _, item := range outbounds {
-		outbound, _ := item.(*uiNodeObject)
-		if fallback == "" && outbound.text("type") == C.TypeDirect {
-			fallback = outbound.text("tag")
-		}
-		if !uiNodeIsGroup(outbound) {
-			continue
-		}
-		groupTags[outbound.text("tag")] = true
-		if slices.Contains(outbound.list("outbounds"), any("")) {
-			groups = append(groups, outbound)
-		}
-	}
-	// A name the configuration defines itself hides the shared node.
-	shared := make(map[string]*uiNodeObject, len(library.nodes))
-	isEndpoint := make(map[string]bool)
-	for _, entry := range library.nodes {
-		tag := entry.node.text("tag")
-		if isNode, endpoint := uiNodeKind(ctx, entry.node.text("type")); isNode && !defined[tag] {
-			shared[tag], isEndpoint[tag] = entry.node, endpoint
-		}
-	}
-	included := make(map[string]bool)
-	var include func(tag string)
-	include = func(tag string) {
-		if node := shared[tag]; node != nil && !included[tag] {
-			included[tag] = true
-			include(node.text("detour"))
-		}
-	}
-	var members []string
-	if len(groups) > 0 {
-		for _, entry := range library.nodes {
-			tag := entry.node.text("tag")
-			if shared[tag] != nil && uiNodeDetourResolves(tag, shared, defined, groupTags) {
-				include(tag)
-				members = append(members, tag)
-			}
-		}
-	}
-	for _, reference := range uiNodeReferences(root) {
-		include(reference.tag)
-	}
-	if len(groups) == 0 && len(included) == 0 {
-		return config, nil
-	}
-	for _, group := range groups {
-		list := group.list("outbounds")
-		listed := make(map[string]bool, len(list))
-		for _, item := range list {
-			if tag, isText := item.(string); isText {
-				listed[tag] = true
-			}
-		}
-		expanded := make([]any, 0, len(list)+len(members))
-		for _, item := range list {
-			if tag, isText := item.(string); !isText || tag != "" {
-				expanded = append(expanded, item)
-			} else if listed[""] {
-				listed[""] = false
-				for _, member := range members {
-					if !listed[member] {
-						expanded = append(expanded, member)
-					}
-				}
-			}
-		}
-		// The core refuses an empty group; without shared nodes it connects
-		// directly.
-		if len(expanded) == 0 {
-			if fallback == "" {
-				fallback = C.TypeDirect
-				for number := 2; defined[fallback] || shared[fallback] != nil; number++ {
-					fallback = C.TypeDirect + " " + strconv.Itoa(number)
-				}
-				outbounds = append(outbounds, uiNodeOf("type", C.TypeDirect, "tag", fallback))
-			}
-			expanded = append(expanded, fallback)
-		}
-		group.set("outbounds", expanded)
-	}
-	for _, entry := range library.nodes {
-		if tag := entry.node.text("tag"); !included[tag] {
-			continue
-		} else if isEndpoint[tag] {
-			endpoints = append(endpoints, entry.node)
-		} else {
-			outbounds = append(outbounds, entry.node)
-		}
-	}
-	if len(outbounds) > 0 {
-		root.set("outbounds", outbounds)
-	}
-	if len(endpoints) > 0 {
-		root.set("endpoints", endpoints)
-	}
-	return uiNodeEncode(root, true)
-}
-
-// ExpandUINodes returns the configuration the core runs: shared nodes take
-// the place of each group's empty member, and nodes the configuration names
-// without defining are added with the nodes their detours need.
-func ExpandUINodes(config, library string) (*StringBox, error) {
-	content, err := uiNodeExpand(baseContext(nil), config, library)
+	content, err := uiNodeEncode(root.list(key)[index], true)
 	if err != nil {
 		return nil, err
 	}
-	return wrapString(content), nil
-}
-
-// FindUINodeReferences lists where a configuration names any of the given
-// nodes without defining them, as [{"tag","path"}].
-func FindUINodeReferences(config, tags string) (*StringBox, error) {
-	names, err := uiNodeTextList(tags)
-	if err != nil {
-		return nil, err
-	}
-	found := make([]any, 0)
-	if root, err := uiNodeDecodeObject(config); err == nil {
-		defined := uiNodeDefined(root)
-		for _, reference := range uiNodeReferences(root) {
-			if slices.Contains(names, reference.tag) && !defined[reference.tag] {
-				found = append(found, uiNodeOf("tag", reference.tag, "path", reference.path))
-			}
-		}
-	}
-	content, err := uiNodeEncode(found, false)
-	if err != nil {
-		return nil, err
-	}
-	return wrapString(content), nil
-}
-
-// GetUINode returns a node for editing as {"origin","source","endpoint",
-// "content"}. A node the configuration defines hides a shared one.
-func GetUINode(config, library, tag string) (*StringBox, error) {
-	var node *uiNodeObject
-	result := uiNodeOf()
-	if root, err := uiNodeDecodeObject(config); err == nil {
-		if key, index := uiNodeFind(root, tag); index >= 0 {
-			node, _ = root.list(key)[index].(*uiNodeObject)
-			result.set("origin", "profile")
-			result.set("source", "")
-			result.set("endpoint", key == "endpoints")
-		}
-	}
-	if node == nil {
-		lib, err := uiNodeLibraryDecode(library)
-		if err != nil {
-			return nil, err
-		}
-		index := lib.index(tag)
-		if index < 0 {
-			return nil, E.New("node not found: ", tag)
-		}
-		node = lib.nodes[index].node
-		_, isEndpoint := uiNodeKind(baseContext(nil), node.text("type"))
-		result.set("origin", "library")
-		result.set("source", lib.nodes[index].source)
-		result.set("endpoint", isEndpoint)
-	}
-	content, err := uiNodeEncode(node, true)
-	if err != nil {
-		return nil, err
-	}
-	result.set("content", content)
-	encoded, err := uiNodeEncode(result, false)
+	encoded, err := uiNodeEncode(uiNodeOf("endpoint", key == "endpoints", "content", content), false)
 	if err != nil {
 		return nil, err
 	}
@@ -1239,6 +646,10 @@ func GetUINode(config, library, tag string) (*StringBox, error) {
 // SetUIConfigNode replaces an outbound or endpoint a configuration defines
 // and carries a new name to every place that used the old one.
 func SetUIConfigNode(config, tag, node string) (*StringBox, error) {
+	local, _, err := uiNodeLocalTags(config)
+	if err != nil {
+		return nil, err
+	}
 	root, err := uiNodeDecodeObject(config)
 	if err != nil {
 		return nil, err
@@ -1263,6 +674,11 @@ func SetUIConfigNode(config, tag, node string) (*StringBox, error) {
 	}
 	root.list(key)[index] = edited
 	if name != tag {
+		for index, localTag := range local {
+			if localTag == tag {
+				local[index] = name
+			}
+		}
 		for _, reference := range uiNodeReferences(root) {
 			if reference.tag != tag {
 				continue
@@ -1273,7 +689,7 @@ func SetUIConfigNode(config, tag, node string) (*StringBox, error) {
 			}
 		}
 	}
-	content, err := uiNodeEncode(root, true)
+	content, err := uiNodeEncodeConfig(root, local, true)
 	if err != nil {
 		return nil, err
 	}
@@ -1281,9 +697,14 @@ func SetUIConfigNode(config, tag, node string) (*StringBox, error) {
 }
 
 // RemoveUIConfigNodes removes outbounds or endpoints a configuration defines.
-// They leave the groups listing them; any other use, or a group left without
-// a member, refuses the removal.
-func RemoveUIConfigNodes(config, tags string) (*StringBox, error) {
+// They leave the groups listing them; an automatic group can fall back to an
+// existing direct outbound. Other references or groups without a member refuse
+// the removal.
+func RemoveUIConfigNodes(config, tags string, defaultProfile bool) (*StringBox, error) {
+	local, _, err := uiNodeLocalTags(config)
+	if err != nil {
+		return nil, err
+	}
 	root, err := uiNodeDecodeObject(config)
 	if err != nil {
 		return nil, err
@@ -1316,6 +737,14 @@ func RemoveUIConfigNodes(config, tags string) (*StringBox, error) {
 			return nil, E.New(reference.tag, " is still used at ", reference.path)
 		}
 	}
+	fallback := ""
+	for _, item := range root.list("outbounds") {
+		node, _ := item.(*uiNodeObject)
+		if node.text("type") == C.TypeDirect && node.text("tag") != "" {
+			fallback = node.text("tag")
+			break
+		}
+	}
 	for _, item := range root.list("outbounds") {
 		group, _ := item.(*uiNodeObject)
 		if !uiNodeIsGroup(group) {
@@ -1327,25 +756,28 @@ func RemoveUIConfigNodes(config, tags string) (*StringBox, error) {
 			return isText && removed[name]
 		})
 		if len(members) == 0 && len(list) > 0 {
-			return nil, E.New("group ", group.text("tag"), " would be left without a member")
+			if defaultProfile && group.text("tag") == "auto" && group.text("type") == C.TypeURLTest && fallback != "" {
+				members = []any{fallback}
+			} else {
+				return nil, E.New("group ", group.text("tag"), " would be left without a member")
+			}
 		}
-		if len(members) < len(list) {
+		if !slices.Equal(members, list) {
 			group.set("outbounds", members)
 		}
 		if removed[group.text("default")] {
 			group.remove("default")
 		}
 	}
-	content, err := uiNodeEncode(root, true)
+	content, err := uiNodeEncodeConfig(root, local, true)
 	if err != nil {
 		return nil, err
 	}
 	return wrapString(content), nil
 }
 
-// GetUIDefaultConfig returns the configuration offered when none exists. It
-// holds no account: the proxy group lists the automatic group and every
-// shared node, and the automatic group tests every shared node.
+// GetUIDefaultConfig returns the account-free default configuration. The
+// direct member keeps the automatic group valid until nodes are appended.
 func GetUIDefaultConfig() *StringBox { return wrapString(uiNodeDefaultConfig) }
 
 const uiNodeDefaultConfig = `{
@@ -1444,8 +876,7 @@ const uiNodeDefaultConfig = `{
       "type": "selector",
       "tag": "proxy",
       "outbounds": [
-        "auto",
-        ""
+        "auto"
       ],
       "interrupt_exist_connections": true
     },
@@ -1453,7 +884,7 @@ const uiNodeDefaultConfig = `{
       "type": "urltest",
       "tag": "auto",
       "outbounds": [
-        ""
+        "direct"
       ],
       "interrupt_exist_connections": true
     }

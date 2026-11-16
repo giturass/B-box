@@ -2,6 +2,11 @@ import 'dart:async';
 import '../widgets.dart';
 
 // FlClash v0.9.3 profile rows, using only metadata supplied by Room.
+String profileDisplayName(BuildContext context, Json profile) {
+  final name = profile['name'].toString();
+  return profile['default'] == true && name == 'Default profile' ? context.tr(name) : name;
+}
+
 double profileCardHeight(BuildContext context) {
   final measure = MeasureScope.of(context);
   return measure.textHeight(AppTextStyle.headline) + 4 +
@@ -27,7 +32,7 @@ class ProfileCard extends StatelessWidget {
         child: ListItem(
           minTileHeight: profileCardHeight(context), minVerticalPadding: listRowVerticalPadding,
           title: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            Text(profile['name'].toString(), style: titleStyle,
+            Text(profileDisplayName(context, profile), style: titleStyle,
               strutStyle: StrutStyle.fromTextStyle(DefaultTextStyle.of(context).style.merge(titleStyle), forceStrutHeight: true),
               maxLines: 1, overflow: TextOverflow.ellipsis, textWidthBasis: TextWidthBasis.longestLine),
             const SizedBox(height: 4),

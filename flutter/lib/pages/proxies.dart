@@ -5,21 +5,18 @@ import '../components/proxy_list.dart';
 import '../common/proxy_nodes.dart';
 import 'nodes.dart';
 
-// What the core lists in a group besides servers: other groups and the ways out it builds itself.
-const _fixedTypes = {'direct', 'block', 'dns', 'bridge', 'selector', 'urltest', 'tailscale'};
-
 class ProxiesPage extends StatefulWidget {
   const ProxiesPage({super.key, this.title = 'Proxies', this.header, this.emptyState, this.idleAction,
-    this.actions = const [], this.menuItems = const [], this.library = false});
+    this.actions = const [], this.menuItems = const [], this.profileNodes = false});
   final String title;
   final Widget? header, emptyState;
-  /// Offered where neither a group nor a shared node is listed.
+  /// Offered when the selected profile has no listed nodes or live groups.
   final Widget? idleAction;
   final List<Widget> actions;
   /// Entries of the page around this one, listed before the display options.
   final List<PopupMenuItem> menuItems;
-  /// Whether the shared nodes follow the groups of the core.
-  final bool library;
+  /// Whether to show the selected profile's nodes while its service is stopped.
+  final bool profileNodes;
   @override State<ProxiesPage> createState() => _ProxiesPageState();
 }
 class _ProxiesPageState extends State<ProxiesPage> {
@@ -34,9 +31,9 @@ class _ProxiesPageState extends State<ProxiesPage> {
   // The nodes marked for one action on all of them; null while a tap selects a node.
   Set<String>? _picked;
   int _pickRevision = 0;
-  Json? _library;
-  Set<String> _tags = const {};
-  bool _hadGroups = false;
+  Json? _profileGroup;
+  String? _profileKey;
+  Set<String> _tags = const {}, _editableTags = const {};
 
   @override void dispose() {
     for (final scroll in _scrolls.values) { scroll.dispose(); }
@@ -73,31 +70,28 @@ class _ProxiesPageState extends State<ProxiesPage> {
     }
   }
 
-  // The shared nodes as one more group. They are local data under their own name: nothing in
-  // them is selected, and a latency shows only for a node the running configuration holds too.
-  Json? _libraryGroup(BoxController box, List<Json> live) {
-    final label = context.tr('Shared nodes');
-    final nodes = widget.library && !box.remote ? rows(box.nodes['nodes']) : const <Json>[];
-    if (nodes.isEmpty || live.any((group) => group['tag'] == label)) return _library = null;
-    final running = {for (final group in live) for (final node in group['items'] as List<Json>) node['tag']: node};
-    final previous = _library?['items'] as List<Json>? ?? const <Json>[];
+  // A stopped local service has no live groups; show nodes from the selected configuration.
+  Json? _stoppedProfileGroup(BoxController box) {
+    final snapshot = box.selectedProfileNodes;
+    final nodes = widget.profileNodes && !box.remote && !box.running && snapshot['profileId'] == box.selectedProfileId
+      ? rows(snapshot['nodes']) : const <Json>[];
+    if (nodes.isEmpty) return _profileGroup = null;
+    final label = context.tr('Nodes');
+    final previous = _profileGroup?['items'] as List<Json>? ?? const <Json>[];
     final before = {for (final node in previous) node['tag']: node};
     final items = <Json>[];
     for (final node in nodes) {
       final tag = node['tag'].toString(), type = nodeSummary(node);
-      final current = running[tag], old = before[tag];
-      items.add(old != null && old['type'] == type && old['live'] == (current != null) &&
-          old['delay'] == current?['delay'] && old['testedAt'] == current?['testedAt'] ? old
-        : {'tag': tag, 'type': type, 'live': current != null, 'delay': current?['delay'], 'testedAt': current?['testedAt']});
+      final old = before[tag];
+      items.add(old != null && old['type'] == type ? old : {'tag': tag, 'type': type});
     }
-    // An unchanged list keeps its group, and with it the grid that was built for it.
-    var same = _library?['tag'] == label && previous.length == items.length;
+    var same = _profileGroup?['tag'] == label && previous.length == items.length;
     for (var index = 0; same && index < items.length; index++) { same = identical(previous[index], items[index]); }
-    if (same) return _library;
-    return _library = {
-      'tag': label, 'library': true, 'selectable': false,
+    if (same) return _profileGroup;
+    return _profileGroup = {
+      'tag': label, 'profileNodes': true, 'selectable': false,
       'type': context.tr('{count} nodes').replaceFirst('{count}', '${items.length}'),
-      'caption': context.tr('Shared by every profile. Tap a node to edit it.'), 'items': items,
+      'caption': context.tr('Nodes in this profile. Tap a node to edit it.'), 'items': items,
     };
   }
 
@@ -109,10 +103,8 @@ class _ProxiesPageState extends State<ProxiesPage> {
     );
   }
 
-  // A node of the profile or of the shared nodes can be edited; a group and a built-in way out cannot.
-  bool _editable(Json group, Json node) => !context.box.remote &&
-      (group['library'] == true || !_fixedTypes.contains(node['type'].toString().toLowerCase())) &&
-      !context.box.groups.any((other) => other['tag'] == node['tag']);
+  // Only nodes defined by the selected profile can be edited.
+  bool _editable(Json node) => _editableTags.contains(node['tag']);
 
   void _pick(String tag) => setState(() {
     final picked = _picked ??= {};
@@ -130,21 +122,19 @@ class _ProxiesPageState extends State<ProxiesPage> {
     for (final group in groups)
       if (list || group['tag'] == _currentGroup)
         for (final node in _nodes(group))
-          if (_editable(group, node)) node['tag'] as String,
+          if (_editable(node)) node['tag'] as String,
   }.toList();
 
   Widget _card(BuildContext context, Json group, Json node) {
     final tag = node['tag'] as String;
-    final editable = _editable(group, node);
-    final library = group['library'] == true;
+    final editable = _editable(node);
+    final profileNodes = group['profileNodes'] == true;
     void edit() => openForm(this.context, NodeEditorPage(tag: tag));
     return ProxyNodeCard(
       group: group, node: node, testing: _testing.contains(group['tag']) || _testing.contains(tag),
       onSelect: () => _select(group, node),
-      // The core tests what it runs: a shared node the configuration leaves out has no latency.
-      onTest: library && node['live'] != true ? null : () => _test(tag),
-      // Nothing is selected among the shared nodes, so a tap there opens the node.
-      onOpen: library && editable ? edit : null,
+      onTest: profileNodes ? null : () => _test(tag),
+      onOpen: profileNodes && editable ? edit : null,
       picked: _picked?.contains(tag), onPick: editable ? () => _pick(tag) : null,
       menuItems: !editable ? const [] : [
         PopupMenuItem(section: const PopupMenuSection(), glyph: AppGlyphs.edit, label: this.context.tr('Edit'), onPressed: edit),
@@ -186,9 +176,28 @@ class _ProxiesPageState extends State<ProxiesPage> {
 
   @override Widget build(BuildContext context) {
     final box = context.watchBox(BoxAspect.groups);
-    final live = box.groups;
-    final library = _libraryGroup(box, live);
-    final groups = library == null ? live : [...live, library];
+    final profileKey = box.remote ? 'remote:${box.dashboard['remote']}' : 'local:${box.selectedProfileId}';
+    if (_profileKey != profileKey) {
+      _profileKey = profileKey;
+      _picked = null;
+      _pickRevision++;
+      _profileGroup = null;
+      _nodeLists.clear();
+      _grids.clear();
+    }
+    final snapshot = box.selectedProfileNodes;
+    final groupTags = box.groups.map((group) => group['tag']).toSet();
+    final editableTags = !box.remote && snapshot['profileId'] == box.selectedProfileId ? <String>{
+      for (final node in rows(snapshot['nodes']))
+        if (!groupTags.contains(node['tag'])) node['tag'].toString(),
+    } : const <String>{};
+    if (_editableTags.length != editableTags.length || !_editableTags.containsAll(editableTags)) {
+      _editableTags = editableTags;
+      _pickRevision++;
+    }
+    final live = box.running || box.remote ? box.groups : const <Json>[];
+    final stopped = live.isEmpty ? _stoppedProfileGroup(box) : null;
+    final groups = stopped == null ? live : [stopped];
     final tags = _tags = groups.map((group) => group['tag'].toString()).toSet();
     _nodeLists.removeWhere((tag, _) => !tags.contains(tag));
     _grids.removeWhere((tag, _) => !tags.contains(tag));
@@ -202,22 +211,19 @@ class _ProxiesPageState extends State<ProxiesPage> {
       });
     }
     final list = box.preferences['proxyLayout'] == 'List';
-    // Groups that arrive with the service take the place of the shared nodes that stood alone.
-    if (live.isNotEmpty && !_hadGroups && _currentGroup == library?['tag']) _currentGroup = null;
-    _hadGroups = live.isNotEmpty;
     if (!groups.any((group) => group['tag'] == _currentGroup)) _currentGroup = groups.firstOrNull?['tag'] as String?;
-    final testable = box.running && _currentGroup != null && _currentGroup != library?['tag'];
+    final testable = box.running && _currentGroup != null && _currentGroup != stopped?['tag'];
     // Nodes that left the groups, and a session that cannot edit, end what was marked.
     if (box.remote) _picked = null;
     final picked = _picked;
-    picked?.retainAll({for (final group in groups) for (final node in group['items'] as List<Json>) node['tag']});
+    picked?.retainAll(_editableTags);
     final pickable = picked == null ? const <String>[] : _pickable(groups, list);
     final allPicked = picked != null && pickable.isNotEmpty && picked.containsAll(pickable);
     final topPadding = widget.header == null ? context.contentTopPadding : 0.0;
     final body = live.isEmpty && widget.emptyState != null ? widget.emptyState! : groups.isEmpty ? NullStatus(
       label: context.tr(box.running ? 'No proxy groups in this configuration' : 'Start the service to view proxy groups'),
       illustration: NullStatusIllustration.proxies,
-      description: widget.idleAction == null ? null : context.tr('Imported nodes are shared by every profile.'),
+      description: widget.idleAction == null ? null : context.tr('Add nodes to the selected profile.'),
       action: widget.idleAction,
     ) : list ? ProxyListView(
       key: ValueKey(box.remote ? 'remote:${box.dashboard['remote']}' : 'local:${box.selectedProfileId}'),

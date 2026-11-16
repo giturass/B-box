@@ -224,8 +224,8 @@ class _GroupSliverState extends State<_GroupSliver> with SingleTickerProviderSta
   Widget _pinnedHeader(bool unfolded) {
     final height = _headerHeight(context);
     final groupExtent = height + (_controller.isDismissed ? 0 : _rowsExtent);
-    // The shared nodes hold no selection to scroll to, and the core tests only its own groups.
-    final library = widget.group.group['library'] == true;
+    // Stopped profile nodes have no active selection or latency test.
+    final profileNodes = widget.group.group['profileNodes'] == true;
     (double, double, double, Color)? previous;
     Widget? header;
     return SliverLayoutBuilder(builder: (context, constraints) {
@@ -246,8 +246,8 @@ class _GroupSliverState extends State<_GroupSliver> with SingleTickerProviderSta
         SizedBox(height: height, child: ProxyGroupHeader(group: widget.group.group, expanded: widget.expanded,
           unfolded: unfolded, floating: floating, lift: lift, testing: widget.testing.contains(widget.group.name),
           onToggle: () => widget.onToggle(widget.group.name),
-          onLocate: library ? null : () => widget.onLocate(widget.group.name),
-          onTest: library ? null : () => widget.onTest(widget.group.name))),
+          onLocate: profileNodes ? null : () => widget.onLocate(widget.group.name),
+          onTest: profileNodes ? null : () => widget.onTest(widget.group.name))),
       ])));
     });
   }

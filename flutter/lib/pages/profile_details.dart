@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import '../widgets.dart';
 import '../components/profile_panel.dart';
+import '../components/profile_card.dart';
 import 'profiles.dart';
 import 'profile_editor.dart';
 import 'configuration.dart';
@@ -21,7 +22,7 @@ class ProfileDetailsPage extends StatelessWidget {
       if (p['remote'] == true) IconButtonData(glyph: AppGlyphs.sync, tooltip: context.tr('Update'), onPressed: () => box.act('profiles.update', {'id': p['id']})),
     ], children: [
       Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, spacing: 14, children: [
-        EmojiText(p['name'].toString(), style: AppTextStyle.title2.of(context, emphasized: true)),
+        EmojiText(profileDisplayName(context, p), style: AppTextStyle.title2.of(context, emphasized: true)),
         ProfileStats(profile: p),
       ])),
       generateSection(items: [

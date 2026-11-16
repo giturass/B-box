@@ -1,9 +1,7 @@
 package io.nekohasekai.sfa.flutter
 
-import io.nekohasekai.sfa.bg.UpdateNodeWork
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.constant.Status
-import io.nekohasekai.sfa.database.NodeLibrary
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
@@ -24,7 +22,7 @@ internal class BoxBackups(
     private val readSettings: () -> Map<String, Any?>,
     private val writeSettings: suspend (Map<String, Any?>) -> Unit,
     private val applySelected: suspend (restart: Boolean, recover: Boolean) -> Unit,
-    private val publish: suspend () -> Unit,
+    private val publish: suspend (successful: Boolean) -> Unit,
     private val emit: (String, Any?) -> Unit,
     private val webdav: BoxWebDAV,
 ) {
@@ -51,7 +49,7 @@ internal class BoxBackups(
             profile.toWire() + mapOf("key" to profileKey(profile, origin), "content" to content)
         }
         val backup = mapOf("format" to "bbox-1", "origin" to origin, "createdAt" to System.currentTimeMillis(),
-            "selectedProfile" to Settings.selectedProfile, "profiles" to profiles, "nodes" to NodeLibrary.read(),
+            "selectedProfile" to Settings.selectedProfile, "profiles" to profiles,
             "preferences" to readPreferences(), "settings" to editableSettings(),
             "terminal" to terminal.backupSnapshot(), "webdav" to webdav.snapshot(),
             "servers" to RemoteServerManager.list().map { mapOf("name" to it.name, "url" to it.url, "secret" to it.secret) })
@@ -62,25 +60,12 @@ internal class BoxBackups(
 
     suspend fun read(bytes: ByteArray, scope: String): Map<String, Any?> {
         val backup = jsonObject(JSONObject(bytes.toString(Charsets.UTF_8)))
-        // Which shared nodes stay is decided with the strategy; a backup has to be usable with its own.
-        validate(backup, scope, restoredNodes(backup, overriding = true))
+        validate(backup, scope)
         return backup
     }
 
-    /**
-     * The shared nodes a restore leaves: those of the backup, and unless it is [overriding] the
-     * present ones it does not name. A backup made before there were shared nodes changes none.
-     */
-    private fun restoredNodes(backup: Map<String, Any?>, overriding: Boolean): String {
-        val current = NodeLibrary.read()
-        val nodes = backup["nodes"] ?: return current
-        require(nodes is String) { "Invalid backup nodes" }
-        if (nodes.isBlank() && current.isBlank()) return current
-        return NodeLibrary.merge(if (overriding) "" else current, nodes).also { BoxNodes.requireSources(it) }
-    }
-
     @Suppress("UNCHECKED_CAST")
-    private suspend fun validate(backup: Map<String, Any?>, scope: String, nodes: String): List<Map<String, Any?>> {
+    private suspend fun validate(backup: Map<String, Any?>, scope: String): List<Map<String, Any?>> {
         require(scope in setOf("all", "profiles")) { "Invalid restore scope" }
         require(backup["format"] == "bbox-1") { "Unsupported B-box backup format" }
         backup["origin"]?.let { require(validUUID(it)) { "Invalid backup origin" } }
@@ -89,7 +74,7 @@ internal class BoxBackups(
         require(entries.size <= 1000) { "Backup contains too many profiles" }
         entries.forEach { entry ->
             require((entry["name"] as? String)?.let { it.isNotBlank() && it.length <= 4096 } == true) { "Profile name is required" }
-            ProfileContent.validate(entry["content"] as? String ?: error("Missing profile content"), nodes)
+            ProfileContent.validate(entry["content"] as? String ?: error("Missing profile content"))
             require(entry["url"] == null || entry["url"] is String) { "Invalid profile URL" }
             val url = entry["url"] as? String ?: ""
             if (url.isNotEmpty()) BoxProfiles.validateUrl(url)
@@ -97,8 +82,11 @@ internal class BoxBackups(
             entry["id"]?.let { require(integer(it, 1)) { "Invalid profile ID" } }
             entry["interval"]?.let { require(it is Number && it.toDouble() == it.toInt().toDouble() && it.toInt() >= 15) { "Invalid update interval" } }
             entry["autoUpdate"]?.let { require(it is Boolean) { "Invalid auto update option" } }
+            entry["default"]?.let { require(it is Boolean) { "Invalid default profile option" } }
+            require(entry["default"] != true || url.isEmpty()) { "Default profile must be local" }
             entry["updatedAt"]?.let { require(integer(it, 0)) { "Invalid update timestamp" } }
         }
+        require(entries.count { it["default"] == true } <= 1) { "Backup contains duplicate default profiles" }
         val keys = entries.mapNotNull { it["key"] }
         val ids = entries.mapNotNull { (it["id"] as? Number)?.toLong() }
         require(keys.distinct().size == keys.size && ids.distinct().size == ids.size) { "Backup contains duplicate profiles" }
@@ -126,22 +114,35 @@ internal class BoxBackups(
     suspend fun restore(backup: Map<String, Any?>, scope: String, strategy: String): Int {
         require(strategy in setOf("Compatible", "Override")) { "Invalid restore strategy" }
         val overriding = strategy == "Override"
-        val count = ProfileContent.mutex.withLock {
-            // Checked under the lock: the profiles have to run with the shared nodes this restore leaves.
-            val nodes = restoredNodes(backup, overriding)
-            val entries = validate(backup, scope, nodes)
-            ProfileContent.requireStableService(activity.serviceStatus.value)
-            Restore(backup, entries, nodes, full = scope == "all", overriding = overriding, previous = priorState()).run()
+        var failure: Exception? = null
+        try {
+            val count = ProfileContent.mutex.withLock {
+                val entries = validate(backup, scope)
+                ProfileContent.requireStableService(activity.serviceStatus.value)
+                Restore(backup, entries, full = scope == "all", overriding = overriding, previous = priorState()).run()
+            }
+            UpdateProfileWork.reconfigureUpdater()
+            return count
+        } catch (error: Exception) {
+            failure = error
+            throw error
+        } finally {
+            // Publication reads the resulting profile and node snapshots under their own locks.
+            // A failed recovery must only publish, without creating or applying another profile.
+            withContext(NonCancellable) {
+                try {
+                    publish(failure == null)
+                    emit("preferences", readPreferences())
+                } catch (error: Exception) {
+                    failure?.addSuppressed(error) ?: throw error
+                }
+            }
         }
-        UpdateProfileWork.reconfigureUpdater()
-        UpdateNodeWork.reconfigureUpdater()
-        return count
     }
 
     private suspend fun priorState() = PriorState(
         running = activity.serviceStatus.value == Status.Started,
         profiles = ProfileManager.list(),
-        nodes = NodeLibrary.snapshot(),
         servers = RemoteServerManager.list(),
         selection = Settings.selectedProfile,
         mode = Settings.serviceMode,
@@ -155,7 +156,6 @@ internal class BoxBackups(
     private class PriorState(
         val running: Boolean,
         val profiles: List<Profile>,
-        val nodes: String?,
         val servers: List<RemoteServer>,
         val selection: Long,
         val mode: String,
@@ -169,7 +169,6 @@ internal class BoxBackups(
     private inner class Restore(
         private val backup: Map<String, Any?>,
         private val entries: List<Map<String, Any?>>,
-        private val nodes: String,
         private val full: Boolean,
         private val overriding: Boolean,
         private val previous: PriorState,
@@ -184,7 +183,6 @@ internal class BoxBackups(
         // Profile IDs in the backup, to the IDs of the profiles they were restored as.
         private val mapping = mutableMapOf<Long, Long>()
         private val restored = mutableListOf<Profile>()
-        private val nodesChange = nodes != previous.nodes.orEmpty()
         private var newFont: File? = null
 
         // Set when a rollback step fails; the staged copies are then kept.
@@ -193,8 +191,6 @@ internal class BoxBackups(
         suspend fun run(): Int = try {
             val current = ProfileContent.snapshotMutex.withLock { write() }
             applySelected(full, false)
-            publish()
-            emit("preferences", readPreferences())
             if (overriding) deleteOrphanedFiles(current)
             restored.size
         } catch (error: Exception) {
@@ -207,7 +203,6 @@ internal class BoxBackups(
         /** Writes the backup and returns the resulting profiles. The caller holds [ProfileContent.snapshotMutex]. */
         private suspend fun write(): List<Profile> {
             ProfileContent.requireStableService(activity.serviceStatus.value)
-            if (nodesChange) NodeLibrary.write(nodes)
             ProfileManager.transaction {
                 restoreProfiles()
                 if (full) restoreServers()
@@ -225,8 +220,10 @@ internal class BoxBackups(
                 val key = entry["key"] as? String
                 val id = (entry["id"] as? Number)?.toLong()
                 // Profile IDs are only meaningful on the installation that created the backup.
-                val existing = key?.let(byKey::get)
+                val existing = (if (entry["default"] == true) previous.profiles.firstOrNull { it.typed.isDefault } else null)
+                    ?: key?.let(byKey::get)
                     ?: if (backup["origin"] == origin()) previous.profiles.firstOrNull { it.id == id } else null
+                require(existing == null || restored.none { it.id == existing.id }) { "Backup contains conflicting profile identities" }
                 val profile = existing?.let(::copyProfile) ?: Profile()
                 val file = existing?.let { File(it.typed.path) }
                     ?: File(File(activity.filesDir, "configs").apply { mkdirs() }, "${key ?: UUID.randomUUID()}.json")
@@ -237,6 +234,7 @@ internal class BoxBackups(
                 profile.typed.path = file.path
                 profile.typed.remoteURL = url
                 profile.typed.type = if (url.isEmpty()) TypedProfile.Type.Local else TypedProfile.Type.Remote
+                profile.typed.isDefault = url.isEmpty() && (entry["default"] == true || (!overriding && existing?.typed?.isDefault == true))
                 profile.typed.autoUpdate = url.isNotEmpty() && entry["autoUpdate"] == true
                 profile.typed.autoUpdateInterval = (entry["interval"] as? Number)?.toInt() ?: 60
                 profile.typed.lastUpdated = Date((entry["updatedAt"] as? Number)?.toLong() ?: 0L)
@@ -321,7 +319,6 @@ internal class BoxBackups(
                     }
                 }
                 for ((file, original) in originals) attempt { rollBackFile(file, original) }
-                if (nodesChange) attempt { NodeLibrary.restore(previous.nodes) }
                 attempt { Settings.saveProfileSelection(previous.selection, previous.mode) }
                 if (full) {
                     attempt { writeSettings(previous.settings) }
@@ -333,10 +330,6 @@ internal class BoxBackups(
             }
             // Never start a mixture of restored and unrestored data.
             if (previous.running && !rollbackFailed) attempt { applySelected(true, true) }
-            attempt {
-                publish()
-                emit("preferences", readPreferences())
-            }
         }
 
         private suspend fun rollBackProfiles() {
@@ -392,6 +385,7 @@ internal class BoxBackups(
                 lastUpdated = Date(profile.typed.lastUpdated.time)
                 autoUpdate = profile.typed.autoUpdate
                 autoUpdateInterval = profile.typed.autoUpdateInterval
+                isDefault = profile.typed.isDefault
             }
             return Profile(profile.id, profile.userOrder, profile.name, profile.icon, typed)
         }

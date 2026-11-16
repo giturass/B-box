@@ -33,18 +33,12 @@ class _ProfilesPageState extends State<ProfilesPage> {
     if (_updatingAll || _updating.isNotEmpty) return;
     final box = context.box;
     final profiles = List<Json>.of(box.profiles).where((p) => p['remote'] == true);
-    final sources = rows(box.nodes['sources']);
     setState(() => _updatingAll = true);
     try {
       // Native profile writes share a mutex; keep updates serialized.
       for (final profile in profiles) {
         if (!mounted || box.remote) break;
         await _update(profile);
-      }
-      // The node subscriptions write under the same mutex.
-      for (final source in sources) {
-        if (!mounted || box.remote) break;
-        await box.act('nodes.updateSource', {'id': source['id']});
       }
     } finally { if (mounted) setState(() => _updatingAll = false); }
   }
@@ -65,9 +59,9 @@ class _ProfilesPageState extends State<ProfilesPage> {
   Future<void> _delete(Json profile) async {
     final box = context.box;
     final id = profile['id'];
-    if (box.remote || id == box.selectedProfileId) return;
+    if (box.remote || profile['default'] == true || id == box.selectedProfileId) return;
     if (!await confirm(context, 'Delete this profile?', message: 'This cannot be undone.')) return;
-    if (!mounted || box.remote || id == box.selectedProfileId) return;
+    if (!mounted || box.remote || profile['default'] == true || id == box.selectedProfileId) return;
     await box.act('profiles.delete', {'id': id});
   }
   List<PopupMenuItem> _menu(Json profile) => [
@@ -86,7 +80,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
     PopupMenuItem(glyph: AppGlyphs.upload, label: context.tr('Share'), onPressed: () => _share(profile)),
     PopupMenuItem(glyph: AppGlyphs.export, label: context.tr('Export'), onPressed: () => _export(profile)),
     PopupMenuItem(danger: true, glyph: AppGlyphs.delete, label: context.tr('Delete'),
-      onPressed: profile['id'] == context.box.selectedProfileId ? null : () => _delete(profile)),
+      onPressed: profile['default'] == true || profile['id'] == context.box.selectedProfileId ? null : () => _delete(profile)),
   ];
 
   Widget _card(BuildContext context, Json profile) {
@@ -117,9 +111,9 @@ class _ProfilesPageState extends State<ProfilesPage> {
     );
     if (!widget.picker) {
       final updating = _updatingAll || _updating.isNotEmpty;
-      final updatable = profiles.any((p) => p['remote'] == true) || rows(box.nodes['sources']).isNotEmpty;
+      final updatable = profiles.any((p) => p['remote'] == true);
       return ProxiesPage(
-        title: 'Profiles', library: true,
+        title: 'Profiles', profileNodes: true,
         emptyState: !box.remote && profiles.isEmpty ? emptyState : null,
         idleAction: box.remote ? null : AddProfileMenu(builder: (open) => TonalButton(size: TonalButtonSize.bar,
           glyph: AppGlyphs.addCircle, label: context.tr('Add nodes'), onPressed: open)),
@@ -129,13 +123,14 @@ class _ProfilesPageState extends State<ProfilesPage> {
           ))),
         ],
         menuItems: box.remote ? const [] : [
-          // Remote profiles and node subscriptions, one after another.
+          // Remote profile files, one after another.
           PopupMenuItem(glyph: AppGlyphs.sync, label: context.tr('Update all'),
             onPressed: updating || !updatable ? null : _updateAll),
-          PopupMenuItem(glyph: AppGlyphs.layers, label: context.tr('Shared nodes'),
-            onPressed: () => openPage(context, const NodesPage())),
           PopupMenuItem(glyph: AppGlyphs.sort, label: context.tr('Reorder profiles'),
             onPressed: profiles.length < 2 ? null : () => openForm(context, const ProfileOrderPage())),
+          PopupMenuItem(glyph: AppGlyphs.paste, label: context.tr('Offer copied node links'),
+            checked: box.preferences['clipboardImport'] != false,
+            onPressed: () => box.setPreference('clipboardImport', box.preferences['clipboardImport'] == false)),
         ],
         header: box.remote ? Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -180,7 +175,7 @@ class _ProfileStripState extends State<_ProfileStrip> {
     final active = PageActivityScope.isActiveOf(context);
     final spacing = (context.isMobileView ? 8.0 : 12.0).mAp(context);
     return SizedBox(height: profileCardHeight(context), child: LayoutBuilder(builder: (context, constraints) {
-      final width = (constraints.maxWidth - 48).clamp(0.0, 300.ap(context)).toDouble();
+      final width = (constraints.maxWidth - 32).clamp(0.0, double.infinity).toDouble();
       final index = widget.profiles.indexWhere((p) => p['id'] == widget.selectedId);
       final selection = (widget.selectedId, index, width);
       if (active && index >= 0 && _revealed != selection) {
@@ -287,9 +282,7 @@ class _AddProfileMenuState extends State<AddProfileMenu> {
       // Without content the profile starts from the default configuration of libbox.
       PopupMenuItem(glyph: AppGlyphs.customize, label: context.tr('New profile'),
         onPressed: () => openForm(context, const ProfileForm(initial: {}))),
-      PopupMenuItem(section: PopupMenuSection(title: context.tr('Nodes')), glyph: AppGlyphs.cloudSync,
-        label: context.tr('Node subscription'), onPressed: () => openForm(context, const NodeSubscriptionForm())),
-      PopupMenuItem(glyph: AppGlyphs.add, label: context.tr('New node'),
+      PopupMenuItem(section: PopupMenuSection(title: context.tr('Nodes')), glyph: AppGlyphs.add, label: context.tr('New node'),
         onPressed: () => openForm(context, const NodeEditorPage(tag: ''))),
     ]),
   ));
@@ -313,8 +306,6 @@ class _AddProfilePageState extends State<AddProfilePage> {
       generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.link), title: Text(context.tr('Import from URL')),
           widget: const ProfileForm(initial: {'url': '', 'remote': true}), forceFull: false),
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.cloudSync), title: Text(context.tr('Node subscription')),
-          widget: const NodeSubscriptionForm(), forceFull: false),
         for (final item in [('File', AppGlyphs.profiles), ('Clipboard', AppGlyphs.copy), ('Scan QR code', AppGlyphs.qrCode)])
           ListItem(leading: GlyphIcon(item.$2), title: Text(context.tr(item.$1)), onTap: _loading ? null : () => _import(item.$1)),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.add), title: Text(context.tr('New profile')),
@@ -390,7 +381,7 @@ class _ProfileFormState extends State<ProfileForm> {
           FormRow(title: context.tr('Name'), invalid: issue?.field == 'name',
             trailing: FormRowTextField(controller: _name, hintText: context.tr('Required'),
               textInputAction: TextInputAction.next, onChanged: _changed)),
-          FormRow(title: context.tr('Remote'), onPressed: () => setState(() => _remote = !_remote),
+          if (widget.initial['default'] != true) FormRow(title: context.tr('Remote'), onPressed: () => setState(() => _remote = !_remote),
             trailing: Switch(value: _remote, onChanged: (value) => setState(() => _remote = value))),
           if (_remote) FormRow(title: context.tr('URL'), invalid: issue?.field == 'url',
             trailing: FormRowTextField(controller: _url, hintText: context.tr('Required'),
@@ -428,7 +419,7 @@ class _ProfileOrderPageState extends State<ProfileOrderPage> {
     key: ValueKey(_profiles![index]['id']), index: index,
     child: ItemPositionProvider(position: ItemPosition.get(index, _profiles!.length),
       child: DecorationListItem(contentPadding: const EdgeInsets.only(left: 16),
-        title: Text(_profiles![index]['name'].toString()), trailing: SortHandle(index: index))),
+        title: Text(profileDisplayName(context, _profiles![index])), trailing: SortHandle(index: index))),
   );
   @override Widget build(BuildContext context) {
     _profiles ??= List.of(context.box.profiles);

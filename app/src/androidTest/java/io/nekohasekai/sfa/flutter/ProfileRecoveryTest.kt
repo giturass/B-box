@@ -634,6 +634,141 @@ class ProfileRecoveryTest {
         }
     }
 
+    @Test fun defaultProfileStaysAvailableAlongsideExistingProfiles() = runBlocking(Dispatchers.IO) {
+        Application.application.setupLibbox()
+        Settings.dataStore.initialize()
+        val oldSelection = Settings.selectedProfile
+        val profiles = BoxProfiles {}
+        val id = profiles.save(mapOf("name" to "Existing profile", "content" to "{}"))
+        try {
+            Settings.saveProfileSelection(id)
+            val default = profiles.ensureDefault("Default profile")
+            val listed = profiles.list()
+            assertTrue(listed.any { it["id"] == id })
+            assertEquals(default, listed.single { it["default"] == true }["id"])
+            assertEquals(default, profiles.ensureDefault("Default profile"))
+            assertTrue(profiles.get(default).typed.isDefault)
+            assertEquals("", profiles.get(default).typed.remoteURL)
+            Libbox.checkConfig(profiles.read(default))
+            assertEquals(id, Settings.selectedProfile)
+            assertTrue(runCatching { profiles.delete(default) }.exceptionOrNull() is IllegalArgumentException)
+            assertTrue(profiles.get(default).typed.isDefault)
+        } finally {
+            Settings.saveProfileSelection(oldSelection)
+            profiles.delete(id)
+        }
+    }
+
+    @Test fun addedNodesBelongToTheSelectedProfileAndRecoverFailedWrites() = withRunningProfile { activity, profiles, id ->
+        val nodes = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
+            withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
+        }
+        val other = profiles.save(mapOf("name" to "Separate node configuration", "content" to "{}"))
+        try {
+            val added = nodes.add("""[{"type":"socks","tag":"local-node","server":"127.0.0.1","server_port":1080}]""", id, BoxProfiles.revision(profiles.read(id)))
+            assertEquals(1, (added["added"] as Number).toInt())
+            assertTrue(configurationNodes(profiles.read(id)).any { it.optString("tag") == "local-node" })
+            assertEquals("{}", profiles.read(other))
+            val saved = profiles.read(id)
+            assertEquals(saved, profiles.decode(saved.toByteArray(), "nodes.json")["content"])
+            val savedAt = profiles.get(id).typed.lastUpdated.time
+            val revision = BoxProfiles.revision(saved)
+            profiles.select(other) { activity.serviceStatus.value }
+            assertTrue(runCatching { nodes.add("""[{"type":"socks","tag":"stale-node","server":"127.0.0.1","server_port":1081}]""", id, revision) }.exceptionOrNull() is IllegalArgumentException)
+            assertEquals(saved, profiles.read(id))
+            assertEquals("{}", profiles.read(other))
+            assertEquals(other, nodes.state()["profileId"])
+            assertTrue((nodes.state()["nodes"] as List<*>).isEmpty())
+            profiles.select(id) { activity.serviceStatus.value }
+
+            val applications = mutableListOf<Boolean>()
+            val failing = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
+                applications.add(recover)
+                if (!recover) error("Node application failed")
+                withContext(Dispatchers.Main) { activity.applyProfile(recover = true) }
+            }
+            assertNotNull(runCatching {
+                failing.add("""[{"type":"socks","tag":"failed-node","server":"127.0.0.1","server_port":1082}]""", id, revision)
+            }.exceptionOrNull())
+            assertEquals(listOf(false, true), applications)
+            assertEquals(saved, profiles.read(id))
+            assertEquals(savedAt, profiles.get(id).typed.lastUpdated.time)
+            assertEquals(Status.Started, activity.serviceStatus.value)
+
+            val backups = BoxBackups(activity, { emptyMap() }, {}, { _, _ -> }, { successful ->
+                assertTrue(successful)
+                assertTrue("Restore publication must release the configuration lock", ProfileContent.mutex.tryLock())
+                ProfileContent.mutex.unlock()
+                profiles.list()
+                nodes.state()
+            }, { _, _ -> }, BoxWebDAV(activity))
+            val backup = backups.create()
+            assertFalse(backup.containsKey("nodes"))
+            val entries = rows(backup["profiles"])
+            val default = entries.single { it["default"] == true }["id"]
+            val conflicting = entries.map { if (it["id"] == id) it + mapOf("default" to true) else it }
+            assertTrue(runCatching { backups.read(backups.encode(backup + mapOf("profiles" to conflicting)), "profiles") }.exceptionOrNull() is IllegalArgumentException)
+            val renamedIdentity = entries.map { if (it["default"] == true) it + mapOf("key" to UUID.randomUUID().toString()) else it }
+            backups.restore(backup + mapOf("profiles" to renamedIdentity), "profiles", "Compatible")
+            assertEquals(default, ProfileManager.list().single { it.typed.isDefault }.id)
+            assertEquals(saved, profiles.read(id))
+            assertEquals(id, Settings.selectedProfile)
+        } finally {
+            if (Settings.selectedProfile == other) profiles.select(id) { activity.serviceStatus.value }
+            profiles.delete(other)
+        }
+    }
+
+    @Test fun remoteRefreshesKeepAddedNodesAndRollBackFailedApplications() {
+        SubscriptionServer("""{"outbounds":[{"type":"direct","tag":"upstream"},{"type":"selector","tag":"proxy","outbounds":["upstream"]}],"route":{"final":"proxy"}}""").use { server ->
+            withRunningProfile(server.url) { activity, profiles, id ->
+                val nodes = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
+                    withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
+                }
+                val stale = profiles.prepareUpdate(id)
+                nodes.add("""[{"type":"socks","tag":"local-node","server":"127.0.0.1","server_port":1080}]""", id, BoxProfiles.revision(profiles.read(id)))
+                val added = profiles.read(id)
+                assertTrue(runCatching { profiles.commitUpdate(stale, server.content) }.exceptionOrNull() is IllegalArgumentException)
+                assertEquals(added, profiles.read(id))
+                assertEquals(0L, profiles.get(id).typed.lastUpdated.time)
+                // The structured editor uses formatted JSON without the ownership comment.
+                // Saving it must still keep added nodes during the next subscription refresh.
+                profiles.writeContent(id, JSONObject(Libbox.formatConfig(added).value).toString(), BoxProfiles.revision(added))
+
+                profiles.update(id)
+                var content = profiles.read(id)
+                assertTrue(configurationNodes(content).any { it.optString("tag") == "local-node" })
+                assertTrue(configurationNodes(content).any { it.optString("tag") == "upstream" })
+                val selector = configurationNodes(content).single { it.optString("tag") == "proxy" }
+                assertEquals(listOf("upstream", "local-node"), (0 until selector.getJSONArray("outbounds").length()).map { selector.getJSONArray("outbounds").getString(it) })
+                assertTrue(profiles.get(id).typed.lastUpdated.time > 0L)
+
+                server.content = """{"outbounds":[{"type":"direct","tag":"updated-upstream"},{"type":"selector","tag":"proxy","outbounds":["updated-upstream"]}],"route":{"final":"proxy"}}"""
+                val scheduled = profiles.get(id)
+                scheduled.typed.autoUpdate = true
+                scheduled.typed.lastUpdated = Date(0)
+                ProfileManager.update(scheduled)
+                assertTrue(UpdateProfileWork.updateProfiles(activity.applicationContext))
+                content = profiles.read(id)
+                assertTrue(configurationNodes(content).any { it.optString("tag") == "local-node" })
+                assertTrue(configurationNodes(content).any { it.optString("tag") == "updated-upstream" })
+                assertFalse(configurationNodes(content).any { it.optString("tag") == "upstream" })
+                val updatedAt = profiles.get(id).typed.lastUpdated.time
+                assertTrue(updatedAt > 0L)
+                assertEquals(2, server.requests.get())
+
+                ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { occupied ->
+                    server.content = occupiedPortConfig(occupied.localPort)
+                    assertNotNull(runCatching { profiles.update(id) }.exceptionOrNull())
+                    assertEquals(content, profiles.read(id))
+                    assertEquals(updatedAt, profiles.get(id).typed.lastUpdated.time)
+                    assertEquals(id, Settings.selectedProfile)
+                    withTimeout(15_000) { activity.serviceStatus.first { it == Status.Started } }
+                }
+            }
+        }
+    }
+
     @Test fun queryModesSurviveReopeningTheSettingsDatabase() = runBlocking(Dispatchers.IO) {
         Settings.dataStore.initialize()
         val before = Settings.perAppProxyPackageQueryMode
@@ -1204,6 +1339,11 @@ class ProfileRecoveryTest {
 
     private fun occupiedPortConfig(port: Int): String =
         """{"inbounds":[{"type":"mixed","listen":"127.0.0.1","listen_port":$port}]}"""
+
+    private fun configurationNodes(content: String): List<JSONObject> {
+        val nodes = JSONObject(Libbox.formatConfig(content).value).optJSONArray("outbounds") ?: return emptyList()
+        return (0 until nodes.length()).map { nodes.getJSONObject(it) }
+    }
 
     private fun rows(value: Any?): List<Map<*, *>> = (value as List<*>).map { it as Map<*, *> }
 

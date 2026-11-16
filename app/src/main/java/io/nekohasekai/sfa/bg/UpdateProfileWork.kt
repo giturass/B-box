@@ -84,7 +84,8 @@ class UpdateProfileWork {
                         val current = snapshot.currentLocked()
                         val service = BackgroundProfileService(context)
                         try {
-                            ProfileContent.replaceLocked(current, content, updatedAt = Date(), beforeSave = service::prepare, applySelected = service::apply)
+                            ProfileContent.replaceLocked(current, snapshot.mergedContentLocked(current, content), updatedAt = Date(),
+                                beforeSave = service::prepare, applySelected = service::apply)
                         } finally {
                             service.close()
                         }

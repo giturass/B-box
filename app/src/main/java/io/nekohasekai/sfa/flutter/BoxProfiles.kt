@@ -37,7 +37,19 @@ internal class BoxProfiles(
 
     suspend fun get(id: Long): Profile = ProfileManager.get(id) ?: error("Profile no longer exists")
 
-    suspend fun list(): List<Map<String, Any>> = ProfileManager.list().map { it.toWire() }
+    /** A real local profile stays available even when subscriptions already exist. */
+    suspend fun ensureDefault(name: String = "Default profile"): Long {
+        mutex.withLock { ProfileManager.list().firstOrNull { it.typed.isDefault }?.id }?.let { return it }
+        return savePrepared(PreparedSave(
+            id = 0L, name = name, url = "", interval = 60, autoUpdate = false,
+            content = Libbox.getUIDefaultConfig().value, updatedAt = null, expectedRevision = null, isDefault = true,
+        ))
+    }
+
+    suspend fun list(): List<Map<String, Any>> {
+        ensureDefault()
+        return ProfileManager.list().map { it.toWire() }
+    }
 
     suspend fun read(id: Long): String = mutex.withLock { File(get(id).typed.path).readText() }
 
@@ -202,6 +214,7 @@ internal class BoxProfiles(
     internal data class PreparedSave(
         val id: Long, val name: String, val url: String, val interval: Int, val autoUpdate: Boolean,
         val content: String?, val updatedAt: Long?, val expectedRevision: String?,
+        val isDefault: Boolean = false,
     )
 
     /** URL imports download before entering either the bridge or configuration operation lock. */
@@ -228,11 +241,15 @@ internal class BoxProfiles(
     suspend fun savePrepared(request: PreparedSave, beforeCommit: () -> Unit = {}): Long = mutex.withLock {
         beforeCommit()
         val id = request.id
+        if (request.isDefault) ProfileManager.list().firstOrNull { it.typed.isDefault }?.let { return@withLock it.id }
         val previousProfile = if (id == 0L) null else get(id)
+        require(previousProfile?.typed?.isDefault != true || request.url.isEmpty()) { "The default profile must remain local" }
         val file = if (id == 0L) File(Application.application.filesDir, "configs/${UUID.randomUUID()}.json")
             else File(previousProfile!!.typed.path)
         val oldContent = if (file.exists()) file.readText() else null
-        val content = Libbox.removeUIRetiredCaptureOptions(request.content ?: oldContent ?: error("Profile file is missing"))
+        val supplied = request.content ?: oldContent ?: error("Profile file is missing")
+        val cleaned = Libbox.preserveUIConfigNodes(supplied, Libbox.removeUIRetiredCaptureOptions(supplied)).value
+        val content = Libbox.preserveUIConfigNodes(oldContent.orEmpty(), cleaned).value
         validate(content)
         val changed = content != oldContent
         if (id != 0L && request.content != null && changed) {
@@ -250,6 +267,7 @@ internal class BoxProfiles(
                 remoteURL = request.url
                 autoUpdate = request.autoUpdate
                 autoUpdateInterval = request.interval
+                isDefault = previousProfile?.typed?.isDefault ?: request.isDefault
                 lastUpdated = when {
                     id == 0L -> Date(if (request.url.isNotEmpty()) request.updatedAt ?: System.currentTimeMillis() else System.currentTimeMillis())
                     changed && type == TypedProfile.Type.Local -> Date()
@@ -289,7 +307,8 @@ internal class BoxProfiles(
     suspend fun commitUpdate(snapshot: ProfileSubscription, content: String, beforeCommit: () -> Unit = {}) = mutex.withLock {
         beforeCommit()
         val profile = snapshot.currentLocked()
-        ProfileContent.replaceLocked(profile, content, updatedAt = Date(), beforeSave = { beforeCommit(); beforeApply() }, applySelected = applySelected)
+        ProfileContent.replaceLocked(profile, snapshot.mergedContentLocked(profile, content), updatedAt = Date(),
+            beforeSave = { beforeCommit(); beforeApply() }, applySelected = applySelected)
     }
 
     suspend fun update(id: Long) {
@@ -301,6 +320,7 @@ internal class BoxProfiles(
     suspend fun delete(id: Long) = mutex.withLock {
         require(id != Settings.selectedProfile) { "Select another profile before deleting this one" }
         val profile = get(id)
+        require(!profile.typed.isDefault) { "The default profile cannot be deleted" }
         ProfileManager.delete(profile)
         File(profile.typed.path).delete()
         UpdateProfileWork.reconfigureUpdater()
@@ -315,7 +335,7 @@ internal class BoxProfiles(
 
     fun decode(data: ByteArray, name: String): Map<String, Any?> {
         val text = data.toString(Charsets.UTF_8)
-        if (text.trimStart().startsWith("{")) {
+        if (text.trimStart().let { it.startsWith("{") || it.startsWith("// b-box-local-nodes:") }) {
             validate(text)
             return mapOf("name" to name.substringBeforeLast('.'), "content" to text)
         }
@@ -348,6 +368,7 @@ internal fun Profile.toWire(): Map<String, Any> = mapOf(
     "id" to id,
     "name" to name,
     "remote" to (typed.type == TypedProfile.Type.Remote),
+    "default" to typed.isDefault,
     "url" to typed.remoteURL,
     "updatedAt" to typed.lastUpdated.time,
     "autoUpdate" to typed.autoUpdate,

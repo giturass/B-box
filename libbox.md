@@ -16,6 +16,7 @@
 | 运行时内存绑定 | [ui_dashboard.go](libbox/ui_dashboard.go) | 读取 Go 运行时内存和 goroutine 数，提供释放内存操作 |
 | HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码与完整响应，通过 `UIHTTPTask` 传播 Android 取消，供备份及 Release 元数据使用 |
 | 订阅下载绑定 | [ui_profile.go](libbox/ui_profile.go) | 可取消的完整订阅下载，失败响应不读取正文 |
+| 节点导入与配置合并 | [ui_nodes.go](libbox/ui_nodes.go)、[ui_nodes_profile.go](libbox/ui_nodes_profile.go)、[node-profile.patch](libbox/node-profile.patch) | 节点直接写入所选配置，远端更新保留本地追加节点，格式化保留配置内的本地节点注释 |
 | 出口探测绑定 | [ui_egress.go](libbox/ui_egress.go) | 可取消的设备网络/运行中路由探测、出口 IP 多源查询与质量请求传输 |
 | 路由生命周期 | [ui_route.go](libbox/ui_route.go) | 出口探测与脚本共用路由准入、取消及退出等待，包含脚本指定出站的拨号 |
 | 正则取消 | [regexp2-cancel.patch](libbox/regexp2-cancel.patch)、[goja-regexp-cancel.patch](libbox/goja-regexp-cancel.patch) | 将请求取消和 VM 中断传入回溯执行，不对不同请求共用可变期限 |
@@ -24,6 +25,18 @@
 | 独立配置处理 | [http_rewrite.patch](libbox/http_rewrite.patch)、[ui_processing.go](libbox/ui_processing.go)、[processing.go](libbox/option/processing.go) | 独立的 MITM、HTTP 改写、HTTP 脚本与 Cron，统一校验及服务生命周期 |
 
 ## 新增接口与行为
+
+### 节点导入与配置合并
+
+[ui_nodes_parse.go](libbox/ui_nodes_parse.go) 的 `ParseUINodes` 读取节点分享 URI、Base64 订阅、Clash 节点列表、SIP008、wg-quick 以及 sing-box 出站/端点，返回节点、逐项拒绝原因和完整配置提示。节点按当前核心的出站及端点注册表判断协议，并经过选项解码和构造检查；Clash 内容只作为用户明确导入的节点来源，不作为应用配置或静默转换整份 Clash 配置。WireGuard 保存在 `endpoints`，服务端、Tailscale、代理组及 direct 不作为可导入代理节点。
+
+`AddUIConfigNodes(config, nodes, defaultProfile)` 返回 `UIConfigNodeUpdate` 的 `Config`、`Added`、`Skipped`，直接追加到所选配置的 `outbounds` / `endpoints`。重名的新节点按“名称 2”等空闲名称保存，并同步改写同批节点之间的 detour 引用；重复导入相同节点跳过。可用节点加入配置中的 selector/urltest，未解析、循环或通过代理组的 detour 不自动加入组，以避免分组产生循环。`GetUINode(config, tag)` 返回单节点的 `endpoint` 和格式化 `content`；`SetUIConfigNode` 修改配置节点及所有旧名称引用，`RemoveUIConfigNodes` 清理成员和默认选择，其他引用仍在使用时拒绝删除。
+
+本地追加的节点名称以配置开头的 `// b-box-local-nodes: ["名称"]` JSON 注释保存。sing-box 原生 JSON 解码忽略该注释，`CheckConfig` 和服务直接读取完整配置；没有额外运行时展开、共享节点库或节点来源绑定。标记随配置分享、导出与备份保留，单节点改名及删除同步更新它。`PreserveUIConfigNodes(previous, edited)` 在平台 JSON 编辑移除注释后保留仍存在的本地节点标签；`edited` 自带标记时以它为准，空数组同样有效。[node-profile.patch](libbox/node-profile.patch) 修改原有 `FormatConfig` 的返回路径，使标准格式化调用也保留标记。Android 持久化与修订检查见 [应用配置写入](app.md#配置服务应用与备份)。
+
+`MergeUIConfigNodes(current, incoming)` 以远端新配置为主体，只追加旧配置中标记为本地添加且仍存在的节点。远端节点保留原名称，本地冲突节点另取空闲名称，节点链及新增组成员使用调整后的名称；不会保留上游已删除的旧节点。保留的本地节点引用已消失的出站/端点时，合并返回错误，由应用保留原文件并报告失败。远端传入的本地标记被清空，不会凭订阅内容产生本地所有权；合并后的标记为权威结果，防止保存时把旧标签重新标到远端同名节点。未涉及任何本地标记的普通远端刷新原样保留正文，包括注释及大段空白，不作额外重编码。
+
+`GetUIDefaultConfig` 提供无账号的合法 sing-box 模板：proxy 默认包含 auto，auto 在未添加节点时使用 direct。`AddUIConfigNodes` / `RemoveUIConfigNodes` 的 `defaultProfile=true` 仅调整该默认模板的 auto 组：追加节点后 direct 单成员改为检测代理节点，删除最后一个节点时恢复配置中已有 direct。普通配置及远端合并保留明确声明的 direct 成员，缺少合法成员时仍拒绝删除。默认配置的显示及配置卡片布局由 [Flutter 配置页](flclash.md#导航与交互约定) 维护。
 
 ### Cloudflare WARP MASQUE
 
@@ -356,7 +369,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 - [统一测试工作流](.github/workflows/newui.yml) 的 Android job 使用同一构建 Action，核心目标为 `android/amd64`，用于 JVM 及 [Android 模拟器矩阵](app.md#模拟器-smoke-矩阵) 的回归。两种架构的构建均要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
 - 同一工作流的 core job 使用共享准备 Action 把扩展、补丁和回归文件安装到上游检出目录，不构建核心 AAR。所有生产扩展均参与编译，测试按名称前缀或目录自动纳入，不维护具体扩展名的筛选清单。该 job 依次运行：
   1. `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1`：Android ingress-discard map 布局兼容。
-  2. `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`：全部 `TestUI` 扩展回归。
+  2. `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`：全部 `TestUI` 扩展回归；随后以 `-tags=with_quic,with_wireguard,with_utls,with_clash_api` 单独运行 `^TestUINode`，核对随发布核心包含的节点协议。
   3. `go test -race -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m`，再以 `-tags=with_quic` 运行同一命令，随后执行 `go test -tags=with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIMASQUE' -count=1`：WARP 认证及 HTTP/2、HTTP/3 隧道。HTTP/3 用例只在 `with_quic` 构建中编译。
   4. `go test -race -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(Egress|Route|HTTP|Profile)' -count=1`：路由、出口探测、HTTP 任务和订阅的数据竞争。
   5. `go test -race ./experimental/httpdebug -count=1 -timeout=5m` 与 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m`：HTTP/MITM 抓取与处理引擎的全部用例及数据竞争，以及原出站和嗅探字节保留。
@@ -370,6 +383,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 
 - [ui_http_test.go](libbox/ui_http_test.go)：WebDAV 状态/内容/重定向及超过旧大小上限的传输，HTTP 任务关闭时取消等待中的响应头与正文，Release 元数据的重定向、大响应、重定向循环和共享期限。
 - [ui_profile_test.go](libbox/ui_profile_test.go)：订阅请求头保留、超过旧容量的正文、覆盖响应头与正文的期限、错误状态不读正文、重定向循环和非法地址。
+- [ui_nodes_profile_test.go](libbox/ui_nodes_profile_test.go) 与 [ui_nodes_config_test.go](libbox/ui_nodes_config_test.go)：直接追加、重名及重复导入、端点分类、单节点编辑/删除、默认配置、远端刷新只保留本地节点、冲突节点链改名、消失的上游引用拒绝、标记在标准格式化/平台编辑/删除后保留或清除，以及无本地节点时保持超过 16 MiB 的订阅原文。[ui_nodes_headers_test.go](libbox/ui_nodes_headers_test.go) 验证普通配置及远端声明的 direct 成员保留，节点追加、合并和改名不会改写自由 HTTP 头内容或把头键误判为出站引用。[ui_nodes_parse_test.go](libbox/ui_nodes_parse_test.go)、[ui_nodes_document_test.go](libbox/ui_nodes_document_test.go)、[ui_nodes_link_test.go](libbox/ui_nodes_link_test.go) 与 [ui_nodes_wireguard_test.go](libbox/ui_nodes_wireguard_test.go) 保留 URI、订阅文档和 WireGuard 协议解析覆盖。上述文件描述当前断言范围，实际运行结果以 [应用验证记录](app.md#当前验证记录) 为准。
 - [ui_egress_test.go](libbox/ui_egress_test.go)：来源解析、公网 IP 校验、竞速并发与取消、失败或解析失败后继续竞速、服务替换、期限和关闭取消路由拨号、停服等待路由退出、不回退直连，以及 IP 胜出后保持质量查询会话。
 - [ui_route_test.go](libbox/ui_route_test.go)：停服等待路由和指定出站的拨号退出，以及准入与关闭的竞争。
 - [ui_lan_test.go](libbox/ui_lan_test.go)：监听地址、开关保留原生配置、创建/停用 mixed 入站、新监听冲突与校验。

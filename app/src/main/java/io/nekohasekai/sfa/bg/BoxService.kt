@@ -30,7 +30,6 @@ import io.nekohasekai.sfa.compose.MainActivity
 import io.nekohasekai.sfa.constant.Action
 import io.nekohasekai.sfa.constant.Alert
 import io.nekohasekai.sfa.constant.Status
-import io.nekohasekai.sfa.database.NodeLibrary
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
@@ -141,7 +140,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         val profile = ProfileManager.get(Settings.selectedProfile) ?: return@withLock null
         val content = File(profile.typed.path).readText()
         if (content.isBlank()) return@withLock null
-        Triple(profile, content, NodeLibrary.read())
+        profile to content
     }
 
     private suspend fun startService(generation: Long) {
@@ -151,7 +150,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 stopAndAlert(generation, Alert.EmptyConfiguration)
                 return
             }
-            val (profile, content, library) = snapshot
+            val (profile, content) = snapshot
 
             lastProfileName = profile.name
             withContext(Dispatchers.Main) {
@@ -161,7 +160,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             DefaultNetworkMonitor.start()
 
             try {
-                startOrReloadCore(NodeLibrary.expand(content, library), generation, File(profile.typed.path).parent.orEmpty())
+                startOrReloadCore(content, generation, File(profile.typed.path).parent.orEmpty())
             } catch (e: Exception) {
                 stopAndAlert(generation, Alert.CreateService, e.message)
                 return
@@ -218,10 +217,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             stopAndAlert(generation, Alert.EmptyConfiguration)
             error("Selected configuration is missing or empty")
         }
-        val (profile, content, library) = snapshot
+        val (profile, content) = snapshot
         lastProfileName = profile.name
         try {
-            startOrReloadCore(NodeLibrary.expand(content, library), generation, File(profile.typed.path).parent.orEmpty())
+            startOrReloadCore(content, generation, File(profile.typed.path).parent.orEmpty())
         } catch (e: Exception) {
             stopAndAlert(generation, Alert.CreateService, e.message)
             // Return reload failures to the command client so configuration

@@ -1,5 +1,6 @@
 package io.nekohasekai.sfa.database
 
+import io.nekohasekai.libbox.Libbox
 import java.io.File
 
 /** Immutable download input. Capture and validate while holding ProfileContent.mutex. */
@@ -21,6 +22,12 @@ internal data class ProfileSubscription(
             "Profile changed during download; refresh and retry"
         }
         return profile
+    }
+
+    /** Use only after [currentLocked] accepts the download, under the same content lock. */
+    fun mergedContentLocked(profile: Profile, incoming: String): String {
+        require(profile.id == id && profile.typed.path == path) { "Profile changed during download; refresh and retry" }
+        return Libbox.mergeUIConfigNodes(File(path).readText(), incoming).value
     }
 
     companion object {

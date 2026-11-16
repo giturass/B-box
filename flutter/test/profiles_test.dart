@@ -13,14 +13,16 @@ import 'package:flutter_test/flutter_test.dart';
 const _remote = {'id': 1, 'name': 'Remote A', 'remote': true,
   'url': 'https://example.org/config.json', 'autoUpdate': true, 'interval': 120, 'updatedAt': 1700000000000};
 const _local = {'id': 2, 'name': 'Local B', 'remote': false};
+const _default = {'id': 3, 'name': 'Default profile', 'remote': false, 'default': true};
 
 Future<BoxController> _mount(WidgetTester tester, {List<Json> profiles = const [_remote, _local],
   int selected = 1, bool remoteSession = false, StreamController<dynamic>? eventController,
-  Json dashboard = const {}, Json preferences = const {},
+  Json dashboard = const {}, Json preferences = const {}, Json nodes = const {},
+  Size size = const Size(360, 800),
   Future<dynamic> Function(MethodCall)? handler}) async {
   tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];
   addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
-  tester.view.physicalSize = const Size(360, 800);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -29,7 +31,7 @@ Future<BoxController> _mount(WidgetTester tester, {List<Json> profiles = const [
   final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready' ? {
     'version': 'test', 'coreVersion': 'test', 'profiles': profiles,
-    'preferences': preferences,
+    'preferences': preferences, 'nodes': nodes,
     'dashboard': {'status': 'Stopped', 'selectedProfileId': selected,
       if (remoteSession) ...{'remote': 'Server', 'remoteConnected': true}, ...dashboard},
   } : await handler?.call(call));
@@ -76,9 +78,10 @@ void main() {
     await tester.tap(find.text('Add profile').last);
     await tester.pumpAndSettle();
     expect(find.byType(AddProfilePage), findsNothing);
-    for (final label in ['Scan QR code', 'File', 'Import from URL', 'Clipboard', 'New profile']) {
+    for (final label in ['Scan QR code', 'File', 'Import from URL', 'Clipboard', 'New profile', 'New node']) {
       expect(find.text(label), findsOneWidget);
     }
+    expect(find.text('Node subscription'), findsNothing);
     await tester.tap(find.text('File'));
     await tester.pumpAndSettle();
     expect(calls.where((method) => method == 'profiles.importFile'), hasLength(1));
@@ -236,40 +239,210 @@ void main() {
     });
   }
 
-  testWidgets('shared nodes stand in for the groups of a stopped service and open their editor', (tester) async {
+  testWidgets('stopped service shows only selected-profile nodes and edits them with revisions', (tester) async {
     final events = StreamController<dynamic>.broadcast();
     final calls = <MethodCall>[];
     await _mount(tester, eventController: events, handler: (call) async {
       calls.add(call);
       return call.method == 'nodes.get'
-          ? {'origin': 'library', 'content': '{"type":"vless","tag":"Shared A"}', 'revision': 'r'} : null;
+          ? {'origin': 'profile', 'content': '{"type":"vless","tag":"Profile node"}',
+            'revision': 'node-r', 'profileId': 1, 'profileRevision': 'profile-r'} : null;
     });
     await _profiles(tester);
     expect(find.text('Add nodes'), findsOneWidget);
-    // Only the profile in use opens from its card.
     expect(find.descendant(of: find.byType(ProfileCard), matching: find.byTooltip('Edit')), findsOneWidget);
     expect(tester.widgetList<ProfileCard>(find.byType(ProfileCard)).map((card) => card.onEdit != null), [true, false]);
     events.add({'type': 'nodes', 'value': {
-      'nodes': [{'tag': 'Shared A', 'type': 'vless', 'source': 's', 'server': 'example.org', 'port': 443}],
-      'sources': [{'id': 's', 'name': 'Subscription', 'url': 'https://example.org/nodes', 'count': 1}],
+      'profileId': 2, 'profileRevision': 'other-r',
+      'nodes': [{'tag': 'Other profile node', 'type': 'vless'}],
+    }});
+    await tester.pumpAndSettle();
+    expect(find.text('Other profile node'), findsNothing);
+    events.add({'type': 'nodes', 'value': {
+      'profileId': 1, 'profileRevision': 'profile-r',
+      'nodes': [{'tag': 'Profile node', 'type': 'vless', 'server': 'example.org', 'port': 443}],
     }});
     await tester.pumpAndSettle();
     expect(find.text('Add nodes'), findsNothing);
-    expect(find.text('Shared nodes').hitTestable(), findsOneWidget);
-    // Nothing runs the node, so the card has no latency to test.
+    expect(find.text('Nodes').hitTestable(), findsOneWidget);
     expect(tester.widget<ProxyNodeCard>(find.byType(ProxyNodeCard)).onTest, isNull);
     await tester.tap(find.byTooltip('More').last);
     await tester.pumpAndSettle();
+    expect(find.text('Shared nodes'), findsNothing);
     await tester.tap(find.text('Update all'));
     await tester.pumpAndSettle();
-    expect(calls.map((call) => call.method).where(const {'profiles.update', 'nodes.updateSource'}.contains),
-      ['profiles.update', 'nodes.updateSource']);
-    await tester.tap(find.text('Shared A'));
+    expect(calls.map((call) => call.method).where((method) => method == 'profiles.update' || method.startsWith('nodes.update')),
+      ['profiles.update']);
+    await tester.tap(find.text('Profile node'));
     await tester.pumpAndSettle();
     expect(find.byType(NodeEditorPage), findsOneWidget);
-    expect(calls.where((call) => call.method == 'nodes.get').map((call) => json(call.arguments)['tag']), ['Shared A']);
+    expect(calls.where((call) => call.method == 'nodes.get').map((call) => json(call.arguments)),
+      [{'tag': 'Profile node', 'profileId': 1}]);
+    await tester.enterText(find.byType(TextField).last, '{"type":"vless","tag":"Renamed"}');
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    expect(json(calls.singleWhere((call) => call.method == 'nodes.set').arguments), {
+      'tag': 'Profile node', 'content': '{"type":"vless","tag":"Renamed"}',
+      'revision': 'node-r', 'profileId': 1, 'profileRevision': 'profile-r',
+    });
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('node imports retain their target and preview after a revision conflict', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    final additions = <Json>[];
+    var fail = true;
+    await _mount(tester, eventController: events,
+      nodes: {'profileId': 1, 'profileRevision': 'before-r', 'nodes': []}, handler: (call) async {
+        if (call.method == 'nodes.add') {
+          additions.add(json(call.arguments));
+          if (fail) throw PlatformException(code: 'conflict', message: 'Configuration changed; reload it before saving');
+          return {'added': 1};
+        }
+        return null;
+      });
+    const parsed = '{"nodes":[{"type":"vless","tag":"Imported","server":"example.org"}]}';
+    openForm(tester.element(find.byType(HomePage)), const NodeImportPage(parsed: parsed));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Profile: Remote A'), findsOneWidget);
+    expect(find.textContaining('Imported nodes are appended to this profile.'), findsOneWidget);
+    events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 2}});
+    events.add({'type': 'nodes', 'value': {'profileId': 2, 'profileRevision': 'other-r', 'nodes': []}});
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(NodeImportPage), findsOneWidget);
+    expect(additions, [{'nodes': parsed, 'profileId': 1, 'profileRevision': 'before-r'}]);
+    fail = false;
+    events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 1}});
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    expect(additions.last, additions.first);
+    expect(find.byType(NodeImportPage), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('new node saves into the selected file and runtime groups have no extra node section', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    final writes = <Json>[];
+    await _mount(tester, eventController: events,
+      nodes: {'profileId': 1, 'profileRevision': 'file-r', 'nodes': [
+        {'type': 'vless', 'tag': 'File node'},
+      ]}, handler: (call) async {
+        if (call.method == 'nodes.set') writes.add(json(call.arguments));
+        return null;
+      });
+    await _profiles(tester);
+    await tester.tap(find.byTooltip('Add profile').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New node'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '{"type":"vless","tag":"New","server":"example.org"}');
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    expect(writes, [{
+      'tag': '', 'content': '{"type":"vless","tag":"New","server":"example.org"}',
+      'revision': '', 'profileId': 1, 'profileRevision': 'file-r',
+    }]);
+    events.add({'type': 'dashboard', 'value': {'status': 'Started', 'selectedProfileId': 1}});
+    events.add({'type': 'groups', 'value': [
+      {'tag': 'Live selector', 'selected': 'Live node', 'selectable': true, 'items': [
+        {'tag': 'Live node', 'type': 'vless'},
+      ]},
+    ]});
+    await tester.pumpAndSettle();
+    expect(find.text('Live selector').hitTestable(), findsOneWidget);
+    expect(find.text('File node'), findsNothing);
+    expect(find.text('Nodes').hitTestable(), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('node delete confirmation keeps the original profile and revision', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    final deletions = <Json>[];
+    final box = await _mount(tester, eventController: events,
+      nodes: {'profileId': 1, 'profileRevision': 'file-r', 'nodes': [
+        {'type': 'vless', 'tag': 'Delete me'},
+      ]}, handler: (call) async {
+        if (call.method == 'nodes.remove') {
+          deletions.add(json(call.arguments));
+          throw PlatformException(code: 'conflict', message: 'Selected profile changed');
+        }
+        return null;
+      });
+    await _profiles(tester);
+    final removed = removeNodes(tester.element(find.byType(ProfilesPage)), ['Delete me']);
+    await tester.pumpAndSettle();
+    events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 2}});
+    events.add({'type': 'nodes', 'value': {'profileId': 2, 'profileRevision': 'other-r', 'nodes': []}});
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    expect(await removed, isFalse);
+    expect(box.selectedProfileId, 2);
+    expect(deletions, [{'tags': ['Delete me'], 'profileId': 1, 'profileRevision': 'file-r'}]);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final picker in [false, true]) {
+    testWidgets('default profile remains available alongside existing files (picker: $picker)', (tester) async {
+      Json? saved;
+      await _mount(tester, profiles: const [_remote, _default], handler: (call) async {
+        if (call.method == 'profiles.save') saved = json(call.arguments);
+        return null;
+      });
+      if (picker) {
+        openForm(tester.element(find.byType(HomePage)), const ProfilesPage(picker: true));
+        await tester.pumpAndSettle();
+      } else {
+        await _profiles(tester);
+      }
+      final defaultCard = find.byWidgetPredicate((w) => w is ProfileCard && w.profile['default'] == true);
+      await Scrollable.ensureVisible(tester.element(defaultCard), alignment: .5);
+      await tester.pumpAndSettle();
+      expect(find.text('Default profile').hitTestable(), findsOneWidget);
+      expect(tester.widget<ProfileCard>(defaultCard).menuItems.last.onPressed, isNull);
+      tester.widget<ProfileCard>(defaultCard).menuItems.first.onPressed!();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Edit').last);
+      await tester.pumpAndSettle();
+      expect(find.byType(ProfileForm), findsOneWidget);
+      expect(find.text('Remote').hitTestable(), findsNothing);
+      await tester.enterText(find.byType(TextFormField).first, 'My default');
+      await tester.tap(find.byTooltip('Save').last);
+      await tester.pumpAndSettle();
+      expect(saved?['name'], 'My default');
+      expect(saved?['default'], isTrue);
+      expect(saved?['remote'], isFalse);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final (size, scale) in [(const Size(360, 800), 1.0), (const Size(360, 800), 1.4), (const Size(800, 1000), 1.0)]) {
+    testWidgets('profile card borders align with proxy group edges at $size scale=$scale', (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = scale;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final events = StreamController<dynamic>.broadcast();
+      await _mount(tester, size: size, eventController: events, dashboard: {'status': 'Started'});
+      events.add({'type': 'groups', 'value': [
+        {'tag': 'Selector', 'selected': 'Node 0', 'selectable': true, 'items': [
+          for (var i = 0; i < 12; i++) {'tag': 'Node $i', 'type': 'vless'},
+        ]},
+      ]});
+      await tester.pumpAndSettle();
+      await _profiles(tester);
+      final selectedCard = find.byWidgetPredicate((w) => w is ProfileCard && w.selected);
+      final profileBounds = tester.getRect(selectedCard);
+      final proxies = find.byType(ProxyNodeCard);
+      final proxyBounds = proxies.evaluate().map((element) => tester.getRect(find.byWidget(element.widget)))
+        .reduce((before, next) => before.expandToInclude(next));
+      expect(profileBounds.left, closeTo(proxyBounds.left, .01));
+      expect(profileBounds.right, closeTo(proxyBounds.right, .01));
+      expect(profileBounds.width, tester.getSize(find.byKey(const PageStorageKey('profile-strip'))).width - 32);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   for (final picker in [false, true]) {
     testWidgets('selected profiles cannot be deleted, including stale menus and confirmations (picker: $picker)', (tester) async {

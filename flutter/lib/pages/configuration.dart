@@ -8,6 +8,16 @@ import '../components/form.dart';
 
 const configEncoder = JsonEncoder.withIndent('  ');
 
+/// Removes only the leading B-box node metadata before Dart's strict JSON parser.
+dynamic decodeConfigJson(String content) {
+  final marker = RegExp(r'^\s*// b-box-local-nodes: (\[[^\r\n]*\])\r?\n').firstMatch(content);
+  if (marker != null) {
+    final tags = jsonDecode(marker.group(1)!);
+    if (tags is List && tags.every((tag) => tag is String)) content = content.substring(marker.end);
+  }
+  return jsonDecode(content);
+}
+
 class ProfileConfigStore extends ChangeNotifier {
   ProfileConfigStore(this.box, this.profile);
   final BoxController box;
@@ -19,7 +29,7 @@ class ProfileConfigStore extends ChangeNotifier {
   int _generation = 0;
 
   void _receive(Json data) {
-    root = json(jsonDecode(data['formatted'] as String));
+    root = json(decodeConfigJson(data['formatted'] as String));
     stats = json(data['stats']);
     revision = data['revision'] as String;
     ready = true;
@@ -612,7 +622,7 @@ class _ConfigValueEditorState extends State<ConfigValueEditor> {
     child: BoxPage(title: widget.title, loading: _saving,
     confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'), onPressed: _saving ? null : () async {
       dynamic value;
-      try { value = jsonDecode(_text.text); } catch (failure) { setState(() => _error = BoxController.describe(failure)); return; }
+      try { value = decodeConfigJson(_text.text); } catch (failure) { setState(() => _error = BoxController.describe(failure)); return; }
       setState(() { _saving = true; _error = null; });
       try {
         final saved = await widget.onSave(value);

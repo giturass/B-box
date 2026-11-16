@@ -24,9 +24,9 @@ internal object ProfileContent {
     fun revision(content: String): String = MessageDigest.getInstance("SHA-256")
         .digest(content.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
-    /** A profile is checked the way it runs, with the shared nodes it takes. */
-    fun validate(content: String, library: String = NodeLibrary.read()) {
-        Libbox.checkConfig(NodeLibrary.expand(content, library))
+    /** A profile is checked as the complete configuration the core runs. */
+    fun validate(content: String) {
+        Libbox.checkConfig(content)
     }
 
     fun requireStableService(status: Status = BoxService.currentStatus) {
@@ -50,7 +50,8 @@ internal object ProfileContent {
         if (expectedRevision != null) {
             require(previous != null && revision(previous) == expectedRevision) { "Configuration changed; reload it before saving" }
         }
-        val cleaned = Libbox.removeUIRetiredCaptureOptions(content)
+        val removed = Libbox.preserveUIConfigNodes(content, Libbox.removeUIRetiredCaptureOptions(content)).value
+        val cleaned = Libbox.preserveUIConfigNodes(previous.orEmpty(), removed).value
         validate(cleaned)
         val changed = previous != cleaned
         if (!changed && updatedAt == null) return

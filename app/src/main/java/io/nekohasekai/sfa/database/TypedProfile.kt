@@ -39,6 +39,7 @@ class TypedProfile() : Parcelable {
     var lastUpdated: Date = Date(0)
     var autoUpdate: Boolean = false
     var autoUpdateInterval = 60
+    var isDefault = false
 
     constructor(reader: Parcel) : this() {
         val version = reader.readInt()
@@ -50,16 +51,18 @@ class TypedProfile() : Parcelable {
         if (version >= 1) {
             autoUpdateInterval = reader.readInt()
         }
+        if (version >= 2) isDefault = reader.readInt() == 1
     }
 
     override fun writeToParcel(writer: Parcel, flags: Int) {
-        writer.writeInt(1)
+        writer.writeInt(2)
         writer.writeString(path)
         writer.writeInt(type.ordinal)
         writer.writeString(remoteURL)
         writer.writeInt(if (autoUpdate) 1 else 0)
         writer.writeLong(lastUpdated.time)
         writer.writeInt(autoUpdateInterval)
+        writer.writeInt(if (isDefault) 1 else 0)
     }
 
     override fun describeContents(): Int = 0
