@@ -153,48 +153,50 @@ void main() {
 
   testWidgets('dashboard switch profile has an independent semantic tap target', (tester) async {
     final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
-    final selections = <dynamic>[];
-    await _mount(tester, selected: 2, handler: (call) async {
-      if (call.method == 'profiles.select') selections.add(json(call.arguments)['id']);
-      return null;
-    });
-    await _revealSwitchProfile(tester);
-    final target = find.bySemanticsLabel('Switch profile').hitTestable();
-    expect(target, findsOneWidget);
-    final node = tester.getSemantics(target);
-    expect(node.getSemanticsData().label, 'Switch profile');
-    expect(node.rect.size, const Size.square(32));
-    expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
-    expect(node.parent!.getSemanticsData().label, isNot(contains('Switch profile')));
-    tester.renderObject(target).owner!.semanticsOwner!.performAction(node.id, SemanticsAction.tap);
-    await tester.pumpAndSettle();
-    expect(find.byWidgetPredicate((widget) => widget is ProfilesPage && widget.picker), findsOneWidget);
-    await tester.tap(find.text('Remote A').hitTestable());
-    await tester.pumpAndSettle();
-    expect(selections, [1]);
-    expect(find.byWidgetPredicate((widget) => widget is ProfilesPage && widget.picker), findsNothing);
-    expect(tester.takeException(), isNull);
+    try {
+      final selections = <dynamic>[];
+      await _mount(tester, selected: 2, handler: (call) async {
+        if (call.method == 'profiles.select') selections.add(json(call.arguments)['id']);
+        return null;
+      });
+      await _revealSwitchProfile(tester);
+      final target = find.bySemanticsLabel('Switch profile').hitTestable();
+      expect(target, findsOneWidget);
+      final node = tester.getSemantics(target);
+      expect(node.getSemanticsData().label, 'Switch profile');
+      expect(node.rect.size, const Size.square(32));
+      expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+      expect(node.parent!.getSemanticsData().label, isNot(contains('Switch profile')));
+      tester.renderObject(target).owner!.semanticsOwner!.performAction(node.id, SemanticsAction.tap);
+      await tester.pumpAndSettle();
+      expect(find.byWidgetPredicate((widget) => widget is ProfilesPage && widget.picker), findsOneWidget);
+      await tester.tap(find.text('Remote A').hitTestable());
+      await tester.pumpAndSettle();
+      expect(selections, [1]);
+      expect(find.byWidgetPredicate((widget) => widget is ProfilesPage && widget.picker), findsNothing);
+      expect(tester.takeException(), isNull);
+    } finally { semantics.dispose(); }
   });
 
   testWidgets('dashboard switch profile semantic action waits for stable service state', (tester) async {
     final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
-    final events = StreamController<dynamic>.broadcast();
-    await _mount(tester, selected: 2, eventController: events);
-    await _revealSwitchProfile(tester);
-    for (final status in ['Starting', 'Stopped', 'Stopping', 'Stopped']) {
-      events.add({'type': 'dashboard', 'value': {'status': status, 'selectedProfileId': 2}});
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      final target = find.bySemanticsLabel('Switch profile').hitTestable();
-      expect(target, findsOneWidget);
-      final node = tester.getSemantics(target);
-      expect(node.rect.size, const Size.square(32));
-      expect(node.getSemanticsData().hasAction(SemanticsAction.tap), status == 'Stopped');
-      expect(find.byWidgetPredicate((widget) => widget is ProfilesPage && widget.picker), findsNothing);
-    }
-    expect(tester.takeException(), isNull);
+    try {
+      final events = StreamController<dynamic>.broadcast();
+      await _mount(tester, selected: 2, eventController: events);
+      await _revealSwitchProfile(tester);
+      for (final status in ['Starting', 'Stopped', 'Stopping', 'Stopped']) {
+        events.add({'type': 'dashboard', 'value': {'status': status, 'selectedProfileId': 2}});
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        final target = find.bySemanticsLabel('Switch profile').hitTestable();
+        expect(target, findsOneWidget);
+        final node = tester.getSemantics(target);
+        expect(node.rect.size, const Size.square(32));
+        expect(node.getSemanticsData().hasAction(SemanticsAction.tap), status == 'Stopped');
+        expect(find.byWidgetPredicate((widget) => widget is ProfilesPage && widget.picker), findsNothing);
+      }
+      expect(tester.takeException(), isNull);
+    } finally { semantics.dispose(); }
   });
 
   testWidgets('only enabled automatic updates validate the minimum interval', (tester) async {
