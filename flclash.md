@@ -213,7 +213,21 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-2026-11-17，配置卡片恢复 `SelectionBadge` 对号，默认文件中文名称为“配置文件”，内核设置“关闭弃用警告”缺省显示开启并保留明确关闭值。当前源码的 Flutter 分析、交互/布局测试、AAR 构建和截图待统一 Actions 确认，上一轮通过结果保留在历史记录中。
+2026-11-17，恢复配置选中对号、调整默认文件名称及弃用警告缺省值的验证源码为 `a4607728af065cb46a8b0c021480988bd9531442`，对应 [Actions 43917329871](https://github.com/giturass/B-box/actions/runs/43917329871) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43917329871/job/133474906780)。Flutter 分析、271 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建全部通过；分析为 84 条 info、0 条 warning/error。CI 通过 `python3 tools/verify_newui.py`，AAR 产物见 [flutter-aar-arm64](https://github.com/giturass/B-box/actions/runs/43917329871/artifacts/14249978956)。
+
+既有配置用例确认选中卡片显示 `SelectionBadge`、编辑仍由菜单进入、新旧系统默认名称统一显示 `Profile file`，默认文件仍与其他文件一同显示并可自定义名称。导航用例检查内核页缺少设置键时弃用警告开关开启、收到明确 `false` 时关闭、恢复缺失后开启。手机、大字号和宽屏下的卡片对齐、配置内节点修订与迟到快照隔离、首页独立切换按钮及启停期间禁止选择的既有回归继续通过。
+
+实际抽样查看该源码 [newui-validation](https://github.com/giturass/B-box/actions/runs/43917329871/artifacts/14249719562) 的以下截图，路径相对 `build/screenshots/`：
+
+| 截图 | 核对结果 |
+| --- | --- |
+| `360-light-1.0-Profiles-populated.png` | 选中卡片右侧显示对号，卡片左右边缘为 16/344 dp，与两列代理区域外边缘一致 |
+| `360-dark-1.4-Profiles-populated.png` | 边缘仍为 16/344 dp，长标题省略，更新时间、对号及底栏没有重叠 |
+| `360-dark-1.4-Profiles-scrolled.png` | 横向滚动仅移动文件卡片，所选卡片仍显示对号，代理区域和底栏保持稳定 |
+| `800-light-1.0-Profiles-populated.png` | 配置卡片为 64/784 dp，含 48 dp 侧栏和 16 dp 内容间距，与代理分组视口等宽；稀疏节点保留网格列宽 |
+| `360-dark-1.4-Core.png` | 关闭弃用警告开关为开启状态，大字号标题换行与开关没有重叠 |
+
+这些截图使用测试桥接数据，属于配置卡片和内核设置的抽样检查；默认名称及真实核心分组的 Android 结果见 [应用验证记录](app.md#当前验证记录)。未覆盖全应用逐像素验收、ARM64 真机视觉/性能、真实远程会话或本轮签名 Release APK 验收。
 
 ### 历史验证记录
 

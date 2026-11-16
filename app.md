@@ -216,6 +216,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 以下用例使用实际 libbox AAR，由 smoke 矩阵的原生组在每个环境运行。模拟器中的自有客户端和本地测试服务器不代表第三方目标应用信任、真实网络或 Root 模块已经实机通过。
 
 - **配置应用与恢复：** [ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/手动与自动订阅/完整备份恢复失败，以及停服和未选中配置更新的服务状态；另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。`failedSelectionRestoresThePreviousSelectionAndService` 连续五轮核对选配置失败恢复、停止释放核心及重新启动，防止服务清理竞态污染后续用例。
+- **默认文件：** `defaultProfileStaysAvailableAlongsideExistingProfiles` 检查默认文件与其他配置一同显示、持久身份及删除限制；旧系统名称更新保持内容和更新时间，自定义名称及当前选择保留。
 - **配置时间与日志级别：** `localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。`logLevelFollowsSuccessfulConfigurationReloads` 覆盖真实内核日志订阅的默认级别、运行中修改 `log.level` 后刷新，以及移除该字段后恢复当前核心的默认值。
 - **订阅下载、备份回滚与删除：** 覆盖超过旧 16 MiB 阈值的订阅完成 URL 导入、手动及自动更新并保留服务状态，以及协程取消阻塞中的原生下载。取消用例分别从 IO/Default 调度器发起，共连续执行 20 次，再验证后续请求仍能成功；取消必须结束 JNI 调用且不能作为普通网络失败取消父任务。其他用例覆盖备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、大正文、取消和重定向循环由 [核心订阅测试](libbox/ui_profile_test.go) 覆盖。
 - **设置持久化：** [PreferencePersistenceTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/database/preference/PreferencePersistenceTest.kt) 使用实际 Room 检查普通设置重新读取、提交失败后的缓存恢复、后续排队值保留、取消与回滚顺序，以及 UTF-8 字符串集合；“关闭弃用警告”显式关闭后重新读取及失败恢复仍为关闭。查询策略回归在每次切换 Root/Shizuku 并刷盘后重新打开 Room 数据库读取持久值，同时核对状态流，不以读取同一内存缓存代替持久化验证。
@@ -243,7 +244,24 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-2026-11-17，恢复配置选中对号、调整默认文件名称及弃用警告缺省值的源码已完成；本机静态检查后提交到统一 Actions 验证。本轮运行结果与截图尚待确认，上一轮通过结果仅保留为历史记录。
+2026-11-17，恢复配置选中对号、调整默认文件名称及弃用警告缺省值的验证源码为 `a4607728af065cb46a8b0c021480988bd9531442`，对应 [Actions 43917329871](https://github.com/giturass/B-box/actions/runs/43917329871)，8 个作业全部通过。
+
+- `root-ca` 与 [core 作业](https://github.com/giturass/B-box/actions/runs/43917329871/job/133474906402) 通过，包含 UI 扩展、节点配置、WARP、路由/出口/订阅及 HTTP/MITM race 回归。
+- [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43917329871/job/133474906780) 的分析、271 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过，分析为 84 条 info、0 条 warning/error；实际配置对号、卡片对齐及内核设置截图见 [界面记录](flclash.md#当前验证记录)。
+- [Android 作业](https://github.com/giturass/B-box/actions/runs/43917329871/job/133474907158) 的 x86_64 libbox、Flutter Debug AAR、两个 flavor 的 Kotlin 编译及模拟器 APK 构建通过；逐一解析 [native-unit-tests](https://github.com/giturass/B-box/actions/runs/43917329871/artifacts/14251312224) 的 13 份 XML，56 项 JVM 测试通过，无 failure/error/skipped。
+
+四组模拟器的 `results.json` 均核对为上述源码 SHA，UI 与原生回归均通过；各组 `native-tests.txt` 为 `OK (44 tests)`，44 个完成状态码均为 0。此次扩展的回归确认旧系统默认名称更新保留内容、更新时间和选择，自定义名称保留；弃用警告明确关闭值在重新读取及失败恢复后仍为关闭。
+
+| 环境与产物 | 实际页大小 / 来源 | UI / 原生测试 |
+| --- | --- | --- |
+| [API 24](https://github.com/giturass/B-box/actions/runs/43917329871/artifacts/14254520684) | 4096 字节 / `/proc/self/smaps` | 通过 / 44 项通过 |
+| [API 31](https://github.com/giturass/B-box/actions/runs/43917329871/artifacts/14254701159) | 4096 字节 / `getconf` | 通过 / 44 项通过 |
+| [API 36](https://github.com/giturass/B-box/actions/runs/43917329871/artifacts/14253851417) | 4096 字节 / `getconf` | 通过 / 44 项通过 |
+| [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/43917329871/artifacts/14252273865) | 16384 字节 / `getconf` | 通过 / 44 项通过 |
+
+实际抽样查看 API 24 的 `02-profile-files.png`，默认本地文件显示为 `Profile file`，与新导入的远端配置同时显示，导入没有改变默认选择。`04-core-proxies.png` 中选中文件卡片显示对号，并与真实核心分组同页，卡片边框占满带两侧间距的内容区域，标题、更新时间、对号及底栏没有重叠。
+
+本机通过 `git diff --check`、`python3 tools/verify_newui.py` 及领域文档的本地链接/锚点检查；Go、Flutter、JVM、Android 测试及构建均在上述 Actions 运行。未进行 ARM64 实机视觉、真实订阅网络及远程会话验收，也未触发签名 Release 或发布。
 
 ### 历史验证记录
 
