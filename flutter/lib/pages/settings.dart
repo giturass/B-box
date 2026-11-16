@@ -10,13 +10,13 @@ export 'about.dart';
 export 'backup.dart';
 
 class NativeToggle extends StatelessWidget {
-  const NativeToggle(this.title, this.setting, {super.key, this.restart = true, this.autoRestart = false});
+  const NativeToggle(this.title, this.setting, {super.key, this.restart = true, this.autoRestart = false, this.defaultValue = false});
   final String title, setting;
-  final bool restart, autoRestart;
+  final bool restart, autoRestart, defaultValue;
   @override Widget build(BuildContext context) {
     final box = context.box;
     return ListItem.toggle(
-      title: Text(context.tr(title)), value: box.settings[setting] == true,
+      title: Text(context.tr(title)), value: (box.settings[setting] ?? defaultValue) == true,
       onChanged: box.serviceSettingsChanging || autoRestart && box.transitioning && !box.remote
         ? null : (value) => box.setSetting(setting, value, restart: restart, autoRestart: autoRestart),
     );
@@ -56,7 +56,7 @@ class CoreSettingsPage extends StatelessWidget {
   @override Widget build(BuildContext context) => BoxPage(title: 'Core', children: [
     generateSection(items: [
       ListItem(title: Text(context.tr('Core version')), subtitle: Text(context.box.coreVersion)),
-      const NativeToggle('Disable deprecation warnings', 'disableDeprecatedWarnings', restart: false),
+      const NativeToggle('Disable deprecation warnings', 'disableDeprecatedWarnings', restart: false, defaultValue: true),
       const NativeToggle('Enable memory protection', 'oomKillerEnabled'),
       const NativeToggle('Disable core memory killer', 'oomKillerDisabled'),
       ListItem.input(title: Text(context.tr('Memory limit')), dialogTitle: context.tr('Memory limit'),

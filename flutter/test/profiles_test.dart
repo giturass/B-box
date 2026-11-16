@@ -14,7 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 const _remote = {'id': 1, 'name': 'Remote A', 'remote': true,
   'url': 'https://example.org/config.json', 'autoUpdate': true, 'interval': 120, 'updatedAt': 1700000000000};
 const _local = {'id': 2, 'name': 'Local B', 'remote': false};
-const _default = {'id': 3, 'name': 'Default profile', 'remote': false, 'default': true};
+const _default = {'id': 3, 'name': 'Profile file', 'remote': false, 'default': true};
 
 Future<BoxController> _mount(WidgetTester tester, {List<Json> profiles = const [_remote, _local],
   int selected = 1, bool remoteSession = false, StreamController<dynamic>? eventController,
@@ -312,8 +312,9 @@ void main() {
     });
     await _profiles(tester);
     expect(find.text('Add nodes'), findsOneWidget);
-    expect(find.descendant(of: find.byType(ProfileCard), matching: find.byTooltip('Edit')), findsOneWidget);
-    expect(tester.widgetList<ProfileCard>(find.byType(ProfileCard)).map((card) => card.onEdit != null), [true, false]);
+    expect(find.descendant(of: find.byType(ProfileCard), matching: find.byTooltip('Edit')), findsNothing);
+    final selectedCard = find.byWidgetPredicate((widget) => widget is ProfileCard && widget.selected);
+    expect(find.descendant(of: selectedCard, matching: find.byType(SelectionBadge)), findsOneWidget);
     events.add({'type': 'nodes', 'value': {
       'profileId': 2, 'profileRevision': 'other-r',
       'nodes': [{'tag': 'Other profile node', 'type': 'vless'}],
@@ -456,7 +457,7 @@ void main() {
   for (final picker in [false, true]) {
     testWidgets('default profile remains available alongside existing files (picker: $picker)', (tester) async {
       Json? saved;
-      await _mount(tester, profiles: const [_remote, _default], handler: (call) async {
+      await _mount(tester, profiles: [_remote, {..._default, if (picker) 'name': 'Default profile'}], handler: (call) async {
         if (call.method == 'profiles.save') saved = json(call.arguments);
         return null;
       });
@@ -469,7 +470,7 @@ void main() {
       final defaultCard = find.byWidgetPredicate((w) => w is ProfileCard && w.profile['default'] == true);
       await Scrollable.ensureVisible(tester.element(defaultCard), alignment: .5);
       await tester.pumpAndSettle();
-      expect(find.text('Default profile').hitTestable(), findsOneWidget);
+      expect(find.text('Profile file').hitTestable(), findsOneWidget);
       expect(tester.widget<ProfileCard>(defaultCard).menuItems.last.onPressed, isNull);
       tester.widget<ProfileCard>(defaultCard).menuItems.first.onPressed!();
       await tester.pumpAndSettle();

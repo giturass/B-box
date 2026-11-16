@@ -38,10 +38,17 @@ internal class BoxProfiles(
     suspend fun get(id: Long): Profile = ProfileManager.get(id) ?: error("Profile no longer exists")
 
     /** A real local profile stays available even when subscriptions already exist. */
-    suspend fun ensureDefault(name: String = "Default profile"): Long {
-        mutex.withLock { ProfileManager.list().firstOrNull { it.typed.isDefault }?.id }?.let { return it }
+    suspend fun ensureDefault(): Long {
+        mutex.withLock {
+            ProfileManager.list().firstOrNull { it.typed.isDefault }?.also { profile ->
+                if (profile.name == "Default profile") {
+                    profile.name = "Profile file"
+                    check(ProfileManager.update(profile) == 1) { "Profile no longer exists" }
+                }
+            }?.id
+        }?.let { return it }
         return savePrepared(PreparedSave(
-            id = 0L, name = name, url = "", interval = 60, autoUpdate = false,
+            id = 0L, name = "Profile file", url = "", interval = 60, autoUpdate = false,
             content = Libbox.getUIDefaultConfig().value, updatedAt = null, expectedRevision = null, isDefault = true,
         ))
     }

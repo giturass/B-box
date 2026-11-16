@@ -32,11 +32,12 @@ class PreferencePersistenceTest {
         try {
             val dao = database.keyValuePairDao()
             val store = RoomPreferenceDataStore { dao }
-            val values = BoxSettings.entities(mapOf("allowBypass" to true, "queryMode" to "ROOT", "perAppList" to listOf("one.app")))
+            val values = BoxSettings.entities(mapOf("allowBypass" to true, "disableDeprecatedWarnings" to false, "queryMode" to "ROOT", "perAppList" to listOf("one.app")))
             store.putBatchConfirmed(values)
             val reopened = RoomPreferenceDataStore { dao }
             reopened.initialize()
             assertEquals(true, reopened.getBoolean(SettingsKey.ALLOW_BYPASS))
+            assertEquals(false, reopened.getBoolean(SettingsKey.DISABLE_DEPRECATED_WARNINGS, true))
             assertEquals("ROOT", reopened.getString(SettingsKey.PER_APP_PROXY_PACKAGE_QUERY_MODE))
             assertEquals(setOf("one.app"), reopened.getStringSet(SettingsKey.PER_APP_PROXY_LIST))
             database.close()
@@ -50,6 +51,7 @@ class PreferencePersistenceTest {
             store.reset()
             assertTrue(runCatching { store.flush() }.isFailure)
             assertEquals(true, store.getBoolean(SettingsKey.ALLOW_BYPASS))
+            assertEquals(false, store.getBoolean(SettingsKey.DISABLE_DEPRECATED_WARNINGS, true))
             store.flush() // Errors are reported once; the writer is still usable.
         } finally { database.close() }
     }

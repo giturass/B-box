@@ -168,10 +168,10 @@ def ui_smoke():
             # its prefilled name alone does not establish a successful import.
             click("Save", stable=True)
             current = wait_for("Start", whole_window=True)
-            assert matching("Default profile", current), "Import changed the default selection"
+            assert matching("Profile file", current), "Import changed the default selection"
             click("Switch profile", current)
             current = wait_for("Smoke profile", whole_window=True)
-            assert matching("Default profile", current), "Default profile disappeared after import"
+            assert matching("Profile file", current), "Default profile disappeared after import"
             capture("02-profile-files")
             click("Smoke profile", current)
             current = wait_for("Start", whole_window=True)

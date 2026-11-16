@@ -45,7 +45,7 @@ object Settings {
     var startedByUser by dataStore.boolean(SettingsKey.STARTED_BY_USER)
 
     var dynamicNotification by dataStore.boolean(SettingsKey.DYNAMIC_NOTIFICATION) { true }
-    var disableDeprecatedWarnings by dataStore.boolean(SettingsKey.DISABLE_DEPRECATED_WARNINGS) { false }
+    var disableDeprecatedWarnings by dataStore.boolean(SettingsKey.DISABLE_DEPRECATED_WARNINGS) { true }
 
     const val PER_APP_PROXY_EXCLUDE = 1
     const val PER_APP_PROXY_INCLUDE = 2

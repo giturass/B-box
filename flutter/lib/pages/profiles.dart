@@ -91,8 +91,6 @@ class _ProfilesPageState extends State<ProfilesPage> {
       selected: selected,
       updating: _updating.contains(profile['id']),
       menuItems: _menu(profile),
-      // On the page of the proxies the profile in use opens from its card.
-      onEdit: !widget.picker && selected ? () => openForm(this.context, ProfileDetailsPage(profile: profile)) : null,
       onPressed: box.transitioning ? null : () async {
         if (box.transitioning || box.remote) return;
         if (await box.act('profiles.select', {'id': profile['id']}) && widget.picker && context.mounted) context.safeNestedPop();

@@ -642,14 +642,33 @@ class ProfileRecoveryTest {
         val id = profiles.save(mapOf("name" to "Existing profile", "content" to "{}"))
         try {
             Settings.saveProfileSelection(id)
-            val default = profiles.ensureDefault("Default profile")
+            val default = profiles.ensureDefault()
             val listed = profiles.list()
             assertTrue(listed.any { it["id"] == id })
             assertEquals(default, listed.single { it["default"] == true }["id"])
-            assertEquals(default, profiles.ensureDefault("Default profile"))
+            assertEquals(default, profiles.ensureDefault())
             assertTrue(profiles.get(default).typed.isDefault)
             assertEquals("", profiles.get(default).typed.remoteURL)
-            Libbox.checkConfig(profiles.read(default))
+            val content = profiles.read(default)
+            Libbox.checkConfig(content)
+            val original = profiles.get(default)
+            val originalName = original.name
+            val updatedAt = original.typed.lastUpdated.time
+            try {
+                original.name = "Default profile"
+                ProfileManager.update(original)
+                assertEquals(default, profiles.ensureDefault())
+                assertEquals("Profile file", profiles.get(default).name)
+                assertEquals(content, profiles.read(default))
+                assertEquals(updatedAt, profiles.get(default).typed.lastUpdated.time)
+                original.name = "My profile"
+                ProfileManager.update(original)
+                assertEquals(default, profiles.ensureDefault())
+                assertEquals("My profile", profiles.get(default).name)
+            } finally {
+                original.name = originalName
+                ProfileManager.update(original)
+            }
             assertEquals(id, Settings.selectedProfile)
             assertTrue(runCatching { profiles.delete(default) }.exceptionOrNull() is IllegalArgumentException)
             assertTrue(profiles.get(default).typed.isDefault)

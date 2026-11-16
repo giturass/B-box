@@ -16,6 +16,7 @@ import 'package:b_box_ui/pages/proxies.dart';
 import 'package:b_box_ui/pages/dashboard.dart';
 import 'package:b_box_ui/components/navigation_bar.dart';
 import 'package:b_box_ui/components/page_switcher.dart';
+import 'package:b_box_ui/components/profile_card.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/toolbar_paint.dart';
@@ -152,6 +153,11 @@ void main() {
       await tester.pumpAndSettle();
       for (final label in ['Dashboard', 'Profiles']) {
         await selectTab(label);
+        if (label == 'Profiles') {
+          final selectedCard = find.byWidgetPredicate((widget) => widget is ProfileCard && widget.selected);
+          expect(find.descendant(of: selectedCard, matching: find.byType(SelectionBadge)), findsOneWidget);
+          expect(find.descendant(of: find.byType(ProfileCard), matching: find.byTooltip('Edit')), findsNothing);
+        }
         await capture('$label-populated');
       }
       if (size.width < 600) {
@@ -235,7 +241,18 @@ void main() {
         if (label == 'Appearance' && size.width < 600) {
           await expectClearTrailingToolbar(tester, boundaryKey, destination);
         }
-        if (page is CoreSettingsPage) expect(find.text('Power reports'), findsNothing);
+        if (page is CoreSettingsPage) {
+          expect(find.text('Power reports'), findsNothing);
+          final warningToggle = find.byWidgetPredicate((widget) => widget is NativeToggle && widget.setting == 'disableDeprecatedWarnings');
+          final warningSwitch = find.descendant(of: warningToggle, matching: find.byType(Switch));
+          expect(tester.widget<Switch>(warningSwitch).value, isTrue);
+          events.add({'type': 'settings', 'value': {'disableDeprecatedWarnings': false}});
+          await tester.pumpAndSettle();
+          expect(tester.widget<Switch>(warningSwitch).value, isFalse);
+          events.add({'type': 'settings', 'value': {}});
+          await tester.pumpAndSettle();
+          expect(tester.widget<Switch>(warningSwitch).value, isTrue);
+        }
         tester.element(destination).safeNestedPop();
         await tester.pumpAndSettle();
         expect(find.byType(SettingsPage), findsOneWidget, reason: '$label returns to Settings');
