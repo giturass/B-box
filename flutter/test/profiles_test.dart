@@ -57,6 +57,14 @@ Future<void> _profiles(WidgetTester tester) async {
   expect(tester.widget<PageSwitcher>(find.byType(PageSwitcher)).index, 1);
 }
 
+Future<void> _revealSwitchProfile(WidgetTester tester) async {
+  final tooltip = find.byWidgetPredicate((widget) => widget is Tooltip && widget.message == 'Switch profile');
+  final button = find.descendant(of: tooltip, matching: find.byType(IconButton));
+  expect(button, findsOneWidget);
+  await Scrollable.ensureVisible(tester.element(button), alignment: .5);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   test('compact update ages preserve unknown values and reference thresholds', () {
     final now = DateTime.utc(2026, 10, 29, 12);
@@ -151,9 +159,7 @@ void main() {
       if (call.method == 'profiles.select') selections.add(json(call.arguments)['id']);
       return null;
     });
-    final tooltip = find.byTooltip('Switch profile');
-    await Scrollable.ensureVisible(tester.element(tooltip), alignment: .5);
-    await tester.pumpAndSettle();
+    await _revealSwitchProfile(tester);
     final target = find.bySemanticsLabel('Switch profile').hitTestable();
     expect(target, findsOneWidget);
     final node = tester.getSemantics(target);
@@ -176,8 +182,7 @@ void main() {
     addTearDown(semantics.dispose);
     final events = StreamController<dynamic>.broadcast();
     await _mount(tester, selected: 2, eventController: events);
-    await Scrollable.ensureVisible(tester.element(find.byTooltip('Switch profile')), alignment: .5);
-    await tester.pumpAndSettle();
+    await _revealSwitchProfile(tester);
     for (final status in ['Starting', 'Stopped', 'Stopping', 'Stopped']) {
       events.add({'type': 'dashboard', 'value': {'status': status, 'selectedProfileId': 2}});
       await tester.pump();
