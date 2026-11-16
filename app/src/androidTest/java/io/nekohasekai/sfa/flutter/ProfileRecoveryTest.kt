@@ -697,10 +697,12 @@ class ProfileRecoveryTest {
 
             val backups = BoxBackups(activity, { emptyMap() }, {}, { _, _ -> }, { successful ->
                 assertTrue(successful)
-                assertTrue("Restore publication must release the configuration lock", ProfileContent.mutex.tryLock())
-                ProfileContent.mutex.unlock()
-                profiles.list()
-                nodes.state()
+                // Other profile callbacks may briefly own the lock after restore releases it.
+                // Publication must be able to await them and read the final snapshots.
+                withTimeout(10_000) {
+                    profiles.list()
+                    nodes.state()
+                }
             }, { _, _ -> }, BoxWebDAV(activity))
             val backup = backups.create()
             assertFalse(backup.containsKey("nodes"))

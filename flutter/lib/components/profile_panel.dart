@@ -31,8 +31,8 @@ class _ProfilePanelState extends State<ProfilePanel> {
         Row(children: [
           Expanded(child: EmojiText(name?.toString() ?? context.tr('Add profile'), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyle.headline.of(context, emphasized: true))),
           if (!box.remote && box.profiles.length > 1) SizedBox.square(dimension: 32,
-            child: Tooltip(message: context.tr('Switch profile'), triggerMode: TooltipTriggerMode.tap, child: IconButton(padding: EdgeInsets.zero,
-              icon: const GlyphIcon(AppGlyphs.swap, size: 18),
+            child: Tooltip(message: context.tr('Switch profile'), excludeFromSemantics: true, triggerMode: TooltipTriggerMode.tap, child: IconButton(padding: EdgeInsets.zero,
+              icon: Semantics(label: context.tr('Switch profile'), child: const GlyphIcon(AppGlyphs.swap, size: 18)),
               onPressed: box.transitioning ? null : () => openForm(context, const ProfilesPage(picker: true))))),
         ]),
         if (profile != null || box.remote) ...[
