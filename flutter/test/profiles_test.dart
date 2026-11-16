@@ -47,8 +47,13 @@ Future<BoxController> _mount(WidgetTester tester, {List<Json> profiles = const [
 }
 
 Future<void> _profiles(WidgetTester tester) async {
-  await tester.tap(find.text('Profiles').last);
+  final sidebar = find.byType(NavigationSidebar);
+  final target = sidebar.evaluate().isEmpty ? find.text('Profiles').last
+    : find.descendant(of: sidebar, matching: find.byKey(const ValueKey('Profiles')));
+  expect(target.hitTestable(), findsOneWidget);
+  await tester.tap(target);
   await tester.pumpAndSettle();
+  expect(tester.widget<PageSwitcher>(find.byType(PageSwitcher)).index, 1);
 }
 
 void main() {
@@ -336,8 +341,14 @@ void main() {
     await _profiles(tester);
     await tester.tap(find.byTooltip('Add profile').last);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New node'));
+    final newNode = find.text('New node');
+    await Scrollable.ensureVisible(tester.element(newNode), alignment: .5);
     await tester.pumpAndSettle();
+    expect(newNode.hitTestable(), findsOneWidget);
+    await tester.tap(newNode);
+    await tester.pumpAndSettle();
+    expect(find.byType(NodeEditorPage), findsOneWidget);
+    expect(find.byType(TextField).hitTestable(), findsOneWidget);
     await tester.enterText(find.byType(TextField).last, '{"type":"vless","tag":"New","server":"example.org"}');
     await tester.tap(find.byTooltip('Save').last);
     await tester.pumpAndSettle();
