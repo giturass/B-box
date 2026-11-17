@@ -1041,8 +1041,10 @@ void main() {
     await tester.tap(find.byTooltip('More').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Update all'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
+    // The menu runs its picked action after the returning popup has landed.
+    for (var frame = 0; frame < 12 && updates.isEmpty; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
     expect(updates, ['profiles.update']);
     events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 1, 'remote': 'Server'}});
     events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 1}});
@@ -1051,6 +1053,24 @@ void main() {
     pending.complete();
     await tester.pumpAndSettle();
     expect(updates, ['profiles.update']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('closing the profiles page while its menu returns does not start queued updates', (tester) async {
+    final updates = <String>[];
+    await _mount(tester, profiles: [_remote, {..._local, 'subscriptions': [{'id': 'source-a'}]}], handler: (call) async {
+      if (call.method == 'profiles.update' || call.method == 'subscriptions.update') updates.add(call.method);
+      return null;
+    });
+    await _profiles(tester);
+    await tester.tap(find.byTooltip('More').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Update all'));
+    await tester.pump();
+    // Removing the host closes the returning popup and releases its queued action.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    expect(updates, isEmpty);
     expect(tester.takeException(), isNull);
   });
 

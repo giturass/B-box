@@ -24,6 +24,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
   final _updating = <int>{};
   bool _updatingAll = false;
   Future<void> _update(Json profile) async {
+    if (!mounted) return;
     final id = (profile['id'] as num).toInt();
     if (_updating.contains(id)) return;
     setState(() => _updating.add(id));
@@ -31,7 +32,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
     finally { if (mounted) setState(() => _updating.remove(id)); }
   }
   Future<void> _updateAll() async {
-    if (_updatingAll || _updating.isNotEmpty) return;
+    if (!mounted || _updatingAll || _updating.isNotEmpty) return;
     final box = context.box;
     final session = box.sessionRevision;
     final profiles = List<Json>.of(box.profiles).where(profileHasUpdates);
@@ -230,6 +231,7 @@ class _ProfilesGridState extends State<_ProfilesGrid> {
 }
 
 Future<void> _importProfile(BuildContext context, String source) async {
+  if (!context.mounted) return;
   final box = context.box;
   final emptyClipboard = context.tr('Empty clipboard');
   try {
@@ -251,6 +253,7 @@ Future<void> _importProfile(BuildContext context, String source) async {
 
 /// Opens what an import decoded: the nodes of a link or a subscription, or the form of a profile.
 Future<void> openImport(BuildContext context, Json data) async {
+  if (!context.mounted) return;
   final nodes = data['nodes'];
   if (nodes is String) { await openForm(context, NodeImportPage(parsed: nodes)); }
   else if (data['url'] is String && (data['url'] as String).isNotEmpty && data['content'] == null) {
@@ -267,7 +270,7 @@ class AddProfileMenu extends StatefulWidget {
 class _AddProfileMenuState extends State<AddProfileMenu> {
   bool _busy = false;
   Future<void> _import(String source) async {
-    if (_busy) return;
+    if (!mounted || _busy) return;
     setState(() => _busy = true);
     try { await _importProfile(context, source); }
     finally { if (mounted) setState(() => _busy = false); }
@@ -298,7 +301,7 @@ class AddProfilePage extends StatefulWidget {
 class _AddProfilePageState extends State<AddProfilePage> {
   bool _loading = false;
   Future<void> _import(String source) async {
-    if (_loading) return;
+    if (!mounted || _loading) return;
     setState(() => _loading = true);
     try { await _importProfile(context, source); }
     finally { if (mounted) setState(() => _loading = false); }

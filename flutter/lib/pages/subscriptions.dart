@@ -19,6 +19,7 @@ Future<void> updateProfileSubscriptions(BoxController box, Json profile, {bool F
 
 /// Pin the file and revision before opening the form or starting a download.
 Future<bool> openSubscriptionImport(BuildContext context, [Json initial = const {}]) async {
+  if (!context.mounted) return false;
   final box = context.box;
   if (box.remote) return false;
   final profile = box.selectedProfile;
@@ -88,7 +89,7 @@ class _SubscriptionFormState extends State<SubscriptionForm> {
   @override void dispose() { _name.dispose(); _url.dispose(); _interval.dispose(); super.dispose(); }
 
   Future<void> _save() async {
-    if (_saving || _saved) return;
+    if (!mounted || _saving || _saved) return;
     if (_issue != null) { setState(() => _attempted = true); return; }
     final box = context.box, imported = context.tr('Nodes imported');
     if (box.remote) return;
@@ -179,6 +180,7 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     final box = context.box, request = ++_request, session = context.box.sessionRevision;
     if (box.remote) { setState(() => _loading = false); return; }
     bool current() => mounted && request == _request && !box.remote && session == box.sessionRevision;
@@ -194,6 +196,7 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
   }
 
   Future<void> _run(Json source, Future<void> Function(BoxController) action) async {
+    if (!mounted) return;
     final box = context.box, id = source['id'].toString();
     if (box.remote || _busy.isNotEmpty || _adding) return;
     setState(() => _busy.add(id));
@@ -224,7 +227,7 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
   });
 
   Future<void> _add() async {
-    if (_adding || _busy.isNotEmpty || context.box.selectedProfileId != _profileId || context.box.remote) return;
+    if (!mounted || _adding || _busy.isNotEmpty || context.box.selectedProfileId != _profileId || context.box.remote) return;
     setState(() => _adding = true);
     try { if (await openSubscriptionImport(context) && mounted) { await _load(); } }
     finally { if (mounted) setState(() => _adding = false); }

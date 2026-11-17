@@ -16,7 +16,7 @@ class ProfileDetailsPage extends StatefulWidget {
 class _ProfileDetailsPageState extends State<ProfileDetailsPage> {
   bool _updating = false;
   Future<void> _update(Json profile) async {
-    if (_updating) return;
+    if (!mounted || _updating) return;
     setState(() => _updating = true);
     try { await updateProfileSubscriptions(context.box, profile, canContinue: () => mounted); }
     finally { if (mounted) setState(() => _updating = false); }
