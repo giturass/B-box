@@ -219,7 +219,9 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-本轮核心协议支持及许可登记的 Flutter 分析、交互/布局与 AAR 结果待统一工作流实际运行后记录。跳过报告回归改用仍不支持的传输原因；旧 XHTTP/VLESS Encryption 报告翻译保留，来源更新后显示新结果。未改动直接导入的 FlClash/Prism 文件。之前 `5937367671729a0c726182500288732851aa969a` 的截图和通过结果归入历史，不证明本轮源码通过；Android 及协议验证见 [应用记录](app.md#当前验证记录)。
+本轮 XHTTP/VLESS Encryption 支持及许可登记的验证源码为 `8c56b623b46c7ab4c5c4632b1db428ebc49dcb25`。[统一工作流 44086051274](https://github.com/giturass/B-box/actions/runs/44086051274) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44086051274/job/134048708051) 已通过：分析为 84 项 info、无 warning/error，287 项交互/布局测试全部通过，ARM64 Debug/Release Flutter AAR 构建成功。
+
+跳过报告回归改用仍不支持的传输原因；旧 XHTTP/VLESS Encryption 报告翻译保留，来源更新后显示新结果。未改动直接导入的 FlClash/Prism 文件，本轮未新增界面几何变更或 ARM64 实机视觉验收。Android、核心传输及签名 APK 的实际结果见 [应用记录](app.md#当前验证记录)；本轮回归不等于与外部 Xray 服务互通已经验收。
 
 ### 历史验证记录
 

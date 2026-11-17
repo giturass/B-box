@@ -56,7 +56,7 @@
 
 `transport.type` 为 `xhttp`，与 VLESS、VMess、Trojan 等已有 V2Ray 传输层协议配合使用；同时提供入站和出站。支持 HTTP/1.1、HTTP/2、HTTP/3，模式为 `auto`、`packet-up`、`stream-up`、`stream-one`。明文默认 HTTP/1.1，REALITY 使用 HTTP/2，TLS 的 ALPN 仅为 `h3` 时使用 HTTP/3，仅为 `http/1.1` 时使用 HTTP/1.1，其余使用 HTTP/2。`auto` 在 REALITY 下选择 `stream-one`（上下行分离时为 `stream-up`），其他情况选择 `packet-up`。
 
-核心 JSON 将 XHTTP 字段直接放在 `transport` 中：`host`、`path`、`mode`、`headers`、填充/会话/序号/上行混淆选项、`xmux`、`download_settings` 及 QUIC 参数，具体字段由 [v2rayxhttp.go](libbox/xhttp/option/v2rayxhttp.go) 定义。范围值接受整数或 `"最小值-最大值"`。`download_settings` 的 XHTTP 参数不从上行继承，应显式提供；服务器地址未设置时使用上行地址。HTTP/3 忽略 uTLS 指纹，使用标准 TLS，同时保留 SNI、证书验证与当前核心支持的 ECH 设置；不增加参考分支独有的 TLS 字段。
+核心 JSON 将 XHTTP 字段直接放在 `transport` 中：`host`、`path`、`mode`、`headers`、填充/会话/序号/上行混淆选项、`xmux`、`download_settings` 及 QUIC 参数，具体字段由 [v2rayxhttp.go](libbox/xhttp/option/v2rayxhttp.go) 定义。范围值接受整数或 `"最小值-最大值"`。`download_settings` 的 XHTTP 参数不从上行继承，应显式提供；服务器地址和端口分别回退到上行，支持只指定下行端口。HTTP/3 忽略 uTLS 指纹，使用标准 TLS，同时保留 SNI、证书验证与当前核心支持的 ECH 设置；不增加参考分支独有的 TLS 字段。
 
 VLESS 出站新增 `encryption`，入站新增 `decryption`，空值或 `none` 保持原 VLESS 行为。加密方式为 `mlkem768x25519plus`，外观支持 `native`、`xorpub`、`random`；客户端使用 `0rtt` 或 `1rtt`，服务端使用票据有效期（如 `600s`、`300-600s` 或禁用复用的 `0s`），随后为可选填充和服务端提供的密钥参数。加密层使用 ML-KEM-768 与 X25519 混合握手，支持 X25519 或 ML-KEM-768 服务端认证、0-RTT 票据和重放拒绝。启用加密后 `xtls-rprx-vision` 可与 XHTTP、WebSocket 等传输配合，不要求外层 TLS；未启用加密时沿用原 Vision 的 TLS/REALITY 要求。
 

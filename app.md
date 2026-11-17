@@ -251,7 +251,22 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-本轮 XHTTP 与 VLESS Encryption 源码正在通过统一工作流验证，结果及源码 SHA 待实际运行后记录。先前 `5937367671729a0c726182500288732851aa969a` 的通过范围不包含本轮协议支持；当时 XHTTP 为跳过项，不能作为当前核心的协议验收依据。本机仅执行源码、差异、补丁与文档静态检查，不执行 Go/Flutter/Android 构建或测试。
+本轮 XHTTP 与 VLESS Encryption 的验证源码为 `8c56b623b46c7ab4c5c4632b1db428ebc49dcb25`。[统一工作流 44086051274](https://github.com/giturass/B-box/actions/runs/44086051274) 已通过核心全部 `TestUI`、发货协议标签的 `TestUINode`、标准/uTLS Vision 指针回归、两组 XHTTP/Encryption race 矩阵，以及原 WARP、路由生命周期、HTTP 调试与路由回归。Go `checkptr` 检查保留。Flutter 287 项测试及 ARM64 Debug/Release AAR 通过，分析为 84 项 info、无 warning/error；[Android 作业](https://github.com/giturass/B-box/actions/runs/44086051274/job/134048707421) 的 56 项 JVM 测试无失败/错误/跳过，`play` 编译及模拟器 APK 构建通过。
+
+四组 smoke 的实际结果如下；各组 59 项原生测试均通过，包括新增的四项 XHTTP/Encryption 配置绑定测试及一项订阅导入/更新/回滚测试。API 24 在同一 SHA 下单独重跑一次，两次原生测试都通过。界面 smoke 仍使用实际默认配置、导入 SOCKS 节点和 KCP 跳过报告，不连接外部 XHTTP 服务。
+
+| 模拟器 | 实际页大小 | 原生测试 | 界面 smoke |
+| --- | --- | --- | --- |
+| API 24 / Google APIs | 4096 | 两次各 59 项通过 | 两次等待默认配置 Running 超时 |
+| API 31 / Google APIs | 4096 | 59 项通过 | 通过 |
+| API 36 / Google APIs | 4096 | 59 项通过 | 通过 |
+| API 36 / Google APIs 16 KiB | 16384 | 59 项通过 | 通过 |
+
+API 24 的 [首轮作业](https://github.com/giturass/B-box/actions/runs/44086051274/job/134052878834) 与 [单次重跑](https://github.com/giturass/B-box/actions/runs/44086051274/job/134060392238) 均报 `UI never showed 'Running'`，因此统一工作流整体未通过。该界面路径导入的是 SOCKS 节点；诊断显示默认配置启动阶段请求远程规则集，未确认进入 Running，日志没有提供具体停止原因，不能据此断言外部网络或新增协议的故障。API 31/36/16 KiB 的界面与原生检查均成功；API 24 默认配置的界面启动仍未通过验收。
+
+同一源码的 [ARM64 Release 44086592572](https://github.com/giturass/B-box/actions/runs/44086592572) 已通过核心/Flutter AAR、保留 R8 的签名 APK 构建、最低 API 24/ARM64/身份/版本/入口/assets 及 v2 签名校验。版本为 `1.15.0-alpha.13`、versionCode `748`；以 `publish_release=false` 运行，发布步骤跳过。[APK Artifact](https://github.com/giturass/B-box/actions/runs/44086592572/artifacts/14330106966) 可下载，未安装到 ARM64 实机。
+
+首轮协议移植提交 `c1a865fdc0a21d1d6572d27a0db0e2179817ccb2` 的 [44083485919](https://github.com/giturass/B-box/actions/runs/44083485919) 因 Vision 的旧 `uintptr` 注册接口触发 `checkptr` 失败，后续推送取消该轮；当前源码使用保留指针来源的兼容补丁，原因及来源见 [SOURCE.md](libbox/xhttp/SOURCE.md)。上述 Go 测试使用 Actions runner 内的模拟协议服务，未覆盖与外部 Xray 服务互通、CDN/REALITY/ECH 的真实网络或 ARM64 实机验收。本机仅执行源码、差异、补丁与文档静态检查，不执行 Go/Flutter/Android 构建或测试。
 
 ### 历史验证记录
 
