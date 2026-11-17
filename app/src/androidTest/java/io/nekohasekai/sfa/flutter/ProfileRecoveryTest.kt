@@ -673,6 +673,7 @@ class ProfileRecoveryTest {
             assertEquals("", profiles.get(default).typed.remoteURL)
             val content = profiles.read(default)
             Libbox.checkConfig(content)
+            assertEquals("mozilla", configuration(content).getJSONObject("certificate").getString("store"))
             val original = profiles.get(default)
             val originalName = original.name
             val updatedAt = original.typed.lastUpdated.time
@@ -1158,6 +1159,7 @@ class ProfileRecoveryTest {
     @Test fun urlSubscriptionsImportOnlyNodesIntoTheSelectedDefaultConfiguration() = withRunningProfile { activity, profiles, id ->
         val upstream = """{
             "log":{"level":"debug"},
+            "certificate":{"store":"none"},
             "dns":{"servers":[{"type":"invalid-upstream-dns","tag":"remote-dns"}]},
             "inbounds":[{"type":"mixed","tag":"remote-in","listen":"0.0.0.0","listen_port":1}],
             "route":{"final":"remote-group"},
@@ -1183,7 +1185,7 @@ class ProfileRecoveryTest {
                 subscriptions.importSubscription(subscriptionArgs(profiles, defaultId, "Nodes-only URL subscription", server.url))
                 val saved = configuration(profiles.read(defaultId))
                 val defaults = configuration(original)
-                for (key in listOf("dns", "inbounds", "route", "log", "experimental")) {
+                for (key in listOf("dns", "inbounds", "route", "log", "experimental", "certificate")) {
                     assertEquals("Subscription replaced local $key", defaults.opt(key)?.toString(), saved.opt(key)?.toString())
                 }
                 val outbounds = configurationNodes(profiles.read(defaultId))

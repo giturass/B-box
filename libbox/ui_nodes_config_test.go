@@ -108,10 +108,13 @@ func TestUINodeConfigGet(t *testing.T) {
 
 func TestUINodeDefaultConfig(t *testing.T) {
 	config := GetUIDefaultConfig().Value
-	if _, err := parseConfig(baseContext(nil), config); err != nil {
+	if err := CheckConfig(config); err != nil {
 		t.Fatalf("default configuration: %v", err)
 	}
 	root := uiNodeTestObject(t, config)
+	if store := root.object("certificate").text("store"); store != "mozilla" {
+		t.Errorf("default certificate store is %q, want mozilla", store)
+	}
 	if proxy, auto := uiNodeTestMembers(root, "proxy"), uiNodeTestMembers(root, "auto"); proxy != "auto" || auto != "direct" {
 		t.Errorf("default groups select %q and test %q", proxy, auto)
 	}
@@ -130,10 +133,13 @@ func TestUINodeDefaultConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	root = uiNodeTestObject(t, update.Config)
+	if store := root.object("certificate").text("store"); store != "mozilla" {
+		t.Errorf("appending nodes changed the certificate store to %q", store)
+	}
 	if proxy, auto := uiNodeTestMembers(root, "proxy"), uiNodeTestMembers(root, "auto"); proxy != "auto,A,B" || auto != "A,B" {
 		t.Errorf("appended groups select %q and test %q", proxy, auto)
 	}
-	if _, err := parseConfig(baseContext(nil), update.Config); err != nil {
+	if err := CheckConfig(update.Config); err != nil {
 		t.Errorf("default configuration after append: %v", err)
 	}
 	removed, err := RemoveUIConfigNodes(update.Config, `["A","B"]`, true)

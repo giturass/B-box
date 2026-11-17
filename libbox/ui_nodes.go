@@ -812,6 +812,9 @@ const uiNodeDefaultConfig = `{
     "level": "panic",
     "timestamp": true
   },
+  "certificate": {
+    "store": "mozilla"
+  },
   "dns": {
     "servers": [
       {
