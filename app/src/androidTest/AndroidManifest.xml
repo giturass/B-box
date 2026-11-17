@@ -1,0 +1,18 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:name="android.app.Application"
+        tools:replace="android:name">
+        <!-- The self-target helper must not initialize production providers. -->
+        <provider tools:node="removeAll" />
+    </application>
+
+    <!-- AGP overrides the first instrumentation's name and target package. -->
+    <instrumentation
+        android:name="androidx.test.runner.AndroidJUnitRunner"
+        android:targetPackage="io.ericlee.bfa" />
+    <!-- Self-targeting keeps B-box's current screen and process alive. -->
+    <instrumentation
+        android:name="io.nekohasekai.sfa.flutter.SmokeGestureInstrumentation"
+        android:targetPackage="io.ericlee.bfa.test" />
+</manifest>

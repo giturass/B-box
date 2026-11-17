@@ -22,6 +22,8 @@ from pathlib import Path
 
 PACKAGE = "io.ericlee.bfa"
 COMPONENT = PACKAGE + "/io.nekohasekai.sfa.compose.MainActivity"
+TEST_RUNNER = PACKAGE + ".test/androidx.test.runner.AndroidJUnitRunner"
+GESTURE_COMPONENT = PACKAGE + ".test/io.nekohasekai.sfa.flutter.SmokeGestureInstrumentation"
 OUT = Path("build/android-smoke")
 LOG_BUFFERS = ("-b", "main", "-b", "system", "-b", "crash", "-b", "events")
 
@@ -124,10 +126,45 @@ def tap_node(item):
     time.sleep(0.6)
 
 
+def check_instrumentation_targets():
+    listing = adb("shell", "pm", "list", "instrumentation")
+    with (OUT / "instrumentation-targets.txt").open("a") as log:
+        log.write(listing + "\n")
+    registered = re.findall(r"^instrumentation:(\S+) \(target=([^\)]+)\)\s*$", listing, re.MULTILINE)
+    for component, target in ((TEST_RUNNER, PACKAGE), (GESTURE_COMPONENT, PACKAGE + ".test")):
+        targets = [package for name, package in registered if name == component]
+        assert targets == [target], f"Unexpected instrumentation target for {component}: {targets!r}"
+
+
 def hold_node(item):
-    x1, y1, x2, y2 = map(int, re.findall(r"\d+", item.attrib["bounds"]))
-    x, y = (x1 + x2) // 2, (y1 + y2) // 2
-    adb("shell", "input", "swipe", str(x), str(y), str(x), str(y), "800")
+    bounds = item.attrib["bounds"]
+    match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", bounds)
+    assert match, f"Invalid long-press bounds: {bounds!r}"
+    x1, y1, x2, y2 = map(int, match.groups())
+    assert x2 > x1 and y2 > y1, f"Empty long-press bounds: {bounds!r}"
+    x, y = x1 + (x2 - x1) // 5, (y1 + y2) // 2
+    duration = 1500
+    # Android 7's shell swipe uses TOOL_TYPE_UNKNOWN, which Flutter correctly
+    # filters out of touch-only long-press recognizers. Inject a real finger
+    # through a self-targeting test runner without restarting the current app.
+    check_instrumentation_targets()
+    original_pid = adb("shell", "pidof", PACKAGE).split()
+    assert original_pid, "B-box must already be running for a long press"
+    request = f"Finger long press at ({x}, {y}), {duration} ms, bounds={bounds}, pid={original_pid}"
+    print(request, flush=True)
+    with (OUT / "gesture-injections.txt").open("a") as log:
+        log.write(request + "\n")
+        result = adb("shell", "am", "instrument", "-w", "-r",
+                     "-e", "x", str(x), "-e", "y", str(y), "-e", "durationMs", str(duration),
+                     GESTURE_COMPONENT)
+        log.write(result + "\n")
+    print(result, flush=True)
+    assert re.search(r"^INSTRUMENTATION_RESULT: bbox_gesture_ok=true\s*$", result, re.MULTILINE), \
+        "Finger injection failed; see gesture-injections.txt"
+    assert re.search(r"^INSTRUMENTATION_CODE: -1\s*$", result, re.MULTILINE), \
+        "Gesture instrumentation did not finish successfully"
+    assert adb("shell", "pidof", PACKAGE).split() == original_pid, \
+        "Gesture instrumentation restarted B-box"
     time.sleep(0.6)
 
 
@@ -478,7 +515,7 @@ def native_regressions():
             subprocess.run([
                 "adb", "shell", "am", "instrument", "-w", "-r",
                 *arguments,
-                PACKAGE + ".test/androidx.test.runner.AndroidJUnitRunner",
+                TEST_RUNNER,
             ], stdout=output, stderr=subprocess.STDOUT, timeout=600, check=True)
     finally:
         if log.exists():
@@ -536,6 +573,7 @@ def main():
         instrumentation, = [apk for apk in apks if apk.name.endswith("-androidTest.apk")]
         for apk in (application, instrumentation):
             adb("install", "--no-streaming", "-r", str(apk), timeout=240)
+        check_instrumentation_targets()
         for name, check in (("ui", ui_smoke), ("native", native_regressions)):
             try:
                 # Each suite owns a fresh installation state, even if the UI suite failed mid-start.
