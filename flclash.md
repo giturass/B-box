@@ -103,7 +103,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 [节点导入与编辑](flutter/lib/pages/nodes.dart) 将新建节点、仅含节点的文件/二维码/剪贴板导入和前台剪贴板提示的导入结果直接追加到当前选中配置文件。预览显示目标配置名称，保存和删除同时传递打开操作时的配置 ID 与内容修订，配置切换或内容冲突由原生拒绝，失败保留预览或草稿。独立共享节点页面及节点库状态已移除。
 
-“从链接导入”和剪贴板/二维码中的 HTTP(S) 订阅链接打开同一个[订阅表单](flutter/lib/pages/subscriptions.dart)，显示目标配置名称，保存来源名称、URL、自动更新及间隔；URL 导入只向当前选中配置文件添加节点和来源，不创建配置文件。表单打开前固定目标文件 ID 和内容修订，异步读取修订或下载期间切换配置不会改写目标；保存向 Android 传递固定目标、链接及元数据，下载、解析或冲突失败保留输入。表单列出 Clash、sing-box JSON、节点分享链接和 Base64 等主要来源，明确提示仅解析代理节点。每个来源拥有独立的节点归属，更新仅替换该来源的节点，保留其他来源、本地节点和配置设置。
+“从链接导入”和剪贴板/二维码中的 HTTP(S) 订阅链接打开同一个[订阅表单](flutter/lib/pages/subscriptions.dart)，显示目标配置名称，保存来源名称、URL、自动更新及间隔；URL 导入只向当前选中配置文件添加节点和来源，不创建配置文件。表单打开前固定目标文件 ID 和内容修订，异步读取修订或下载期间切换配置不会改写目标；保存向 Android 传递固定目标、链接及元数据，下载、解析或冲突失败保留输入。表单列出 Clash、sing-box JSON、节点分享链接和 Base64 等主要来源，明确提示仅解析代理节点。每个来源拥有独立的节点归属，更新仅替换该来源的节点，保留其他来源、本地节点和配置设置。明确不支持的节点只跳过对应项，导入及手动更新的结果提示显示导入数量、跳过数量和原因；来源列表持久展示报告，自动更新后也可查看。原 URL 保留，全部不可用或非法更新仍失败，具体判断由核心维护。
 
 配置编辑页的“节点订阅”入口列出该文件的来源、URL、节点数量、自动更新状态及更新时间，提供单独更新、编辑和移除操作。编辑来源只保存元数据，之后更新时使用新链接；移除前确认节点会作为本地节点保留。同一管理页的来源写操作串行执行，订阅表单通过 `BoxEditGuard` 保护草稿并禁止保存期间退出；来源列表按请求序号与会话版本拒绝迟到响应。详情页更新按钮在批次执行期间禁用，单文件和全部更新在切换会话后停止后续请求；页面销毁后延迟菜单回调不再发起操作。只有选中此配置时才能在管理页添加订阅，远程会话隐藏本机管理操作。新建配置保留本地 sing-box JSON 表单，已有远程配置继续使用元数据表单，二进制 `.bpf` 导入继续携带已保存的完整配置内容及订阅元数据。完整解析范围由 [核心节点解析](libbox.md#节点导入与配置合并) 维护，持久化及 DNS、路由、入站、分组等设置的更新规则由 [Android 配置处理](app.md#配置服务应用与备份) 维护。
 
@@ -217,23 +217,15 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-配置内订阅来源这轮修改已通过本机差异、源码约束及文档链接检查；Flutter 分析、交互测试和构建待 GitHub Actions。下述 `a4607728af065cb46a8b0c021480988bd9531442` 记录针对此前默认文件与选中状态修改，不作为本轮订阅来源的通过声明。
+2026-11-17，配置内订阅来源、更新及跳过报告的验证源码为 `5937367671729a0c726182500288732851aa969a`，对应 [Actions 44070105954](https://github.com/giturass/B-box/actions/runs/44070105954) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44070105954/job/133993858709)。Flutter 分析、287 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建全部通过；分析为 84 条 info、0 条 warning/error。[AAR 产物](https://github.com/giturass/B-box/actions/runs/44070105954/artifacts/14321928793) 与 [测试截图产物](https://github.com/giturass/B-box/actions/runs/44070105954/artifacts/14322976081) 均由该源码生成。
 
-2026-11-17，恢复配置选中对号、调整默认文件名称及弃用警告缺省值的验证源码为 `a4607728af065cb46a8b0c021480988bd9531442`，对应 [Actions 43917329871](https://github.com/giturass/B-box/actions/runs/43917329871) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43917329871/job/133474906780)。Flutter 分析、271 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建全部通过；分析为 84 条 info、0 条 warning/error。CI 通过 `python3 tools/verify_newui.py`，AAR 产物见 [flutter-aar-arm64](https://github.com/giturass/B-box/actions/runs/43917329871/artifacts/14249978956)。
+新增回归确认 URL 导入固定所选配置与修订，保留来源且不创建文件；下载失败可保留字段重试，来源列表支持编辑、更新和保留节点的移除。本地/默认文件参与批量更新；并发来源操作串行执行，迟到列表及会话响应被丢弃，切换会话后停止后续批次，菜单关闭动画期间销毁页面不会发起更新，草稿取消不写入且保存期间禁止退出。既有配置卡片、字体、节点、服务状态和其他页面回归继续通过。
 
-既有配置用例确认选中卡片显示 `SelectionBadge`、编辑仍由菜单进入、新旧系统默认名称统一显示 `Profile file`，默认文件仍与其他文件一同显示并可自定义名称。导航用例检查内核页缺少设置键时弃用警告开关开启、收到明确 `false` 时关闭、恢复缺失后开启。手机、大字号和宽屏下的卡片对齐、配置内节点修订与迟到快照隔离、首页独立切换按钮及启停期间禁止选择的既有回归继续通过。
+跳过报告新增四项回归：混合订阅导入显示导入数量、跳过数量及原因，并保持目标文件且不创建配置；缺失字段及无效原因不会显示 `null`/`undefined`，XHTTP 原因支持中文；自动更新事件刷新报告，重新打开来源页仍显示；手动和批量更新显示各来源报告，一个来源失败后继续更新后续来源。
 
-实际抽样查看该源码 [newui-validation](https://github.com/giturass/B-box/actions/runs/43917329871/artifacts/14249719562) 的以下截图，路径相对 `build/screenshots/`：
+实际抽样查看 [API 24 产物](https://github.com/giturass/B-box/actions/runs/44070105954/artifacts/14322908150) 的 `02-subscription-source.png` / `02-imported.png`、[API 31 产物](https://github.com/giturass/B-box/actions/runs/44070105954/artifacts/14322643105) 的 `04-core-proxies.png` 及 [API 36 / 16 KiB 产物](https://github.com/giturass/B-box/actions/runs/44070105954/artifacts/14323707439) 的 `02-subscription-source.png`：来源名称、URL、一个保留节点、一个 XHTTP 跳过项及原因、时间和自动更新状态均可见且没有重叠；导入保持原本地配置，选中卡片、原 proxy/auto 分组和实际 SOCKS 节点延迟同页显示。API 24 默认配置联网启动未通过，具体范围见 [应用记录](app.md#当前验证记录)，这些来源截图不作为该环境 VPN 启动通过的依据。
 
-| 截图 | 核对结果 |
-| --- | --- |
-| `360-light-1.0-Profiles-populated.png` | 选中卡片右侧显示对号，卡片左右边缘为 16/344 dp，与两列代理区域外边缘一致 |
-| `360-dark-1.4-Profiles-populated.png` | 边缘仍为 16/344 dp，长标题省略，更新时间、对号及底栏没有重叠 |
-| `360-dark-1.4-Profiles-scrolled.png` | 横向滚动仅移动文件卡片，所选卡片仍显示对号，代理区域和底栏保持稳定 |
-| `800-light-1.0-Profiles-populated.png` | 配置卡片为 64/784 dp，含 48 dp 侧栏和 16 dp 内容间距，与代理分组视口等宽；稀疏节点保留网格列宽 |
-| `360-dark-1.4-Core.png` | 关闭弃用警告开关为开启状态，大字号标题换行与开关没有重叠 |
-
-这些截图使用测试桥接数据，属于配置卡片和内核设置的抽样检查；默认名称及真实核心分组的 Android 结果见 [应用验证记录](app.md#当前验证记录)。未覆盖全应用逐像素验收、ARM64 真机视觉/性能、真实远程会话或本轮签名 Release APK 验收。
+本机通过差异、源码约束及文档链接检查；未在本机执行 Flutter 分析、测试或构建。此处记录自动化交互/布局结果，未对新增来源页面进行逐像素或 ARM64 真机视觉/性能验收，也未验收真实订阅服务及真实远程会话。Android 编译及模拟器结果见 [应用验证记录](app.md#当前验证记录)。
 
 ### 历史验证记录
 
@@ -241,6 +233,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 | 日期 | 主题 | 验证源码 | Actions | 测试 / info | 当时实际查看的截图 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-11-17 | 默认名称、选中对号及弃用警告默认值 | `a4607728af065cb46a8b0c021480988bd9531442` | [43917329871](https://github.com/giturass/B-box/actions/runs/43917329871)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43917329871/job/133474906780)） | 271 / 84 | 配置卡片与代理区域等宽，选中对号、大字号和宽屏文字无重叠；查看 360 浅色、360 深色 1.4 倍、横向滚动、800 浅色配置页及内核设置截图，未覆盖本轮订阅来源 |
 | 2026-11-16 | 配置内节点、等宽布局及首页切换语义修复 | `041325d4824cfae8f115f25021f0f7a8160c68aa` | [43875039054](https://github.com/giturass/B-box/actions/runs/43875039054)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43875039054/job/133325897659)） | 271 / 84 | Flutter 分析、测试及两种 AAR 通过；实际抽样查看 360 浅色、360 深色 1.4 倍、横向滚动和 800 浅色配置页，边框与代理区域等宽且文字、更新时间、操作及底栏没有重叠；当时配置卡片使用铅笔，未覆盖本轮恢复对号 |
 | 2026-11-16 | 首页切换语义测试句柄清理 | `eb81cc5820d6073e0b0a004d71ea912d0056aff6` | [43874301204](https://github.com/giturass/B-box/actions/runs/43874301204)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43874301204/job/133323252873)） | 269 通过、2 失败 / 84 | 两项新增语义测试的功能断言完成，结束验证时句柄仍 active；Flutter AAR 跳过，修正推送取消整次运行 |
 | 2026-11-16 | 首页切换语义测试查找修正 | `cc8a786cd131c3cf44e239154e61f444987aaa08` | [43873540377](https://github.com/giturass/B-box/actions/runs/43873540377)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43873540377/job/133320593495)） | 269 通过、2 失败 / 84 | 两项新增用例用 `byTooltip` 查找已排除提示语义的 Prism 控件，在进入语义断言前失败；Flutter AAR 跳过，修正推送取消整次运行 |

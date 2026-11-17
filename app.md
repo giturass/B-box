@@ -70,9 +70,9 @@ Cloudflare WARP MASQUE 使用新增的 sing-box `masque` 出站，通过既有 J
 - 运行中重载缺少 Wi-Fi 规则所需定位权限时，RPC 返回失败并回滚旧配置，确认原服务恢复后结束操作；不会发送可能在回滚后再次启动服务的定位授权回调。初次启动仍保留系统定位授权流程，停服保存后再启动也沿用该流程。运行配置快照在权限检查成功后发布。
 - 删除配置在同一互斥区内检查最新选择，禁止删除当前选中的配置，停服时也需先切换到其他配置。拒绝操作不改文件、数据库、选择或服务；不再通过删除操作自动选择其他配置。
 - URL 导入、手动及后台订阅更新共用 [HTTPClient.kt](app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt) 和可取消的核心下载接口，不设固定下载容量或总时限；协程取消在阻塞的 gomobile 调用仍在运行时关闭 `UIHTTPTask`，等待网络退出，接口语义见 [HTTP 与 WebDAV](libbox.md#http-与-webdav)。网络下载在配置及桥接操作锁外执行，下载失败不进入保存或服务应用。更新提交时通过 [ProfileSubscription.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileSubscription.kt) 复核配置存在、URL、类型、路径、修订、更新时间和自动更新计划；编辑、删除或另一轮更新后的旧结果不能覆盖当前数据。桥接提交另检查本地会话身份，切换会话后的迟到下载需要重试。
-- [BoxNodeSubscriptions.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxNodeSubscriptions.kt) 将 URL 订阅只解析为代理节点并写入导入时所选配置，不创建配置文件或独立节点库。导入固定配置 ID、路径、内容修订和来源快照，下载在桥接/文件操作锁外进行；提交再复核选择、文件、来源及会话身份。同一 URL 在该文件中重复导入更新原来源，不新增副本。每个文件可保留多个来源，分别保存稳定 ID、名称、URL、自动更新、间隔、更新时间和实际节点名称。
-- 来源更新通过 `ApplyUISubscriptionNodes` 只替换该来源拥有的代理节点，保留其他来源、本地节点及配置自己的 DNS、路由、入站、日志、分组和资源。节点改名同步来源归属，删除节点或保存配置时清理已消失名称；删除来源保留节点并转为本地归属。来源及内容由 `ProfileContent.replaceLocked` 在同一文件/Room 保存及失败恢复流程中提交，失败恢复原文件、时间和来源；不把订阅作为整份配置应用。支持格式、端点分区、重名节点及失效引用规则由 [核心节点说明](libbox.md#节点导入与配置合并) 维护。
-- [TypedProfile.kt](app/src/main/java/io/nekohasekai/sfa/database/TypedProfile.kt) 的 Parcel 版本 3 在既有字段后保存配置内的来源列表；旧版本读取为空列表，不改变 Room schema、默认文件的本地身份或原选择。已有 Remote 单 URL 配置仍经 `ProfileSubscription.mergedContentLocked` 更新节点，保护新增来源及本地节点，不覆盖配置设置；已有 `.bpf` 内容及元数据仍按完整 sing-box 配置导入。来源列表只随应用配置备份恢复，普通 JSON 导出及上游 `.bpf` 格式不额外携带多来源管理数据。
+- [BoxNodeSubscriptions.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxNodeSubscriptions.kt) 将 URL 订阅只解析为代理节点并写入导入时所选配置，不创建配置文件或独立节点库。导入固定配置 ID、路径、内容修订和来源快照，下载在桥接/文件操作锁外进行；提交再复核选择、文件、来源及会话身份。同一 URL 在该文件中重复导入更新原来源，不新增副本。每个文件可保留多个来源，分别保存稳定 ID、名称、URL、自动更新、间隔、更新时间和实际节点名称；明确不支持的节点保存跳过数量及按原因聚合的报告，原 URL 保留用于后续更新。旧来源和备份缺少报告字段时读取为零和空列表，元数据编辑保留上次报告。
+- 来源更新通过 `ApplyUISubscriptionNodes` 只替换该来源拥有的代理节点，保留其他来源、本地节点及配置自己的 DNS、路由、入站、日志、分组和资源。节点改名同步来源归属，删除节点或保存配置时清理已消失名称；删除来源保留节点并转为本地归属。来源、跳过报告及内容由 `ProfileContent.replaceLocked` 在同一文件/Room 保存及失败恢复流程中提交，失败恢复原文件、时间、来源和报告；不把订阅作为整份配置应用。支持格式、端点分区、重名节点及失效引用规则由 [核心节点说明](libbox.md#节点导入与配置合并) 维护。
+- [TypedProfile.kt](app/src/main/java/io/nekohasekai/sfa/database/TypedProfile.kt) 的 Parcel 版本 3 在既有字段后保存配置内的来源列表；旧版本读取为空列表，不改变 Room schema、默认文件的本地身份或原选择。已有 Remote 单 URL 配置仍经 `ProfileSubscription.mergedContentLocked` 更新节点，保护新增来源及本地节点，不覆盖配置设置；该兼容路径没有来源报告入口，含不支持节点时拒绝整次更新并保留原内容、来源报告和时间。已有 `.bpf` 内容及元数据仍按完整 sing-box 配置导入。来源列表只随应用配置备份恢复，普通 JSON 导出及上游 `.bpf` 格式不额外携带多来源管理数据。
 - [UpdateProfileWork.kt](app/src/main/java/io/nekohasekai/sfa/bg/UpdateProfileWork.kt) 同时调度本地/默认配置内的自动更新来源及既有 Remote 订阅，在同一互斥区内完成每个来源的保存、应用和恢复，失败请求重试。间隔计算使用 Long 秒数，避免合法长间隔溢出。[BackgroundProfileService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BackgroundProfileService.kt) 通过本机服务连接确认状态，模式相同重载，模式变化及失败恢复时等待停止和 Started 回调；后台重启所需 VPN/通知权限未授予时更新失败并回滚。更新未选中配置或停服时不启动服务，远程会话不接收本机订阅的重载。
 - 服务设置页的 VPN 绕过、自动重定向和动态通知开关保存后，运行中的本地服务自动停止并重新走权限/启动流程，确认 Started 后完成操作。[ServiceSettingsChange.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ServiceSettingsChange.kt) 在保存或重启失败时恢复原设置，仅在设置恢复成功后尝试恢复原服务；恢复失败保留原错误与恢复错误，不启动未恢复的设置。停止状态只保存设置，远程会话不触发本机或远端重启。
 - Root 自动重定向的系统 BPF map 兼容范围和核心补丁见 [libbox.md](libbox.md#android-自动重定向兼容)。Android 桥接继续沿用上游的启动、错误传递及 Root 服务死亡清理流程。
@@ -219,7 +219,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 - **配置应用与恢复：** [ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/完整备份恢复失败、注入的订阅应用失败恢复，以及停服和未选中配置更新的服务状态；另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。`failedSelectionRestoresThePreviousSelectionAndService` 连续五轮核对选配置失败恢复、停止释放核心及重新启动，防止服务清理竞态污染后续用例。
 - **默认文件：** `defaultProfileStaysAvailableAlongsideExistingProfiles` 检查默认文件与其他配置一同显示、持久身份及删除限制；旧系统名称更新保持内容和更新时间，自定义名称及当前选择保留。
-- **配置内订阅来源：** 覆盖 URL 导入保持所选默认文件的本地身份且不创建文件、Clash/Base64/WireGuard 端点、空或混合非法来源拒绝、多来源及本地节点隔离、改名/删除后的归属、下载期间选择和内容冲突、来源编辑后旧下载拒绝、移除来源保留本地节点、Parcel/备份回读，以及来源和内容的应用失败恢复。本地/默认文件的自动更新成功及失败重试也使用实际绑定验证；测试代码存在不等于当前源码已通过，运行结果见下文记录。
+- **配置内订阅来源：** 覆盖 URL 导入保持所选默认文件的本地身份且不创建文件、Clash/Base64/WireGuard 端点、空或混合非法来源拒绝、混合 XHTTP 的跳过报告及更新后报告清除、多来源及本地节点隔离、改名/删除后的归属、下载期间选择和内容冲突、来源编辑后旧下载拒绝、移除来源保留本地节点、Parcel/备份回读，以及来源和内容的应用失败恢复。本地/默认文件的自动更新成功及失败重试也使用实际绑定验证。直接更新用例调用生产 `UpdateProfileWork.updateProfiles`，以受控 WorkManager 暂停周期执行，避免重复下载干扰请求计数；测试结束取消并等待任务、恢复原调度实例。这些用例验证更新逻辑及真实绑定，不验证系统后台调度的实际时序；运行结果见下文记录。
 - **配置时间与日志级别：** `localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。`logLevelFollowsSuccessfulConfigurationReloads` 覆盖真实内核日志订阅的默认级别、运行中修改 `log.level` 后刷新，以及移除该字段后恢复当前核心的默认值。
 - **订阅下载、备份回滚与删除：** 覆盖超过旧 16 MiB 阈值的订阅完成 URL 导入、手动及自动更新并保留服务状态，以及协程取消阻塞中的原生下载。取消用例分别从 IO/Default 调度器发起，共连续执行 20 次，再验证后续请求仍能成功；取消必须结束 JNI 调用且不能作为普通网络失败取消父任务。其他用例覆盖备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、大正文、取消和重定向循环由 [核心订阅测试](libbox/ui_profile_test.go) 覆盖。
 - **设置持久化：** [PreferencePersistenceTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/database/preference/PreferencePersistenceTest.kt) 使用实际 Room 检查普通设置重新读取、提交失败后的缓存恢复、后续排队值保留、取消与回滚顺序，以及 UTF-8 字符串集合；“关闭弃用警告”显式关闭后重新读取及失败恢复仍为关闭。查询策略回归在每次切换 Root/Shizuku 并刷盘后重新打开 Room 数据库读取持久值，同时核对状态流，不以读取同一内存缓存代替持久化验证。
@@ -234,10 +234,11 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 模拟器镜像名称依据 [Google SDK 系统镜像清单](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml)；16 KiB 测试方式见 [Android 官方文档](https://developer.android.com/guide/practices/page-sizes)。smoke 读取设备实际页大小，普通镜像要求 4096、`ps16k` 要求 16384，不能仅凭镜像名称记录通过。页大小优先使用 `getconf PAGE_SIZE`；旧系统缺少该命令时从 `/proc/self/smaps` 的 `KernelPageSize` 读取，并在结果中记录采集来源，不按 Android 版本猜测。所有矩阵均为临时 x86_64 模拟器，不代表 ARM64 实机或系统 CA 模块安装已验收。
 
-统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、Clash URL 订阅导入所选默认文件、VPN 授权、启停、配置文件与实际内核分组同页、底栏设置入口及进程重启后配置保留；原生组运行全部仪器测试并拒绝零测试结果。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
+统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、Base64 混合 URL 订阅导入所选默认文件、跳过报告、VPN 授权、启停、配置文件与实际内核分组同页、底栏设置入口及进程重启后配置保留；原生组运行全部仪器测试并拒绝零测试结果。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
 
 - **结果与日志：** `build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。每组测试在应用启动前持续采集 main/system/crash/events 日志，结束后保存 Activity 和内存状态，API 30+ 另保存该应用的系统退出记录；`am start -W` 的输出单独保存，避免启动过程被末尾日志截断。
-- **启动与导入：** 启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。导入 smoke 等待弹层保存按钮在连续两次窗口观察中位置稳定后点击，记录实际点击边界；保存后须返回保持原配置名称的仪表盘，在来源页确认订阅已持久化，并检查实际核心节点及原分组。CI 通过 loopback SOCKS5 和 ADB reverse 提供可用节点，保存 `subscription-proxy.json` 连接诊断；默认规则集及探测目标仍需 runner 能联网访问。
+- **启动与导入：** 启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。导入 smoke 等待弹层保存按钮在连续两次窗口观察中位置稳定后点击，记录实际点击边界；保存后须返回保持原配置名称的仪表盘，在来源页确认一个受支持节点及一个不支持的 XHTTP 节点的跳过原因已持久化，并检查实际核心节点及原分组。CI 通过 loopback SOCKS5 和 ADB reverse 提供可用节点，保存 `subscription-proxy.json` 连接诊断；默认规则集及探测目标仍需 runner 能联网访问。
+- **菜单长按：** Android 7 的 shell `input swipe` 使用未知工具类型，固定 Flutter 将其映射为 unknown，触摸菜单因此不响应。测试 APK 的 [SmokeGestureInstrumentation.java](app/src/androidTest/java/io/nekohasekai/sfa/flutter/SmokeGestureInstrumentation.java) 使用 `UiAutomation` 注入明确的手指事件；[测试清单](app/src/androidTest/AndroidManifest.xml) 的普通 runner 仍指向 B-box，手势助手只指向测试包。脚本安装后及调用前核对实际目标，记录坐标、时长、输入结果，并确认 B-box 主进程 PID 保持一致。助手只用于 CI，不加入原生 JUnit 用例计数，生产界面继续使用原有手势组件。
 - **MITM 测试服务器：** 脚本在 CI 临时目录生成独立测试服务器证书，经 ADB reverse 提供 HTTP 和原始流两个 TLS 端点，只把公钥 CA 传给仪器测试；私钥不写入仓库、设备或上传产物，套件结束删除。单独运行路由 MITM 用例需要脚本提供的 `mitmOriginPort` / `mitmTCPOriginPort` / `mitmOriginCA` 参数。
 - **存储与内存：** 模拟器数据分区统一设为 4 GiB，以容纳完整核心的测试 APK 及安装数据。API 36 / 16 KiB 另显式分配 4 GiB RAM：默认镜像曾在冷启动期间因内存水位不足杀掉前台 B-box，系统退出记录为 `LOW_MEMORY`；该矩阵用于页大小兼容验证，不是低内存压力测试。smoke job 不编译原生库，下载镜像前移除该临时 runner 上不使用的预装 NDK，为系统镜像和数据分区留空间；构建 job 的 NDK 不受影响。
 
@@ -247,26 +248,24 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-配置内订阅来源这轮修改已通过本机差异、源码约束、Python 语法及文档链接检查；运行验证待 GitHub Actions。下述 `a4607728af065cb46a8b0c021480988bd9531442` 记录针对此前默认文件与选中状态修改，不作为本轮订阅来源的通过声明。
+2026-11-17，配置内订阅来源、更新及跳过报告的验证源码为 `5937367671729a0c726182500288732851aa969a`，对应 [Actions 44070105954](https://github.com/giturass/B-box/actions/runs/44070105954)。[核心作业](https://github.com/giturass/B-box/actions/runs/44070105954/job/133993858186) 的基础 UI、完整协议节点及 46 条脱敏混合样例、WARP、路由/出口/订阅、HTTP/MITM race 回归均通过。Flutter 分析、287 项交互/布局测试及 ARM64 Debug/Release AAR 通过，计数与界面覆盖见 [Flutter 记录](flclash.md#当前验证记录)。[Android 作业](https://github.com/giturass/B-box/actions/runs/44070105954/job/133993858575) 的 x86_64 libbox、Flutter Debug AAR、Play/Other Kotlin 编译及模拟器 APK 构建通过；逐一解析 [JVM 产物](https://github.com/giturass/B-box/actions/runs/44070105954/artifacts/14322132885) 的 13 份 XML，56 项测试通过，无 failure/error/skipped。
 
-2026-11-17，恢复配置选中对号、调整默认文件名称及弃用警告缺省值的验证源码为 `a4607728af065cb46a8b0c021480988bd9531442`，对应 [Actions 43917329871](https://github.com/giturass/B-box/actions/runs/43917329871)，8 个作业全部通过。
-
-- `root-ca` 与 [core 作业](https://github.com/giturass/B-box/actions/runs/43917329871/job/133474906402) 通过，包含 UI 扩展、节点配置、WARP、路由/出口/订阅及 HTTP/MITM race 回归。
-- [Flutter 作业](https://github.com/giturass/B-box/actions/runs/43917329871/job/133474906780) 的分析、271 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过，分析为 84 条 info、0 条 warning/error；实际配置对号、卡片对齐及内核设置截图见 [界面记录](flclash.md#当前验证记录)。
-- [Android 作业](https://github.com/giturass/B-box/actions/runs/43917329871/job/133474907158) 的 x86_64 libbox、Flutter Debug AAR、两个 flavor 的 Kotlin 编译及模拟器 APK 构建通过；逐一解析 [native-unit-tests](https://github.com/giturass/B-box/actions/runs/43917329871/artifacts/14251312224) 的 13 份 XML，56 项 JVM 测试通过，无 failure/error/skipped。
-
-四组模拟器的 `results.json` 均核对为上述源码 SHA，UI 与原生回归均通过；各组 `native-tests.txt` 为 `OK (44 tests)`，44 个完成状态码均为 0。此次扩展的回归确认旧系统默认名称更新保留内容、更新时间和选择，自定义名称保留；弃用警告明确关闭值在重新读取及失败恢复后仍为关闭。
+工作流整体结论为 `failure`：API 24 的默认配置联网启动 UI 检查未通过，其他三个矩阵完整通过。四组 `results.json` 均核对为上述完整源码 SHA，实际原生回归均为 `OK (54 tests)`，54 个完成状态码均为 0；新增混合订阅报告用例及旧 Remote 更新拒绝不支持节点、恢复内容/来源/报告/时间与服务状态的用例均实际执行通过。
 
 | 环境与产物 | 实际页大小 / 来源 | UI / 原生测试 |
 | --- | --- | --- |
-| [API 24](https://github.com/giturass/B-box/actions/runs/43917329871/artifacts/14254520684) | 4096 字节 / `/proc/self/smaps` | 通过 / 44 项通过 |
-| [API 31](https://github.com/giturass/B-box/actions/runs/43917329871/artifacts/14254701159) | 4096 字节 / `getconf` | 通过 / 44 项通过 |
-| [API 36](https://github.com/giturass/B-box/actions/runs/43917329871/artifacts/14253851417) | 4096 字节 / `getconf` | 通过 / 44 项通过 |
-| [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/43917329871/artifacts/14252273865) | 16384 字节 / `getconf` | 通过 / 44 项通过 |
+| [API 24](https://github.com/giturass/B-box/actions/runs/44070105954/artifacts/14322908150) | 4096 字节 / `/proc/self/smaps` | 订阅导入与来源报告通过，默认联网 VPN 启动失败 / 54 项通过 |
+| [API 31](https://github.com/giturass/B-box/actions/runs/44070105954/artifacts/14322643105) | 4096 字节 / `getconf` | 通过 / 54 项通过 |
+| [API 36](https://github.com/giturass/B-box/actions/runs/44070105954/artifacts/14323622487) | 4096 字节 / `getconf` | 通过 / 54 项通过 |
+| [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/44070105954/artifacts/14323707439) | 16384 字节 / `getconf` | 通过 / 54 项通过 |
 
-实际抽样查看 API 24 的 `02-profile-files.png`，默认本地文件显示为 `Profile file`，与新导入的远端配置同时显示，导入没有改变默认选择。`04-core-proxies.png` 中选中文件卡片显示对号，并与真实核心分组同页，卡片边框占满带两侧间距的内容区域，标题、更新时间、对号及底栏没有重叠。
+四组均确认 Base64 混合来源保存一个可用 SOCKS 节点和一个 XHTTP 跳过项、原 URL 及自动更新状态，配置仍为原本地文件；测试专用手指助手的输入、runner/helper 目标及主进程 PID 保持检查通过。API 31、API 36 两组的规则集下载、TUN 建立、实际节点延迟及重启后配置保留通过。实际来源卡片及核心分组截图抽样见 [界面记录](flclash.md#当前验证记录)。
 
-本机通过 `git diff --check`、`python3 tools/verify_newui.py` 及领域文档的本地链接/锚点检查；Go、Flutter、JVM、Android 测试及构建均在上述 Actions 运行。未进行 ARM64 实机视觉、真实订阅网络及远程会话验收，也未触发签名 Release 或发布。
+API 24 已通过系统 VPN 授权，四个到 GitHub 的 SOCKS TCP 连接成功，但在四份远程规则集开始下载后立即清理服务，没有规则集更新完成或 TUN 建立记录，最终 UI 未进入 Running。启动异常仅在短时界面提示，当前产物未保存具体异常，因此根因尚未确定；TCP 连接成功不代表后续 TLS、正文下载或服务启动成功。本次订阅导入及 54 项回归的通过不作为该环境默认联网启动的通过声明。
+
+同一源码的 [ARM64 Release 44070141753](https://github.com/giturass/B-box/actions/runs/44070141753) 以 `publish_release=false` 独立构建成功，安装身份、版本、最低 SDK 24、唯一 ARM64 ABI 及 APK v2 签名校验通过，发布步骤跳过。[签名 APK 产物](https://github.com/giturass/B-box/actions/runs/44070141753/artifacts/14321924373) 已下载；裸 APK 的 SHA-256 为 `056daaf98d744fdf7282e099f8c510ecb397012f79dbec3611e9283a6f052089`。该构建不代表 smoke 或实机通过。
+
+本机通过 `git diff --check`、`python3 tools/verify_newui.py`、gofmt、smoke Python 语法、测试清单 XML 及本地文档链接/锚点检查；Go、Flutter、JVM、Android 测试及构建均在上述 Actions 运行。未进行 ARM64 实机视觉、真实免费节点连通性、系统后台调度时序及真实远程会话验收，未安装 APK 或发布 GitHub Release。
 
 ### 历史验证记录
 
@@ -274,6 +273,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 | 日期 | 主题 | 验证源码 | Actions | 范围与备注 |
 | --- | --- | --- | --- | --- |
+| 2026-11-17 | 默认名称、选中对号及弃用警告默认值 | `a4607728af065cb46a8b0c021480988bd9531442` | [43917329871](https://github.com/giturass/B-box/actions/runs/43917329871) | 8 个作业通过；271 项 Flutter；56 项 JVM；API 24/31/36 及 16 KiB 四组各 44 项原生测试和 UI smoke；API 24 默认文件和实际核心分组截图抽样通过，未覆盖本轮订阅来源；未触发签名 Release |
 | 2026-11-16 | 配置内节点、默认文件及首页切换语义修复 | `041325d4824cfae8f115f25021f0f7a8160c68aa` | [43875039054](https://github.com/giturass/B-box/actions/runs/43875039054) | 8 个作业通过；271 项 Flutter；56 项 JVM；API 24/31/36 及 16 KiB 四组各 44 项原生测试和 UI smoke，API 24 默认文件及核心分组截图抽样通过；未触发签名 Release |
 | 2026-11-16 | 配置内节点与默认配置初次 smoke | `662f6eedd569759c3ee1cc7cad0707cee3f19827` | [43869161640](https://github.com/giturass/B-box/actions/runs/43869161640) | 整套未通过：core、Flutter、Android 构建与 56 项 JVM 通过，四组 UI 均未点中合并语义的切换按钮；API 31/普通 API 36 原生各 43/44，唯一失败是备份用例的即时锁断言；API 36 / 16 KiB 原生 44 项通过；API 24 原生完成 21 项后因模拟器 system_server 图形线程崩溃中断。实际页大小为 4096/4096/4096/16384 字节；后续 Flutter 测试修正的取消运行见 [界面历史](flclash.md#历史验证记录) |
 | 2026-11-14 | 配置页顶部精简及工具栏收纳 | `2be09f60fcf6244f9f30c7899c5da382359701e0` | [43570946186](https://github.com/giturass/B-box/actions/runs/43570946186) | 8 个作业通过；259 项 Flutter；56 项 JVM；API 24/31/36 及 16 KiB 四组各 41 项原生测试，未触发 ARM64 Release；详细核对见 Git `26ff355:app.md` |
