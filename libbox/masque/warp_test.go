@@ -20,6 +20,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	transportHTTP "github.com/sagernet/sing-box/transport/http"
 	"github.com/sagernet/sing/common/buf"
 	N "github.com/sagernet/sing/common/network"
+	"golang.org/x/net/http2"
 )
 
 func warpTestCredentials(t *testing.T) (option.MASQUEOutboundOptions, *tls.Config) {
@@ -278,9 +280,8 @@ func TestWARPKeyFormatsAndValidation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		certificate, err := cfg.GetClientCertificate(&tls.CertificateRequestInfo{})
-		if err != nil || !certificate.PrivateKey.(*ecdsa.PrivateKey).Equal(key) {
-			t.Fatal("client certificate replaced the enrolled key", err)
+		if len(cfg.Certificates) != 1 || !cfg.Certificates[0].PrivateKey.(*ecdsa.PrivateKey).Equal(key) {
+			t.Fatal("client certificate replaced the enrolled key")
 		}
 		if cfg.VerifyPeerCertificate(nil, nil) == nil {
 			t.Fatal("missing peer certificate bypassed pinning")
@@ -490,5 +491,61 @@ func TestWARPKeepsStandardMASQUEAddressNegotiation(t *testing.T) {
 	configuration := <-handler.configuration
 	if !reflect.DeepEqual(configuration.Address, []netip.Prefix{netip.MustParsePrefix("10.8.0.2/32")}) {
 		t.Fatal("standard MASQUE no longer uses the server-assigned address")
+	}
+}
+
+func TestWARPHTTP2WithoutNegotiatedALPN(t *testing.T) {
+	options, serverTLS := warpTestCredentials(t)
+	serverTLS.NextProtos = nil
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	options.Server = "127.0.0.1"
+	options.ServerPort = uint16(listener.Addr().(*net.TCPAddr).Port)
+	ctx, cancel := context.WithCancel(context.Background())
+	var workers sync.WaitGroup
+	workers.Go(func() {
+		for {
+			raw, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			workers.Go(func() {
+				defer raw.Close()
+				stop := context.AfterFunc(ctx, func() { raw.Close() })
+				defer stop()
+				conn := tls.Server(raw, serverTLS)
+				if handshakeErr := conn.HandshakeContext(ctx); handshakeErr != nil {
+					return
+				}
+				if conn.ConnectionState().NegotiatedProtocol != "" {
+					t.Error("fixture unexpectedly negotiated ALPN")
+				}
+				h2 := &http2.Server{}
+				h2.ServeConn(conn, &http2.ServeConnOpts{Context: ctx, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Header.Get("Cf-Connect-Proto") != "cf-connect-ip" || r.Header.Get("Pq-Enabled") != "false" || r.Host != "cloudflareaccess.com:443" {
+						t.Error("incorrect Cloudflare HTTP/2 handshake")
+					}
+					warpTestEchoHTTP2(t, w, r)
+				})})
+			})
+		}
+	})
+	t.Cleanup(func() { cancel(); listener.Close(); workers.Wait() })
+	transport := warpTestTransport(t, options)
+	stream, err := transport.OpenTunnel(context.Background(), "connect-ip", "/")
+	if err != nil {
+		t.Fatal("Cloudflare's empty ALPN was rejected", err)
+	}
+	defer stream.Close()
+	datagrams := stream.(transportHTTP.DatagramStream)
+	if err = datagrams.SendDatagram(append([]byte{0}, warpTestPacket()...)); err != nil {
+		t.Fatal(err)
+	}
+	readCtx, cancelRead := context.WithTimeout(context.Background(), time.Second)
+	defer cancelRead()
+	if packet, err := datagrams.ReceiveDatagram(readCtx); err != nil || len(packet) != 29 {
+		t.Fatal("HTTP/2 without ALPN failed to carry an IP packet", err)
 	}
 }

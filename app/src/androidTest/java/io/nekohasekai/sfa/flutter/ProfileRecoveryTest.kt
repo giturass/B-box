@@ -700,6 +700,42 @@ class ProfileRecoveryTest {
         }
     }
 
+    @Test fun registeredWarpAccountsSurviveFailedApplicationsAndRetryWithoutRegisteringAgain() = withRunningProfile { activity, profiles, id ->
+        var failApply = true
+        var registrations = 0
+        val applications = mutableListOf<Boolean>()
+        val persistence = BoxWarpProfiles(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
+            applications.add(recover)
+            if (failApply && !recover) error("WARP application failure fixture")
+            withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
+        }
+        val node = warpRegistrationTestAccount()
+        val warp = BoxWarp(persistence::prepare, persistence::commit,
+            registerNode = { _, _, _, registered -> registrations++; registered(node) })
+        try {
+            val original = profiles.read(id)
+            val updatedAt = profiles.get(id).typed.lastUpdated.time
+            val error = runCatching {
+                warp.register("running-recovery", id, ProfileContent.revision(original), "WARP", "http3")
+            }.exceptionOrNull() as BoxWarpException
+            assertEquals("warp_pending", error.code)
+            assertEquals(listOf(false, true), applications)
+            assertEquals(original, profiles.read(id))
+            assertEquals(updatedAt, profiles.get(id).typed.lastUpdated.time)
+            assertEquals(Status.Started, activity.serviceStatus.value)
+            val pendingId = error.details!!["pendingId"] as String
+            failApply = false
+            val result = warp.retry(pendingId, id, ProfileContent.revision(profiles.read(id)))
+            assertEquals("WARP", result["tag"])
+            assertEquals(1, registrations)
+            assertEquals(listOf(false, true, false), applications)
+            assertEquals(Status.Started, activity.serviceStatus.value)
+            val stored = configurationNodes(profiles.read(id)).single { it.optString("type") == "masque" }
+            assertEquals(JSONObject(node).getString("private_key"), stored.getString("private_key"))
+            assertNull(warp.snapshot()["pending"])
+        } finally { warp.close() }
+    }
+
     @Test fun addedNodesBelongToTheSelectedProfileAndRecoverFailedWrites() = withRunningProfile { activity, profiles, id ->
         val nodes = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
             withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }

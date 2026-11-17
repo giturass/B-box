@@ -12,6 +12,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +21,8 @@ import (
 	"github.com/sagernet/quic-go/http3"
 	"github.com/sagernet/sing-box/option"
 	transportHTTP "github.com/sagernet/sing-box/transport/http"
+	M "github.com/sagernet/sing/common/metadata"
+	N "github.com/sagernet/sing/common/network"
 )
 
 type warpH3Handshake struct {
@@ -308,5 +311,57 @@ func TestWARPHTTP3RejectsUnusablePeers(t *testing.T) {
 				t.Fatal("unusable WARP peer was not rejected promptly", err)
 			}
 		})
+	}
+}
+
+type warpUnavailableUDPDialer struct {
+	N.Dialer
+	udpCalls atomic.Int32
+}
+
+func (d *warpUnavailableUDPDialer) ListenPacket(context.Context, M.Socksaddr) (net.PacketConn, error) {
+	d.udpCalls.Add(1)
+	return nil, errors.New("fixture UDP path unavailable")
+}
+func TestWARPHTTP3FallbackAndCarrierPreference(t *testing.T) {
+	options := warpTestHTTP2Server(t, func(w http.ResponseWriter, r *http.Request) { warpTestEchoHTTP2(t, w, r) })
+	options.Version = 0
+	options.HTTPVersion = 3
+	dialer := &warpUnavailableUDPDialer{Dialer: N.SystemDialer}
+	transport, err := NewWARPTransport(context.Background(), dialer, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transport.Close()
+	for range 2 {
+		stream, err := transport.OpenTunnel(context.Background(), "connect-ip", "/")
+		if err != nil {
+			t.Fatal("HTTP/3 failure did not fall back to HTTP/2", err)
+		}
+		datagrams := stream.(transportHTTP.DatagramStream)
+		if err = datagrams.SendDatagram(append([]byte{0}, warpTestPacket()...)); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_, err = datagrams.ReceiveDatagram(ctx)
+		cancel()
+		stream.Close()
+		if err != nil {
+			t.Fatal("fallback tunnel was cancelled by its handshake deadline", err)
+		}
+		transport.ResetConnections()
+	}
+	if dialer.udpCalls.Load() != 1 {
+		t.Fatal("reconnect did not remember the successful HTTP/2 carrier")
+	}
+	options.DisableVersionFallback = true
+	strict, err := NewWARPTransport(context.Background(), dialer, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer strict.Close()
+	if stream, err := strict.OpenTunnel(context.Background(), "connect-ip", "/"); err == nil {
+		stream.Close()
+		t.Fatal("disabled fallback still used HTTP/2")
 	}
 }

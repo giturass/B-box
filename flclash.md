@@ -46,6 +46,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 | 外观与关于 | [appearance.dart](flutter/lib/pages/appearance.dart)、[about.dart](flutter/lib/pages/about.dart) | 复用主题预览、调色和版本/许可布局，保持 B-box 品牌及其 Release 来源 |
 | 备份 | [backup.dart](flutter/lib/pages/backup.dart)、[form.dart](flutter/lib/components/form.dart) | 复用本地/远程分区、WebDAV 表单、连通状态、恢复范围及策略，后端使用 `bbox-1` 格式 |
 | 连接与请求 | [requests.dart](flutter/lib/pages/requests.dart)、[connection_record.dart](flutter/lib/components/connection_record.dart)、[request_settings.dart](flutter/lib/pages/request_settings.dart)、[mitm_certificate.dart](flutter/lib/pages/mitm_certificate.dart)、[capture_domains.dart](flutter/lib/pages/capture_domains.dart) | 统一网络活动列表与详情、连接管理、本机录制、独立 MITM 与证书、TCP 流、域名选择及 HAR/cURL 导出；复用共享列表、表单和导航 |
+| WARP 注册 | [warp.dart](flutter/lib/pages/warp.dart)、[tools.dart](flutter/lib/pages/tools.dart) | 复用列表、表单、按钮和返回保护，注册 MASQUE 节点并保存到所选配置；页面为 B-box 业务代码 |
 
 记录组件使用 [record.dart](flutter/lib/components/record.dart) 中 `RecordTone` 的标签前景色和容器色；首页拖动浮层使用 [dashboard_editor.dart](flutter/lib/components/dashboard_editor.dart) 的 `DashboardShadows.e2` 阴影。应用层已移除未调用的强调色和一级阴影辅助实现，适配差异记录在来源清单；像素比较的独立状态参考渲染器继续保留自己使用的阴影实现。
 
@@ -60,7 +61,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 - 出站模式只显示内核提供的值。规则、全局、直连使用参考版字形，名称和选中态忽略大小写，排列和切换参数保留内核原值。系统 HTTP 代理卡片按内核能力显示，支持首页编辑中的排序、移除和重新添加；能力暂不可用时保留顺序和隐藏偏好。卡片沿用参考版 VPN 卡片的 48 像素徽章、加粗标题、启用/禁用副标题及紧凑开关；启用时徽章为主题色六瓣形，禁用时为低强调圆形。卡片和首页编辑列表共用 [system_proxy_glyph.dart](flutter/lib/components/system_proxy_glyph.dart) 中的大陆轮廓地球字形，使用共享 Glyph 的线宽与圆角；全局出站模式保留参考版经纬线球体字形。
 - 服务按钮的暂停图形表示停止服务，不新增暂停核心能力。远程会话、启停过渡和不可用操作必须反映真实状态。
 - 仪表盘右上角恢复 FlClash 的 `AppGlyphs.edit` 铅笔，点击进入现有卡片编辑模式，完成后返回仪表盘。设置从底栏的 [设置页](flutter/lib/pages/settings.dart) 进入，依次显示外观、服务、内核、访问控制、备份与恢复和关于。服务与内核的具体选项各自保留在二级页面，不再经过“常规”；内核页不显示电量报告开关。“关闭弃用警告”在设置快照缺少该键时显示开启，收到明确关闭值后显示关闭，持久化默认值见 [Android 设置处理](app.md#配置服务应用与备份)。
-- 工具页依次显示连接与请求、日志、终端、网络诊断、远程控制及按能力显示的端点；网络诊断二级页显示网络质量与 STUN 测试，终端设置仍在终端内。工具页不再展示设置、关于或崩溃/内存/电量报告入口。配置相关入口统一在配置的“编辑”页，具体排列见 [配置页与内核差异](#配置页与内核差异)。
+- 工具页依次显示连接与请求、日志、终端、WARP 注册、网络诊断、远程控制及按能力显示的端点；网络诊断二级页显示网络质量与 STUN 测试，终端设置仍在终端内。工具页不再展示设置、关于或崩溃/内存/电量报告入口。配置相关入口统一在配置的“编辑”页，具体排列见 [配置页与内核差异](#配置页与内核差异)。
 - 工具页以“连接与请求”作为连接和抓取记录的唯一入口，入口只显示标题，页面标题与入口一致，默认显示全部网络活动。顶部可筛选全部、活动、抓取记录及已结束；活动 HTTP 请求按记录是否完成判断，已结束包括完成的请求和关闭的连接。已完成请求不会把仍存活的 keep-alive 连接标为关闭：活动筛选中没有进行中请求代表它时，仍显示连接行。远程会话展示远端连接及管理操作，隐藏抓取筛选和本机操作，说明 HTTP 调试仅支持本地。
 - 普通 TCP/UDP、未解密 HTTPS 以连接信息展示；已记录 HTTP 请求、TLS/TCP 流和仅域名记录分别成行。一条连接的多个 HTTP/1.1 请求或 HTTP/2 流保留独立行，以精确 `connectionId` 关联；当前筛选结果已有请求代表该连接时省略连接行，不以目标地址或旧抓包 ID 猜测关联。缺少父连接和旧版无关联记录仍可搜索、查看及导出。
 - 搜索覆盖 URL、方法、状态、协议、应用、路由及来源/目标等已观测字段，支持可删除关键词；默认按创建时间排序，也保留速度、上传和下载排序。请求行显示自身正文计数，连接行显示核心连接流量及速率；请求速度未知，不复制父连接速率或相加统计。核心对全部保留历史筛选和排序，初始读取 50 条摘要，“显示更多”每次扩大 50 条窗口，轮询只传回窗口内变化的摘要。Flutter 与连接快照合并后展示前 N 行，未加载的匹配请求仍参与父连接去重；全历史搜索和导出不受窗口限制。连接数量沿用当前内核快照。
@@ -125,7 +126,7 @@ XHTTP 与 VLESS Encryption 使用现有节点链接、订阅及 sing-box JSON �
 
 已有配置的编辑保留 B-box 的本地/远程类型切换；新建配置创建本地文件，URL 通过订阅表单导入。不会因视觉对齐加入参考版的 age 密钥等未接入能力。保存、修订冲突、配置应用及失败恢复继续由既有桥接处理，见 [app.md](app.md#配置服务应用与备份)。
 
-Cloudflare WARP MASQUE 通过“网络 → 出站”的 JSON 表单或原始 JSON 编辑器配置；字段及导入示例见 [核心文档](libbox.md#cloudflare-warp-masque)。配置保存沿用上述修订检查及 Android 校验流程。
+“工具 → WARP 注册”显示当前配置、节点名称与 HTTP/3 / HTTP/2 选择，点击“注册并保存”后直接追加节点；HTTP/3 优先模式允许回退 HTTP/2。注册或保存期间禁用重复提交并保护返回，远程会话及服务启停期间禁用本机操作。保存失败显示待保存目标，重进页面可找回进程内的待保存项；“重试保存”复用账号，目标变化时提示先选择原配置。页面只显示操作元数据，不展示凭据。仍可通过“网络 → 出站”或原始 JSON 编辑器修改已保存节点；字段及示例见 [核心文档](libbox.md#cloudflare-warp-masque)，注册与配置写入保障见 [应用说明](app.md#配置服务应用与备份)。
 
 原始 JSON 编辑器使用 [code_editor.dart](flutter/lib/components/code_editor.dart) 显示从 1 开始的逻辑行号，空行和末尾换行保留编号；长行折行不增加行号，行号随正文滚动。编辑器只保存逻辑行起始偏移，在同一帧先布局正文，再复用 `RenderEditable` 的排版及未取整选区端点计算可见行号，输入、替换内容和调整尺寸时无需等待下一帧，也不为行号排版第二份完整文本。正文滚动及视口尺寸变化后同步选区端点，使手柄显示位置与拖动计算使用同一组正文坐标，避免按旧位置选中其他行；搜索、格式化、撤销及修订校验沿用原编辑流程。
 
@@ -180,6 +181,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 - [appearance_test.dart](flutter/test/appearance_test.dart)：主题选择与重开页面后的偏好，旧字体偏好不覆盖默认字体，系统字号运行时变化和既有缩放上下限。导航、状态、内网 IP、出站模式及请求页面的字号场景通过系统缩放模拟，不依赖已退役的应用偏好。
 - [licenses_test.dart](flutter/test/licenses_test.dart)：异步加载、共享许可按包分组、搜索及完整可选中正文。
 - [about_test.dart](flutter/test/about_test.dart)：版本检查完整/未完成与可升级/不可升级的四种组合，等待时禁止重复请求、未完成提示、APK 下载条件和发布页面入口。
+- [warp_test.dart](flutter/test/warp_test.dart)：工具入口顺序、HTTP/2 注册保存、重复提交/返回保护与取消、读取修订时目标/会话变化、待保存项重进与原配置重试、放弃确认，以及远程/启停/无配置禁用和窄屏大字号布局。导航测试另生成 WARP 页布局截图；桥接替身不验证真实注册网络。
 - [dashboard_editor_test.dart](flutter/test/dashboard_editor_test.dart)、[outbound_mode_test.dart](flutter/test/outbound_mode_test.dart) 和 [terminal_settings_test.dart](flutter/test/terminal_settings_test.dart)：铅笔点击及卡片长按进入首页原位编辑，保留卡片状态并检查排序、移除、添加及保存失败；出站模式图形与 Android 一致并保留内核顺序和当前选择；停服时从终端页打开 Ghostty 设置并保存原生配置。
 
 **配置、编辑与备份**
@@ -218,6 +220,8 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 - [http_message_test.dart](flutter/test/http_message_test.dart)：JSON 数值/重复键/转义保真、无效内容回退、正文页缩进输出过大时回退原文，以及重复 Cookie、空值、等号和 Expires 逗号。请求正文不完整或截断时不提供 cURL 导出。
 
 ### 当前验证记录
+
+WARP 注册入口、交互与布局的当前检查范围见 [应用验证记录](app.md#当前验证记录)；新增页面未修改 FlClash/Prism 直接导入文件，尚无本轮 Actions 截图或实机视觉验收。
 
 本次停服代理组 UI 与选择修复的检查范围见 [应用验证记录](app.md#当前验证记录)；下面已有 Actions 和截图不包含本次修改。
 

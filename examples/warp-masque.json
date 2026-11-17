@@ -27,7 +27,8 @@
       "private_key": "REPLACE_WITH_MASQUE_PRIVATE_KEY",
       "peer_public_key": "REPLACE_WITH_MASQUE_PEER_PUBLIC_KEY",
       "address": ["172.16.0.2/32", "2001:db8::2/128"],
-      "version": 3,
+      "http_version": 3,
+      "tls": {"enabled": true, "server_name": "consumer-masque.cloudflareclient.com"},
       "mtu": 1280
     }
   ],

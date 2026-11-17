@@ -14,7 +14,7 @@
 | Android 自动重定向兼容 | [sing-tun-android-ingress.patch](libbox/sing-tun-android-ingress.patch) | 兼容 ingress discard BPF map 的 4/8 字节 value，保留接口归属检查和原值恢复 |
 | XHTTP 与 VLESS Encryption | [xhttp-vless.patch](libbox/xhttp-vless.patch)、[xhttp/](libbox/xhttp/) | 在当前核心基线上移植固定来源的 XHTTP 传输与 VLESS 加密，标准 AAR 启用 `with_xhttp` |
 | Vision 指针兼容 | [sing-vmess-vision-pointer.patch](libbox/sing-vmess-vision-pointer.patch) | 固定 sing-vmess 副本的 TLS/Encryption 注册保留 Go 指针来源，缓冲字段经布局核对后用 `unsafe.Add` 访问，兼容 race/checkptr |
-| Cloudflare WARP MASQUE | [warp-masque.patch](libbox/warp-masque.patch)、[masque/](libbox/masque/) | 新增 `masque` 出站，适配 WARP 的 ECDSA 认证、公钥固定、HTTP/3 datagram 与 HTTP/2 capsule |
+| Cloudflare WARP MASQUE | [warp-masque.patch](libbox/warp-masque.patch)、[masque/](libbox/masque/)、[ui_warp.go](libbox/ui_warp.go) | `masque` 出站、设备注册、ECDSA 认证、公钥固定、HTTP/3 datagram 与 HTTP/2 capsule 及传输回退 |
 | 运行时内存绑定 | [ui_dashboard.go](libbox/ui_dashboard.go) | 读取 Go 运行时内存和 goroutine 数，提供释放内存操作 |
 | HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码与完整响应，通过 `UIHTTPTask` 传播 Android 取消，供备份及 Release 元数据使用 |
 | 订阅下载绑定 | [ui_profile.go](libbox/ui_profile.go) | 可取消的完整订阅下载，失败响应不读取正文 |
@@ -97,28 +97,35 @@ VLESS 出站新增 `encryption`，入站新增 `decryption`，空值或 `none` �
 
 B-box 新增 `outbounds` 中的 `type: "masque"`，复用当前上游 MASQUE 的 IP 栈、TCP/UDP/ICMP、路由、代理组和网络切换生命周期。上游 `endpoints` 中的 `masque-client` / `masque-server` 继续使用标准 CONNECT-IP。WARP 使用自己的 `cf-connect-ip` 握手和注册时分配的地址；只将普通 MASQUE 端点改为 WARP 服务器并不能完成认证。
 
-传输依据 [Cloudflare 官方网络要求](https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/deployment/firewall/#masque) 的 MASQUE UDP 与 HTTP/2 TCP 说明；WARP 专用握手及凭据格式核对 [warpscout `9e2ce9570625757ba24b390ad680dccd5e7f2707`](https://github.com/vernette/warpscout/blob/9e2ce9570625757ba24b390ad680dccd5e7f2707/masque.go)、其固定的 [usque `6aa03fc97d12`](https://github.com/Diniboy1123/usque/blob/6aa03fc97d12/api/masque.go) 和 [connect-ip-go `66cba32d7d33`](https://github.com/Diniboy1123/connect-ip-go/blob/66cba32d7d33/client_h2.go)。实现使用当前核心已有的 `quic-go`、`x/net/http2` 及 sing-box IP 栈，不引入这些参考项目的运行时或其他代理核心。
+本次注册与传输重写核对 Throne 固定提交 [`48273be2870fd2c81059628ff2cc439ac711808e`](https://github.com/throneproj/Throne/tree/48273be2870fd2c81059628ff2cc439ac711808e) 的 [注册流程](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/core/internal/warp/register.go)、[API 请求](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/core/internal/warp/api.go)、[MASQUE 配置](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/src/configs/outbounds/masque.cpp)，以及其 `core/go.mod` 固定的 [throneproj/sing-box `183cf759ed909d9200d2baccab233f3221d034b1`](https://github.com/throneproj/sing-box/tree/183cf759ed909d9200d2baccab233f3221d034b1/transport/warpmasque)。传输范围同时参考 [Cloudflare 官方网络要求](https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/deployment/firewall/#masque)。B-box 独立实现所需行为，继续使用官方核心及其已有 TLS、QUIC、HTTP/2 和 IP 栈，不替换整个核心或引入 Throne 的运行时依赖；为兼容既有文件，WARP 仍保存在 `outbounds`。
+
+[ui_warp.go](libbox/ui_warp.go) 的 `NewUIWARPRegistrationTask` 用于本机停服时的设备网络；运行中的 `CommandServer.NewUIWARPRegistrationTask` 使用当前服务路由及既有取消/退出等待边界，不在路由失败后回退直连。`Register(name, httpVersion)` 先向 `https://api.cloudflareclient.com/v0a4471/reg` POST Curve25519/WireGuard 注册，再以返回的 Bearer token PATCH 同一设备为 P-256/secp256r1 MASQUE；最终只返回可追加的单节点 JSON，不返回 token、设备 ID 或许可证。任务总时限为 45 秒，响应上限各为 1 MiB，`Close` 取消在途请求，禁止重定向及自动重试非幂等注册。API 错误不包含响应正文或凭据。
+
+注册节点使用 Throne 的 `162.159.198.2:443`：注册接口返回的 `.1` 在 TCP 上是普通 CDN 边缘，不能用于 HTTP/2 MASQUE。注册后的地址、客户端私钥和对端公钥来自同一次账号注册；写入目标与修订、服务应用和失败重试由 [Android 注册流程](app.md#配置服务应用与备份) 维护。
 
 | 字段 | 作用 |
 | --- | --- |
-| `server` / `server_port` | 当前网络可用的 WARP MASQUE 服务地址与端口；均须提供，IPv6 地址不加方括号 |
+| `server` / `server_port` | 当前网络可用的 WARP MASQUE 服务地址，端口默认 `443`；IPv6 地址不加方括号 |
 | `private_key` | 已注册 MASQUE 设备的 ECDSA P-256 私钥；支持 PEM、Base64 DER，SEC1 或 PKCS#8 |
 | `peer_public_key` | 同一注册结果中的服务端 ECDSA P-256 公钥；支持 PEM 或 Base64 DER SubjectPublicKeyInfo |
 | `address` | 同一注册结果的隧道地址，IPv4 使用 `/32`、IPv6 使用 `/128`；每种地址族最多一个，至少一个 |
-| `server_name` | TLS SNI，默认 `consumer-masque.cloudflareclient.com`；选择其他 SNI 时仍校验服务端公钥 |
-| `version` | `3` 为 QUIC/HTTP/3（UDP，默认），`2` 为 TLS/HTTP/2（TCP） |
+| `tls` | 使用当前核心的 TLS 选项，须启用；省略整个 `tls` 时默认 SNI 为 `consumer-masque.cloudflareclient.com`，显式 `tls` 沿用核心的 SNI 规则。自定义 SNI 或 `insecure` 仍校验注册公钥；客户端证书/密钥由 `private_key` 派生，拒绝 REALITY、外部客户端证书和与 `peer_public_key` 冲突的证书/固定公钥设置 |
+| `http_version` | `0`（默认）或 `3` 优先 QUIC/HTTP/3（UDP），失败后回退 TLS/HTTP/2（TCP）；`2` 仅使用 HTTP/2 |
+| `disable_version_fallback` | 禁止传输回退，默认关闭；无 QUIC 的构建在允许回退时使用 HTTP/2 |
+| `version` / `server_name` | 兼容先前 B-box 配置；显式 `version` 固定原传输，`server_name` 映射到 TLS SNI，与新字段冲突时拒绝 |
 | `mtu` | IP 栈 MTU，默认 `1280`，有效范围 `1280`–`65535` |
+| HTTP/2 / QUIC 字段 | 复用当前核心的 `HTTP2Options` / `QUICOptions`；HTTP/3 默认初始包大小 `1242`，启用 datagram |
 | 通用拨号字段 | 使用 sing-box 原生 `detour`、`bind_interface`、`domain_resolver` 等，沿用 Android socket 保护 |
 
-先准备 MASQUE 注册结果，再填写 [warp-masque.json](examples/warp-masque.json) 中的私钥、公钥、隧道地址和可用服务端点后导入 B-box。示例的 `2001:db8::2/128` 是文档地址，须替换为注册结果；没有 IPv6 隧道地址时删除该项。usque 配置的 `private_key` 对应这里的 `private_key`，`endpoint_pub_key` 对应 `peer_public_key`，`ipv4` / `ipv6` 加上主机前缀长度后填入 `address`。HTTP/3 和 HTTP/2 使用同一组 MASQUE 设备凭据，服务端点及 SNI 按所选传输填写。WireGuard 的 Curve25519 私钥和 peer key 不能用于这个出站。
+可直接通过 [工具页 WARP 注册](flclash.md#配置页与内核差异) 生成节点；已有账号也可填写 [warp-masque.json](examples/warp-masque.json) 后导入。示例的 `2001:db8::2/128` 是文档地址，须替换为注册结果；没有 IPv6 隧道地址时删除该项。usque 配置的 `private_key` 对应这里的 `private_key`，`endpoint_pub_key` 对应 `peer_public_key`，`ipv4` / `ipv6` 加上主机前缀长度后填入 `address`。HTTP/3 和 HTTP/2 使用同一组 MASQUE 设备凭据；WireGuard 的 Curve25519 私钥和 peer key 不能用于这个出站。
 
-每次 TLS 握手使用已注册的私钥签发临时客户端证书；证书更新不替换注册私钥。服务端证书以注册公钥固定校验，缺少公钥、密钥格式错误、重复地址族和失败的 CONNECT 都返回错误。HTTP/3 发送 WARP 所需的旧 datagram setting，在服务端未声明 extended CONNECT 时仍完成 `cf-connect-ip`；HTTP/2 使用普通 CONNECT 和 WARP 专用头，capsule 内直接传 IP 数据，不添加 HTTP/3 的 context ID。
+每次 TLS 握手使用已注册的私钥签发临时客户端证书；证书更新不替换注册私钥。服务端证书以注册公钥固定校验，缺少公钥、密钥格式错误、重复地址族和失败的 CONNECT 都返回错误。HTTP/3 使用核心受保护的非连接 UDP socket，保留 detour、DNS 和 QUIC 的原生 UDP 能力；发送 WARP 旧 datagram setting，在服务端未声明 extended CONNECT 时仍完成 `cf-connect-ip`，读取并丢弃有界控制 capsule，datagram 容量为 QUIC packet number 预留四字节。HTTP/2 接受 `h2` 或空 ALPN，使用普通 CONNECT 和 WARP 专用头，capsule 内直接传 IP 数据，不添加 HTTP/3 的 context ID。允许回退时 HTTP/3 握手最多等待五秒再尝试 HTTP/2，成功传输用于后续重连；握手期限不会取消已建立的隧道。
 
 注册地址在认证完成后配置给 IP 栈，拨号等待就绪，不等待 WARP 不发送的 `ADDRESS_ASSIGN`；普通 MASQUE 仍保留地址请求/分配。取消握手、停服和网络切换会关闭旧 TCP/QUIC 连接，已成功打开的隧道不被握手期限结束取消；重连沿用上游的退避与服务生命周期。网络切换取消会话时立即撤销其就绪状态，此后的拨号等待新隧道认证完成，不把首批报文写入已取消的旧隧道；上游客户端在重连循环回收旧会话前仍报告就绪，该修正由同一补丁维护，标准 MASQUE 端点同样生效。
 
-[patch_warp_masque.py](tools/patch_warp_masque.py) 对干净的匹配核心检查补丁并安装选项、出站和传输，重复安装失败。共享 [setup-core](.github/actions/setup-core/action.yml) 使统一测试、Android smoke 和 ARM64 Release 使用同一实现；正式 libbox 构建已有 `with_quic`，不含 QUIC 的测试构建只接受 HTTP/2。
+[patch_warp_masque.py](tools/patch_warp_masque.py) 对干净的匹配核心检查补丁并安装选项、出站和传输，重复安装失败。注册扩展与其他 `ui_*.go` 由共享 [setup-core](.github/actions/setup-core/action.yml) 安装，使统一测试、Android smoke 和 ARM64 Release 使用同一实现；正式 libbox 构建已有 `with_quic`。
 
-[传输回归](libbox/masque/warp_test.go) 与 [HTTP/3 回归](libbox/masque/warp_http3_test.go) 使用临时测试密钥和本地 TLS/QUIC 服务器，检查握手、公钥固定、报文、失败/取消与重连，以及网络重置后拨号等待替换隧道；[ui_masque_test.go](libbox/ui_masque_test.go) 检查配置/格式化及真实 IP 栈经 selector 传输 UDP 和网络重置。[Android 绑定回归](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpMasqueConfigTest.kt) 验证实际 AAR 的 HTTP/2、HTTP/3 配置和非法凭据拒绝。实际运行记录维护在 [app.md](app.md#当前验证记录)；本地模拟服务不代表 Cloudflare 真实网络或注册流程已经验收。
+[注册回归](libbox/ui_warp_test.go) 使用本地 API 替身检查两阶段注册、密钥/地址和输出节点、错误状态/非法响应、响应上限、重定向拒绝及取消；[传输回归](libbox/masque/warp_test.go) 与 [HTTP/3 回归](libbox/masque/warp_http3_test.go) 检查握手、公钥固定、空 ALPN、传输回退、报文、失败/取消与重连，以及网络重置后拨号等待替换隧道；[ui_masque_test.go](libbox/ui_masque_test.go) 检查配置/格式化及真实 IP 栈经 selector 传输 UDP 和网络重置。Android 配置绑定与节点持久化回归由 [应用文档](app.md#android-仪器测试) 维护。实际运行记录维护在 [app.md](app.md#当前验证记录)；本地模拟服务不代表 Cloudflare 真实网络或注册流程已经验收。
 
 ### 运行时内存
 
@@ -425,7 +432,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 - 同一工作流的 core job 使用共享准备 Action 把扩展、补丁和回归文件安装到上游检出目录，不构建核心 AAR。所有生产扩展均参与编译，测试按名称前缀或目录自动纳入，不维护具体扩展名的筛选清单。该 job 依次运行：
   1. `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1`：Android ingress-discard map 布局兼容。
   2. `go test -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`：全部 `TestUI` 扩展回归；随后以 `-tags=with_xhttp,with_quic,with_wireguard,with_utls,with_clash_api` 单独运行 `^TestUINode`，核对随发布核心包含的节点协议。
-  3. `go test -race -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m`，再以 `-tags=with_quic` 运行同一命令，随后执行 `go test -tags=with_xhttp,with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIMASQUE' -count=1`：WARP 认证及 HTTP/2、HTTP/3 隧道。HTTP/3 用例只在 `with_quic` 构建中编译。
+  3. `go test -race -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m`，再以 `-tags=with_quic` 运行同一命令；随后执行 `go test -tags=with_xhttp,with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIMASQUE' -count=1` 及 `go test -race -tags=with_xhttp,with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIWARP' -count=1 -timeout=3m`：WARP 配置、注册、认证及 HTTP/2、HTTP/3 隧道。HTTP/3 用例只在 `with_quic` 构建中编译。
   4. `go test -race -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(Egress|Route|HTTP|Profile)' -count=1`：路由、出口探测、HTTP 任务和订阅的数据竞争。
   5. `go test -race ./experimental/httpdebug -count=1 -timeout=5m` 与 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m`：HTTP/MITM 抓取与处理引擎的全部用例及数据竞争，以及原出站和嗅探字节保留。
 - 获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py) 以受限并发运行独立的抓取引擎测试，它不构建 Android 绑定。
@@ -443,6 +450,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 - [ui_route_test.go](libbox/ui_route_test.go)：停服等待路由和指定出站的拨号退出，以及准入与关闭的竞争。
 - [ui_lan_test.go](libbox/ui_lan_test.go)：监听地址、开关保留原生配置、创建/停用 mixed 入站、新监听冲突与校验。
 - [ui_masque_test.go](libbox/ui_masque_test.go)：WARP 配置校验/格式化、非法账号拒绝、VPN 示例，以及真实 IP 栈经 HTTP/2 出站传输 UDP 和网络重置；步骤 3 另在 `with_quic` 构建中运行。
+- [ui_warp_test.go](libbox/ui_warp_test.go)：注册 POST/PATCH、DER 密钥及分配地址、节点追加与完整配置校验、非法响应和错误状态、响应上限、拒绝重定向和关闭取消；步骤 3 另以 `with_quic` 和 race 运行。
 - [ui_capture_test.go](libbox/ui_capture_test.go) 与 [ui_capture_signer_test.go](libbox/ui_capture_signer_test.go)：本地抓包设置、schema 和退役字段迁移；平台签名接口的摘要、算法及返回签名校验。
 - [ui_processing_test.go](libbox/ui_processing_test.go)：改写 schema 校验与格式化、退役选项不激活新规则、一元 gRPC 与 reject 动作往返、迁移保留范围和端口缺省、脚本能力 schema，以及 Surge 字段格式化时不加载资源。
 

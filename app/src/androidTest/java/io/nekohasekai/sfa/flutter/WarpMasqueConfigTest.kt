@@ -46,6 +46,29 @@ class WarpMasqueConfigTest {
         }
     }
 
+    @Test fun throneCarrierOptionsAndLegacyFieldsUseTheGeneratedBinding() {
+        for (version in listOf(0, 2, 3)) {
+            val account = account().put("http_version", version).put("disable_version_fallback", true)
+                .put("tls", JSONObject().put("enabled", true).put("server_name", "consumer-api.cloudflareclient.com"))
+            val content = configuration(account)
+            Libbox.checkConfig(content)
+            val formatted = Libbox.formatConfig(content).value
+            Libbox.checkConfig(formatted)
+            val outbound = JSONObject(formatted).getJSONArray("outbounds").getJSONObject(0)
+            assertEquals(version, outbound.optInt("http_version"))
+            assertTrue(outbound.getBoolean("disable_version_fallback"))
+            assertEquals("consumer-api.cloudflareclient.com", outbound.getJSONObject("tls").getString("server_name"))
+        }
+        val legacy = account().put("version", 2).put("server_name", "consumer-api.cloudflareclient.com")
+        Libbox.checkConfig(configuration(legacy))
+        val compatible = legacy.put("http_version", 2).put("tls", JSONObject().put("enabled", true)
+            .put("server_name", "consumer-api.cloudflareclient.com"))
+        Libbox.checkConfig(configuration(compatible))
+        assertTrue(runCatching { Libbox.checkConfig(configuration(compatible.put("http_version", 3))) }.isFailure)
+        compatible.put("http_version", 2).getJSONObject("tls").put("server_name", "different.test")
+        assertTrue(runCatching { Libbox.checkConfig(configuration(compatible)) }.isFailure)
+    }
+
     @Test fun malformedAccountDataFailsConfigurationValidation() {
         for ((field, value) in listOf(
             "private_key" to "invalid",
@@ -53,6 +76,7 @@ class WarpMasqueConfigTest {
             "address" to JSONArray().put("172.16.0.2/24"),
             "address" to JSONArray().put("172.16.0.2/32").put("172.16.0.3/32"),
             "version" to 1,
+            "http_version" to 1,
             "tls" to JSONObject().put("insecure", true),
         )) {
             val account = account().put("version", 2).put(field, value)

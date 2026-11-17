@@ -7,6 +7,7 @@
 - Flutter 负责全部页面和导航，界面布局及组件来源见 [FlClash UI 使用说明](flclash.md)；启动器和 Android 分享入口均进入新界面。
 - 配置使用 sing-box JSON。代理组、可选节点、测速和路由模式来自 libbox，自动组由内核选择。
 - 支持 XHTTP（SplitHTTP）传输和 VLESS Encryption；[配置、来源与验证范围](libbox.md#xhttp-与-vless-encryption)。
+- 工具页支持 WARP MASQUE 注册，注册节点直接写入当前所选配置；[注册与协议说明](libbox.md#cloudflare-warp-masque)。
 - 保留 VPN、分应用代理、Root/Shizuku 应用查询、远程控制、连接管理和日志。
 - 工具中的“连接与请求”支持连接管理、HTTP 抓取、HTTPS MITM、域名筛选、请求详情及 HAR/cURL 导出；[支持范围和限制](libbox.md#httphttps-请求调试)。
 - JSON 配置支持 MITM、Map Remote、Header/URL/Body Rewrite、Map Local/API Mock 和 JavaScript 请求/响应改写；[配置说明与示例](libbox.md#json-配置中的-http-改写)。
@@ -31,7 +32,7 @@
 - [FlClash](https://github.com/chen08209/FlClash) 及 [prism_ui](https://github.com/chen08209/prism_ui)：Flutter 界面组件来源。
 - [MiChongs/sing-box](https://github.com/MiChongs/sing-box)：XHTTP 与 VLESS Encryption 的移植源码来源。
 - [XTLS/Xray-core](https://github.com/XTLS/Xray-core)：XHTTP 与 VLESS Encryption 的协议实现参考。
-- [Throne](https://github.com/throneproj/Throne)：订阅节点提取及出站、端点分类的行为参考。
+- [Throne](https://github.com/throneproj/Throne)：订阅节点提取、出站/端点分类及 WARP MASQUE 注册和传输的行为参考。
 
 感谢 [LINUX DO](https://linux.do) 社区的支持。
 

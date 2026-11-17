@@ -81,7 +81,7 @@ func TestUIMASQUEConfiguration(t *testing.T) {
 			account["version"] = version
 			content := uiMASQUEConfig(t, account)
 			err := CheckConfig(content)
-			if version != 2 && transportHTTP.NewHTTP3Client == nil {
+			if version == 3 && transportHTTP.NewHTTP3Client == nil {
 				if err == nil {
 					t.Fatal("HTTP/3 accepted without the QUIC build tag")
 				}
@@ -122,7 +122,7 @@ func TestUIMASQUERejectsInvalidAccountConfiguration(t *testing.T) {
 		field string
 		value any
 	}{
-		{"server", ""}, {"server_port", 0}, {"version", 1}, {"version", 4},
+		{"server", ""}, {"version", 1}, {"version", 4},
 		{"private_key", ""}, {"private_key", "invalid"}, {"peer_public_key", ""}, {"peer_public_key", "invalid"},
 		{"address", []string{}}, {"address", []string{"172.16.0.2/24"}}, {"address", []string{"0.0.0.0/32"}},
 		{"address", []string{"172.16.0.2/32", "172.16.0.3/32"}}, {"address", []string{"2001:db8::2/128", "2001:db8::3/128"}},
@@ -258,6 +258,44 @@ func TestUIMASQUEHTTP2OutboundUDPAndNetworkReset(t *testing.T) {
 		}
 		if i == 0 {
 			instance.Network().ResetNetwork(ctx)
+		}
+	}
+}
+
+func TestUIMASQUEThroneCarrierAndTLSConfiguration(t *testing.T) {
+	for _, version := range []int{0, 2, 3} {
+		account, _ := uiMASQUEAccount(t)
+		delete(account, "version")
+		account["http_version"] = version
+		account["server_port"] = 0
+		account["tls"] = map[string]any{"enabled": true, "server_name": "consumer-masque.cloudflareclient.com", "insecure": true}
+		config := uiMASQUEConfig(t, account)
+		if err := CheckConfig(config); err != nil {
+			t.Fatalf("Throne shape version %d rejected: %v", version, err)
+		}
+		formatted, err := FormatConfig(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = CheckConfig(formatted.Value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, update := range []map[string]any{
+		{"http_version": 1}, {"http_version": 4}, {"http_version": 3, "version": 2},
+		{"tls": map[string]any{"enabled": false}},
+		{"tls": map[string]any{"enabled": true, "client_key": "replace-enrolled-key"}},
+		{"tls": map[string]any{"enabled": true, "certificate_public_key_sha256": []string{"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}}},
+		{"tls": map[string]any{"enabled": true, "reality": map[string]any{"enabled": true}}},
+		{"server_name": "first.example", "tls": map[string]any{"enabled": true, "server_name": "second.example"}},
+	} {
+		account, _ := uiMASQUEAccount(t)
+		delete(account, "version")
+		for key, value := range update {
+			account[key] = value
+		}
+		if err := CheckConfig(uiMASQUEConfig(t, account)); err == nil {
+			t.Fatal("invalid WARP carrier/TLS settings accepted", update)
 		}
 	}
 }

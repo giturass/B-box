@@ -88,6 +88,13 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private val nodes = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) {
         recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
     }
+    private val warpProfiles = BoxWarpProfiles(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) {
+        recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
+    }
+    private val warp = BoxWarp(
+        prepare = { id, revision, session -> localProfiles(session) { warpProfiles.prepare(id, revision, session) } },
+        commit = ::commitWarp,
+    )
     private val subscriptions = BoxNodeSubscriptions(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) {
         recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
     }
@@ -152,6 +159,8 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                     result.success(invoke(call))
                 } catch (e: CancellationException) {
                     result.error("cancelled", "Operation cancelled", null)
+                } catch (e: BoxWarpException) {
+                    result.error(e.code, e.message, e.details)
                 } catch (e: Exception) {
                     result.error("box_error", e.message ?: e.toString(), null)
                 }
@@ -235,6 +244,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             "service" -> invokeService(method, args)
             "profiles" -> invokeProfiles(method, args)
             "nodes" -> invokeNodes(method, args)
+            "warp" -> invokeWarp(method, args)
             "subscriptions" -> invokeSubscriptions(method, args)
             "capture" -> invokeCapture(method, args)
             "groups", "mode", "systemProxy" -> invokeProxy(method, args)
@@ -246,6 +256,40 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             "backup", "webdav" -> invokeBackup(method, args)
             "reports" -> reports.invoke(method, args)
             else -> invokeGeneral(method, args)
+        }
+    }
+
+    private suspend fun invokeWarp(method: String, args: Map<String, Any?>): Any? = try {
+        when (method) {
+            "warp.snapshot" -> warp.snapshot()
+            "warp.register" -> warp.register(args.string("requestId"), args.long("profileId"), args.string("profileRevision"),
+                args.string("name"), args.string("transport"))
+            "warp.retry" -> warp.retry(args.string("pendingId"), args.long("profileId"), args.string("profileRevision"))
+            "warp.discard" -> { warp.discard(args.string("pendingId")); true }
+            "warp.cancel" -> warp.cancel(args.string("requestId"))
+            else -> throw BoxWarpException("warp_error", "Unknown WARP operation")
+        }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: BoxWarpException) {
+        throw error
+    } catch (_: Exception) {
+        throw BoxWarpException("warp_error", "Select a local profile and refresh it before registering WARP")
+    }
+
+    private suspend fun commitWarp(target: WarpProfileSnapshot, node: String): Map<String, Any?> = localProfiles(target.session) {
+        var saved = false
+        try {
+            warpProfiles.commit(target, node).also { saved = true }
+        } finally {
+            withContext(NonCancellable) {
+                try {
+                    publishProfiles(ensureDefault = saved)
+                } catch (_: Exception) {
+                    // The confirmed file/service result does not depend on publishing a UI snapshot.
+                    reportError("Configuration status could not be refreshed")
+                }
+            }
         }
     }
 
@@ -867,6 +911,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     }
 
     override fun close() {
+        warp.close()
         qrScanner.close()
         channel.setMethodCallHandler(null)
         events.setStreamHandler(null)

@@ -22,8 +22,11 @@ func RegisterOutbound(registry *outbound.Registry) {
 }
 
 func NewWARPOutbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.MASQUEOutboundOptions) (adapter.Outbound, error) {
-	if options.Server == "" || options.ServerPort == 0 {
-		return nil, E.New("WARP MASQUE requires server and server_port")
+	if options.Server == "" {
+		return nil, E.New("WARP MASQUE requires server")
+	}
+	if options.ServerPort == 0 {
+		options.ServerPort = 443
 	}
 	if options.MTU == 0 {
 		options.MTU = masque.DefaultMTU
@@ -44,7 +47,7 @@ func NewWARPOutbound(ctx context.Context, router adapter.Router, logger log.Cont
 	if err != nil {
 		return nil, err
 	}
-	transport, err := masque.NewWARPTransport(ctx, outboundDialer, options)
+	transport, err := masque.NewWARPTransportWithLogger(ctx, logger, outboundDialer, options)
 	if err != nil {
 		return nil, err
 	}

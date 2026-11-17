@@ -10,6 +10,7 @@ import 'package:b_box_ui/pages/requests.dart';
 import 'package:b_box_ui/pages/logs.dart';
 import 'package:b_box_ui/pages/settings.dart';
 import 'package:b_box_ui/pages/tools.dart';
+import 'package:b_box_ui/pages/warp.dart';
 import 'package:b_box_ui/pages/diagnostics.dart';
 import 'package:b_box_ui/pages/profiles.dart';
 import 'package:b_box_ui/pages/proxies.dart';
@@ -194,6 +195,16 @@ void main() {
         expect(find.byWidget(page), findsNothing, reason: '$label closes within the new UI');
       }
       await selectTab('Tools');
+      final warpEntry = find.descendant(of: find.byType(ToolsPage), matching: find.text('WARP registration'));
+      await Scrollable.ensureVisible(tester.element(warpEntry), alignment: .5);
+      await tester.pumpAndSettle();
+      await tester.tap(warpEntry);
+      await tester.pumpAndSettle();
+      expect(find.byType(WarpPage), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: 'WARP-registration');
+      await capture('WARP-registration');
+      tester.element(find.byType(WarpPage)).safeNestedPop();
+      await tester.pumpAndSettle();
       final diagnosticsEntry = find.descendant(of: find.byType(ToolsPage), matching: find.text('Network diagnostics'));
       await Scrollable.ensureVisible(tester.element(diagnosticsEntry), alignment: .5);
       await tester.pumpAndSettle();

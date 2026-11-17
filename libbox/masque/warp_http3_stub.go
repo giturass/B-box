@@ -11,6 +11,6 @@ import (
 
 const warpQUICIncluded = false
 
-func (*WARPTransport) openHTTP3(context.Context) (transportHTTP.DatagramStream, error) {
+func (*WARPTransport) openHTTP3(context.Context, context.Context) (transportHTTP.DatagramStream, error) {
 	return nil, C.ErrQUICNotIncluded
 }
