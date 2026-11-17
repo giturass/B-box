@@ -953,7 +953,7 @@ void main() {
       if (call.method == 'subscriptions.list') { reads.add(json(call.arguments)); return sources; }
       if (call.method == 'subscriptions.update') {
         updates.add(json(call.arguments));
-        return updates.length == 1 ? first.future : second.future;
+        await (updates.length == 1 ? first.future : second.future);
       }
       return null;
     });
@@ -993,7 +993,7 @@ void main() {
       selected: 3, eventController: events, handler: (call) async {
       if (call.method == 'subscriptions.update') {
         updates.add(json(call.arguments));
-        if (updates.length == 1) return pending.future;
+        if (updates.length == 1) { await pending.future; }
       }
       return null;
     });
@@ -1028,7 +1028,7 @@ void main() {
     final updates = <String>[];
     await _mount(tester, profiles: [_remote, {..._local, 'subscriptions': [{'id': 'source-a'}]}],
       eventController: events, handler: (call) async {
-      if (call.method == 'profiles.update') { updates.add(call.method); return pending.future; }
+      if (call.method == 'profiles.update') { updates.add(call.method); await pending.future; }
       if (call.method == 'subscriptions.update') updates.add(call.method);
       return null;
     });

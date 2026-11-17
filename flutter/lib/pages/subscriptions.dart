@@ -25,11 +25,12 @@ Future<bool> openSubscriptionImport(BuildContext context, [Json initial = const 
   if (profile == null) { box.report(StateError(context.tr('Select a profile first'))); return false; }
   final profileId = box.selectedProfileId, snapshot = box.selectedProfileNodes;
   final profileName = profileDisplayName(context, profile);
+  final unavailable = context.tr('Profile revision unavailable');
   final revision = snapshot['profileId'] == profileId ? snapshot['profileRevision'] : null;
   try {
     final profileRevision = revision is String && revision.isNotEmpty ? revision
       : json(await box.call('nodes.list', {'profileId': profileId}))['profileRevision'];
-    if (profileRevision is! String || profileRevision.isEmpty) throw StateError(context.tr('Profile revision unavailable'));
+    if (profileRevision is! String || profileRevision.isEmpty) throw StateError(unavailable);
     if (!context.mounted) return false;
     return await openForm<bool>(context, SubscriptionForm(
       profileId: profileId, profileRevision: profileRevision, profileName: profileName, initial: initial,
@@ -73,7 +74,7 @@ class _SubscriptionFormState extends State<SubscriptionForm> {
   }
 
   ({String field, String message})? get _issue {
-    if (_name.text.trim().isEmpty) return (field: 'name', message: context.tr('Name') + ': ' + context.tr('Required'));
+    if (_name.text.trim().isEmpty) return (field: 'name', message: '${context.tr('Name')}: ${context.tr('Required')}');
     final uri = Uri.tryParse(_url.text.trim());
     if (uri == null || !['http', 'https'].contains(uri.scheme) || uri.host.isEmpty) {
       return (field: 'url', message: context.tr('Node subscription URL'));
@@ -225,17 +226,17 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
   Future<void> _add() async {
     if (_adding || _busy.isNotEmpty || context.box.selectedProfileId != _profileId || context.box.remote) return;
     setState(() => _adding = true);
-    try { if (await openSubscriptionImport(context) && mounted) await _load(); }
+    try { if (await openSubscriptionImport(context) && mounted) { await _load(); } }
     finally { if (mounted) setState(() => _adding = false); }
   }
 
   @override Widget build(BuildContext context) {
     final box = context.box;
     final busy = _adding || _busy.isNotEmpty;
-    if (box.remote) return const BoxPage(title: 'Node subscriptions',
-      children: [EmptyState('Disconnect remote session to edit local profiles')]);
-    if (!box.profiles.any((p) => p['id'] == _profileId)) return const BoxPage(title: 'Node subscriptions',
-      children: [EmptyState('Profile no longer exists')]);
+    if (box.remote) { return const BoxPage(title: 'Node subscriptions',
+      children: [EmptyState('Disconnect remote session to edit local profiles')]); }
+    if (!box.profiles.any((p) => p['id'] == _profileId)) { return const BoxPage(title: 'Node subscriptions',
+      children: [EmptyState('Profile no longer exists')]); }
     return BoxPage(title: 'Node subscriptions', loading: _loading,
       actions: [
         IconButtonData(glyph: AppGlyphs.addCircle, tooltip: context.tr('Import from URL'),

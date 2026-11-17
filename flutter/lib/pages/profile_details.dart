@@ -25,10 +25,10 @@ class _ProfileDetailsPageState extends State<ProfileDetailsPage> {
     final box = context.watchBox(BoxAspect.groups);
     final p = box.remote ? null : widget.profile == null ? box.selectedProfile : box.profiles.where((p) => p['id'] == widget.profile!['id']).firstOrNull;
     if (!box.remote && widget.profile != null && p == null) return const BoxPage(title: 'Edit', children: [EmptyState('Profile no longer exists')]);
-    if (p == null) return BoxPage(title: 'Edit', children: [DetailRows({
+    if (p == null) { return BoxPage(title: 'Edit', children: [DetailRows({
       'Name': '—', 'Remote control': box.dashboard['remote'] ?? '—',
       'Proxy groups': box.groups.length,
-    })]);
+    })]); }
     return BoxPage(title: 'Edit', actions: [
       IconButtonData(glyph: AppGlyphs.edit, tooltip: context.tr('Edit'), onPressed: () => openForm(context, ProfileForm(initial: p))),
       if (profileHasUpdates(p)) IconButtonData(glyph: AppGlyphs.sync, tooltip: context.tr('Update'),
