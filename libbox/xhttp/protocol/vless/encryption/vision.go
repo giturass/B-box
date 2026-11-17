@@ -15,15 +15,18 @@ import (
 // directly on the transport connection beneath it, so Vision works on every
 // transport (XHTTP, WebSocket, gRPC, ...) once encryption is enabled.
 //
+// The pinned sing-vmess compatibility patch keeps these addresses as pointers
+// so GC provenance is retained for unsafe.Add and Go checkptr verification.
+//
 //go:linkname visionTLSRegistry github.com/sagernet/sing-vmess/vless.tlsRegistry
-var visionTLSRegistry []func(conn net.Conn) (loaded bool, netConn net.Conn, reflectType reflect.Type, reflectPointer uintptr)
+var visionTLSRegistry []func(conn net.Conn) (loaded bool, netConn net.Conn, reflectType reflect.Type, reflectPointer unsafe.Pointer)
 
 func init() {
-	visionTLSRegistry = append(visionTLSRegistry, func(conn net.Conn) (loaded bool, netConn net.Conn, reflectType reflect.Type, reflectPointer uintptr) {
+	visionTLSRegistry = append(visionTLSRegistry, func(conn net.Conn) (loaded bool, netConn net.Conn, reflectType reflect.Type, reflectPointer unsafe.Pointer) {
 		commonConn, loaded := N.CastReader[*CommonConn](conn)
 		if !loaded {
 			return
 		}
-		return true, commonConn.Conn, reflect.TypeOf(commonConn).Elem(), uintptr(unsafe.Pointer(commonConn))
+		return true, commonConn.Conn, reflect.TypeOf(commonConn).Elem(), unsafe.Pointer(commonConn)
 	})
 }

@@ -206,7 +206,7 @@ func uiNodeXHTTPShareDownload(source *uiNodeObject) (*uiNodeObject, error) {
 	xray := false
 	for _, key := range source.keys {
 		switch uiNodeXHTTPKey(key) {
-		case "address", "network", "security", "tlssettings", "realitysettings", "xhttpsettings", "splithttpsettings":
+		case "address", "port", "network", "security", "tlssettings", "realitysettings", "xhttpsettings", "splithttpsettings":
 			xray = true
 		}
 	}

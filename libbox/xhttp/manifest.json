@@ -80,7 +80,8 @@
       "source": "protocol/vless/encryption/vision.go",
       "target": "protocol/vless/encryption/vision.go",
       "sha256": "0a39de5d89dc1254faa7207af45f2921f85369174f6b64a0004bce586e7de77a",
-      "overlay_sha256": "0a39de5d89dc1254faa7207af45f2921f85369174f6b64a0004bce586e7de77a"
+      "overlay_sha256": "19d41f44c939f58dbee05107f5ec3a31639fefd19e41fa4ba774cc2d3c1d64f5",
+      "adaptation": "Match the pinned sing-vmess compatibility patch registry ABI: preserve unsafe.Pointer provenance through TLS/Encryption registration for GC and checkptr."
     },
     {
       "source": "protocol/vless/encryption/xor.go",
@@ -343,6 +344,43 @@
       "path": "libbox/ui_xhttp_test.go",
       "sha256": "45cfd7a7a140bba265ff644098a12ea213fed673a79f90095c5dced9eafd5a18",
       "adaptation": "B-box full-core lifecycle, XHTTP/VLESS Encryption/Vision TLS 1.3 transfer, configuration/schema round-trip and handshake cancellation tests; inspired by MiChongs test/vless_encryption_test.go."
+    }
+  ],
+  "dependencies": [
+    {
+      "module": "github.com/sagernet/sing-vmess",
+      "repository": "https://github.com/SagerNet/sing-vmess",
+      "version": "v0.2.9-0.20261019223527-a0c58542bd9d",
+      "commit": "a0c58542bd9d99b00ea0c3cfacce6f03cf8a4017",
+      "patch": "libbox/sing-vmess-vision-pointer.patch",
+      "patch_sha256": "42e7f3ce864d0e71736215ff858928eadeded4988b417c92bb683eec6085e2cd",
+      "files": [
+        {
+          "path": "go.mod",
+          "sha256": "9c678f70449c52c57b1bf6dc40ac5bf55c0a61e3336a8dd0d082aa352e510471"
+        },
+        {
+          "path": "vless/vision.go",
+          "sha256": "2e3dd96b5f521b16692a175c4d994c2b0aae700a7a21758d21a2c434132cc014"
+        },
+        {
+          "path": "vless/vision_utls.go",
+          "sha256": "23747cbe4fb6887a20d32f23bd7d4768a12d8d6a2bc4165a50885e3351d35545"
+        }
+      ],
+      "tests": [
+        {
+          "source": "libbox/sing-vmess/vision_pointer_test.go",
+          "target": "vless/vision_pointer_test.go",
+          "sha256": "b677a95fe51ee05d6d31bd91cd893b62b5329479d40ed272a1a6afd5be82367a"
+        },
+        {
+          "source": "libbox/sing-vmess/vision_pointer_utls_test.go",
+          "target": "vless/vision_pointer_utls_test.go",
+          "sha256": "c4fdb571513109e81490a8fa00fe4b7f807928f55eb7e827059232c925827fa3"
+        }
+      ],
+      "adaptation": "Keep TLS connection base addresses as unsafe.Pointer across registry calls; use unsafe.Add for validated bytes.Reader/bytes.Buffer fields. Install an isolated local copy of the same pinned SagerNet module; retain race/checkptr checks."
     }
   ]
 }

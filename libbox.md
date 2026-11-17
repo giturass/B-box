@@ -13,6 +13,7 @@
 | 排除 legacy 产物 | [libbox-no-legacy.patch](libbox/libbox-no-legacy.patch) | 修改上游 `cmd/internal/build_libbox/main.go`，删除 API 21 AAR 分支及只供该分支使用的 `filterTags` |
 | Android 自动重定向兼容 | [sing-tun-android-ingress.patch](libbox/sing-tun-android-ingress.patch) | 兼容 ingress discard BPF map 的 4/8 字节 value，保留接口归属检查和原值恢复 |
 | XHTTP 与 VLESS Encryption | [xhttp-vless.patch](libbox/xhttp-vless.patch)、[xhttp/](libbox/xhttp/) | 在当前核心基线上移植固定来源的 XHTTP 传输与 VLESS 加密，标准 AAR 启用 `with_xhttp` |
+| Vision 指针兼容 | [sing-vmess-vision-pointer.patch](libbox/sing-vmess-vision-pointer.patch) | 固定 sing-vmess 副本的 TLS/Encryption 注册保留 Go 指针来源，缓冲字段经布局核对后用 `unsafe.Add` 访问，兼容 race/checkptr |
 | Cloudflare WARP MASQUE | [warp-masque.patch](libbox/warp-masque.patch)、[masque/](libbox/masque/) | 新增 `masque` 出站，适配 WARP 的 ECDSA 认证、公钥固定、HTTP/3 datagram 与 HTTP/2 capsule |
 | 运行时内存绑定 | [ui_dashboard.go](libbox/ui_dashboard.go) | 读取 Go 运行时内存和 goroutine 数，提供释放内存操作 |
 | HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码与完整响应，通过 `UIHTTPTask` 传播 Android 取消，供备份及 Release 元数据使用 |
@@ -500,7 +501,7 @@ Cron：
 - [script_cron_test.go](libbox/httpdebug/script_cron_test.go)：脚本独立校验且校验不执行 Cron，Cron 语法/时区/DST，HTTP 回调与证书校验，仅含 Cron 的配置不拦截 HTTP，记录开关不重建调度，停服取消在途请求。
 - [script_cron_queue_test.go](libbox/httpdebug/script_cron_queue_test.go)：通过阻塞路由拨号控制脚本完成顺序，检查不同任务并行运行、同一任务未完成时的重复触发合并且不重叠、单次超时不影响其他任务和后续调度，以及关闭时取消并等待全部调用、不保留待运行任务。
 
-XHTTP 与 VLESS Encryption 的独立传输、加密与 race 回归由同一 core job 分别在 `with_xhttp` 和 `with_xhttp,with_quic,with_utls` 下运行 `./transport/v2rayxhttp ./protocol/vless/encryption`；范围见 [XHTTP 与 VLESS Encryption](#xhttp-与-vless-encryption)。
+XHTTP 与 VLESS Encryption 的独立传输、加密与 race 回归由同一 core job 分别在 `with_xhttp` 和 `with_xhttp,with_quic,with_utls` 下运行 `./transport/v2rayxhttp ./protocol/vless/encryption`。同一步骤以 `with_utls` 和 race 运行 sing-vmess 的 `^TestBboxVision`，检查标准/uTLS 缓冲及非法字段布局。安装器对当前固定 SagerNet/sing-vmess 版本应用最小指针补丁，副本位于 `.core/.b-box/sing-vmess` 并由本地 replace 引用；模块缓存、依赖来源及版本不变，保留 Go `checkptr` 检查。具体来源及哈希见 [SOURCE.md](libbox/xhttp/SOURCE.md)；传输范围见 [XHTTP 与 VLESS Encryption](#xhttp-与-vless-encryption)。
 
 ### 升级核心
 

@@ -1,0 +1,75 @@
+--- a/vless/vision.go
++++ b/vless/vision.go
+@@ -21,15 +21,15 @@
+ 	N "github.com/sagernet/sing/common/network"
+ )
+ 
+-var tlsRegistry []func(conn net.Conn) (loaded bool, netConn net.Conn, reflectType reflect.Type, reflectPointer uintptr)
++var tlsRegistry []func(conn net.Conn) (loaded bool, netConn net.Conn, reflectType reflect.Type, reflectPointer unsafe.Pointer)
+ 
+ func init() {
+-	tlsRegistry = append(tlsRegistry, func(conn net.Conn) (loaded bool, netConn net.Conn, reflectType reflect.Type, reflectPointer uintptr) {
++	tlsRegistry = append(tlsRegistry, func(conn net.Conn) (loaded bool, netConn net.Conn, reflectType reflect.Type, reflectPointer unsafe.Pointer) {
+ 		tlsConn, loaded := N.CastReader[*tls.Conn](conn)
+ 		if !loaded {
+ 			return
+ 		}
+-		return true, tlsConn.NetConn(), reflect.TypeOf(tlsConn).Elem(), uintptr(unsafe.Pointer(tlsConn))
++		return true, tlsConn.NetConn(), reflect.TypeOf(tlsConn).Elem(), unsafe.Pointer(tlsConn)
+ 	})
+ }
+ 
+@@ -69,7 +69,7 @@
+ 	var (
+ 		loaded         bool
+ 		reflectType    reflect.Type
+-		reflectPointer uintptr
++		reflectPointer unsafe.Pointer
+ 		netConn        net.Conn
+ 	)
+ 	for _, tlsCreator := range tlsRegistry {
+@@ -81,14 +81,20 @@
+ 	if !loaded {
+ 		return nil, E.New("vision: not a valid supported TLS connection: ", reflect.TypeOf(tlsConn))
+ 	}
+-	input, _ := reflectType.FieldByName("input")
+-	rawInput, _ := reflectType.FieldByName("rawInput")
++	if reflectPointer == nil || reflectType == nil || reflectType.Kind() != reflect.Struct {
++		return nil, E.New("vision: invalid supported TLS connection layout")
++	}
++	input, hasInput := reflectType.FieldByName("input")
++	rawInput, hasRawInput := reflectType.FieldByName("rawInput")
++	if !hasInput || !hasRawInput || input.Type != reflect.TypeOf(bytes.Reader{}) || rawInput.Type != reflect.TypeOf(bytes.Buffer{}) {
++		return nil, E.New("vision: invalid supported TLS connection buffer layout")
++	}
+ 	return &VisionConn{
+ 		Conn:     conn,
+ 		reader:   bufio.NewChunkReader(conn, xrayChunkSize),
+ 		writer:   bufio.NewVectorisedWriter(conn),
+-		input:    (*bytes.Reader)(unsafe.Pointer(reflectPointer + input.Offset)),
+-		rawInput: (*bytes.Buffer)(unsafe.Pointer(reflectPointer + rawInput.Offset)),
++		input:    (*bytes.Reader)(unsafe.Add(reflectPointer, input.Offset)),
++		rawInput: (*bytes.Buffer)(unsafe.Add(reflectPointer, rawInput.Offset)),
+ 		netConn:  netConn,
+ 		logger:   logger,
+ 
+--- a/vless/vision_utls.go
++++ b/vless/vision_utls.go
+@@ -13,14 +13,14 @@
+ )
+ 
+ func init() {
+-	tlsRegistry = append(tlsRegistry, func(conn net.Conn) (loaded bool, netConn net.Conn, reflectType reflect.Type, reflectPointer uintptr) {
++	tlsRegistry = append(tlsRegistry, func(conn net.Conn) (loaded bool, netConn net.Conn, reflectType reflect.Type, reflectPointer unsafe.Pointer) {
+ 		uConn, loaded := N.CastReader[*utls.UConn](conn)
+ 		if loaded {
+-			return true, uConn.NetConn(), reflect.TypeOf(uConn.Conn).Elem(), uintptr(unsafe.Pointer(uConn.Conn))
++			return true, uConn.NetConn(), reflect.TypeOf(uConn.Conn).Elem(), unsafe.Pointer(uConn.Conn)
+ 		}
+ 		tlsConn, loaded := N.CastReader[*utls.Conn](conn)
+ 		if loaded {
+-			return true, tlsConn.NetConn(), reflect.TypeOf(tlsConn).Elem(), uintptr(unsafe.Pointer(tlsConn))
++			return true, tlsConn.NetConn(), reflect.TypeOf(tlsConn).Elem(), unsafe.Pointer(tlsConn)
+ 		}
+ 		return
+ 	})

@@ -66,6 +66,22 @@ func TestUINodeXHTTPShareDownloadSettings(t *testing.T) {
 	if download.text("server") != "native.example" || download.text("bind_interface") != "test0" || download.get("host") != nil || download.text("path") != "/native" {
 		t.Errorf("native download inherited upload fields or lost dialer settings: %s", uiNodeTestText(download))
 	}
+	for _, item := range []struct{ extra, want string }{
+		{`{"downloadSettings":{"port":8443}}`, `{"server_port":8443}`},
+		{`{"download_settings":{"server_port":8443}}`, `{"server_port":8443}`},
+		{`{"downloadSettings":{}}`, `{}`},
+	} {
+		node, err := uiNodeLinkParse("vless://" + uiNodeTestUUID + "@upload.example:443?type=xhttp&path=/up&extra=" + url.PathEscape(item.extra))
+		if err != nil {
+			t.Fatalf("download with inherited address: %s, error=%v", item.extra, err)
+		}
+		if download := node.object("transport").get("download_settings"); !uiNodeEqual(download, uiNodeTestJSON(t, item.want)) {
+			t.Errorf("download port changed or inherited XHTTP upload fields: %s", uiNodeTestText(download))
+		}
+		if err := CheckConfig(uiNodeTestText(uiNodeOf("outbounds", []any{node}))); err != nil {
+			t.Errorf("download with inherited address failed core validation: %s, error=%v", item.extra, err)
+		}
+	}
 }
 
 func TestUINodeXHTTPClashDownloadInheritance(t *testing.T) {

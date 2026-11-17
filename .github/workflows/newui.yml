@@ -47,6 +47,7 @@ jobs:
       - name: XHTTP transports and VLESS Encryption handshake and Vision regressions
         working-directory: .core
         run: |
+          go test -race -tags=with_utls -ldflags=-checklinkname=0 github.com/sagernet/sing-vmess/vless -run '^TestBboxVision' -count=1
           go test -race -tags=with_xhttp -ldflags=-checklinkname=0 ./transport/v2rayxhttp ./protocol/vless/encryption -count=1 -timeout=5m
           go test -race -tags=with_xhttp,with_quic,with_utls -ldflags=-checklinkname=0 ./transport/v2rayxhttp ./protocol/vless/encryption -count=1 -timeout=5m
       - name: WARP MASQUE authentication, HTTP/2 and HTTP/3 tunnel regressions
