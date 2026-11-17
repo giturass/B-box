@@ -16,7 +16,7 @@
 | 运行时内存绑定 | [ui_dashboard.go](libbox/ui_dashboard.go) | 读取 Go 运行时内存和 goroutine 数，提供释放内存操作 |
 | HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码与完整响应，通过 `UIHTTPTask` 传播 Android 取消，供备份及 Release 元数据使用 |
 | 订阅下载绑定 | [ui_profile.go](libbox/ui_profile.go) | 可取消的完整订阅下载，失败响应不读取正文 |
-| 节点导入与配置合并 | [ui_nodes.go](libbox/ui_nodes.go)、[ui_nodes_profile.go](libbox/ui_nodes_profile.go)、[node-profile.patch](libbox/node-profile.patch) | 节点直接写入所选配置，远端更新保留本地追加节点，格式化保留配置内的本地节点注释 |
+| 节点导入与订阅更新 | [ui_nodes.go](libbox/ui_nodes.go)、[ui_nodes_profile.go](libbox/ui_nodes_profile.go)、[ui_nodes_subscription.go](libbox/ui_nodes_subscription.go)、[node-profile.patch](libbox/node-profile.patch) | 节点直接写入所选配置，远端订阅只更新代理节点并保留本地配置和追加节点，格式化保留配置内的本地节点注释 |
 | 出口探测绑定 | [ui_egress.go](libbox/ui_egress.go) | 可取消的设备网络/运行中路由探测、出口 IP 多源查询与质量请求传输 |
 | 路由生命周期 | [ui_route.go](libbox/ui_route.go) | 出口探测与脚本共用路由准入、取消及退出等待，包含脚本指定出站的拨号 |
 | 正则取消 | [regexp2-cancel.patch](libbox/regexp2-cancel.patch)、[goja-regexp-cancel.patch](libbox/goja-regexp-cancel.patch) | 将请求取消和 VM 中断传入回溯执行，不对不同请求共用可变期限 |
@@ -28,15 +28,25 @@
 
 ### 节点导入与配置合并
 
-[ui_nodes_parse.go](libbox/ui_nodes_parse.go) 的 `ParseUINodes` 读取节点分享 URI、Base64 订阅、Clash 节点列表、SIP008、wg-quick 以及 sing-box 出站/端点，返回节点、逐项拒绝原因和完整配置提示。节点按当前核心的出站及端点注册表判断协议，并经过选项解码和构造检查；Clash 内容只作为用户明确导入的节点来源，不作为应用配置或静默转换整份 Clash 配置。WireGuard 保存在 `endpoints`，服务端、Tailscale、代理组及 direct 不作为可导入代理节点。
+[ui_nodes_parse.go](libbox/ui_nodes_parse.go) 的 `ParseUINodes` 读取节点分享 URI、Base64 订阅、Clash 节点列表、SIP008、wg-quick 以及 sing-box 出站/端点，返回节点、逐项拒绝原因和完整配置提示。节点按当前核心的出站及端点注册表判断协议，并经过选项解码和构造检查；Clash 内容只作为节点来源，不作为应用配置或静默转换整份 Clash 配置。WireGuard 保存在 `endpoints`，服务端、Tailscale、代理组及 direct 不作为可导入代理节点。
 
 `AddUIConfigNodes(config, nodes, defaultProfile)` 返回 `UIConfigNodeUpdate` 的 `Config`、`Added`、`Skipped`，直接追加到所选配置的 `outbounds` / `endpoints`。重名的新节点按“名称 2”等空闲名称保存，并同步改写同批节点之间的 detour 引用；重复导入相同节点跳过。可用节点加入配置中的 selector/urltest，未解析、循环或通过代理组的 detour 不自动加入组，以避免分组产生循环。`GetUINode(config, tag)` 返回单节点的 `endpoint` 和格式化 `content`；`SetUIConfigNode` 修改配置节点及所有旧名称引用，`RemoveUIConfigNodes` 清理成员和默认选择，其他引用仍在使用时拒绝删除。
 
 本地追加的节点名称以配置开头的 `// b-box-local-nodes: ["名称"]` JSON 注释保存。sing-box 原生 JSON 解码忽略该注释，`CheckConfig` 和服务直接读取完整配置；没有额外运行时展开、共享节点库或节点来源绑定。标记随配置分享、导出与备份保留，单节点改名及删除同步更新它。`PreserveUIConfigNodes(previous, edited)` 在平台 JSON 编辑移除注释后保留仍存在的本地节点标签；`edited` 自带标记时以它为准，空数组同样有效。[node-profile.patch](libbox/node-profile.patch) 修改原有 `FormatConfig` 的返回路径，使标准格式化调用也保留标记。Android 持久化与修订检查见 [应用配置写入](app.md#配置服务应用与备份)。
 
-`MergeUIConfigNodes(current, incoming)` 以远端新配置为主体，只追加旧配置中标记为本地添加且仍存在的节点。远端节点保留原名称，本地冲突节点另取空闲名称，节点链及新增组成员使用调整后的名称；不会保留上游已删除的旧节点。保留的本地节点引用已消失的出站/端点时，合并返回错误，由应用保留原文件并报告失败。远端传入的本地标记被清空，不会凭订阅内容产生本地所有权；合并后的标记为权威结果，防止保存时把旧标签重新标到远端同名节点。未涉及任何本地标记的普通远端刷新原样保留正文，包括注释及大段空白，不作额外重编码。
+`ApplyUISubscriptionNodes(current, subscription, previousTags, defaultProfile)` 把一个 URL 来源的节点写入现有选中配置，返回 `UISubscriptionNodeUpdate` 的 `Config`、`Tags` 和 `Added`；`Tags` 是实际保存名称的 JSON 数组。新增来源传入 `[]`，只追加节点并保留全部现有节点；更新传入该来源上次的 `Tags`，只替换这些名称对应的代理节点，不删除其他来源、本地标记节点或非代理出站/端点。配置内容及来源名称由 Android 在同一成功提交中保存，来源数据及应用/恢复流程见 [应用配置写入](app.md#配置服务应用与备份)。此接口要求 `current` 已存在，不创建配置或独立节点库。
 
-`GetUIDefaultConfig` 提供无账号的合法 sing-box 模板：proxy 默认包含 auto，auto 在未添加节点时使用 direct。`AddUIConfigNodes` / `RemoveUIConfigNodes` 的 `defaultProfile=true` 仅调整该默认模板的 auto 组：追加节点后 direct 单成员改为检测代理节点，删除最后一个节点时恢复配置中已有 direct。普通配置及远端合并保留明确声明的 direct 成员，缺少合法成员时仍拒绝删除。默认配置的显示及配置卡片布局由 [Flutter 配置页](flclash.md#导航与交互约定) 维护。
+订阅只读取上述格式中的实际代理节点，忽略 DNS、路由、入站、代理组、配置处理和本地标记，不读取提供者、覆写或脚本。sing-box JSON 只把 `outbounds` / `endpoints` 交给节点解析，其他根级 `servers`、`proxies` 或提供者元数据不会抢先改变格式判断。WireGuard、原生 `masque-client` 等代理端点按当前注册表保留在 `endpoints`；Tailscale 和服务端等基础设施仍保留原配置能力，不作为订阅代理导入。没有可用节点、含非法或不支持的节点以及失效或循环 detour 时返回具体错误，不能静默保存部分节点。
+
+订阅更新保留已有节点原名称，订阅节点与已有名称冲突时另取“名称 2”等空闲名称，并同步调整本批 detour。节点可以通过当前配置保留的本地节点、其他来源节点或 direct 拨号；通过本地代理组的节点不自动加入组，避免分组产生循环。更新后直接或间接通过代理组拨号的代理节点也清理旧成员关系，包括仍依赖本次更新节点的其他来源和本地节点；节点内容保留，direct 和嵌套组成员保留，组没有合法成员时更新失败。订阅自行定义但已丢弃的代理组只能报错，不能误绑定当前配置的同名组。每轮先移除本来源旧代理再添加新节点，重复更新不会持续增加重名节点。组成员保留仍有效的原顺序，清理已消失名称后追加新名称；失效的默认选择清理，明确声明的 direct 成员保留。`defaultProfile` 由当前配置的默认身份决定，仅默认配置的 auto/direct 单成员 fallback 会改为检测来源节点。路由、DNS、本地节点或其他来源仍直接引用已消失节点时整个更新失败，不删除用户规则。订阅节点不获得本地标记，完整 `CheckConfig` 和原子保存由 Android 共用流程完成。
+
+`RetainUISubscriptionNodes(current, tags)` 在移除来源时把仍存在的代理节点加入本地标记，仅改注释，保留文件正文和节点内容，后续来源或旧远端更新不会删除这些节点。缺失名称和非代理节点不获得本地标记。`UpdateUISubscriptionNodes(current, subscription)` 保留旧单 URL 远端配置的兼容行为：替换全部非本地代理，空 `current` 使用默认配置；多来源应用使用 `ApplyUISubscriptionNodes` 按来源维护所有权。`MergeUIConfigNodes(current, incoming)` 仍保留原兼容绑定，新来源不通过它覆盖整份配置。
+
+行为核对参考 Throne `dev` 的固定提交 [`48273be2870fd2c81059628ff2cc439ac711808e`](https://github.com/throneproj/Throne/tree/48273be2870fd2c81059628ff2cc439ac711808e)：[SubscriptionParser.cpp](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/src/configs/sub/SubscriptionParser.cpp#L267) 识别 `outbounds` / `endpoints` 并分别遍历代理，跳过基础设施类型；[Protocols.cpp](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/src/configs/common/Protocols.cpp#L95) 包含 WireGuard / MASQUE 的解析能力。B-box 将节点写入选中配置，由本仓库独立实现，未复制 Throne 代码或引入其依赖，无新增许可归属。
+
+[ui_nodes_subscription_test.go](libbox/ui_nodes_subscription_test.go) 覆盖配置设置保留、分享 URI/Base64/sing-box/Clash/SIP008/wg-quick、严格拒绝无效更新、组成员清理、本地/来源重名及 detour、重复更新、双来源更新隔离、来源移除转本地、WireGuard/MASQUE 端点及元数据不改变端点格式。测试源码及静态检查不代表真实订阅网络已经验收。
+
+`GetUIDefaultConfig` 提供无账号的合法 sing-box 模板：proxy 默认包含 auto，auto 在未添加节点时使用 direct。`AddUIConfigNodes` / `RemoveUIConfigNodes` 的 `defaultProfile=true` 仅调整该默认模板的 auto 组：追加节点后 direct 单成员改为检测代理节点，删除最后一个节点时恢复配置中已有 direct。普通配置及已有远端配置保留明确声明的 direct 成员，缺少合法成员时仍拒绝删除。默认配置的显示及配置卡片布局由 [Flutter 配置页](flclash.md#导航与交互约定) 维护。
 
 ### Cloudflare WARP MASQUE
 
@@ -76,7 +86,7 @@ B-box 新增 `outbounds` 中的 `type: "masque"`，复用当前上游 MASQUE 的
 - `UIWebDAVRequest` 支持 GET、PUT、OPTIONS、MKCOL，使用上游 HTTP 客户端的证书库和 Modern TLS，完整读取请求/响应，不设固定容量或下载时限。
 - WebDAV 不跨源转发凭据和正文，不接受 HTTPS 降级；会改变请求方法的重定向交回调用方判断，防止把失败写入报告为成功。
 - `UIHTTPGet` 用于匿名 Release 元数据 GET；`UIHTTPGetWithTimeout` 接受可表示为 Go duration 的正整数毫秒，`-1` 不增加期限，响应不设固定容量上限。调用方可传入剩余时限，让一轮查询共享期限。两者允许访问重定向后的资产地址，剥离凭据头且禁止 HTTPS 降级；取消关闭在途请求及响应正文。Android 使用生成绑定 `Libbox.uihttpGetWithTimeout`，版本查询调度与缓存见 [app.md](app.md#已移除能力与兼容入口)。
-- `UIProfileGet` 用于 sing-box JSON 订阅，完整读取实际响应及 gzip 解压后的内容，不设固定容量或总时限。保留 SFA User-Agent、URL 认证、证书库及 Modern TLS；非 HTTP 200 只报告状态并关闭正文。重定向检测重复的 URL 与方法，不按固定次数拒绝。
+- `UIProfileGet` 下载订阅原始文本，完整读取实际响应及 gzip 解压后的内容，不设固定容量或总时限；节点解析及按来源配置合并由上述 `ApplyUISubscriptionNodes` 完成。保留 SFA User-Agent、URL 认证、证书库及 Modern TLS；非 HTTP 200 只报告状态并关闭正文。重定向检测重复的 URL 与方法，不按固定次数拒绝。
 - Android 订阅/WebDAV 使用 `NewUIHTTPTask` 的 `ProfileGet` / `WebDAVRequest`；协程取消立即调用 `Close`，使正在等待响应头、正文或 TLS 握手的阻塞绑定退出。原静态绑定保留兼容。没有 B-box 的固定 TLS 握手期限；调用方期限与取消继续生效。
 
 [ui_profile_test.go](libbox/ui_profile_test.go) 和 [ui_http_test.go](libbox/ui_http_test.go) 覆盖订阅认证/重定向、超过原容量的声明长度/分块/gzip 正文、WebDAV 大文件、等待响应头/正文时的取消、调用方期限、错误响应不读正文，以及非法地址和重定向循环；通过统一测试工作流的 `TestUI` 入口运行。

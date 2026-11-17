@@ -5,6 +5,7 @@ import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
+import io.nekohasekai.sfa.database.ProfileNodeSubscription
 import io.nekohasekai.sfa.database.RemoteServer
 import io.nekohasekai.sfa.database.RemoteServerManager
 import io.nekohasekai.sfa.database.Settings
@@ -85,6 +86,9 @@ internal class BoxBackups(
             entry["default"]?.let { require(it is Boolean) { "Invalid default profile option" } }
             require(entry["default"] != true || url.isEmpty()) { "Default profile must be local" }
             entry["updatedAt"]?.let { require(integer(it, 0)) { "Invalid update timestamp" } }
+            val subscriptions = ProfileNodeSubscription.read(entry["subscriptions"])
+            val tags = if (subscriptions.isNotEmpty()) ProfileNodeSubscription.proxyTags(entry["content"] as String).toSet() else emptySet()
+            require(subscriptions.all { source -> source.tags.all { it in tags } }) { "Subscription node is missing from the profile" }
         }
         require(entries.count { it["default"] == true } <= 1) { "Backup contains duplicate default profiles" }
         val keys = entries.mapNotNull { it["key"] }
@@ -238,6 +242,7 @@ internal class BoxBackups(
                 profile.typed.autoUpdate = url.isNotEmpty() && entry["autoUpdate"] == true
                 profile.typed.autoUpdateInterval = (entry["interval"] as? Number)?.toInt() ?: 60
                 profile.typed.lastUpdated = Date((entry["updatedAt"] as? Number)?.toLong() ?: 0L)
+                profile.typed.subscriptions = ProfileNodeSubscription.read(entry["subscriptions"])
                 profile.userOrder = if (overriding) index.toLong() else existing?.userOrder ?: nextOrder++
                 if (existing == null) ProfileManager.create(profile) else ProfileManager.update(profile)
                 restored.add(profile)
@@ -386,6 +391,7 @@ internal class BoxBackups(
                 autoUpdate = profile.typed.autoUpdate
                 autoUpdateInterval = profile.typed.autoUpdateInterval
                 isDefault = profile.typed.isDefault
+                subscriptions = profile.typed.subscriptions.map { it.copy(tags = it.tags.toList()) }
             }
             return Profile(profile.id, profile.userOrder, profile.name, profile.icon, typed)
         }

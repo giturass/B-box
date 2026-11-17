@@ -88,6 +88,9 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private val nodes = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) {
         recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
     }
+    private val subscriptions = BoxNodeSubscriptions(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) {
+        recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
+    }
     private val capture = BoxCapture(activity)
     private val qrScanner = BoxQrScanner(profiles::decode)
     private val preferences = activity.getSharedPreferences("flclash_ui", 0)
@@ -227,6 +230,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             "service" -> invokeService(method, args)
             "profiles" -> invokeProfiles(method, args)
             "nodes" -> invokeNodes(method, args)
+            "subscriptions" -> invokeSubscriptions(method, args)
             "capture" -> invokeCapture(method, args)
             "groups", "mode", "systemProxy" -> invokeProxy(method, args)
             "connections" -> invokeConnections(method, args)
@@ -382,7 +386,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
 
     private suspend fun saveProfile(args: Map<String, Any?>): Long {
         val session = CommandTarget.localSession()
-        // URL imports download before entering the operation lock.
+        // Validate supplied configuration content before entering the operation lock.
         val prepared = withContext(Dispatchers.IO) { profiles.prepareSave(args) }
         return changeProfiles(session) { profiles.savePrepared(prepared) { CommandTarget.requireLocalSession(session) } }
     }
@@ -444,6 +448,28 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 mapOf("name" to (uri.host ?: "Profile"), "url" to value)
             }
             else -> withContext(Dispatchers.IO) { decodeDocument(uri) }
+        }
+    }
+
+    private suspend fun invokeSubscriptions(method: String, args: Map<String, Any?>): Any? {
+        val session = CommandTarget.localSession()
+        return when (method) {
+            "subscriptions.list" -> localProfiles(session) { subscriptions.list(args.long("profileId")) }
+            "subscriptions.import" -> {
+                val prepared = localProfiles(session) { subscriptions.prepareImport(args) }
+                val content = withContext(Dispatchers.IO) { subscriptions.downloadImport(prepared) }
+                changeProfiles(session) { subscriptions.commitImport(prepared, content) { CommandTarget.requireLocalSession(session) } }
+            }
+            "subscriptions.update" -> {
+                val snapshot = localProfiles(session) { subscriptions.prepareUpdate(args.long("profileId"), args.string("id")) }
+                val content = withContext(Dispatchers.IO) { subscriptions.downloadUpdate(snapshot) }
+                changeProfiles(session) { subscriptions.commitUpdate(snapshot, content) { CommandTarget.requireLocalSession(session) } }
+            }
+            "subscriptions.save" -> changeProfiles(session) { subscriptions.save(args) { CommandTarget.requireLocalSession(session) } }
+            "subscriptions.delete" -> changeProfiles(session) {
+                subscriptions.delete(args.long("profileId"), args.string("id")) { CommandTarget.requireLocalSession(session) }
+            }
+            else -> error("Unknown subscription operation")
         }
     }
 

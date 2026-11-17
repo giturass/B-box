@@ -57,7 +57,7 @@ Flutter 从 `ready` 和配置/设置变更事件取得配置列表与设置，�
 Cloudflare WARP MASQUE 使用新增的 sing-box `masque` 出站，通过既有 JSON 导入/编辑和 `Libbox.checkConfig` 校验。字段、凭据及示例由 [核心文档](libbox.md#cloudflare-warp-masque) 维护。
 
 - 保存前检查内容修订和完整 `Libbox.checkConfig`，以原子写入替换内容。分项配置编辑原生 DNS、路由、规则集、入站、出站、端点和日志；原始 JSON 编辑保留配置元数据及订阅 URL。
-- [BoxNodes.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxNodes.kt) 将新建和导入节点直接追加到所选配置的 `outbounds` / `endpoints`，编辑及删除也只写该配置。节点操作固定配置 ID 和内容修订，在持久化前复核选择；停服可以保存，运行中沿用服务应用及失败恢复。没有共享节点库、运行时注入、独立节点订阅或对应备份数据，不读取或迁移旧共享节点。节点解析、分组成员和本地追加标记见 [核心说明](libbox.md#节点导入与配置合并)。
+- [BoxNodes.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxNodes.kt) 将新建和导入节点直接追加到所选配置的 `outbounds` / `endpoints`，编辑及删除也只写该配置。节点操作固定配置 ID 和内容修订，在持久化前复核选择；停服可以保存，运行中沿用服务应用及失败恢复。没有共享节点库或运行时注入，不读取或迁移旧共享节点；订阅来源属于当前配置文件，随其备份保存。节点解析、分组成员和本地追加标记见 [核心说明](libbox.md#节点导入与配置合并)。
 - 默认配置是带 `TypedProfile.isDefault` 身份的实际本地配置；启动和读取配置列表时检查并在缺少时创建，即使已有配置也显示。系统名称为 `Profile file`，中文显示“配置文件”；旧系统名称 `Default profile` 更新为新名称，保留用户自定义名称及内容更新时间。默认配置可以改名和编辑内容，保持本地类型并禁止删除；创建时保留已有选择，未选择配置时自动选择默认配置。备份携带默认身份，兼容恢复匹配本机默认项，旧备份没有该身份时后续补建。
 - 普通应用设置、查询策略/托管扫描结果、终端设置、配置选择及服务模式通过 [RoomPreferenceDataStore.kt](app/src/main/java/io/nekohasekai/sfa/database/preference/RoomPreferenceDataStore.kt) 的确认事务保存；只有 Room 提交成功才发布缓存并向调用方返回成功。查询策略先用于扫描，成功后与其他设置一起提交。保留的同步属性写入在失败时恢复缓存，`flush()` 报告此前尚未报告的错误，较早写入的完成或失败不能覆盖后续排队的值；服务清理与广播结束不因刷盘失败中断。字符串集合按 UTF-8 字节长度编码，支持中文及 emoji。
 - 本地配置创建时在 Room 记录时间，原始 JSON 编辑、分项配置编辑及局域网入站变更成功保存内容时更新 `lastUpdated`；无内容变化和仅编辑名称等元数据不刷新时间。保存或应用失败与内容一起恢复旧时间。远程配置的该字段仍表示订阅更新时间，手动 JSON 编辑不覆盖它；没有时间记录的旧配置保持未知。界面展示见 [flclash.md](flclash.md#配置页与内核差异)。
@@ -70,8 +70,10 @@ Cloudflare WARP MASQUE 使用新增的 sing-box `masque` 出站，通过既有 J
 - 运行中重载缺少 Wi-Fi 规则所需定位权限时，RPC 返回失败并回滚旧配置，确认原服务恢复后结束操作；不会发送可能在回滚后再次启动服务的定位授权回调。初次启动仍保留系统定位授权流程，停服保存后再启动也沿用该流程。运行配置快照在权限检查成功后发布。
 - 删除配置在同一互斥区内检查最新选择，禁止删除当前选中的配置，停服时也需先切换到其他配置。拒绝操作不改文件、数据库、选择或服务；不再通过删除操作自动选择其他配置。
 - URL 导入、手动及后台订阅更新共用 [HTTPClient.kt](app/src/main/java/io/nekohasekai/sfa/utils/HTTPClient.kt) 和可取消的核心下载接口，不设固定下载容量或总时限；协程取消在阻塞的 gomobile 调用仍在运行时关闭 `UIHTTPTask`，等待网络退出，接口语义见 [HTTP 与 WebDAV](libbox.md#http-与-webdav)。网络下载在配置及桥接操作锁外执行，下载失败不进入保存或服务应用。更新提交时通过 [ProfileSubscription.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileSubscription.kt) 复核配置存在、URL、类型、路径、修订、更新时间和自动更新计划；编辑、删除或另一轮更新后的旧结果不能覆盖当前数据。桥接提交另检查本地会话身份，切换会话后的迟到下载需要重试。
-- 手动和后台远端配置更新通过 `ProfileSubscription.mergedContentLocked` 合并下载内容与当前文件里标记的本地追加节点，再统一校验、原子保存和应用。远端节点以新版本为准，不保留订阅已删除的旧节点；本地新增节点同名时重命名并更新其引用。合并后依赖不可用或配置校验/服务应用失败，保留或恢复原文件和订阅时间，不丢弃本地节点。原始 JSON 和分项编辑、资源导入及格式化保存会保留仍存在的本地追加标记；其他手动改动仍由后续远端更新覆盖。
-- [UpdateProfileWork.kt](app/src/main/java/io/nekohasekai/sfa/bg/UpdateProfileWork.kt) 在同一互斥区内完成每个订阅的保存、应用和恢复，应用失败请求重试。[BackgroundProfileService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BackgroundProfileService.kt) 通过本机服务连接确认状态，模式相同重载，模式变化及失败恢复时等待停止和 Started 回调；后台重启所需 VPN/通知权限未授予时更新失败并回滚。更新未选中配置或停服时不启动服务，远程会话不接收本机订阅的重载。
+- [BoxNodeSubscriptions.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxNodeSubscriptions.kt) 将 URL 订阅只解析为代理节点并写入导入时所选配置，不创建配置文件或独立节点库。导入固定配置 ID、路径、内容修订和来源快照，下载在桥接/文件操作锁外进行；提交再复核选择、文件、来源及会话身份。同一 URL 在该文件中重复导入更新原来源，不新增副本。每个文件可保留多个来源，分别保存稳定 ID、名称、URL、自动更新、间隔、更新时间和实际节点名称。
+- 来源更新通过 `ApplyUISubscriptionNodes` 只替换该来源拥有的代理节点，保留其他来源、本地节点及配置自己的 DNS、路由、入站、日志、分组和资源。节点改名同步来源归属，删除节点或保存配置时清理已消失名称；删除来源保留节点并转为本地归属。来源及内容由 `ProfileContent.replaceLocked` 在同一文件/Room 保存及失败恢复流程中提交，失败恢复原文件、时间和来源；不把订阅作为整份配置应用。支持格式、端点分区、重名节点及失效引用规则由 [核心节点说明](libbox.md#节点导入与配置合并) 维护。
+- [TypedProfile.kt](app/src/main/java/io/nekohasekai/sfa/database/TypedProfile.kt) 的 Parcel 版本 3 在既有字段后保存配置内的来源列表；旧版本读取为空列表，不改变 Room schema、默认文件的本地身份或原选择。已有 Remote 单 URL 配置仍经 `ProfileSubscription.mergedContentLocked` 更新节点，保护新增来源及本地节点，不覆盖配置设置；已有 `.bpf` 内容及元数据仍按完整 sing-box 配置导入。来源列表只随应用配置备份恢复，普通 JSON 导出及上游 `.bpf` 格式不额外携带多来源管理数据。
+- [UpdateProfileWork.kt](app/src/main/java/io/nekohasekai/sfa/bg/UpdateProfileWork.kt) 同时调度本地/默认配置内的自动更新来源及既有 Remote 订阅，在同一互斥区内完成每个来源的保存、应用和恢复，失败请求重试。间隔计算使用 Long 秒数，避免合法长间隔溢出。[BackgroundProfileService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BackgroundProfileService.kt) 通过本机服务连接确认状态，模式相同重载，模式变化及失败恢复时等待停止和 Started 回调；后台重启所需 VPN/通知权限未授予时更新失败并回滚。更新未选中配置或停服时不启动服务，远程会话不接收本机订阅的重载。
 - 服务设置页的 VPN 绕过、自动重定向和动态通知开关保存后，运行中的本地服务自动停止并重新走权限/启动流程，确认 Started 后完成操作。[ServiceSettingsChange.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ServiceSettingsChange.kt) 在保存或重启失败时恢复原设置，仅在设置恢复成功后尝试恢复原服务；恢复失败保留原错误与恢复错误，不启动未恢复的设置。停止状态只保存设置，远程会话不触发本机或远端重启。
 - Root 自动重定向的系统 BPF map 兼容范围和核心补丁见 [libbox.md](libbox.md#android-自动重定向兼容)。Android 桥接继续沿用上游的启动、错误传递及 Root 服务死亡清理流程。
 - 局域网代理使用 libbox 原生入站变换，不引入全局 Clash 端口设置。运行时端点来自已成功启动的配置快照，避免将保存失败或未应用的配置显示为正在监听。
@@ -132,7 +134,7 @@ Root/eBPF 采集器、目标 TLS 库发现、FD 会话和手动函数偏移已�
 
 ### 配置处理生命周期
 
-`experimental.mitm`、`experimental.scripts` 和 `experimental.http_rewrite` 相互独立；字段、迁移及执行范围由 [libbox.md](libbox.md#独立-mitm-配置) 维护。规则与资源随原始 JSON 编辑、分项配置编辑、分享、订阅更新及配置备份保存，本机记录设置、CA 与记录继续留在设备私有目录。
+`experimental.mitm`、`experimental.scripts` 和 `experimental.http_rewrite` 相互独立；字段、迁移及执行范围由 [libbox.md](libbox.md#独立-mitm-配置) 维护。规则与资源随原始 JSON 编辑、分项配置编辑、分享及配置备份保存；订阅更新只替换代理节点，保留配置原有处理设置。本机记录设置、CA 与记录继续留在设备私有目录。
 
 [BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 启动/重载时调用 `NeedsUIMITMCA`，只有启用且非空的 MITM 域名配置要求 CA。OverrideOptions 的 ProcessingDirectory/MitmCertificate/MitmSigner 传入私有路径、公钥证书及 Keystore 回调，ScriptTimezone 传入设备时区，ProcessingProfileDirectory 传入当前实际配置文件的父目录，供相对文件资源解析。缺少所需 CA 时明确失败，不自动生成或安装。
 
@@ -144,7 +146,7 @@ libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理�
 
 一元 gRPC 脚本的 `grpc_mode` 与空响应快捷动作使用同一 JSON 校验、格式化和保存通路，不新增平台绑定或模块导入入口。HTTP/2、消息与 trailers 处理及脚本宿主行为见 [一元 gRPC 正文脚本](libbox.md#一元-grpc-正文脚本)；脚本主动 abort 关闭当前 HTTP/1 连接或 HTTP/2 流，请求页仍保留实际错误记录。
 
-脚本持久数据保存在私有 `noBackupFilesDir/http-debug/captures/script-storage/`，使用默认共享或显式命名空间；URL 资源缓存位于同级 `resource-cache/`。二者不设固定容量配额；清空记录、启停录制不删除它们，处理配置激活时只回收已无引用的资源缓存及未提交临时文件。脚本持久数据不会因移除规则或重载自动删除。配置/订阅/备份携带资源引用、命名空间和联网限制，实际存储值和下载缓存留在本机，不加入配置导出、应用备份或系统自动备份；应用内备份也不额外打包引用的本地文件。原子提交及失败保留旧缓存分别见 [存储](libbox.md#脚本持久存储)和[资源加载](libbox.md#文件和-url-资源加载)。
+脚本持久数据保存在私有 `noBackupFilesDir/http-debug/captures/script-storage/`，使用默认共享或显式命名空间；URL 资源缓存位于同级 `resource-cache/`。二者不设固定容量配额；清空记录、启停录制不删除它们，处理配置激活时只回收已无引用的资源缓存及未提交临时文件。脚本持久数据不会因移除规则或重载自动删除。配置/备份携带资源引用、命名空间和联网限制，订阅不会导入或覆盖这些设置。实际存储值和下载缓存留在本机，不加入配置导出、应用备份或系统自动备份；应用内备份也不额外打包引用的本地文件。原子提交及失败保留旧缓存分别见 [存储](libbox.md#脚本持久存储)和[资源加载](libbox.md#文件和-url-资源加载)。
 
 所有保存继续经过 ProfileContent 修订检查、完整 Libbox.checkConfig、原子写入及失败恢复。配置应用、恢复和后台启动使用同一入口；失败不能留下部分生效的处理或被报告为启动成功。旧嵌套配置的保守迁移见 [核心说明](libbox.md#旧抓包配置清理)。
 
@@ -215,8 +217,9 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 以下用例使用实际 libbox AAR，由 smoke 矩阵的原生组在每个环境运行。模拟器中的自有客户端和本地测试服务器不代表第三方目标应用信任、真实网络或 Root 模块已经实机通过。
 
-- **配置应用与恢复：** [ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/手动与自动订阅/完整备份恢复失败，以及停服和未选中配置更新的服务状态；另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。`failedSelectionRestoresThePreviousSelectionAndService` 连续五轮核对选配置失败恢复、停止释放核心及重新启动，防止服务清理竞态污染后续用例。
+- **配置应用与恢复：** [ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/完整备份恢复失败、注入的订阅应用失败恢复，以及停服和未选中配置更新的服务状态；另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。`failedSelectionRestoresThePreviousSelectionAndService` 连续五轮核对选配置失败恢复、停止释放核心及重新启动，防止服务清理竞态污染后续用例。
 - **默认文件：** `defaultProfileStaysAvailableAlongsideExistingProfiles` 检查默认文件与其他配置一同显示、持久身份及删除限制；旧系统名称更新保持内容和更新时间，自定义名称及当前选择保留。
+- **配置内订阅来源：** 覆盖 URL 导入保持所选默认文件的本地身份且不创建文件、Clash/Base64/WireGuard 端点、空或混合非法来源拒绝、多来源及本地节点隔离、改名/删除后的归属、下载期间选择和内容冲突、来源编辑后旧下载拒绝、移除来源保留本地节点、Parcel/备份回读，以及来源和内容的应用失败恢复。本地/默认文件的自动更新成功及失败重试也使用实际绑定验证；测试代码存在不等于当前源码已通过，运行结果见下文记录。
 - **配置时间与日志级别：** `localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。`logLevelFollowsSuccessfulConfigurationReloads` 覆盖真实内核日志订阅的默认级别、运行中修改 `log.level` 后刷新，以及移除该字段后恢复当前核心的默认值。
 - **订阅下载、备份回滚与删除：** 覆盖超过旧 16 MiB 阈值的订阅完成 URL 导入、手动及自动更新并保留服务状态，以及协程取消阻塞中的原生下载。取消用例分别从 IO/Default 调度器发起，共连续执行 20 次，再验证后续请求仍能成功；取消必须结束 JNI 调用且不能作为普通网络失败取消父任务。其他用例覆盖备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、大正文、取消和重定向循环由 [核心订阅测试](libbox/ui_profile_test.go) 覆盖。
 - **设置持久化：** [PreferencePersistenceTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/database/preference/PreferencePersistenceTest.kt) 使用实际 Room 检查普通设置重新读取、提交失败后的缓存恢复、后续排队值保留、取消与回滚顺序，以及 UTF-8 字符串集合；“关闭弃用警告”显式关闭后重新读取及失败恢复仍为关闭。查询策略回归在每次切换 Root/Shizuku 并刷盘后重新打开 Room 数据库读取持久值，同时核对状态流，不以读取同一内存缓存代替持久化验证。
@@ -231,10 +234,10 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 模拟器镜像名称依据 [Google SDK 系统镜像清单](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml)；16 KiB 测试方式见 [Android 官方文档](https://developer.android.com/guide/practices/page-sizes)。smoke 读取设备实际页大小，普通镜像要求 4096、`ps16k` 要求 16384，不能仅凭镜像名称记录通过。页大小优先使用 `getconf PAGE_SIZE`；旧系统缺少该命令时从 `/proc/self/smaps` 的 `KernelPageSize` 读取，并在结果中记录采集来源，不按 Android 版本猜测。所有矩阵均为临时 x86_64 模拟器，不代表 ARM64 实机或系统 CA 模块安装已验收。
 
-统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、远程 JSON 导入、VPN 授权、启停、配置文件与实际内核分组同页、底栏设置入口及进程重启后配置保留；原生组运行全部仪器测试并拒绝零测试结果。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
+统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、Clash URL 订阅导入所选默认文件、VPN 授权、启停、配置文件与实际内核分组同页、底栏设置入口及进程重启后配置保留；原生组运行全部仪器测试并拒绝零测试结果。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
 
 - **结果与日志：** `build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。每组测试在应用启动前持续采集 main/system/crash/events 日志，结束后保存 Activity 和内存状态，API 30+ 另保存该应用的系统退出记录；`am start -W` 的输出单独保存，避免启动过程被末尾日志截断。
-- **启动与导入：** 启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。导入 smoke 等待弹层保存按钮在连续两次窗口观察中位置稳定后点击，记录实际点击边界；保存后须返回带“启动”按钮及导入配置名的仪表盘，不能以表单内的预填名称作为导入成功依据。
+- **启动与导入：** 启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。导入 smoke 等待弹层保存按钮在连续两次窗口观察中位置稳定后点击，记录实际点击边界；保存后须返回保持原配置名称的仪表盘，在来源页确认订阅已持久化，并检查实际核心节点及原分组。CI 通过 loopback SOCKS5 和 ADB reverse 提供可用节点，保存 `subscription-proxy.json` 连接诊断；默认规则集及探测目标仍需 runner 能联网访问。
 - **MITM 测试服务器：** 脚本在 CI 临时目录生成独立测试服务器证书，经 ADB reverse 提供 HTTP 和原始流两个 TLS 端点，只把公钥 CA 传给仪器测试；私钥不写入仓库、设备或上传产物，套件结束删除。单独运行路由 MITM 用例需要脚本提供的 `mitmOriginPort` / `mitmTCPOriginPort` / `mitmOriginCA` 参数。
 - **存储与内存：** 模拟器数据分区统一设为 4 GiB，以容纳完整核心的测试 APK 及安装数据。API 36 / 16 KiB 另显式分配 4 GiB RAM：默认镜像曾在冷启动期间因内存水位不足杀掉前台 B-box，系统退出记录为 `LOW_MEMORY`；该矩阵用于页大小兼容验证，不是低内存压力测试。smoke job 不编译原生库，下载镜像前移除该临时 runner 上不使用的预装 NDK，为系统镜像和数据分区留空间；构建 job 的 NDK 不受影响。
 
@@ -243,6 +246,8 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 统一工作流的 `root-ca` job 在独立 Linux PID/mount namespace 中运行 [test_mitm_ca.py](tools/test_mitm_ca.py)，使用 BusyBox 和导出的原始脚本，覆盖 APEX 延迟就绪、旧系统缺少 APEX、hash 冲突和原证书保留、已有二级后代/隐藏模块路径、同一 namespace 的重新挂载、准备失败、service 重试和禁用退出。该测试只在 Actions 运行，不对本机 Android 做 Root 挂载，也不代表真实 Magisk/KernelSU/APatch 安装与重启已验收。
 
 ### 当前验证记录
+
+配置内订阅来源这轮修改已通过本机差异、源码约束、Python 语法及文档链接检查；运行验证待 GitHub Actions。下述 `a4607728af065cb46a8b0c021480988bd9531442` 记录针对此前默认文件与选中状态修改，不作为本轮订阅来源的通过声明。
 
 2026-11-17，恢复配置选中对号、调整默认文件名称及弃用警告缺省值的验证源码为 `a4607728af065cb46a8b0c021480988bd9531442`，对应 [Actions 43917329871](https://github.com/giturass/B-box/actions/runs/43917329871)，8 个作业全部通过。
 

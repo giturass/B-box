@@ -6,6 +6,7 @@ import '../components/profile_card.dart';
 import 'profile_details.dart';
 import 'nodes.dart';
 import 'proxies.dart';
+import 'subscriptions.dart';
 
 // libbox remote_profile.go stores the display name in the URL fragment.
 String remoteProfileLink(Json profile) => Uri(
@@ -26,18 +27,19 @@ class _ProfilesPageState extends State<ProfilesPage> {
     final id = (profile['id'] as num).toInt();
     if (_updating.contains(id)) return;
     setState(() => _updating.add(id));
-    try { await context.box.act('profiles.update', {'id': id}); }
+    try { await updateProfileSubscriptions(context.box, profile, canContinue: () => mounted); }
     finally { if (mounted) setState(() => _updating.remove(id)); }
   }
   Future<void> _updateAll() async {
     if (_updatingAll || _updating.isNotEmpty) return;
     final box = context.box;
-    final profiles = List<Json>.of(box.profiles).where((p) => p['remote'] == true);
+    final session = box.sessionRevision;
+    final profiles = List<Json>.of(box.profiles).where(profileHasUpdates);
     setState(() => _updatingAll = true);
     try {
       // Native profile writes share a mutex; keep updates serialized.
       for (final profile in profiles) {
-        if (!mounted || box.remote) break;
+        if (!mounted || box.remote || box.sessionRevision != session) break;
         await _update(profile);
       }
     } finally { if (mounted) setState(() => _updatingAll = false); }
@@ -66,7 +68,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
   }
   List<PopupMenuItem> _menu(Json profile) => [
     PopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => openForm(context, ProfileDetailsPage(profile: profile))),
-    if (profile['remote'] == true)
+    if (profileHasUpdates(profile))
       PopupMenuItem(glyph: AppGlyphs.sync, label: context.tr('Update'), onPressed: () => _update(profile)),
     if (profile['remote'] == true) ...[
       PopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Copy link'), onPressed: () async {
@@ -103,13 +105,13 @@ class _ProfilesPageState extends State<ProfilesPage> {
     final profiles = box.profiles;
     final emptyState = NullStatus(
       label: context.tr('No profiles yet'), illustration: NullStatusIllustration.profile,
-      description: context.tr('Import a sing-box JSON configuration to get started.'),
+      description: context.tr('Import a node subscription or sing-box JSON configuration to get started.'),
       action: AddProfileMenu(builder: (open) => TonalButton(size: TonalButtonSize.bar, glyph: AppGlyphs.addCircle,
         label: context.tr('Add profile'), onPressed: open)),
     );
     if (!widget.picker) {
       final updating = _updatingAll || _updating.isNotEmpty;
-      final updatable = profiles.any((p) => p['remote'] == true);
+      final updatable = profiles.any(profileHasUpdates);
       return ProxiesPage(
         title: 'Profiles', profileNodes: true,
         emptyState: !box.remote && profiles.isEmpty ? emptyState : null,
@@ -121,7 +123,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
           ))),
         ],
         menuItems: box.remote ? const [] : [
-          // Remote profile files, one after another.
+          // Subscription sources and legacy remote files, one after another.
           PopupMenuItem(glyph: AppGlyphs.sync, label: context.tr('Update all'),
             onPressed: updating || !updatable ? null : _updateAll),
           PopupMenuItem(glyph: AppGlyphs.sort, label: context.tr('Reorder profiles'),
@@ -250,7 +252,10 @@ Future<void> _importProfile(BuildContext context, String source) async {
 /// Opens what an import decoded: the nodes of a link or a subscription, or the form of a profile.
 Future<void> openImport(BuildContext context, Json data) async {
   final nodes = data['nodes'];
-  await openForm(context, nodes is String ? NodeImportPage(parsed: nodes) : ProfileForm(initial: data));
+  if (nodes is String) await openForm(context, NodeImportPage(parsed: nodes));
+  else if (data['url'] is String && (data['url'] as String).isNotEmpty && data['content'] == null) {
+    await openSubscriptionImport(context, data);
+  } else { await openForm(context, ProfileForm(initial: data)); }
 }
 
 class AddProfileMenu extends StatefulWidget {
@@ -276,7 +281,7 @@ class _AddProfileMenuState extends State<AddProfileMenu> {
       PopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Clipboard'), onPressed: () => _import('Clipboard')),
       PopupMenuItem(section: PopupMenuSection(title: context.tr('Profile')), glyph: AppGlyphs.cloudDownload,
         label: context.tr('Import from URL'),
-        onPressed: () => openForm(context, const ProfileForm(initial: {'url': '', 'remote': true}))),
+        onPressed: () => openSubscriptionImport(context)),
       // Without content the profile starts from the default configuration of libbox.
       PopupMenuItem(glyph: AppGlyphs.customize, label: context.tr('New profile'),
         onPressed: () => openForm(context, const ProfileForm(initial: {}))),
@@ -302,13 +307,13 @@ class _AddProfilePageState extends State<AddProfilePage> {
     title: 'Add profile', loading: _loading,
     children: [
       generateSection(items: [
-        ListItem.open(leading: const GlyphIcon(AppGlyphs.link), title: Text(context.tr('Import from URL')),
-          widget: const ProfileForm(initial: {'url': '', 'remote': true}), forceFull: false),
+        ListItem(leading: const GlyphIcon(AppGlyphs.link), title: Text(context.tr('Import from URL')),
+          onTap: _loading ? null : () => openSubscriptionImport(context)),
         for (final item in [('File', AppGlyphs.profiles), ('Clipboard', AppGlyphs.copy), ('Scan QR code', AppGlyphs.qrCode)])
           ListItem(leading: GlyphIcon(item.$2), title: Text(context.tr(item.$1)), onTap: _loading ? null : () => _import(item.$1)),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.add), title: Text(context.tr('New profile')),
           widget: const ProfileForm(initial: {}), forceFull: false),
-      ], footer: context.tr('This URL must serve a sing-box JSON configuration.')),
+      ], footer: context.tr('Supports Clash, sing-box JSON, node links and Base64. Only proxy nodes are imported from the URL; updates keep other profile settings.')),
     ],
   );
 }
@@ -342,7 +347,7 @@ class _ProfileFormState extends State<ProfileForm> {
     if (!_remote) return null;
     final uri = Uri.tryParse(_url.text.trim());
     if (uri == null || !['http', 'https'].contains(uri.scheme) || uri.host.isEmpty) {
-      return (field: 'url', message: context.tr('sing-box JSON URL'));
+      return (field: 'url', message: context.tr('Node subscription URL'));
     }
     if (_auto && (int.tryParse(_interval.text) ?? 0) < 15) {
       return (field: 'interval', message: context.tr('At least 15 minutes'));
@@ -379,13 +384,14 @@ class _ProfileFormState extends State<ProfileForm> {
           FormRow(title: context.tr('Name'), invalid: issue?.field == 'name',
             trailing: FormRowTextField(controller: _name, hintText: context.tr('Required'),
               textInputAction: TextInputAction.next, onChanged: _changed)),
-          if (widget.initial['default'] != true) FormRow(title: context.tr('Remote'), onPressed: () => setState(() => _remote = !_remote),
+          if (widget.initial['default'] != true && (widget.initial['id'] != null || widget.initial['content'] != null))
+            FormRow(title: context.tr('Remote'), onPressed: () => setState(() => _remote = !_remote),
             trailing: Switch(value: _remote, onChanged: (value) => setState(() => _remote = value))),
           if (_remote) FormRow(title: context.tr('URL'), invalid: issue?.field == 'url',
-            trailing: FormRowTextField(controller: _url, hintText: context.tr('Required'),
+            trailing: FormRowTextField(controller: _url, hintText: context.tr('Node subscription URL'),
               keyboardType: TextInputType.url, textInputAction: TextInputAction.next,
               autocorrect: false, enableSuggestions: false, onChanged: _changed)),
-        ], footer: _remote ? context.tr('This URL must serve a sing-box JSON configuration.') : null),
+        ], footer: _remote ? context.tr('Supports Clash, sing-box JSON, node links and Base64. Only proxy nodes are imported from the URL; updates keep other profile settings.') : null),
         if (_remote) generateSection(items: [
           FormRow(title: context.tr('Auto update'), onPressed: () => setState(() => _auto = !_auto),
             trailing: Switch(value: _auto, onChanged: (value) => setState(() => _auto = value))),

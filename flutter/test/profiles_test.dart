@@ -7,6 +7,8 @@ import 'package:b_box_ui/components/proxy_list.dart';
 import 'package:b_box_ui/components/page_switcher.dart';
 import 'package:b_box_ui/pages/nodes.dart';
 import 'package:b_box_ui/pages/profiles.dart';
+import 'package:b_box_ui/pages/profile_details.dart';
+import 'package:b_box_ui/pages/subscriptions.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -689,6 +691,397 @@ void main() {
     expect(saved?['name'], 'My profile');
     expect(saved?['content'], '{"log":{"level":"info"}}');
     expect(find.byType(ProfileForm), findsNothing);
+  });
+
+  testWidgets('URL imports keep a source in the selected file without creating a profile', (tester) async {
+    Json? saved;
+    final calls = <String>[];
+    await _mount(tester, profiles: [_remote, _local, _default], selected: 3,
+      nodes: {'profileId': 3, 'profileRevision': 'default-r', 'nodes': []}, handler: (call) async {
+      calls.add(call.method);
+      if (call.method == 'subscriptions.import') {
+        saved = json(call.arguments);
+        return {'added': 2, 'source': {'id': 'source-a'}};
+      }
+      return null;
+    });
+    await _profiles(tester);
+    await tester.tap(find.byTooltip('Add profile'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Import from URL'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SubscriptionForm), findsOneWidget);
+    expect(find.byType(ProfileForm), findsNothing);
+    expect(find.descendant(of: find.byType(SubscriptionForm), matching: find.text('Profile file')), findsOneWidget);
+    expect(find.text('Supports Clash, sing-box JSON, node links and Base64. Only proxy nodes are imported from the URL; updates keep other profile settings.'), findsOneWidget);
+    expect(find.text('This URL must serve a sing-box JSON configuration.'), findsNothing);
+    const url = 'https://example.org/subscribe?token=a%26b';
+    await tester.enterText(find.byType(TextFormField).at(0), '  Node subscription  ');
+    await tester.enterText(find.byType(TextFormField).at(1), ' $url ');
+    await tester.enterText(find.byType(TextFormField).at(2), '120');
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    expect(saved, {'profileId': 3, 'profileRevision': 'default-r', 'name': 'Node subscription', 'url': url,
+      'autoUpdate': true, 'interval': 120});
+    expect(saved?.containsKey('content'), isFalse);
+    expect(calls, isNot(contains('profiles.save')));
+    expect(find.byType(SubscriptionForm), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('failed URL imports preserve subscription fields and allow retry', (tester) async {
+    var fail = true;
+    final saves = <Json>[];
+    await _mount(tester, selected: 2, nodes: {'profileId': 2, 'profileRevision': 'local-r', 'nodes': []}, handler: (call) async {
+      if (call.method == 'subscriptions.import') {
+        saves.add(json(call.arguments));
+        if (fail) throw PlatformException(code: 'download', message: 'HTTP 503 Service Unavailable');
+        return {'added': 1, 'source': {'id': 'retry-source'}};
+      }
+      return null;
+    });
+    openSubscriptionImport(tester.element(find.byType(HomePage)));
+    await tester.pumpAndSettle();
+    const url = 'https://example.org/nodes';
+    await tester.enterText(find.byType(TextFormField).at(0), 'Retry subscription');
+    await tester.enterText(find.byType(TextFormField).at(1), url);
+    await tester.enterText(find.byType(TextFormField).at(2), '180');
+    await tester.tap(find.text('Auto update'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    const expected = {'profileId': 2, 'profileRevision': 'local-r', 'name': 'Retry subscription', 'url': url,
+      'autoUpdate': false, 'interval': 180};
+    expect(saves, [expected]);
+    expect(find.byType(SubscriptionForm), findsOneWidget);
+    expect(tester.widget<TextFormField>(find.byType(TextFormField).at(0)).controller!.text, 'Retry subscription');
+    expect(tester.widget<TextFormField>(find.byType(TextFormField).at(1)).controller!.text, url);
+    expect(find.text('Update interval'), findsNothing);
+    fail = false;
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    expect(saves, [expected, expected]);
+    expect(find.byType(SubscriptionForm), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('URL intents retain the opening file while resolving its revision and on conflict', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    final snapshot = Completer<Json>();
+    final reads = <Json>[], imports = <Json>[];
+    await _mount(tester, selected: 2, eventController: events, handler: (call) async {
+      if (call.method == 'nodes.list') { reads.add(json(call.arguments)); return snapshot.future; }
+      if (call.method == 'subscriptions.import') {
+        imports.add(json(call.arguments));
+        throw PlatformException(code: 'conflict', message: 'Selected profile changed; reopen the import');
+      }
+      return null;
+    });
+    openImport(tester.element(find.byType(HomePage)), {'name': 'Pinned source', 'url': 'https://example.org/source'});
+    await tester.pump();
+    events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 1}});
+    events.add({'type': 'nodes', 'value': {'profileId': 1, 'profileRevision': 'remote-r', 'nodes': []}});
+    await tester.pump();
+    snapshot.complete({'profileId': 2, 'profileRevision': 'opening-r', 'nodes': []});
+    await tester.pumpAndSettle();
+    expect(reads, [{'profileId': 2}]);
+    expect(find.descendant(of: find.byType(SubscriptionForm), matching: find.text('Local B')), findsOneWidget);
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    expect(imports, [{'profileId': 2, 'profileRevision': 'opening-r', 'name': 'Pinned source',
+      'url': 'https://example.org/source', 'autoUpdate': true, 'interval': 60}]);
+    expect(find.byType(SubscriptionForm), findsOneWidget);
+    expect(tester.widget<TextFormField>(find.byType(TextFormField).first).controller!.text, 'Pinned source');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('update all processes sources in local and default files alongside legacy remote profiles', (tester) async {
+    final updates = <MethodCall>[];
+    await _mount(tester, profiles: [_remote,
+      {..._local, 'subscriptions': [
+        {'id': 'source-a'}, {'id': 'source-b'},
+      ]}, {..._default, 'subscriptions': [{'id': 'source-c'}]}], selected: 3, handler: (call) async {
+      if (call.method == 'profiles.update' || call.method == 'subscriptions.update') updates.add(call);
+      return null;
+    });
+    await _profiles(tester);
+    final defaultCard = tester.widget<ProfileCard>(find.byWidgetPredicate((w) => w is ProfileCard && w.profile['id'] == 3));
+    expect(defaultCard.menuItems.map((item) => item.label), contains('Update'));
+    await tester.tap(find.byTooltip('More').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Update all'));
+    await tester.pumpAndSettle();
+    expect(updates.map((call) => call.method), ['profiles.update', 'subscriptions.update', 'subscriptions.update', 'subscriptions.update']);
+    expect(updates.map((call) => json(call.arguments)), [
+      {'id': 1}, {'profileId': 2, 'id': 'source-a'}, {'profileId': 2, 'id': 'source-b'}, {'profileId': 3, 'id': 'source-c'},
+    ]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('subscription management edits metadata and updates or removes only the chosen source', (tester) async {
+    var sources = <Json>[
+      {'id': 'source-a', 'name': 'Source A', 'url': 'https://example.org/a', 'autoUpdate': true,
+        'interval': 180, 'updatedAt': 0, 'tags': ['A node']},
+      {'id': 'source-b', 'name': 'Source B', 'url': 'https://example.org/b', 'autoUpdate': false,
+        'interval': 60, 'updatedAt': 0, 'tags': ['B node']},
+    ];
+    final calls = <MethodCall>[];
+    await _mount(tester, profiles: [_local, _default], selected: 3, handler: (call) async {
+      calls.add(call);
+      switch (call.method) {
+        case 'subscriptions.list': return sources;
+        case 'subscriptions.save':
+          final metadata = json(call.arguments);
+          sources = [for (final source in sources) if (source['id'] == metadata['id']) {...source, ...metadata} else source];
+        case 'subscriptions.delete':
+          sources = sources.where((source) => source['id'] != json(call.arguments)['id']).toList();
+      }
+      return null;
+    });
+    openForm(tester.element(find.byType(HomePage)), const ProfileDetailsPage(profile: _default));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Node subscriptions'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SubscriptionsPage), findsOneWidget);
+    expect(find.text('Source A'), findsOneWidget);
+    expect(find.text('Source B'), findsOneWidget);
+    expect(json(calls.singleWhere((call) => call.method == 'subscriptions.list').arguments), {'profileId': 3});
+    BoxMenu sourceMenu() => tester.widget<BoxMenu>(find.descendant(of: find.byType(SubscriptionsPage), matching: find.byType(BoxMenu)).first);
+    sourceMenu().items.singleWhere((item) => item.label == 'Edit').onPressed!();
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).at(0), 'Edited A');
+    await tester.enterText(find.byType(TextFormField).at(2), '14');
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    expect(calls.where((call) => call.method == 'subscriptions.save'), isEmpty);
+    await tester.tap(find.text('Auto update').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    expect(json(calls.singleWhere((call) => call.method == 'subscriptions.save').arguments), {
+      'profileId': 3, 'id': 'source-a', 'name': 'Edited A', 'url': 'https://example.org/a', 'autoUpdate': false, 'interval': 180,
+    });
+    expect(find.byType(SubscriptionForm), findsNothing);
+    expect(find.text('Edited A'), findsOneWidget);
+    sourceMenu().items.singleWhere((item) => item.label == 'Update').onPressed!();
+    await tester.pumpAndSettle();
+    expect(json(calls.singleWhere((call) => call.method == 'subscriptions.update').arguments), {'profileId': 3, 'id': 'source-a'});
+    sourceMenu().items.singleWhere((item) => item.label == 'Delete').onPressed!();
+    await tester.pumpAndSettle();
+    expect(find.text('Its nodes will stay in this profile as local nodes.'), findsOneWidget);
+    expect(calls.where((call) => call.method == 'subscriptions.delete'), isEmpty);
+    await tester.tap(find.text('Delete').hitTestable());
+    await tester.pumpAndSettle();
+    expect(json(calls.singleWhere((call) => call.method == 'subscriptions.delete').arguments), {'profileId': 3, 'id': 'source-a'});
+    expect(find.text('Edited A'), findsNothing);
+    expect(find.text('Source B'), findsOneWidget);
+    expect(calls.map((call) => call.method), isNot(contains('nodes.remove')));
+    expect(calls.map((call) => call.method), isNot(contains('profiles.save')));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('subscription lists refresh after native metadata events and hide during remote sessions', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    var sources = <Json>[];
+    var reads = 0;
+    await _mount(tester, profiles: [_default], selected: 3, eventController: events, handler: (call) async {
+      if (call.method == 'subscriptions.list') { reads++; return sources; }
+      return null;
+    });
+    openForm(tester.element(find.byType(HomePage)), const SubscriptionsPage(profile: _default));
+    await tester.pumpAndSettle();
+    expect(find.text('No node subscriptions'), findsOneWidget);
+    sources = [{'id': 'automatic-source', 'name': 'Updated source', 'url': 'https://example.org/nodes', 'tags': []}];
+    events.add({'type': 'profiles', 'value': [{..._default, 'subscriptions': sources}]});
+    await tester.pumpAndSettle();
+    expect(find.text('Updated source'), findsOneWidget);
+    expect(reads, 2);
+    events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 3, 'remote': 'Server', 'remoteConnected': true}});
+    await tester.pumpAndSettle();
+    expect(find.text('Updated source'), findsNothing);
+    expect(find.descendant(of: find.byType(SubscriptionsPage), matching: find.byTooltip('Import from URL')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('subscription lists discard late refreshes and session responses while retaining their file', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    final oldRefresh = Completer<List<Json>>(), oldSession = Completer<List<Json>>();
+    final reads = <Json>[];
+    final latest = [{'id': 'latest', 'name': 'Latest source', 'url': 'https://example.org/latest', 'tags': []}];
+    await _mount(tester, profiles: [_local, _default], selected: 3, eventController: events, handler: (call) async {
+      if (call.method == 'subscriptions.list') {
+        reads.add(json(call.arguments));
+        if (reads.length == 2) return oldRefresh.future;
+        if (reads.length == 4) return oldSession.future;
+        return latest;
+      }
+      return null;
+    });
+    openForm(tester.element(find.byType(HomePage)), const SubscriptionsPage(profile: _default));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Refresh').last);
+    await tester.pump();
+    events.add({'type': 'profiles', 'value': [_local, {..._default, 'subscriptions': latest}]});
+    await tester.pumpAndSettle();
+    oldRefresh.complete([{'id': 'stale', 'name': 'Stale refresh', 'tags': []}]);
+    await tester.pumpAndSettle();
+    expect(find.text('Latest source'), findsOneWidget);
+    expect(find.text('Stale refresh'), findsNothing);
+    await tester.tap(find.byTooltip('Refresh').last);
+    await tester.pump();
+    events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 2, 'remote': 'Server'}});
+    events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 2}});
+    oldSession.complete([{'id': 'stale-session', 'name': 'Stale session', 'tags': []}]);
+    await tester.pumpAndSettle();
+    expect(reads, List.filled(5, {'profileId': 3}));
+    expect(find.text('Latest source'), findsOneWidget);
+    expect(find.text('Stale session'), findsNothing);
+    final page = tester.widget<BoxPage>(find.descendant(of: find.byType(SubscriptionsPage), matching: find.byType(BoxPage)));
+    expect(page.actions.singleWhere((action) => action.tooltip == 'Import from URL').onPressed, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('subscription writes serialize across sources and late completion after leaving cannot refresh another file', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    final first = Completer<void>(), second = Completer<void>();
+    final updates = <Json>[], reads = <Json>[];
+    const sources = [
+      {'id': 'source-a', 'name': 'Source A', 'url': 'https://example.org/a', 'tags': []},
+      {'id': 'source-b', 'name': 'Source B', 'url': 'https://example.org/b', 'tags': []},
+    ];
+    await _mount(tester, profiles: [_local, _default], selected: 3, eventController: events, handler: (call) async {
+      if (call.method == 'subscriptions.list') { reads.add(json(call.arguments)); return sources; }
+      if (call.method == 'subscriptions.update') {
+        updates.add(json(call.arguments));
+        return updates.length == 1 ? first.future : second.future;
+      }
+      return null;
+    });
+    openForm(tester.element(find.byType(HomePage)), const SubscriptionsPage(profile: _default));
+    await tester.pumpAndSettle();
+    List<BoxMenu> menus() => tester.widgetList<BoxMenu>(find.descendant(of: find.byType(SubscriptionsPage), matching: find.byType(BoxMenu))).toList();
+    final staleMenus = menus();
+    staleMenus.first.items.singleWhere((item) => item.label == 'Update').onPressed!();
+    await tester.pump();
+    expect(menus().expand((menu) => menu.items).every((item) => item.onPressed == null), isTrue);
+    final page = tester.widget<BoxPage>(find.descendant(of: find.byType(SubscriptionsPage), matching: find.byType(BoxPage)));
+    expect(page.actions.singleWhere((action) => action.tooltip == 'Import from URL').onPressed, isNull);
+    staleMenus.last.items.singleWhere((item) => item.label == 'Update').onPressed!();
+    await tester.pump();
+    expect(updates, [{'profileId': 3, 'id': 'source-a'}]);
+    events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 2}});
+    first.complete();
+    await tester.pumpAndSettle();
+    expect(reads, [{'profileId': 3}, {'profileId': 3}]);
+    menus().last.items.singleWhere((item) => item.label == 'Update').onPressed!();
+    await tester.pump();
+    tester.element(find.byType(SubscriptionsPage)).safeNestedPop();
+    await tester.pumpAndSettle();
+    expect(find.byType(SubscriptionsPage), findsNothing);
+    second.complete();
+    await tester.pumpAndSettle();
+    expect(updates, [{'profileId': 3, 'id': 'source-a'}, {'profileId': 3, 'id': 'source-b'}]);
+    expect(reads, [{'profileId': 3}, {'profileId': 3}]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('profile detail updates reject repeated presses and stop queued sources after a session change', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    final pending = Completer<void>();
+    final updates = <Json>[];
+    await _mount(tester, profiles: [{..._default, 'subscriptions': [{'id': 'source-a'}, {'id': 'source-b'}]}],
+      selected: 3, eventController: events, handler: (call) async {
+      if (call.method == 'subscriptions.update') {
+        updates.add(json(call.arguments));
+        if (updates.length == 1) return pending.future;
+      }
+      return null;
+    });
+    openForm(tester.element(find.byType(HomePage)), const ProfileDetailsPage(profile: _default));
+    await tester.pumpAndSettle();
+    IconButtonData updateAction() => tester.widget<BoxPage>(find.descendant(of: find.byType(ProfileDetailsPage),
+      matching: find.byType(BoxPage))).actions.singleWhere((action) => action.tooltip == 'Update');
+    final staleAction = updateAction();
+    staleAction.onPressed!();
+    staleAction.onPressed!();
+    await tester.pump();
+    expect(updateAction().onPressed, isNull);
+    expect(updateAction().isLoading, isTrue);
+    expect(updates, [{'profileId': 3, 'id': 'source-a'}]);
+    events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 3, 'remote': 'Server'}});
+    events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 3}});
+    pending.complete();
+    await tester.pumpAndSettle();
+    expect(updates, [{'profileId': 3, 'id': 'source-a'}]);
+    expect(updateAction().isLoading, isFalse);
+    updateAction().onPressed!();
+    await tester.pumpAndSettle();
+    expect(updates, [
+      {'profileId': 3, 'id': 'source-a'}, {'profileId': 3, 'id': 'source-a'}, {'profileId': 3, 'id': 'source-b'},
+    ]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('update all stops queued files when a remote session was entered and left', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    final pending = Completer<void>();
+    final updates = <String>[];
+    await _mount(tester, profiles: [_remote, {..._local, 'subscriptions': [{'id': 'source-a'}]}],
+      eventController: events, handler: (call) async {
+      if (call.method == 'profiles.update') { updates.add(call.method); return pending.future; }
+      if (call.method == 'subscriptions.update') updates.add(call.method);
+      return null;
+    });
+    await _profiles(tester);
+    await tester.tap(find.byTooltip('More').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Update all'));
+    await tester.pump();
+    events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 1, 'remote': 'Server'}});
+    events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 1}});
+    pending.complete();
+    await tester.pumpAndSettle();
+    expect(updates, ['profiles.update']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('subscription drafts can be canceled without writes and saving blocks dismissal until completion', (tester) async {
+    final pending = Completer<Json>();
+    final imports = <Json>[];
+    await _mount(tester, selected: 2, nodes: {'profileId': 2, 'profileRevision': 'local-r', 'nodes': []}, handler: (call) async {
+      if (call.method == 'subscriptions.import') { imports.add(json(call.arguments)); return pending.future; }
+      return null;
+    });
+    const initial = {'name': 'Initial source', 'url': 'https://example.org/nodes'};
+    openSubscriptionImport(tester.element(find.byType(HomePage)), initial);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, 'Unsaved draft');
+    await tester.pump();
+    final discard = SheetDismissScope.of(tester.element(find.byType(SubscriptionForm)))!.value!();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard changes?'), findsOneWidget);
+    expect(imports, isEmpty);
+    await tester.tap(find.text('Discard').hitTestable());
+    await tester.pumpAndSettle();
+    await discard;
+    expect(find.byType(SubscriptionForm), findsNothing);
+    expect(imports, isEmpty);
+    openSubscriptionImport(tester.element(find.byType(HomePage)), initial);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pump();
+    final guard = tester.widget<BoxEditGuard>(find.descendant(of: find.byType(SubscriptionForm), matching: find.byType(BoxEditGuard)));
+    expect(guard.busy, isTrue);
+    await SheetDismissScope.of(tester.element(find.byType(SubscriptionForm)))!.value!();
+    await tester.pump();
+    expect(find.byType(SubscriptionForm), findsOneWidget);
+    expect(find.text('Discard changes?'), findsNothing);
+    pending.complete({'added': 1, 'source': {'id': 'source-a'}});
+    await tester.pumpAndSettle();
+    expect(find.byType(SubscriptionForm), findsNothing);
+    expect(imports, [{'profileId': 2, 'profileRevision': 'local-r', 'name': 'Initial source',
+      'url': 'https://example.org/nodes', 'autoUpdate': true, 'interval': 60}]);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('binary subscription metadata survives the import form', (tester) async {

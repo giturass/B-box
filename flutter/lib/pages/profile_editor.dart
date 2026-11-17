@@ -108,7 +108,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
             child: SelectableText(_error!, style: TextStyle(color: context.colorScheme.onErrorContainer)),
           ),
           if (widget.profile['remote'] == true) Padding(padding: const EdgeInsets.all(12), child: Text(
-            context.tr('Remote updates replace manual edits and keep added nodes.'), style: context.listCaptionStyle,
+            context.tr('Remote updates replace subscribed nodes and keep other profile settings.'), style: context.listCaptionStyle,
           )),
           Expanded(child: _original == null
               ? _error == null ? const SizedBox.shrink() : ErrorState(_error!, retry: _load)

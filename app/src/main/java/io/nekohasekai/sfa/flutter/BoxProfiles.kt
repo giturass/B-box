@@ -8,6 +8,7 @@ import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileChange
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
+import io.nekohasekai.sfa.database.ProfileNodeSubscription
 import io.nekohasekai.sfa.database.ProfileSubscription
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
@@ -224,7 +225,7 @@ internal class BoxProfiles(
         val isDefault: Boolean = false,
     )
 
-    /** URL imports download before entering either the bridge or configuration operation lock. */
+    /** URL-only node imports use BoxNodeSubscriptions; this accepts complete profile files. */
     suspend fun prepareSave(args: Map<String, Any?>): PreparedSave {
         val id = (args["id"] as? Number)?.toLong() ?: 0L
         require(id >= 0L) { "Invalid profile ID" }
@@ -235,7 +236,8 @@ internal class BoxProfiles(
         val interval = (args["interval"] as? Number)?.toInt() ?: 60
         require(interval >= 15) { "Update interval must be at least 15 minutes" }
         val content = args["content"] as? String ?: if (id == 0L) {
-            if (url.isNotEmpty()) download(url) else Libbox.getUIDefaultConfig().value
+            require(url.isEmpty()) { "Import node subscriptions into the selected profile" }
+            Libbox.getUIDefaultConfig().value
         } else null
         content?.let { validate(Libbox.removeUIRetiredCaptureOptions(it)) }
         return PreparedSave(id, name, url, interval, url.isNotEmpty() && args["autoUpdate"] == true,
@@ -259,6 +261,8 @@ internal class BoxProfiles(
         val content = Libbox.preserveUIConfigNodes(oldContent.orEmpty(), cleaned).value
         validate(content)
         val changed = content != oldContent
+        val previousSubscriptions = previousProfile?.typed?.subscriptions.orEmpty()
+        val existingTags = if (previousSubscriptions.isNotEmpty()) ProfileNodeSubscription.proxyTags(content).toSet() else emptySet()
         if (id != 0L && request.content != null && changed) {
             require(oldContent != null && request.expectedRevision == revision(oldContent)) { "Configuration changed; reload it before saving" }
         }
@@ -275,6 +279,7 @@ internal class BoxProfiles(
                 autoUpdate = request.autoUpdate
                 autoUpdateInterval = request.interval
                 isDefault = previousProfile?.typed?.isDefault ?: request.isDefault
+                subscriptions = previousSubscriptions.map { source -> source.copy(tags = source.tags.filter { it in existingTags }) }
                 lastUpdated = when {
                     id == 0L -> Date(if (request.url.isNotEmpty()) request.updatedAt ?: System.currentTimeMillis() else System.currentTimeMillis())
                     changed && type == TypedProfile.Type.Local -> Date()
@@ -363,7 +368,7 @@ internal class BoxProfiles(
 
         fun validateUrl(value: String): String {
             val uri = URI(value)
-            require(uri.scheme in listOf("https", "http") && !uri.host.isNullOrBlank()) { "Enter an HTTP or HTTPS URL serving sing-box JSON" }
+            require(uri.scheme in listOf("https", "http") && !uri.host.isNullOrBlank()) { "Enter an HTTP or HTTPS node subscription URL" }
             return value
         }
 
@@ -380,4 +385,5 @@ internal fun Profile.toWire(): Map<String, Any> = mapOf(
     "updatedAt" to typed.lastUpdated.time,
     "autoUpdate" to typed.autoUpdate,
     "interval" to typed.autoUpdateInterval,
+    "subscriptions" to typed.subscriptions.map { it.toWire() },
 )

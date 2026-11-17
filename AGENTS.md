@@ -26,7 +26,7 @@
 ## 架构与兼容性约束
 
 1. Flutter 负责全部应用页面和导航。`compose.MainActivity` 与 `compose.ShareActivity` 仅保留稳定组件名，进入 `BoxActivity`；不要恢复旧 Compose 页面或导航作为备用入口。原生状态模型在 `backend/`，平台能力通过 `flutter/` 下的 Android 桥接提供。
-2. Room 与 libbox 是配置、服务和会话数据的来源。配置为 sing-box JSON，保存前经过 `Libbox.checkConfig`；不能静默转换 Clash YAML，不能引入 Mihomo 核心、提供者、覆写脚本或不受 sing-box 支持的开关。
+2. Room 与 libbox 是配置、服务和会话数据的来源。配置为 sing-box JSON，保存前经过 `Libbox.checkConfig`；远程订阅只提取代理节点，保留配置自己的 DNS、路由、入站及分组，不将订阅作为整份配置应用。Clash 内容仅可作为明确导入的节点来源，不能静默转换整份 Clash YAML，不能引入 Mihomo 核心、提供者、覆写脚本或不受 sing-box 支持的开关。
 3. 模式、代理组、可选节点和延迟来自当前内核；自动组不能手动选择。保留本地/远程会话区分，不把本机配置、出口 IP 或演示数据当作远端状态。
 4. 保留 Android VPN 权限、前台服务和服务状态确认流程。配置及备份应用须保留修订冲突检查、原子写入和失败恢复；不能在需要重启服务时把发出启动请求视为启动成功。
 5. B-box 的安装身份为 `io.ericlee.bfa`，源码 namespace、类路径及 AIDL 描述符保留 `io.nekohasekai.sfa`。任务未涉及这些约定时保持兼容；不要重排或复用已退役的 Binder 方法编号，也不要清空无关设置和数据库。

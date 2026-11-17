@@ -59,8 +59,9 @@ internal class BoxNodes(
         return profile to content
     }
 
-    private suspend fun writeProfile(profile: Profile, content: String, expectedRevision: String) =
-        ProfileContent.replaceLocked(profile, content, expectedRevision = expectedRevision, beforeSave = beforeApply, applySelected = applySelected)
+    private suspend fun writeProfile(profile: Profile, content: String, expectedRevision: String, renamedNode: Pair<String, String>? = null) =
+        ProfileContent.replaceLocked(profile, content, expectedRevision = expectedRevision, renamedNode = renamedNode,
+            beforeSave = beforeApply, applySelected = applySelected)
 
     suspend fun add(nodes: String, profileId: Long, profileRevision: String): Map<String, Any?> = mutex.withLock {
         val (profile, content) = selected(profileId, profileRevision)
@@ -85,7 +86,8 @@ internal class BoxNodes(
         }
         val edited = if (tag.isEmpty()) Libbox.addUIConfigNodes(previous, "[$content]", profile.typed.isDefault).config
             else Libbox.setUIConfigNode(previous, tag, content).value
-        writeProfile(profile, edited, profileRevision)
+        val renamed = if (tag.isNotEmpty()) tag to JSONObject(content).getString("tag") else null
+        writeProfile(profile, edited, profileRevision, renamed)
     }
 
     suspend fun remove(tags: List<String>, profileId: Long, profileRevision: String) = mutex.withLock {

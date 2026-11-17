@@ -20,6 +20,7 @@ import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.database.preference.KeyValueDatabase
 import io.nekohasekai.sfa.vendor.PackageQueryManager
 import kotlinx.coroutines.CoroutineStart
@@ -741,8 +742,17 @@ class ProfileRecoveryTest {
     }
 
     @Test fun remoteRefreshesKeepAddedNodesAndRollBackFailedApplications() {
-        SubscriptionServer("""{"outbounds":[{"type":"direct","tag":"upstream"},{"type":"selector","tag":"proxy","outbounds":["upstream"]}],"route":{"final":"proxy"}}""").use { server ->
+        SubscriptionServer(socksSubscription()).use { server ->
             withRunningProfile(server.url) { activity, profiles, id ->
+                val original = """{
+                    "log":{"level":"warn"},
+                    "inbounds":[{"type":"mixed","tag":"local-in","listen":"127.0.0.1","listen_port":0}],
+                    "outbounds":[{"type":"socks","tag":"old-upstream","server":"127.0.0.1","server_port":1080},
+                        {"type":"selector","tag":"proxy","outbounds":["old-upstream"]},
+                        {"type":"direct","tag":"local-direct"}],
+                    "route":{"final":"proxy"}
+                }"""
+                profiles.writeContent(id, original, BoxProfiles.revision(profiles.read(id)))
                 val nodes = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
                     withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
                 }
@@ -760,11 +770,20 @@ class ProfileRecoveryTest {
                 var content = profiles.read(id)
                 assertTrue(configurationNodes(content).any { it.optString("tag") == "local-node" })
                 assertTrue(configurationNodes(content).any { it.optString("tag") == "upstream" })
+                assertFalse(configurationNodes(content).any { it.optString("tag") == "old-upstream" })
+                assertEquals(configuration(original).getJSONObject("log").toString(), configuration(content).getJSONObject("log").toString())
+                assertEquals(configuration(original).getJSONArray("inbounds").toString(), configuration(content).getJSONArray("inbounds").toString())
+                assertEquals(configuration(original).getJSONObject("route").toString(), configuration(content).getJSONObject("route").toString())
+                assertTrue(configurationNodes(content).any { it.optString("tag") == "local-direct" })
                 val selector = configurationNodes(content).single { it.optString("tag") == "proxy" }
-                assertEquals(listOf("upstream", "local-node"), (0 until selector.getJSONArray("outbounds").length()).map { selector.getJSONArray("outbounds").getString(it) })
+                assertEquals(setOf("upstream", "local-node"), (0 until selector.getJSONArray("outbounds").length()).map { selector.getJSONArray("outbounds").getString(it) }.toSet())
                 assertTrue(profiles.get(id).typed.lastUpdated.time > 0L)
 
-                server.content = """{"outbounds":[{"type":"direct","tag":"updated-upstream"},{"type":"selector","tag":"proxy","outbounds":["updated-upstream"]}],"route":{"final":"proxy"}}"""
+                server.content = JSONObject(socksSubscription("updated-upstream"))
+                    .put("log", JSONObject().put("level", "debug"))
+                    .put("inbounds", JSONArray().put(JSONObject().put("type", "mixed").put("listen", "0.0.0.0").put("listen_port", 1)))
+                    .put("route", JSONObject().put("final", "subscription-group"))
+                    .toString()
                 val scheduled = profiles.get(id)
                 scheduled.typed.autoUpdate = true
                 scheduled.typed.lastUpdated = Date(0)
@@ -774,18 +793,25 @@ class ProfileRecoveryTest {
                 assertTrue(configurationNodes(content).any { it.optString("tag") == "local-node" })
                 assertTrue(configurationNodes(content).any { it.optString("tag") == "updated-upstream" })
                 assertFalse(configurationNodes(content).any { it.optString("tag") == "upstream" })
+                assertEquals(configuration(original).getJSONObject("log").toString(), configuration(content).getJSONObject("log").toString())
+                assertEquals(configuration(original).getJSONArray("inbounds").toString(), configuration(content).getJSONArray("inbounds").toString())
+                assertEquals(configuration(original).getJSONObject("route").toString(), configuration(content).getJSONObject("route").toString())
+                val updatedSelector = configurationNodes(content).single { it.optString("tag") == "proxy" }
+                assertEquals(setOf("updated-upstream", "local-node"), (0 until updatedSelector.getJSONArray("outbounds").length()).map { updatedSelector.getJSONArray("outbounds").getString(it) }.toSet())
                 val updatedAt = profiles.get(id).typed.lastUpdated.time
                 assertTrue(updatedAt > 0L)
                 assertEquals(2, server.requests.get())
 
-                ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { occupied ->
-                    server.content = occupiedPortConfig(occupied.localPort)
-                    assertNotNull(runCatching { profiles.update(id) }.exceptionOrNull())
-                    assertEquals(content, profiles.read(id))
-                    assertEquals(updatedAt, profiles.get(id).typed.lastUpdated.time)
-                    assertEquals(id, Settings.selectedProfile)
-                    withTimeout(15_000) { activity.serviceStatus.first { it == Status.Started } }
+                val failingProfiles = BoxProfiles(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
+                    check(recover) { "Injected subscription application failure" }
+                    withContext(Dispatchers.Main) { activity.applyProfile(recover = true) }
                 }
+                server.content = socksSubscription("failed-upstream")
+                assertNotNull(runCatching { failingProfiles.update(id) }.exceptionOrNull())
+                assertEquals(content, profiles.read(id))
+                assertEquals(updatedAt, profiles.get(id).typed.lastUpdated.time)
+                assertEquals(id, Settings.selectedProfile)
+                withTimeout(15_000) { activity.serviceStatus.first { it == Status.Started } }
             }
         }
     }
@@ -909,28 +935,37 @@ class ProfileRecoveryTest {
     }
 
     @Test fun failedManualUpdateRestoresContentTimestampAndService() {
-        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { occupied ->
-            SubscriptionServer(occupiedPortConfig(occupied.localPort)).use { server ->
-                withRunningProfile(server.url) { activity, profiles, id ->
-                    val before = profiles.get(id).typed.lastUpdated.time
-                    Libbox.checkConfig(server.content)
-                    val failure = runCatching { profiles.update(id) }.exceptionOrNull()
-                    assertNotNull("A failed subscription must report its reload failure", failure)
-                    assertEquals(1, server.requests.get())
-                    assertEquals("{}", profiles.read(id))
-                    assertEquals(before, profiles.get(id).typed.lastUpdated.time)
-                    withTimeout(15_000) { activity.serviceStatus.first { it == Status.Started } }
-                    assertEquals(0, failure!!.suppressed.size)
+        SubscriptionServer(socksSubscription()).use { server ->
+            withRunningProfile(server.url) { activity, profiles, id ->
+                val before = profiles.get(id).typed.lastUpdated.time
+                val configFile = File(profiles.get(id).typed.path)
+                var appliedNewNodes = false
+                val failingProfiles = BoxProfiles(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
+                    if (!recover) {
+                        // The apply callback already owns ProfileContent.mutex.
+                        appliedNewNodes = configurationNodes(configFile.readText()).any { it.optString("tag") == "upstream" }
+                        error("Injected subscription application failure")
+                    }
+                    withContext(Dispatchers.Main) { activity.applyProfile(recover = true) }
                 }
+                val failure = runCatching { failingProfiles.update(id) }.exceptionOrNull()
+                assertNotNull("A failed subscription must report its application failure", failure)
+                assertTrue("The new nodes must have been persisted before application failed", appliedNewNodes)
+                assertTrue(failure!!.message.orEmpty().contains("Injected subscription application failure"))
+                assertEquals(1, server.requests.get())
+                assertEquals("{}", profiles.read(id))
+                assertEquals(before, profiles.get(id).typed.lastUpdated.time)
+                withTimeout(15_000) { activity.serviceStatus.first { it == Status.Started } }
+                assertEquals(0, failure.suppressed.size)
             }
         }
     }
 
     @Test fun largeSubscriptionsUpdateImportAndPreserveServiceState() {
-        SubscriptionServer("{}".padEnd(16 * 1024 * 1024 + 1)).use { server ->
+        SubscriptionServer(socksSubscription().padEnd(16 * 1024 * 1024 + 1)).use { server ->
             withRunningProfile(server.url) { activity, profiles, id ->
                 profiles.update(id)
-                assertEquals(server.content, profiles.read(id))
+                assertEquals(listOf("upstream"), configurationNodes(profiles.read(id)).map { it.optString("tag") })
                 assertTrue(profiles.get(id).typed.lastUpdated.time > 0L)
 
                 val profile = profiles.get(id)
@@ -938,16 +973,137 @@ class ProfileRecoveryTest {
                 profile.typed.lastUpdated = Date(0)
                 ProfileManager.update(profile)
                 assertTrue(UpdateProfileWork.updateProfiles(activity.applicationContext))
-                assertEquals(server.content, profiles.read(id))
+                assertEquals(listOf("upstream"), configurationNodes(profiles.read(id)).map { it.optString("tag") })
                 assertTrue(profiles.get(id).typed.lastUpdated.time > 0L)
 
-                val imported = profiles.save(mapOf("name" to "Large subscription", "url" to server.url))
-                try {
-                    assertEquals(server.content, profiles.read(imported))
-                    assertEquals(id, Settings.selectedProfile)
-                    assertEquals(Status.Started, activity.serviceStatus.value)
-                    assertEquals(3, server.requests.get())
-                } finally { profiles.delete(imported) }
+                val profileIds = ProfileManager.list().map { it.id }.toSet()
+                val subscriptions = nodeSubscriptions(activity)
+                subscriptions.importSubscription(subscriptionArgs(profiles, id, "Large subscription", server.url))
+                val imported = profiles.get(id).typed.subscriptions.single()
+                assertEquals(server.url, imported.url)
+                assertTrue(imported.tags.isNotEmpty())
+                assertTrue(configurationNodes(profiles.read(id)).any { it.optString("tag") in imported.tags && it.optString("server") == "127.0.0.1" })
+                assertEquals(profileIds, ProfileManager.list().map { it.id }.toSet())
+                assertEquals(id, Settings.selectedProfile)
+                assertEquals(Status.Started, activity.serviceStatus.value)
+                assertEquals(3, server.requests.get())
+            }
+        }
+    }
+
+    @Test fun urlSubscriptionsImportOnlyNodesIntoTheSelectedDefaultConfiguration() = withRunningProfile { activity, profiles, id ->
+        val upstream = """{
+            "log":{"level":"debug"},
+            "dns":{"servers":[{"type":"invalid-upstream-dns","tag":"remote-dns"}]},
+            "inbounds":[{"type":"mixed","tag":"remote-in","listen":"0.0.0.0","listen_port":1}],
+            "route":{"final":"remote-group"},
+            "experimental":{"scripts":{"enabled":true,"http":[{"pattern":".*","source":"remote-script"}]}},
+            "proxy-providers":{"remote-provider":{"url":"https://example.test/provider"}},
+            "outbounds":[
+                {"type":"socks","tag":"subscription-node","server":"127.0.0.1","server_port":1080},
+                {"type":"direct","tag":"remote-direct"},
+                {"type":"selector","tag":"remote-group","outbounds":["subscription-node"]},
+                {"type":"urltest","tag":"remote-auto","outbounds":["subscription-node"]}
+            ]
+        }"""
+        SubscriptionServer(upstream).use { server ->
+            val defaultId = profiles.ensureDefault()
+            val before = profiles.get(defaultId)
+            val original = profiles.read(defaultId)
+            val profileIds = ProfileManager.list().map { it.id }.toSet()
+            withContext(Dispatchers.Main) { activity.stopService() }
+            withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+            profiles.select(defaultId) { activity.serviceStatus.value }
+            try {
+                val subscriptions = nodeSubscriptions(activity)
+                subscriptions.importSubscription(subscriptionArgs(profiles, defaultId, "Nodes-only URL subscription", server.url))
+                val saved = configuration(profiles.read(defaultId))
+                val defaults = configuration(original)
+                for (key in listOf("dns", "inbounds", "route", "log", "experimental")) {
+                    assertEquals("Subscription replaced local $key", defaults.opt(key)?.toString(), saved.opt(key)?.toString())
+                }
+                val outbounds = configurationNodes(profiles.read(defaultId))
+                assertEquals(listOf("subscription-node"), outbounds.filter { it.optString("type") == "socks" }.map { it.getString("tag") })
+                assertFalse(outbounds.any { it.optString("tag") in setOf("remote-direct", "remote-group", "remote-auto") })
+                assertFalse(saved.has("proxy-providers"))
+                assertEquals(defaultId, Settings.selectedProfile)
+                assertEquals(profileIds, ProfileManager.list().map { it.id }.toSet())
+                val savedProfile = profiles.get(defaultId)
+                assertTrue(savedProfile.typed.isDefault)
+                assertEquals(TypedProfile.Type.Local, savedProfile.typed.type)
+                assertEquals("", savedProfile.typed.remoteURL)
+                val source = savedProfile.typed.subscriptions.single { it.name == "Nodes-only URL subscription" }
+                assertEquals(server.url, source.url)
+                assertEquals(listOf("subscription-node"), source.tags)
+                assertTrue(source.updatedAt > 0L)
+                assertEquals(Status.Stopped, activity.serviceStatus.value)
+                assertEquals(1, server.requests.get())
+            } finally {
+                ProfileContent.mutex.withLock {
+                    ProfileContent.write(File(before.typed.path), original)
+                    ProfileManager.update(before)
+                }
+                profiles.select(id) { activity.serviceStatus.value }
+            }
+        }
+    }
+
+    @Test fun base64UrlSubscriptionsImportAndUpdateProxyNodes() = withRunningProfile { activity, profiles, id ->
+        fun encoded(tag: String): String = android.util.Base64.encodeToString(
+            "socks5://127.0.0.1:1080#$tag".toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+        SubscriptionServer(encoded("encoded-node")).use { server ->
+            val subscriptions = nodeSubscriptions(activity)
+            subscriptions.importSubscription(subscriptionArgs(profiles, id, "Base64 subscription", server.url))
+            val source = profiles.get(id).typed.subscriptions.single()
+            assertTrue(configurationNodes(profiles.read(id)).any { it.optString("tag") == "encoded-node" && it.optString("type") == "socks" })
+            server.content = encoded("updated-encoded-node")
+            subscriptions.update(id, source.id)
+            val outbounds = configurationNodes(profiles.read(id))
+            assertTrue(outbounds.any { it.optString("tag") == "updated-encoded-node" && it.optString("type") == "socks" })
+            assertFalse(outbounds.any { it.optString("tag") == "encoded-node" })
+            assertEquals(listOf("updated-encoded-node"), profiles.get(id).typed.subscriptions.single().tags)
+            assertEquals(id, Settings.selectedProfile)
+            assertEquals(Status.Started, activity.serviceStatus.value)
+            assertEquals(2, server.requests.get())
+        }
+    }
+
+    @Test fun subscriptionsWithoutValidNodesDoNotCreateOrReplaceProfiles() = withRunningProfile { activity, profiles, id ->
+        val profileIds = ProfileManager.list().map { it.id }.toSet()
+        val rejected = listOf(
+            "{}",
+            """{"log":{"level":"debug"},"outbounds":[{"type":"direct","tag":"direct"}]}""",
+            """{"outbounds":[{"type":"socks","tag":"invalid-node","server":"127.0.0.1","server_port":-1}]}""",
+            """{"outbounds":[{"type":"socks","tag":"valid-node","server":"127.0.0.1","server_port":1080},
+                {"type":"socks","tag":"invalid-node","server":"127.0.0.1","server_port":-1}]}""",
+        )
+        SubscriptionServer(socksSubscription("kept-source-node")).use { server ->
+            val subscriptions = nodeSubscriptions(activity)
+            assertTrue(runCatching { profiles.save(mapOf("name" to "Rejected remote-file import", "url" to server.url)) }.isFailure)
+            assertEquals(0, server.requests.get())
+            assertEquals(profileIds, ProfileManager.list().map { it.id }.toSet())
+            server.content = "{}"
+            val emptyGeneration = ProfileContent.generation
+            assertTrue(runCatching { subscriptions.importSubscription(subscriptionArgs(profiles, id, "Empty subscription", server.url)) }.isFailure)
+            assertTrue(profiles.get(id).typed.subscriptions.isEmpty())
+            assertEquals(emptyGeneration, ProfileContent.generation)
+            server.content = socksSubscription("kept-source-node")
+            subscriptions.importSubscription(subscriptionArgs(profiles, id, "Kept subscription", server.url))
+            val before = profiles.read(id)
+            val timestamp = profiles.get(id).typed.lastUpdated.time
+            val sources = profiles.get(id).typed.subscriptions
+            for (content in rejected) {
+                server.content = content
+                val generation = ProfileContent.generation
+                assertTrue(runCatching { subscriptions.importSubscription(subscriptionArgs(profiles, id, "Rejected subscription", server.url)) }.isFailure)
+                assertTrue(runCatching { subscriptions.update(id, sources.single().id) }.isFailure)
+                assertEquals(profileIds, ProfileManager.list().map { it.id }.toSet())
+                assertEquals(generation, ProfileContent.generation)
+                assertEquals(sources, profiles.get(id).typed.subscriptions)
+                assertEquals(before, profiles.read(id))
+                assertEquals(timestamp, profiles.get(id).typed.lastUpdated.time)
+                assertEquals(id, Settings.selectedProfile)
+                assertEquals(Status.Started, activity.serviceStatus.value)
             }
         }
     }
@@ -956,7 +1112,7 @@ class ProfileRecoveryTest {
         Application.application.setupLibbox()
         repeat(20) { attempt ->
             val gate = CountDownLatch(1)
-            SubscriptionServer("{}", gate).use { server ->
+            SubscriptionServer(socksSubscription(), gate).use { server ->
                 try {
                     val dispatcher = if (attempt % 2 == 0) Dispatchers.IO else Dispatchers.Default
                     val request = async(dispatcher) { io.nekohasekai.sfa.utils.HTTPClient.getString(server.url) }
@@ -967,8 +1123,268 @@ class ProfileRecoveryTest {
                 } finally { gate.countDown() }
             }
         }
-        SubscriptionServer("{}").use { server ->
-            assertEquals("{}", withTimeout(5_000) { io.nekohasekai.sfa.utils.HTTPClient.getString(server.url) })
+        SubscriptionServer(socksSubscription()).use { server ->
+            assertEquals(server.content, withTimeout(5_000) { io.nekohasekai.sfa.utils.HTTPClient.getString(server.url) })
+        }
+    }
+
+    @Test fun subscriptionSourcesUpdateOnlyTheirOwnNodesAndRetainRemovedSourcesNodes() = withRunningProfile { activity, profiles, id ->
+        val subscriptions = nodeSubscriptions(activity)
+        val nodes = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
+            withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
+        }
+        nodes.add(JSONObject(socksSubscription("local-node")).getJSONArray("outbounds").toString(), id, BoxProfiles.revision(profiles.read(id)))
+        val profileIds = ProfileManager.list().map { it.id }.toSet()
+        SubscriptionServer(socksSubscription("first-source-node")).use { first ->
+            SubscriptionServer(socksSubscription("second-source-node")).use { second ->
+                subscriptions.importSubscription(subscriptionArgs(profiles, id, "First source", first.url))
+                subscriptions.importSubscription(subscriptionArgs(profiles, id, "Second source", second.url))
+                var sources = profiles.get(id).typed.subscriptions
+                val firstId = sources.single { it.url == first.url }.id
+                val secondId = sources.single { it.url == second.url }.id
+                assertEquals(2, subscriptions.list(id).size)
+                assertEquals(setOf("local-node", "first-source-node", "second-source-node"), configurationNodes(profiles.read(id)).map { it.getString("tag") }.toSet())
+                profiles.save(mapOf("id" to id, "name" to "Profile with two sources"))
+                assertEquals(sources, profiles.get(id).typed.subscriptions)
+
+                val stale = subscriptions.prepareUpdate(id, firstId)
+                subscriptions.save(mapOf("profileId" to id, "id" to firstId, "name" to "Renamed source",
+                    "url" to first.url, "autoUpdate" to false, "interval" to 15))
+                val beforeStale = profiles.read(id)
+                assertTrue(runCatching { subscriptions.commitUpdate(stale, socksSubscription("stale-node")) }.isFailure)
+                assertEquals(beforeStale, profiles.read(id))
+                assertEquals("Renamed source", profiles.get(id).typed.subscriptions.single { it.id == firstId }.name)
+
+                first.content = socksSubscription("updated-first-source-node")
+                subscriptions.update(id, firstId)
+                sources = profiles.get(id).typed.subscriptions
+                assertEquals(listOf("updated-first-source-node"), sources.single { it.id == firstId }.tags)
+                assertEquals(listOf("second-source-node"), sources.single { it.id == secondId }.tags)
+                assertEquals(setOf("local-node", "updated-first-source-node", "second-source-node"), configurationNodes(profiles.read(id)).map { it.getString("tag") }.toSet())
+
+                val owned = nodes.get("updated-first-source-node", id)
+                val renamed = JSONObject(owned["content"] as String).put("tag", "renamed-source-node").toString()
+                nodes.set("updated-first-source-node", renamed, owned["revision"] as String, id, BoxProfiles.revision(profiles.read(id)))
+                assertEquals(listOf("renamed-source-node"), profiles.get(id).typed.subscriptions.single { it.id == firstId }.tags)
+                subscriptions.update(id, firstId)
+                assertEquals(listOf("updated-first-source-node"), profiles.get(id).typed.subscriptions.single { it.id == firstId }.tags)
+                assertFalse(configurationNodes(profiles.read(id)).any { it.optString("tag") == "renamed-source-node" })
+
+                val beforeDelete = configuration(profiles.read(id)).toString()
+                subscriptions.delete(id, firstId)
+                assertEquals(beforeDelete, configuration(profiles.read(id)).toString())
+                assertEquals(listOf(secondId), profiles.get(id).typed.subscriptions.map { it.id })
+                nodes.remove(listOf("second-source-node"), id, BoxProfiles.revision(profiles.read(id)))
+                assertTrue(profiles.get(id).typed.subscriptions.single().tags.isEmpty())
+                assertEquals(second.url, profiles.get(id).typed.subscriptions.single().url)
+                assertFalse(configurationNodes(profiles.read(id)).any { it.optString("tag") == "second-source-node" })
+                second.content = socksSubscription("updated-second-source-node")
+                subscriptions.update(id, secondId)
+                assertEquals(setOf("local-node", "updated-first-source-node", "updated-second-source-node"), configurationNodes(profiles.read(id)).map { it.getString("tag") }.toSet())
+                assertEquals(profileIds, ProfileManager.list().map { it.id }.toSet())
+                assertEquals(id, Settings.selectedProfile)
+                assertEquals(Status.Started, activity.serviceStatus.value)
+            }
+        }
+    }
+
+    @Test fun pendingNodeSubscriptionImportRejectsSelectionAndContentChanges() {
+        for (change in listOf("selection", "content")) {
+            val release = CountDownLatch(1)
+            SubscriptionServer(socksSubscription("pending-source-node"), release).use { server ->
+                withRunningProfile { activity, profiles, id -> coroutineScope {
+                    val subscriptions = nodeSubscriptions(activity)
+                    val other = profiles.save(mapOf("name" to "Other subscription target", "content" to "{}"))
+                    try {
+                        val prepared = subscriptions.prepareImport(subscriptionArgs(profiles, id, "Pending source", server.url))
+                        val imported = async { runCatching { subscriptions.commitImport(prepared, subscriptions.downloadImport(prepared)) } }
+                        val edited = """{"log":{"level":"warn"}}"""
+                        try {
+                            withTimeout(10_000) { while (server.requests.get() == 0) delay(10) }
+                            withTimeout(10_000) {
+                                if (change == "selection") profiles.select(other) { activity.serviceStatus.value }
+                                else profiles.writeContent(id, edited, BoxProfiles.revision("{}"))
+                            }
+                            assertFalse(imported.isCompleted)
+                        } finally { release.countDown() }
+                        assertTrue(imported.await().isFailure)
+                        assertEquals(if (change == "content") edited else "{}", profiles.read(id))
+                        assertEquals("{}", profiles.read(other))
+                        assertTrue(profiles.get(id).typed.subscriptions.isEmpty())
+                        assertTrue(profiles.get(other).typed.subscriptions.isEmpty())
+                        assertEquals(Status.Started, activity.serviceStatus.value)
+                    } finally {
+                        if (Settings.selectedProfile == other) profiles.select(id) { activity.serviceStatus.value }
+                        profiles.delete(other)
+                    }
+                } }
+            }
+        }
+    }
+
+    @Test fun subscriptionSourcesSurviveParcelProfileMetadataAndBackupRestore() = withRunningProfile { activity, profiles, id ->
+        SubscriptionServer(socksSubscription("backed-up-source-node")).use { server ->
+            val subscriptions = nodeSubscriptions(activity)
+            subscriptions.importSubscription(subscriptionArgs(profiles, id, "中文 source 🌐", server.url))
+            val saved = profiles.get(id)
+            val content = profiles.read(id)
+            val converter = TypedProfile.Convertor()
+            val decoded = converter.unmarshall(converter.marshall(saved.typed))
+            assertEquals(saved.typed.subscriptions, decoded.subscriptions)
+            assertEquals(saved.typed.path, decoded.path)
+            assertEquals(saved.typed.type, decoded.type)
+            profiles.save(mapOf("id" to id, "name" to "Renamed source profile"))
+            assertEquals(saved.typed.subscriptions, profiles.get(id).typed.subscriptions)
+
+            val backups = BoxBackups(activity, { emptyMap() }, {}, { _, _ -> }, {}, { _, _ -> }, BoxWebDAV(activity))
+            val backup = backups.create()
+            val entry = rows(backup["profiles"]).single { (it["id"] as Number).toLong() == id }
+            val source = rows(entry["subscriptions"]).single()
+            assertEquals(saved.typed.subscriptions.single().id, source["id"])
+            assertEquals("中文 source 🌐", source["name"])
+            assertEquals(server.url, source["url"])
+            assertEquals(listOf("backed-up-source-node"), source["tags"])
+            val read = backups.read(backups.encode(backup), "profiles")
+            subscriptions.delete(id, saved.typed.subscriptions.single().id)
+            assertTrue(profiles.get(id).typed.subscriptions.isEmpty())
+            assertTrue(configurationNodes(profiles.read(id)).any { it.optString("tag") == "backed-up-source-node" })
+            backups.restore(read, "profiles", "Compatible")
+            assertEquals(saved.typed.subscriptions, profiles.get(id).typed.subscriptions)
+            assertEquals(content, profiles.read(id))
+            assertEquals(id, Settings.selectedProfile)
+            assertEquals(Status.Started, activity.serviceStatus.value)
+        }
+    }
+
+    @Test fun subscriptionSourcesImportEndpointsAndReplaceTheirOwnedNodesWhileStopped() = withRunningProfile { activity, profiles, id ->
+        withContext(Dispatchers.Main) { activity.stopService() }
+        withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+        val key = android.util.Base64.encodeToString(ByteArray(32) { 1 }, android.util.Base64.NO_WRAP)
+        val publicKey = android.util.Base64.encodeToString(ByteArray(32) { 2 }, android.util.Base64.NO_WRAP)
+        SubscriptionServer("""{"endpoints":[{"type":"wireguard","tag":"source-endpoint","address":["10.0.0.2/32"],"private_key":"$key",
+            "peers":[{"address":"127.0.0.1","port":51820,"public_key":"$publicKey","allowed_ips":["0.0.0.0/0"]}]}]}""").use { server ->
+            SubscriptionServer(socksSubscription("other-source-outbound")).use { other ->
+                val subscriptions = nodeSubscriptions(activity)
+                subscriptions.importSubscription(subscriptionArgs(profiles, id, "Other outbound source", other.url))
+                val otherSource = profiles.get(id).typed.subscriptions.single()
+                subscriptions.importSubscription(subscriptionArgs(profiles, id, "Endpoint source", server.url))
+                val source = profiles.get(id).typed.subscriptions.single { it.url == server.url }
+                val endpoint = configuration(profiles.read(id)).getJSONArray("endpoints").getJSONObject(0)
+                assertEquals("wireguard", endpoint.getString("type"))
+                assertEquals(listOf("source-endpoint"), source.tags)
+                assertFalse(configurationNodes(profiles.read(id)).any { it.optString("type") == "wireguard" })
+                assertEquals(otherSource, profiles.get(id).typed.subscriptions.single { it.id == otherSource.id })
+                server.content = socksSubscription("replacement-outbound")
+                subscriptions.update(id, source.id)
+                val endpoints = configuration(profiles.read(id)).optJSONArray("endpoints")
+                assertTrue(endpoints == null || endpoints.length() == 0)
+                assertEquals(listOf("replacement-outbound"), profiles.get(id).typed.subscriptions.single { it.id == source.id }.tags)
+                assertEquals(otherSource, profiles.get(id).typed.subscriptions.single { it.id == otherSource.id })
+                assertEquals(setOf("replacement-outbound", "other-source-outbound"), configurationNodes(profiles.read(id)).map { it.getString("tag") }.toSet())
+                assertEquals(Status.Stopped, activity.serviceStatus.value)
+            }
+        }
+    }
+
+    @Test fun failedSubscriptionSourceApplicationRestoresContentAndSourceMetadata() = withRunningProfile { activity, profiles, id ->
+        SubscriptionServer(socksSubscription("original-source-node")).use { original ->
+            val subscriptions = nodeSubscriptions(activity)
+            subscriptions.importSubscription(subscriptionArgs(profiles, id, "Original source", original.url))
+            val before = profiles.read(id)
+            val profileBefore = profiles.get(id)
+            val file = File(profileBefore.typed.path)
+            var persistedTags = emptyList<String>()
+            val applications = mutableListOf<Boolean>()
+            val failing = BoxNodeSubscriptions(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
+                applications.add(recover)
+                if (!recover) {
+                    persistedTags = profiles.get(id).typed.subscriptions.flatMap { it.tags }
+                    assertTrue(configurationNodes(file.readText()).any { it.optString("tag").startsWith("failed-") })
+                    error("Injected source application failure")
+                }
+                withContext(Dispatchers.Main) { activity.applyProfile(recover = true) }
+            }
+            SubscriptionServer(socksSubscription("failed-import-node")).use { imported ->
+                assertTrue(runCatching { failing.importSubscription(subscriptionArgs(profiles, id, "Failed source", imported.url)) }.isFailure)
+                assertTrue("The new source metadata must be committed before application", "failed-import-node" in persistedTags)
+                assertEquals(before, profiles.read(id))
+                assertEquals(profileBefore.typed.subscriptions, profiles.get(id).typed.subscriptions)
+                assertEquals(profileBefore.typed.lastUpdated.time, profiles.get(id).typed.lastUpdated.time)
+            }
+            original.content = socksSubscription("failed-update-node")
+            assertTrue(runCatching { failing.update(id, profileBefore.typed.subscriptions.single().id) }.isFailure)
+            assertTrue("The updated source metadata must be committed before application", "failed-update-node" in persistedTags)
+            assertEquals(before, profiles.read(id))
+            assertEquals(profileBefore.typed.subscriptions, profiles.get(id).typed.subscriptions)
+            assertEquals(profileBefore.typed.lastUpdated.time, profiles.get(id).typed.lastUpdated.time)
+            assertEquals(listOf(false, true, false, true), applications)
+            assertEquals(id, Settings.selectedProfile)
+            assertEquals(Status.Started, activity.serviceStatus.value)
+        }
+    }
+
+    @Test fun automaticUpdatesIncludeLocalAndDefaultConfigurationSources() = withRunningProfile { activity, profiles, id ->
+        val defaultId = profiles.ensureDefault()
+        val defaultBefore = profiles.get(defaultId)
+        val defaultContent = profiles.read(defaultId)
+        val subscriptions = nodeSubscriptions(activity)
+        SubscriptionServer(socksSubscription("local-source-node")).use { local ->
+            SubscriptionServer(socksSubscription("default-source-node")).use { default ->
+                try {
+                    subscriptions.importSubscription(subscriptionArgs(profiles, id, "Local automatic source", local.url, autoUpdate = true))
+                    withContext(Dispatchers.Main) { activity.stopService() }
+                    withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+                    profiles.select(defaultId) { activity.serviceStatus.value }
+                    subscriptions.importSubscription(subscriptionArgs(profiles, defaultId, "Default automatic source", default.url, autoUpdate = true))
+                    profiles.select(id) { activity.serviceStatus.value }
+                    withContext(Dispatchers.Main) { activity.applyProfile(recover = true) }
+                    assertEquals(Status.Started, activity.serviceStatus.value)
+                    ProfileContent.mutex.withLock {
+                        for (profileId in listOf(id, defaultId)) {
+                            val profile = profiles.get(profileId)
+                            profile.typed.subscriptions = profile.typed.subscriptions.map { it.copy(updatedAt = 0L) }
+                            ProfileManager.update(profile)
+                        }
+                    }
+                    local.content = socksSubscription("updated-local-source-node")
+                    default.content = socksSubscription("updated-default-source-node")
+                    assertTrue(UpdateProfileWork.updateProfiles(activity.applicationContext))
+                    assertEquals(listOf("updated-local-source-node"), profiles.get(id).typed.subscriptions.single().tags)
+                    assertEquals(listOf("updated-default-source-node"), profiles.get(defaultId).typed.subscriptions.single { it.url == default.url }.tags)
+                    assertTrue(profiles.get(id).typed.subscriptions.single().updatedAt > 0L)
+                    assertTrue(profiles.get(defaultId).typed.subscriptions.single { it.url == default.url }.updatedAt > 0L)
+                    assertFalse(configurationNodes(profiles.read(id)).any { it.optString("tag") == "local-source-node" })
+                    assertFalse(configurationNodes(profiles.read(defaultId)).any { it.optString("tag") == "default-source-node" })
+                    assertEquals(TypedProfile.Type.Local, profiles.get(id).typed.type)
+                    assertTrue(profiles.get(defaultId).typed.isDefault)
+                    assertEquals(2, local.requests.get())
+                    assertEquals(2, default.requests.get())
+                    assertEquals(id, Settings.selectedProfile)
+                    assertEquals(Status.Started, activity.serviceStatus.value)
+                    val updated = profiles.get(id)
+                    updated.typed.subscriptions = updated.typed.subscriptions.map { it.copy(updatedAt = 0L) }
+                    ProfileManager.update(updated)
+                    val beforeFailure = profiles.read(id)
+                    val generation = ProfileContent.generation
+                    local.content = "{}"
+                    assertFalse(UpdateProfileWork.updateProfiles(activity.applicationContext))
+                    assertEquals(beforeFailure, profiles.read(id))
+                    assertEquals(updated.typed.subscriptions, profiles.get(id).typed.subscriptions)
+                    assertEquals(updated.typed.lastUpdated.time, profiles.get(id).typed.lastUpdated.time)
+                    assertEquals(generation, ProfileContent.generation)
+                    assertEquals(3, local.requests.get())
+                    assertEquals(2, default.requests.get())
+                    assertEquals(Status.Started, activity.serviceStatus.value)
+                } finally {
+                    withContext(Dispatchers.Main) { activity.stopService() }
+                    withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+                    ProfileContent.mutex.withLock {
+                        ProfileContent.write(File(defaultBefore.typed.path), defaultContent)
+                        ProfileManager.update(defaultBefore)
+                    }
+                    profiles.select(id) { activity.serviceStatus.value }
+                }
+            }
         }
     }
 
@@ -1023,22 +1439,21 @@ class ProfileRecoveryTest {
         }
     }
 
-    @Test fun failedAutomaticUpdateRestoresDataAndRequestsRetry() {
-        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { occupied ->
-            SubscriptionServer(occupiedPortConfig(occupied.localPort)).use { server ->
-                withRunningProfile(server.url) { activity, profiles, id ->
-                    Libbox.checkConfig(server.content)
-                    val profile = profiles.get(id)
-                    profile.typed.autoUpdate = true
-                    profile.typed.lastUpdated = Date(0)
-                    ProfileManager.update(profile)
-                    assertFalse(UpdateProfileWork.updateProfiles(activity.applicationContext))
-                    assertEquals(1, server.requests.get())
-                    assertEquals("{}", profiles.read(id))
-                    assertEquals(0L, profiles.get(id).typed.lastUpdated.time)
-                    assertEquals(id, Settings.selectedProfile)
-                    withTimeout(15_000) { activity.serviceStatus.first { it == Status.Started } }
-                }
+    @Test fun failedAutomaticNodeParsingPreservesDataAndRequestsRetry() {
+        SubscriptionServer("""{"outbounds":[{"type":"socks","tag":"invalid-node","server":"127.0.0.1","server_port":-1}]}""").use { server ->
+            withRunningProfile(server.url) { activity, profiles, id ->
+                val profile = profiles.get(id)
+                profile.typed.autoUpdate = true
+                profile.typed.lastUpdated = Date(0)
+                ProfileManager.update(profile)
+                val generation = ProfileContent.generation
+                assertFalse(UpdateProfileWork.updateProfiles(activity.applicationContext))
+                assertEquals(1, server.requests.get())
+                assertEquals("{}", profiles.read(id))
+                assertEquals(0L, profiles.get(id).typed.lastUpdated.time)
+                assertEquals(generation, ProfileContent.generation)
+                assertEquals(id, Settings.selectedProfile)
+                assertEquals(Status.Started, activity.serviceStatus.value)
             }
         }
     }
@@ -1095,7 +1510,7 @@ class ProfileRecoveryTest {
 
     @Test fun pendingSubscriptionDownloadAllowsEditingAndRejectsItsStaleResult() {
         val release = CountDownLatch(1)
-        SubscriptionServer("""{"log":{"level":"debug"}}""", release).use { server ->
+        SubscriptionServer(socksSubscription(), release).use { server ->
             withRunningProfile(server.url) { activity, profiles, id -> coroutineScope {
                 val update = async { runCatching { profiles.update(id) } }
                 val edited = """{"log":{"level":"warn"}}"""
@@ -1117,7 +1532,7 @@ class ProfileRecoveryTest {
 
     @Test fun pendingAutomaticDownloadDoesNotBlockDisablingTheSubscription() {
         val release = CountDownLatch(1)
-        SubscriptionServer("""{"log":{"level":"debug"}}""", release).use { server ->
+        SubscriptionServer(socksSubscription(), release).use { server ->
             withRunningProfile(server.url) { activity, profiles, id -> coroutineScope {
                 val profile = profiles.get(id)
                 profile.typed.autoUpdate = true
@@ -1138,20 +1553,26 @@ class ProfileRecoveryTest {
 
     @Test fun urlImportDownloadsWithoutHoldingTheConfigurationLock() {
         val release = CountDownLatch(1)
-        SubscriptionServer("{}", release).use { server ->
-            withRunningProfile { _, profiles, id -> coroutineScope {
-                val imported = async { profiles.save(mapOf("name" to "Pending import", "url" to server.url)) }
+        SubscriptionServer(socksSubscription(), release).use { server ->
+            withRunningProfile { activity, profiles, id -> coroutineScope {
+                val subscriptions = nodeSubscriptions(activity)
+                val profileIds = ProfileManager.list().map { it.id }.toSet()
+                val prepared = subscriptions.prepareImport(subscriptionArgs(profiles, id, "Pending import", server.url))
+                val imported = async {
+                    subscriptions.commitImport(prepared, subscriptions.downloadImport(prepared))
+                }
                 try {
                     withTimeout(10_000) { while (server.requests.get() == 0) delay(10) }
                     withTimeout(10_000) { profiles.save(mapOf("id" to id, "name" to "Edited during import")) }
                     assertFalse(imported.isCompleted)
                 } finally { release.countDown() }
-                val importedId = imported.await()
-                try {
-                    assertEquals("Edited during import", profiles.get(id).name)
-                    assertEquals(id, Settings.selectedProfile)
-                    assertEquals("{}", profiles.read(importedId))
-                } finally { profiles.delete(importedId) }
+                val result = imported.await()
+                assertTrue((result["added"] as Number).toLong() > 0)
+                assertEquals("Edited during import", profiles.get(id).name)
+                assertEquals(id, Settings.selectedProfile)
+                assertEquals(profileIds, ProfileManager.list().map { it.id }.toSet())
+                assertEquals(server.url, profiles.get(id).typed.subscriptions.single().url)
+                assertTrue(configurationNodes(profiles.read(id)).any { it.optString("tag") == "upstream" && it.optString("type") == "socks" })
             } }
         }
     }
@@ -1160,32 +1581,34 @@ class ProfileRecoveryTest {
         val id = profiles.save(mapOf("name" to "Unselected download", "url" to "https://example.test/old", "content" to "{}"))
         val snapshot = profiles.prepareUpdate(id)
         profiles.save(mapOf("id" to id, "name" to "Changed URL", "url" to "https://example.test/new"))
-        assertTrue(runCatching { profiles.commitUpdate(snapshot, "{}") }.isFailure)
+        assertTrue(runCatching { profiles.commitUpdate(snapshot, socksSubscription()) }.isFailure)
         assertEquals("https://example.test/new", profiles.get(id).typed.remoteURL)
         profiles.delete(id)
-        assertTrue(runCatching { profiles.commitUpdate(snapshot, "{}") }.isFailure)
+        assertTrue(runCatching { profiles.commitUpdate(snapshot, socksSubscription()) }.isFailure)
         val session = io.nekohasekai.sfa.utils.CommandTarget.localSession()
         io.nekohasekai.sfa.utils.CommandTarget.setRemoteServer(null)
         assertTrue(runCatching { io.nekohasekai.sfa.utils.CommandTarget.requireLocalSession(session) }.isFailure)
     }
 
     @Test fun stoppedAndUnselectedUpdatesPreserveServiceState() {
-        SubscriptionServer("""{"log":{"disabled":true}}""").use { server ->
+        SubscriptionServer(JSONObject(socksSubscription()).put("log", JSONObject().put("disabled", true)).toString()).use { server ->
             withRunningProfile(server.url) { activity, profiles, id ->
                 val other = profiles.save(mapOf("name" to "Unselected subscription", "content" to "{}", "url" to server.url))
                 try {
                     profiles.update(other)
-                    assertEquals(server.content, profiles.read(other))
+                    assertEquals(listOf("upstream"), configurationNodes(profiles.read(other)).map { it.optString("tag") })
+                    assertFalse(configuration(profiles.read(other)).has("log"))
                     assertEquals(id, Settings.selectedProfile)
                     assertEquals(Status.Started, activity.serviceStatus.value)
 
-                    server.content = """{"log":{"level":"warn"}}"""
+                    server.content = JSONObject(socksSubscription("background-node")).put("log", JSONObject().put("level", "warn")).toString()
                     val unselected = profiles.get(other)
                     unselected.typed.autoUpdate = true
                     unselected.typed.lastUpdated = Date(0)
                     ProfileManager.update(unselected)
                     assertTrue(UpdateProfileWork.updateProfiles(activity.applicationContext))
-                    assertEquals(server.content, profiles.read(other))
+                    assertEquals(listOf("background-node"), configurationNodes(profiles.read(other)).map { it.optString("tag") })
+                    assertFalse(configuration(profiles.read(other)).has("log"))
                     assertEquals(id, Settings.selectedProfile)
                     assertEquals(Status.Started, activity.serviceStatus.value)
                     val updatedUnselected = profiles.get(other)
@@ -1195,16 +1618,16 @@ class ProfileRecoveryTest {
                     withContext(Dispatchers.Main) { activity.stopService() }
                     withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
                     profiles.update(id)
-                    assertEquals(server.content, profiles.read(id))
+                    assertEquals(listOf("background-node"), configurationNodes(profiles.read(id)).map { it.optString("tag") })
                     assertEquals(Status.Stopped, activity.serviceStatus.value)
 
-                    server.content = "{}"
+                    server.content = socksSubscription("stopped-background-node")
                     val profile = profiles.get(id)
                     profile.typed.autoUpdate = true
                     profile.typed.lastUpdated = Date(0)
                     ProfileManager.update(profile)
                     assertTrue(UpdateProfileWork.updateProfiles(activity.applicationContext))
-                    assertEquals("{}", profiles.read(id))
+                    assertEquals(listOf("stopped-background-node"), configurationNodes(profiles.read(id)).map { it.optString("tag") })
                     assertTrue(profiles.get(id).typed.lastUpdated.time > 0L)
                     assertEquals(Status.Stopped, activity.serviceStatus.value)
                     profiles.select(other) { activity.serviceStatus.value }
@@ -1361,8 +1784,22 @@ class ProfileRecoveryTest {
     private fun occupiedPortConfig(port: Int): String =
         """{"inbounds":[{"type":"mixed","listen":"127.0.0.1","listen_port":$port}]}"""
 
+    private fun socksSubscription(tag: String = "upstream"): String =
+        JSONObject().put("outbounds", JSONArray().put(JSONObject()
+            .put("type", "socks").put("tag", tag).put("server", "127.0.0.1").put("server_port", 1080))).toString()
+
+    private fun nodeSubscriptions(activity: BoxActivity) = BoxNodeSubscriptions(
+        beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) },
+    ) { recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) } }
+
+    private suspend fun subscriptionArgs(profiles: BoxProfiles, id: Long, name: String, url: String, autoUpdate: Boolean = false): Map<String, Any?> =
+        mapOf("profileId" to id, "profileRevision" to BoxProfiles.revision(profiles.read(id)),
+            "name" to name, "url" to url, "autoUpdate" to autoUpdate, "interval" to 15)
+
+    private fun configuration(content: String): JSONObject = JSONObject(Libbox.formatConfig(content).value)
+
     private fun configurationNodes(content: String): List<JSONObject> {
-        val nodes = JSONObject(Libbox.formatConfig(content).value).optJSONArray("outbounds") ?: return emptyList()
+        val nodes = configuration(content).optJSONArray("outbounds") ?: return emptyList()
         return (0 until nodes.length()).map { nodes.getJSONObject(it) }
     }
 

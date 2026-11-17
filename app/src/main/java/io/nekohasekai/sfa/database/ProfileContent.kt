@@ -42,6 +42,9 @@ internal object ProfileContent {
         content: String,
         expectedRevision: String? = null,
         updatedAt: Date? = null,
+        subscriptions: List<ProfileNodeSubscription>? = null,
+        renamedNode: Pair<String, String>? = null,
+        beforeCommit: () -> Unit = {},
         beforeSave: suspend () -> Unit = { requireStableService() },
         applySelected: suspend (recover: Boolean) -> Unit,
     ) {
@@ -54,7 +57,18 @@ internal object ProfileContent {
         val cleaned = Libbox.preserveUIConfigNodes(previous.orEmpty(), removed).value
         validate(cleaned)
         val changed = previous != cleaned
-        if (!changed && updatedAt == null) return
+        val previousSubscriptions = profile.typed.subscriptions
+        val nextSubscriptions = if (subscriptions != null || previousSubscriptions.isNotEmpty()) {
+            val tags = ProfileNodeSubscription.proxyTags(cleaned).toSet()
+            (subscriptions ?: previousSubscriptions).map { source ->
+                source.copy(tags = source.tags.map { tag ->
+                    renamedNode?.takeIf { it.first == tag }?.second ?: tag
+                }.filter { it in tags })
+            }
+        } else emptyList()
+        ProfileNodeSubscription.read(nextSubscriptions.map { it.toWire() })
+        val sourcesChanged = previousSubscriptions != nextSubscriptions
+        if (!changed && updatedAt == null && !sourcesChanged) return
         val savedAt = updatedAt ?: if (changed && profile.typed.type == TypedProfile.Type.Local) Date() else null
 
         val apply = changed && profile.id == Settings.selectedProfile
@@ -66,8 +80,9 @@ internal object ProfileContent {
             if (previous != null) write(file, previous)
             else check(!file.exists() || file.delete()) { "Unable to restore profile file" }
         }
-        if (savedAt != null) restore.add {
+        if (savedAt != null || sourcesChanged) restore.add {
             profile.typed.lastUpdated = previousUpdatedAt
+            profile.typed.subscriptions = previousSubscriptions
             check(ProfileManager.update(profile) == 1) { "Profile no longer exists" }
         }
         if (apply) restore.add {
@@ -76,10 +91,12 @@ internal object ProfileContent {
         ProfileChange.apply(
             save = {
                 snapshotMutex.withLock {
+                    beforeCommit()
                     if (apply) beforeSave()
                     if (changed) write(file, cleaned)
-                    if (savedAt != null) {
-                        profile.typed.lastUpdated = savedAt
+                    if (savedAt != null || sourcesChanged) {
+                        if (savedAt != null) profile.typed.lastUpdated = savedAt
+                        profile.typed.subscriptions = nextSubscriptions
                         check(ProfileManager.update(profile) == 1) { "Profile no longer exists" }
                     }
                 }

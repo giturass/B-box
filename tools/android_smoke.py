@@ -7,6 +7,8 @@ import http.server
 import json
 import os
 import re
+import select
+import socket
 import socketserver
 import subprocess
 import ssl
@@ -137,30 +139,150 @@ def capture(name):
     (OUT / f"{name}.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
 
 
+@contextlib.contextmanager
+def subscription_proxy():
+    """Expose a CI-only SOCKS5 TCP proxy through the emulator's loopback.
+
+    The imported default configuration downloads its actual remote rule sets
+    through this proxy. The runner must have DNS and TCP access to those URLs.
+    """
+    stopping = threading.Event()
+    connection_lock = threading.Lock()
+    connections = set()
+    requests = []
+
+    class SocksProxy(socketserver.BaseRequestHandler):
+        def read_exact(self, size):
+            value = b""
+            while len(value) < size:
+                chunk = self.request.recv(size - len(value))
+                if not chunk:
+                    raise ConnectionError("SOCKS client closed during its request")
+                value += chunk
+            return value
+
+        def handle(self):
+            self.request.settimeout(15)
+            with connection_lock:
+                if stopping.is_set():
+                    return
+                connections.add(self.request)
+            upstream = None
+            attempt = None
+            try:
+                version, method_count = self.read_exact(2)
+                methods = self.read_exact(method_count)
+                if version != 5 or 0 not in methods:
+                    self.request.sendall(b"\x05\xff")
+                    return
+                self.request.sendall(b"\x05\x00")
+                version, command, reserved, address_type = self.read_exact(4)
+                if version != 5 or reserved != 0 or command != 1:
+                    self.request.sendall(b"\x05\x07\x00\x01" + b"\x00" * 6)
+                    return
+                if address_type == 1:
+                    host = socket.inet_ntop(socket.AF_INET, self.read_exact(4))
+                elif address_type == 4:
+                    host = socket.inet_ntop(socket.AF_INET6, self.read_exact(16))
+                elif address_type == 3:
+                    host = self.read_exact(self.read_exact(1)[0]).decode("ascii")
+                else:
+                    self.request.sendall(b"\x05\x08\x00\x01" + b"\x00" * 6)
+                    return
+                port = int.from_bytes(self.read_exact(2), "big")
+                attempt = {"host": host, "port": port, "connected": False}
+                requests.append(attempt)
+                upstream = socket.create_connection((host, port), timeout=15)
+                with connection_lock:
+                    if stopping.is_set():
+                        return
+                    connections.add(upstream)
+                attempt["connected"] = True
+                self.request.sendall(b"\x05\x00\x00\x01" + b"\x00" * 6)
+                readers = [self.request, upstream]
+                while readers and not stopping.is_set():
+                    readable, _, _ = select.select(readers, [], [], 1)
+                    for source in readable:
+                        destination = upstream if source is self.request else self.request
+                        chunk = source.recv(64 * 1024)
+                        if chunk:
+                            destination.sendall(chunk)
+                        else:
+                            readers.remove(source)
+                            destination.shutdown(socket.SHUT_WR)
+            except (OSError, ValueError, UnicodeError) as error:
+                if attempt is not None and not stopping.is_set():
+                    attempt["error"] = str(error)
+                if upstream is None:
+                    with contextlib.suppress(OSError):
+                        self.request.sendall(b"\x05\x01\x00\x01" + b"\x00" * 6)
+            finally:
+                with connection_lock:
+                    connections.discard(self.request)
+                    connections.discard(upstream)
+                if upstream is not None:
+                    upstream.close()
+
+    with socketserver.ThreadingTCPServer(("127.0.0.1", 0), SocksProxy) as server:
+        port = server.server_address[1]
+        worker = threading.Thread(target=server.serve_forever, name="subscription-proxy")
+        worker.start()
+        try:
+            adb("reverse", f"tcp:{port}", f"tcp:{port}")
+            yield port, requests
+        finally:
+            stopping.set()
+            server.shutdown()
+            with connection_lock:
+                active = tuple(connections)
+            for connection in active:
+                with contextlib.suppress(OSError):
+                    connection.shutdown(socket.SHUT_RDWR)
+                connection.close()
+            # ThreadingTCPServer joins the non-daemon request workers after
+            # the open sockets are closed, including incomplete handshakes.
+            server.server_close()
+            worker.join(timeout=5)
+            try:
+                adb("reverse", "--remove", f"tcp:{port}")
+            except (subprocess.SubprocessError, OSError) as error:
+                print(f"Reverse-port cleanup failed: {error}")
+            (OUT / "subscription-proxy.json").write_text(json.dumps(requests, indent=2) + "\n")
+
+
 def ui_smoke():
-    config = {
-        "log": {"level": "info"},
-        "inbounds": [{"type": "tun", "address": ["172.19.0.1/30"], "auto_route": True}],
-        "outbounds": [
-            {"type": "selector", "tag": "Smoke selector", "outbounds": ["direct"]},
-            {"type": "direct", "tag": "direct"},
-        ],
-        "route": {"final": "Smoke selector"},
-        "experimental": {"clash_api": {"default_mode": "rule"}},
-    }
-    (OUT / "profile.json").write_text(json.dumps(config))
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(OUT))
-    with http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler) as server:
+    class SubscriptionHandler(http.server.SimpleHTTPRequestHandler):
+        timeout = 15
+
+    class SubscriptionHTTPServer(http.server.ThreadingHTTPServer):
+        daemon_threads = False
+
+    handler = functools.partial(SubscriptionHandler, directory=str(OUT))
+    with (subscription_proxy() as (proxy_port, proxy_requests),
+          SubscriptionHTTPServer(("127.0.0.1", 0), handler) as server):
+        # A Clash node document exercises the real URL bridge without taking
+        # the remote group, listener or DNS settings into the app's template.
+        (OUT / "profile.yaml").write_text(f"""mixed-port: 1
+log-level: debug
+dns: {{enable: true, nameserver: [203.0.113.1]}}
+proxies:
+  - {{name: Smoke node, type: socks5, server: 127.0.0.1, port: {proxy_port}}}
+proxy-groups:
+  - {{name: Smoke selector, type: select, proxies: [Smoke node]}}
+rules:
+  - MATCH,Smoke selector
+""")
         port = server.server_port
-        threading.Thread(target=server.serve_forever, daemon=True).start()
+        worker = threading.Thread(target=server.serve_forever, name="subscription-http")
+        worker.start()
         try:
             adb("reverse", f"tcp:{port}", f"tcp:{port}")
             launch_activity()
             wait_for("Dashboard", dismiss_launcher_anr=True)
             capture("01-startup")
             uri = "sing-box://import-remote-profile?" + urllib.parse.urlencode({
-                "url": f"http://127.0.0.1:{port}/profile.json",
-            }) + "#" + urllib.parse.quote("Smoke profile")
+                "url": f"http://127.0.0.1:{port}/profile.yaml",
+            }) + "#" + urllib.parse.quote("Smoke subscription")
             # ADB's shell parses the encoded URI a second time.
             launch_activity("-a", "android.intent.action.VIEW", "-d", "'" + uri + "'")
             # Prism's form sheet can expose semantics before it stops moving.
@@ -169,13 +291,22 @@ def ui_smoke():
             click("Save", stable=True)
             current = wait_for("Start", whole_window=True)
             assert matching("Profile file", current), "Import changed the default selection"
-            click("Switch profile", current)
-            current = wait_for("Smoke profile", whole_window=True)
-            assert matching("Profile file", current), "Default profile disappeared after import"
-            capture("02-profile-files")
-            click("Smoke profile", current)
+            click("Profile file", current)
+            click("Node subscriptions")
+            wait_for("Smoke subscription")
+            capture("02-subscription-source")
+            adb("shell", "input", "keyevent", "4")
+            adb("shell", "input", "keyevent", "4")
             current = wait_for("Start", whole_window=True)
-            assert matching("Smoke profile", current), "Selected imported profile is missing from the dashboard"
+            click("Profiles", current)
+            current = wait_for("Profile file", whole_window=True)
+            assert matching("Profile file", current), "Default profile disappeared after import"
+            assert not matching("Smoke subscription", current), "Subscription created another configuration file"
+            assert not matching("Smoke profile", current), "Subscription created another configuration file"
+            capture("02-profile-files")
+            click("Dashboard")
+            current = wait_for("Start", whole_window=True)
+            assert matching("Profile file", current), "Node import changed the selected configuration"
             capture("02-imported")
             click("Start", current)
             for _ in range(12):
@@ -193,8 +324,27 @@ def ui_smoke():
             # Reuse the window that confirmed Running. A second UIAutomator
             # idle wait can time out on the continuously updating dashboard.
             click("Profiles", current)
-            wait_for("Smoke selector")
-            assert matching("Smoke profile", nodes()), "Selected profile is missing above the core proxy groups"
+            wait_for("proxy")
+            wait_for("auto")
+            current = wait_for("Smoke node", whole_window=True)
+            assert not matching("Smoke selector", current), "Subscription group replaced the local core groups"
+            assert matching("Profile file", current), "Selected profile is missing above the core proxy groups"
+            # The selector's node precedes the automatic group's repeated
+            # node in list layouts. Only the selector permits manual selection.
+            choices = matching("Smoke node", current)
+            clickable = [node for node in choices if node.get("clickable") == "true"]
+            tap_node((clickable or choices)[0])
+            connections_before_probe = len(proxy_requests)
+            click("Test latency")
+            deadline = time.monotonic() + 30
+            while not any(request["connected"] for request in proxy_requests) and time.monotonic() < deadline:
+                time.sleep(0.2)
+            assert any(request["connected"] for request in proxy_requests), \
+                "The imported SOCKS node never forwarded a TCP connection"
+            # URL-test caching is owned by the core. Record new connections
+            # without attributing an earlier rule-set download to this action.
+            print(f"SOCKS connections before latency: {connections_before_probe}; "
+                  f"after: {len(proxy_requests)}", flush=True)
             capture("04-core-proxies")
             click("Settings")
             wait_for("Appearance")
@@ -204,10 +354,12 @@ def ui_smoke():
             wait_for("Not running")
             adb("shell", "am", "force-stop", PACKAGE)
             launch_activity()
-            wait_for("Smoke profile")
+            wait_for("Profile file")
             capture("05-restored-profile")
         finally:
             server.shutdown()
+            server.server_close()
+            worker.join(timeout=5)
             try:
                 adb("reverse", "--remove", f"tcp:{port}")
             except (subprocess.SubprocessError, OSError) as error:
