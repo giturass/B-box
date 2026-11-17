@@ -746,6 +746,9 @@ void main() {
     await tester.enterText(find.byType(TextFormField).at(0), 'Retry subscription');
     await tester.enterText(find.byType(TextFormField).at(1), url);
     await tester.enterText(find.byType(TextFormField).at(2), '180');
+    await Scrollable.ensureVisible(tester.element(find.text('Auto update')), alignment: .5);
+    await tester.pumpAndSettle();
+    expect(find.text('Auto update').hitTestable(), findsOneWidget);
     await tester.tap(find.text('Auto update'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Save').last);
@@ -989,7 +992,7 @@ void main() {
     final events = StreamController<dynamic>.broadcast();
     final pending = Completer<void>();
     final updates = <Json>[];
-    await _mount(tester, profiles: [{..._default, 'subscriptions': [{'id': 'source-a'}, {'id': 'source-b'}]}],
+    final box = await _mount(tester, profiles: [{..._default, 'subscriptions': [{'id': 'source-a'}, {'id': 'source-b'}]}],
       selected: 3, eventController: events, handler: (call) async {
       if (call.method == 'subscriptions.update') {
         updates.add(json(call.arguments));
@@ -1010,6 +1013,8 @@ void main() {
     expect(updates, [{'profileId': 3, 'id': 'source-a'}]);
     events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 3, 'remote': 'Server'}});
     events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 3}});
+    await tester.pump();
+    expect(box.sessionRevision, 2);
     pending.complete();
     await tester.pumpAndSettle();
     expect(updates, [{'profileId': 3, 'id': 'source-a'}]);
@@ -1026,7 +1031,7 @@ void main() {
     final events = StreamController<dynamic>.broadcast();
     final pending = Completer<void>();
     final updates = <String>[];
-    await _mount(tester, profiles: [_remote, {..._local, 'subscriptions': [{'id': 'source-a'}]}],
+    final box = await _mount(tester, profiles: [_remote, {..._local, 'subscriptions': [{'id': 'source-a'}]}],
       eventController: events, handler: (call) async {
       if (call.method == 'profiles.update') { updates.add(call.method); await pending.future; }
       if (call.method == 'subscriptions.update') updates.add(call.method);
@@ -1037,8 +1042,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Update all'));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(updates, ['profiles.update']);
     events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 1, 'remote': 'Server'}});
     events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 1}});
+    await tester.pump();
+    expect(box.sessionRevision, 2);
     pending.complete();
     await tester.pumpAndSettle();
     expect(updates, ['profiles.update']);
