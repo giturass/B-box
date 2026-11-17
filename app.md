@@ -256,35 +256,37 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-WARP MASQUE 与停服代理组选择的修正源码 `9ab9f8a76d144f34680fa0d95ce63f63bdf95c78` 在临时 CI 分支的 [44118343551](https://github.com/giturass/B-box/actions/runs/44118343551) 已通过全部核心回归：基础 `TestUI`、发货协议节点、Vision/XHTTP/VLESS、WARP HTTP/2/3 与注册、路由生命周期及 HTTP 调试/处理回归，要求 race 的步骤均通过。Flutter 和 Android 构建也通过；API 31 界面与原生测试通过，API 24 原生 64 项通过但界面等待 Running 失败。新增服务日志明确记录 GitHub 规则集 HTTPS 的 `x509: certificate signed by unknown authority`，其余并发请求被取消，未确认服务启动成功。默认模板现改用上文所链接的内置可信库，新增配置与来源保留回归尚待新一轮 Actions；不关闭 TLS 校验，不给 smoke 注入 CA 或替换默认远程规则。Cloudflare 真实注册/连接、网络切换及 ARM64 实机视觉尚未验收。
+本轮验证源码为 `5017c42c890fa3cdaebd5edfa7323c7473107005`。[统一工作流 44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 的 8 个作业全部通过：
 
-先一轮源码 `7e1ca0d0bc476fc3642f4daa58a2d52a284dfe9c` 的 [44116805564](https://github.com/giturass/B-box/actions/runs/44116805564) 已通过 Flutter 302 项测试（92 项 info、无 warning/error）与 ARM64 Debug/Release AAR，以及 Android 62 项 JVM 测试（无失败/错误/跳过）、`play` 编译和模拟器 APK 构建。核心在新增 HTTP/3 用例缺少 `net/http` 导入时失败，该单行修正在上述较新源码完成验证。API 24 原生 64 项通过，界面首次等待 Dashboard 被预装 Messenger 的系统崩溃弹窗阻挡，未走到服务启动；当前 smoke 增加上述精确弹窗专例，仍需新一轮验证。视觉范围见 [Flutter 记录](flclash.md#当前验证记录)。
+- [核心作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229545) 通过基础 `TestUI`、发货协议节点、Vision/XHTTP/VLESS、WARP HTTP/2/3 与注册、路由生命周期及 HTTP 调试/处理回归；要求 race 的步骤均通过，Go `checkptr` 检查保留。新建模板的 Mozilla 可信库、初始及节点导入后的完整配置校验和证书策略保留断言均已运行。
+- [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229762) 通过分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建；测试数量与截图核对范围见 [Flutter 记录](flclash.md#当前验证记录)。
+- [Android 作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229129) 的 14 份 JVM 报告合计 62 项测试，无失败、错误或跳过；`play` Kotlin 编译、x86_64 libbox/Flutter Debug 库及模拟器应用/仪器测试 APK 构建通过。[Root CA 作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179230229) 的隔离挂载与启动重试回归也通过。
 
-首轮 WARP 源码 `d825ccfc59e8a79568a8b78457e425503cd631d0` 的 [44113437340](https://github.com/giturass/B-box/actions/runs/44113437340) 在核心及 Flutter 夹具失败后被后续推送取消。停服选择源码 `2167896c44aa6f9cc7e08c124fd868ebb4f96e87` 的 [44106959931](https://github.com/giturass/B-box/actions/runs/44106959931) 同样在重复标签/缓存属主夹具与 Flutter 列表选择用例失败；API 24 原生 60 项通过，界面等待 Running 超时，该旧错误尚无具体服务异常依据，不能用本轮 Messenger 弹窗解释。
+四组 smoke 的实际结果如下；各组产物的 `results.json` 均记录上述源码 SHA、实际 SDK 与页大小。原生回归包含 WARP 配置/注册持久化、停服代理组选择、新建模板与来源证书策略保留。
 
-本轮 XHTTP 与 VLESS Encryption 的验证源码为 `8c56b623b46c7ab4c5c4632b1db428ebc49dcb25`。[统一工作流 44086051274](https://github.com/giturass/B-box/actions/runs/44086051274) 已通过核心全部 `TestUI`、发货协议标签的 `TestUINode`、标准/uTLS Vision 指针回归、两组 XHTTP/Encryption race 矩阵，以及原 WARP、路由生命周期、HTTP 调试与路由回归。Go `checkptr` 检查保留。Flutter 287 项测试及 ARM64 Debug/Release AAR 通过，分析为 84 项 info、无 warning/error；[Android 作业](https://github.com/giturass/B-box/actions/runs/44086051274/job/134048707421) 的 56 项 JVM 测试无失败/错误/跳过，`play` 编译及模拟器 APK 构建通过。
-
-四组 smoke 的实际结果如下；各组 59 项原生测试均通过，包括新增的四项 XHTTP/Encryption 配置绑定测试及一项订阅导入/更新/回滚测试。API 24 在同一 SHA 下单独重跑一次，两次原生测试都通过。界面 smoke 仍使用实际默认配置、导入 SOCKS 节点和 KCP 跳过报告，不连接外部 XHTTP 服务。
-
-| 模拟器 | 实际页大小 | 原生测试 | 界面 smoke |
+| 模拟器 | 实际页大小（字节） | 原生测试 | 界面 smoke |
 | --- | --- | --- | --- |
-| API 24 / Google APIs | 4096 | 两次各 59 项通过 | 两次等待默认配置 Running 超时 |
-| API 31 / Google APIs | 4096 | 59 项通过 | 通过 |
-| API 36 / Google APIs | 4096 | 59 项通过 | 通过 |
-| API 36 / Google APIs 16 KiB | 16384 | 59 项通过 | 通过 |
+| [API 24 / Google APIs](https://github.com/giturass/B-box/actions/runs/44123007908/job/134185800849) | 4096 | 64 项通过 | 通过 |
+| [API 31 / Google APIs](https://github.com/giturass/B-box/actions/runs/44123007908/job/134185801522) | 4096 | 64 项通过 | 通过 |
+| [API 36 / Google APIs](https://github.com/giturass/B-box/actions/runs/44123007908/job/134185800725) | 4096 | 64 项通过 | 通过 |
+| [API 36 / Google APIs 16 KiB](https://github.com/giturass/B-box/actions/runs/44123007908/job/134185800956) | 16384 | 64 项通过 | 通过 |
 
-API 24 的 [首轮作业](https://github.com/giturass/B-box/actions/runs/44086051274/job/134052878834) 与 [单次重跑](https://github.com/giturass/B-box/actions/runs/44086051274/job/134060392238) 均报 `UI never showed 'Running'`，因此统一工作流整体未通过。该界面路径导入的是 SOCKS 节点；诊断显示默认配置启动阶段请求远程规则集，未确认进入 Running，日志没有提供具体停止原因，不能据此断言外部网络或新增协议的故障。API 31/36/16 KiB 的界面与原生检查均成功；API 24 默认配置的界面启动仍未通过验收。
+API 24 本轮默认配置已进入绿色 Running，导入的 SOCKS 节点和原 proxy/auto 分组已核对，UI 的服务异常日志为空；没有触发 Messenger 弹窗专例。此前实际记录的 GitHub 规则集证书链错误，现由 [新建模板的可信库](libbox.md#节点导入与配置合并) 修正后通过该界面路径；已有文件不自动迁移，证书校验及自定义策略保持原生语义。
 
-同一源码的 [ARM64 Release 44086592572](https://github.com/giturass/B-box/actions/runs/44086592572) 已通过核心/Flutter AAR、保留 R8 的签名 APK 构建、最低 API 24/ARM64/身份/版本/入口/assets 及 v2 签名校验。版本为 `1.15.0-alpha.13`、versionCode `748`；以 `publish_release=false` 运行，发布步骤跳过。[APK Artifact](https://github.com/giturass/B-box/actions/runs/44086592572/artifacts/14330106966) 可下载，未安装到 ARM64 实机。
-
-首轮协议移植提交 `c1a865fdc0a21d1d6572d27a0db0e2179817ccb2` 的 [44083485919](https://github.com/giturass/B-box/actions/runs/44083485919) 因 Vision 的旧 `uintptr` 注册接口触发 `checkptr` 失败，后续推送取消该轮；当前源码使用保留指针来源的兼容补丁，原因及来源见 [SOURCE.md](libbox/xhttp/SOURCE.md)。上述 Go 测试使用 Actions runner 内的模拟协议服务，未覆盖与外部 Xray 服务互通、CDN/REALITY/ECH 的真实网络或 ARM64 实机验收。本机仅执行源码、差异、补丁与文档静态检查，不执行 Go/Flutter/Android 构建或测试。
+本轮构建了 ARM64 Flutter AAR 和 x86_64 模拟器 APK，未触发签名 ARM64 Release APK 构建。Cloudflare 真实注册/连通及网络切换、外部 Xray 互通和 CDN/REALITY/ECH 真实网络、ARM64 实机及 WARP 中文/注册中/待保存视觉仍未验收；模拟服务回归和上述产物不代替这些检查。本机仅执行 `git diff --check`、`python3 tools/verify_newui.py` 及 Markdown 链接/旧引用静态检查，没有执行 Go、Flutter 或 Android 构建/测试。
 
 ### 历史验证记录
 
-下表索引此前在 Actions 上记录过的运行，只用于查询，不是当前源码的通过声明。逐次的检查项、产物链接、失败原因和未覆盖范围保留在 Git 历史，可用 `git show 06eed8f5f830a90b9853995ced3b2e211deca628:app.md` 查看整理前的完整记录。未注明时 smoke 为该行所列环境的 UI smoke 加原生测试；Flutter 数量见 [flclash.md](flclash.md#历史验证记录)。
+下表索引此前在 Actions 上记录过的运行，只用于查询，不是当前源码的通过声明。逐次的检查项、产物链接、失败原因和未覆盖范围保留在 Git 历史，可用 `git show 5017c42c890fa3cdaebd5edfa7323c7473107005:app.md` 查看整理前的完整记录。未注明时 smoke 为该行所列环境的 UI smoke 加原生测试；Flutter 数量见 [flclash.md](flclash.md#历史验证记录)。
 
 | 日期 | 主题 | 验证源码 | Actions | 范围与备注 |
 | --- | --- | --- | --- | --- |
+| 2026-11-17 | WARP HTTP/3 回归导入修正与 API 24 诊断 | `9ab9f8a76d144f34680fa0d95ce63f63bdf95c78` | [44118343551](https://github.com/giturass/B-box/actions/runs/44118343551) | 核心与构建通过，API 31/36/16 KiB smoke 通过；API 24 原生 64 项通过，UI 等待 Running 失败，服务日志明确记录 GitHub 规则集 HTTPS 的证书链不受信任，整套未通过 |
+| 2026-11-17 | WARP/停服选择夹具与服务异常日志 | `7e1ca0d0bc476fc3642f4daa58a2d52a284dfe9c` | [44116805564](https://github.com/giturass/B-box/actions/runs/44116805564) | Flutter 302 项与 ARM64 AAR、Android 62 项 JVM 及模拟器构建通过；核心因 HTTP/3 用例缺少导入失败；API 24 原生 64 项通过，UI 被预装 Messenger 系统崩溃弹窗阻挡；运行被后续推送取消，不计为整套通过 |
+| 2026-11-17 | WARP 注册与传输重写首轮 | `d825ccfc59e8a79568a8b78457e425503cd631d0` | [44113437340](https://github.com/giturass/B-box/actions/runs/44113437340) | 核心与 Flutter 夹具失败后被后续推送取消，不计为通过 |
+| 2026-11-17 | 停服代理组选择首轮 | `2167896c44aa6f9cc7e08c124fd868ebb4f96e87` | [44106959931](https://github.com/giturass/B-box/actions/runs/44106959931) | 重复标签/缓存属主夹具及 Flutter 列表选择用例失败；API 24 原生 60 项通过，UI 等待 Running 超时且没有具体服务异常依据，不能用后续 Messenger 弹窗解释 |
+| 2026-11-17 | XHTTP/VLESS Encryption 与 Vision 指针修正 | `8c56b623b46c7ab4c5c4632b1db428ebc49dcb25` | [44086051274](https://github.com/giturass/B-box/actions/runs/44086051274)、[ARM64 Release 44086592572](https://github.com/giturass/B-box/actions/runs/44086592572) | 核心、Flutter 287 项及 ARM64 AAR、JVM 56 项通过；四组各 59 项原生通过，API 31/36/16 KiB UI 通过，API 24 两次 UI 等待 Running 超时，统一工作流未通过。签名 Release `1.15.0-alpha.13` / `748` 构建与 v2 签名/身份/产物校验通过，`publish_release=false`，未发布或实机验收；[APK Artifact](https://github.com/giturass/B-box/actions/runs/44086592572/artifacts/14330106966) 属于该旧源码 |
+| 2026-11-17 | XHTTP/VLESS Encryption 移植首轮 | `c1a865fdc0a21d1d6572d27a0db0e2179817ccb2` | [44083485919](https://github.com/giturass/B-box/actions/runs/44083485919) | Vision 旧 `uintptr` 接口触发 `checkptr` 失败，后续推送取消；修正来源见 [SOURCE.md](libbox/xhttp/SOURCE.md) |
 | 2026-11-17 | 配置内订阅来源及跳过报告 | `5937367671729a0c726182500288732851aa969a` | [44070105954](https://github.com/giturass/B-box/actions/runs/44070105954)、[ARM64 Release 44070141753](https://github.com/giturass/B-box/actions/runs/44070141753) | 核心、287 项 Flutter、56 项 JVM、四组各 54 项原生回归通过；API 31/36/16 KiB UI 通过，API 24 默认联网启动失败；当时 XHTTP 明确跳过，不包含新增协议。签名 Release 通过且未发布，未实机验收 |
 | 2026-11-17 | 默认名称、选中对号及弃用警告默认值 | `a4607728af065cb46a8b0c021480988bd9531442` | [43917329871](https://github.com/giturass/B-box/actions/runs/43917329871) | 8 个作业通过；271 项 Flutter；56 项 JVM；API 24/31/36 及 16 KiB 四组各 44 项原生测试和 UI smoke；API 24 默认文件和实际核心分组截图抽样通过，未覆盖本轮订阅来源；未触发签名 Release |
 | 2026-11-16 | 配置内节点、默认文件及首页切换语义修复 | `041325d4824cfae8f115f25021f0f7a8160c68aa` | [43875039054](https://github.com/giturass/B-box/actions/runs/43875039054) | 8 个作业通过；271 项 Flutter；56 项 JVM；API 24/31/36 及 16 KiB 四组各 44 项原生测试和 UI smoke，API 24 默认文件及核心分组截图抽样通过；未触发签名 Release |

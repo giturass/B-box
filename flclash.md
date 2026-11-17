@@ -221,9 +221,9 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-WARP 注册入口与停服代理组选择的验证源码为 `7e1ca0d0bc476fc3642f4daa58a2d52a284dfe9c`。[统一工作流 44116805564](https://github.com/giturass/B-box/actions/runs/44116805564) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44116805564/job/134157082659) 已通过：分析为 92 项 info、无 warning/error，302 项交互/布局测试全部通过，ARM64 Debug/Release Flutter AAR 构建成功。列表用例的偏好替身返回完整设置；放弃确认使用有限帧等待，窄屏按钮先滚动构建，保留连接关闭与可点击断言。新增页面未修改 FlClash/Prism 直接导入文件。
+WARP 注册入口与停服代理组选择的验证源码为 `5017c42c890fa3cdaebd5edfa7323c7473107005`。[统一工作流 44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229762) 已通过：分析为 92 项 info、无 warning/error，302 项交互/布局测试全部通过，ARM64 Debug/Release Flutter AAR 构建成功。列表用例的偏好替身返回完整设置；放弃确认使用有限帧等待，窄屏按钮先滚动构建，保留连接关闭与可点击断言。新增页面未修改 FlClash/Prism 直接导入文件。
 
-实际查看 `newui-validation` 内三张初始页面截图：`360-light-1.0-WARP-registration.png`、`360-dark-1.4-WARP-registration.png` 和 `800-light-1.0-WARP-registration.png`。标题/返回/刷新、所选配置、名称输入、HTTP/3、注册按钮与条款无可见横向溢出或遮挡，深色大字号下传输标签与条款自然换行。截图仅覆盖英文初始页面及替身配置，不覆盖注册中、待保存、取消、中文或 ARM64 实机；320 宽/1.4 倍字号通过几何交互测试，没有单独截图。Android 和核心的实际结果见 [应用记录](app.md#当前验证记录)。
+`newui-validation` 内三张初始页面截图为 `360-light-1.0-WARP-registration.png`、`360-dark-1.4-WARP-registration.png` 和 `800-light-1.0-WARP-registration.png`；分别为 360×800、360×800 和 800×1000，与源码 `7e1ca0d0bc476fc3642f4daa58a2d52a284dfe9c` 当时实际查看的产物 SHA256 逐张相同。标题/返回/刷新、所选配置、名称输入、HTTP/3、注册按钮与条款无可见横向溢出或遮挡，深色大字号下传输标签与条款自然换行。截图仅覆盖英文初始页面及替身配置，不覆盖注册中、待保存、取消、中文或 ARM64 实机；320 宽/1.4 倍字号通过几何交互测试，没有单独截图。Android 和核心的实际结果见 [应用记录](app.md#当前验证记录)。
 
 ### 历史验证记录
 
