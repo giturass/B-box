@@ -94,7 +94,8 @@ def matching(label, items):
     ).splitlines()]
 
 
-def wait_for(label, timeout=90, dismiss_launcher_anr=False, whole_window=False, stable=False):
+def wait_for(label, timeout=90, dismiss_launcher_anr=False, whole_window=False, stable=False,
+             dismiss_messenger_crash=False):
     deadline = time.monotonic() + timeout
     previous_bounds = None
     while time.monotonic() < deadline:
@@ -114,6 +115,21 @@ def wait_for(label, timeout=90, dismiss_launcher_anr=False, whole_window=False, 
             if close:
                 dismiss_launcher_anr = False
                 capture("launcher-anr")
+                tap_node(close[0])
+                launch_activity()
+        # The API 24 Google APIs image can also leave its preinstalled
+        # Messenger crash dialog over the first B-box window. Record and close
+        # that exact system dialog once; other dialogs and repeat crashes fail.
+        if dismiss_messenger_crash and any(
+            node.get("package") == "android" and node.get("resource-id") == "android:id/alertTitle"
+            and node.get("text") == "Messenger has stopped" for node in current
+        ):
+            close = [node for node in current if node.get("package") == "android"
+                     and node.get("resource-id") == "android:id/aerr_close"]
+            if close:
+                dismiss_messenger_crash = False
+                capture("messenger-crash")
+                (OUT / "messenger-crash-window.xml").write_text((OUT / "window.xml").read_text())
                 tap_node(close[0])
                 launch_activity()
         time.sleep(0.5)
@@ -318,7 +334,7 @@ def ui_smoke():
         try:
             adb("reverse", f"tcp:{port}", f"tcp:{port}")
             launch_activity()
-            wait_for("Dashboard", dismiss_launcher_anr=True)
+            wait_for("Dashboard", dismiss_launcher_anr=True, dismiss_messenger_crash=True)
             capture("01-startup")
             uri = "sing-box://import-remote-profile?" + urllib.parse.urlencode({
                 "url": f"http://127.0.0.1:{port}/profile.txt",

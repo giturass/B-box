@@ -221,11 +221,9 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-WARP 注册入口与停服代理组选择的当前检查范围及 Actions 结果见 [应用验证记录](app.md#当前验证记录)。源码 `d825ccfc59e8a79568a8b78457e425503cd631d0` 的交互测试在列表选择偏好、放弃确认的动画等待及窄屏按钮滚动用例失败；正在修正夹具，尚不能声明当前交互/布局通过。新增页面未修改 FlClash/Prism 直接导入文件，ARM64 实机视觉尚未验收；下面已有通过记录和截图不包含本次修改。
+WARP 注册入口与停服代理组选择的验证源码为 `7e1ca0d0bc476fc3642f4daa58a2d52a284dfe9c`。[统一工作流 44116805564](https://github.com/giturass/B-box/actions/runs/44116805564) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44116805564/job/134157082659) 已通过：分析为 92 项 info、无 warning/error，302 项交互/布局测试全部通过，ARM64 Debug/Release Flutter AAR 构建成功。列表用例的偏好替身返回完整设置；放弃确认使用有限帧等待，窄屏按钮先滚动构建，保留连接关闭与可点击断言。新增页面未修改 FlClash/Prism 直接导入文件。
 
-本轮 XHTTP/VLESS Encryption 支持及许可登记的验证源码为 `8c56b623b46c7ab4c5c4632b1db428ebc49dcb25`。[统一工作流 44086051274](https://github.com/giturass/B-box/actions/runs/44086051274) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44086051274/job/134048708051) 已通过：分析为 84 项 info、无 warning/error，287 项交互/布局测试全部通过，ARM64 Debug/Release Flutter AAR 构建成功。
-
-跳过报告回归改用仍不支持的传输原因；旧 XHTTP/VLESS Encryption 报告翻译保留，来源更新后显示新结果。未改动直接导入的 FlClash/Prism 文件，本轮未新增界面几何变更或 ARM64 实机视觉验收。Android、核心传输及签名 APK 的实际结果见 [应用记录](app.md#当前验证记录)；本轮回归不等于与外部 Xray 服务互通已经验收。
+实际查看 `newui-validation` 内三张初始页面截图：`360-light-1.0-WARP-registration.png`、`360-dark-1.4-WARP-registration.png` 和 `800-light-1.0-WARP-registration.png`。标题/返回/刷新、所选配置、名称输入、HTTP/3、注册按钮与条款无可见横向溢出或遮挡，深色大字号下传输标签与条款自然换行。截图仅覆盖英文初始页面及替身配置，不覆盖注册中、待保存、取消、中文或 ARM64 实机；320 宽/1.4 倍字号通过几何交互测试，没有单独截图。Android 和核心的实际结果见 [应用记录](app.md#当前验证记录)。
 
 ### 历史验证记录
 
@@ -233,6 +231,7 @@ WARP 注册入口与停服代理组选择的当前检查范围及 Actions 结果
 
 | 日期 | 主题 | 验证源码 | Actions | 测试 / info | 当时实际查看的截图 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-11-17 | XHTTP/VLESS Encryption 支持及许可登记 | `8c56b623b46c7ab4c5c4632b1db428ebc49dcb25` | [44086051274](https://github.com/giturass/B-box/actions/runs/44086051274) | 287 / 84 | 无新增界面几何变更或实机视觉记录 |
 | 2026-11-17 | 配置内订阅来源及跳过报告 | `5937367671729a0c726182500288732851aa969a` | [44070105954](https://github.com/giturass/B-box/actions/runs/44070105954) | 287 / 84 | 旧核心的 API 24/31/36 及 16 KiB 来源卡片、SOCKS 节点与原分组；当时 XHTTP 为跳过项，不包含本轮协议支持；API 24 默认联网启动失败，未做 ARM64 实机验收 |
 | 2026-11-17 | 默认名称、选中对号及弃用警告默认值 | `a4607728af065cb46a8b0c021480988bd9531442` | [43917329871](https://github.com/giturass/B-box/actions/runs/43917329871)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43917329871/job/133474906780)） | 271 / 84 | 配置卡片与代理区域等宽，选中对号、大字号和宽屏文字无重叠；查看 360 浅色、360 深色 1.4 倍、横向滚动、800 浅色配置页及内核设置截图，未覆盖本轮订阅来源 |
 | 2026-11-16 | 配置内节点、等宽布局及首页切换语义修复 | `041325d4824cfae8f115f25021f0f7a8160c68aa` | [43875039054](https://github.com/giturass/B-box/actions/runs/43875039054)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43875039054/job/133325897659)） | 271 / 84 | Flutter 分析、测试及两种 AAR 通过；实际抽样查看 360 浅色、360 深色 1.4 倍、横向滚动和 800 浅色配置页，边框与代理区域等宽且文字、更新时间、操作及底栏没有重叠；当时配置卡片使用铅笔，未覆盖本轮恢复对号 |
