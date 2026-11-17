@@ -80,7 +80,7 @@ void main() {
     await tester.tap(find.text('Allow VPN bypass'));
     await tester.pump();
     await tester.pump();
-    final switches = find.descendant(of: find.byType(ServiceSettingsPage), matching: find.byType(Switch));
+    final switches = find.descendant(of: find.byType(NativeToggle), matching: find.byType(Switch));
     expect(switches, findsNWidgets(3));
     expect(box.serviceSettingsChanging, true);
     expect(tester.widgetList<Switch>(switches).every((widget) => widget.onChanged == null), true);

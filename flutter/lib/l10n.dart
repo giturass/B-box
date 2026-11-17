@@ -439,7 +439,7 @@ const _zh = <String, String>{
   'Import nodes': '导入节点', 'Nodes imported': '已导入节点', 'Add nodes': '添加节点', 'New node': '新建节点', 'Skipped': '已跳过',
   'Select multiple': '多选', '{count} selected': '已选择 {count} 项', '{count} nodes': '{count} 个节点',
   'Delete this node?': '删除此节点？', 'Delete the selected nodes?': '删除所选节点？',
-  'Import nodes from the clipboard?': '导入剪贴板中的节点？', 'Offer copied node links': '提示导入已复制的节点链接',
+  'Import nodes from the clipboard?': '导入剪贴板中的节点？', 'Clipboard node import prompt': '剪贴板节点导入提示',
   'Nodes served by proxy providers are not included.': '不包含由代理提供者下发的节点。',
   'Imported nodes are appended to this profile.': '导入的节点将追加到此配置文件。',
   'Add nodes to the selected profile.': '向所选配置文件添加节点。',

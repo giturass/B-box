@@ -129,9 +129,6 @@ class _ProfilesPageState extends State<ProfilesPage> {
             onPressed: updating || !updatable ? null : _updateAll),
           PopupMenuItem(glyph: AppGlyphs.sort, label: context.tr('Reorder profiles'),
             onPressed: profiles.length < 2 ? null : () => openForm(context, const ProfileOrderPage())),
-          PopupMenuItem(glyph: AppGlyphs.paste, label: context.tr('Offer copied node links'),
-            checked: box.preferences['clipboardImport'] != false,
-            onPressed: () => box.setPreference('clipboardImport', box.preferences['clipboardImport'] == false)),
         ],
         header: box.remote ? Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
