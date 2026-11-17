@@ -80,6 +80,17 @@ func uiNodeParseLinks(content string) *uiNodeParsed {
 			name := ""
 			if link := uiNodeSplitLink(text); link != nil {
 				name = link.name
+				// v2rayN VMess names come from the inner JSON, even if an
+				// outer fragment exists. A blank ps remains an unnamed refusal
+				// so subscription detours cannot guess a retained default tag.
+				if link.scheme == "vmess" {
+					if decoded, valid := uiNodeBase64Text(link.body); valid && strings.HasPrefix(strings.TrimSpace(decoded), "{") {
+						name = ""
+						if fields, decodeErr := uiNodeDecodeObject(decoded); decodeErr == nil {
+							name = fields.scalar("ps")
+						}
+					}
+				}
 			}
 			parsed.skip(name, err)
 			continue

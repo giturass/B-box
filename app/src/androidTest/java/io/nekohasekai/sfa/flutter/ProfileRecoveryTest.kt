@@ -828,6 +828,28 @@ class ProfileRecoveryTest {
                 assertEquals(updatedAt, profiles.get(id).typed.lastUpdated.time)
                 assertEquals(id, Settings.selectedProfile)
                 withTimeout(15_000) { activity.serviceStatus.first { it == Status.Started } }
+                SubscriptionServer(mixedVlessSubscription("separate-source-node", 1)).use { separate ->
+                    val subscriptions = nodeSubscriptions(activity)
+                    subscriptions.importSubscription(subscriptionArgs(profiles, id, "Separate source", separate.url))
+                    val beforeUnsupported = profiles.read(id)
+                    val metadata = profiles.get(id)
+                    assertEquals(1, metadata.typed.subscriptions.single().skipped)
+                    val generation = ProfileContent.generation
+                    server.content = mixedVlessSubscription("rejected-legacy-node", 1)
+                    val failure = runCatching { profiles.update(id) }.exceptionOrNull()
+                    assertTrue(failure is IllegalArgumentException)
+                    assertTrue(failure!!.message.orEmpty().contains("1 unsupported nodes"))
+                    assertTrue(failure.message.orEmpty().contains("XHTTP"))
+                    assertFalse(failure.message.orEmpty().contains("ignored-xhttp-node"))
+                    assertEquals(generation, ProfileContent.generation)
+                    assertEquals(beforeUnsupported, profiles.read(id))
+                    val preserved = profiles.get(id)
+                    assertEquals(metadata.typed.remoteURL, preserved.typed.remoteURL)
+                    assertEquals(metadata.typed.subscriptions, preserved.typed.subscriptions)
+                    assertEquals(metadata.typed.lastUpdated.time, preserved.typed.lastUpdated.time)
+                    assertEquals(id, Settings.selectedProfile)
+                    assertEquals(Status.Started, activity.serviceStatus.value)
+                }
             }
         }
     }

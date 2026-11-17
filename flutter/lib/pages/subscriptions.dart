@@ -31,8 +31,10 @@ Future<void> updateProfileSubscriptions(BuildContext context, Json profile, {boo
     if (!active()) break;
     try {
       final result = json(await box.call('subscriptions.update', {'profileId': profileId, 'id': source['id']}));
-      if (active()) box.messages.add(subscriptionReportMessage(context, result,
-        name: [profile['name'], source['name']].whereType<String>().where((name) => name.isNotEmpty).join(' · ')));
+      if (context.mounted && active()) {
+        box.messages.add(subscriptionReportMessage(context, result,
+          name: [profile['name'], source['name']].whereType<String>().where((name) => name.isNotEmpty).join(' · ')));
+      }
     } catch (error) { box.report(error); }
   }
 }

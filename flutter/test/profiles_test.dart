@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/components/profile_card.dart';
+import 'package:b_box_ui/components/form.dart';
 import 'package:b_box_ui/components/proxy_card.dart';
 import 'package:b_box_ui/components/proxy_list.dart';
 import 'package:b_box_ui/components/page_switcher.dart';
@@ -65,6 +66,17 @@ Future<void> _revealSwitchProfile(WidgetTester tester) async {
   expect(button, findsOneWidget);
   await Scrollable.ensureVisible(tester.element(button), alignment: .5);
   await tester.pumpAndSettle();
+}
+
+Future<void> _setSubscriptionInterval(WidgetTester tester, String value) async {
+  final form = find.byType(SubscriptionForm);
+  final interval = find.descendant(of: form,
+    matching: find.byWidgetPredicate((widget) => widget is FormRow && widget.title == 'Update interval'));
+  await tester.scrollUntilVisible(interval, 200,
+    scrollable: find.descendant(of: form, matching: find.byType(Scrollable)).first);
+  await tester.pumpAndSettle();
+  expect(interval.hitTestable(), findsOneWidget);
+  await tester.enterText(find.descendant(of: interval, matching: find.byType(TextFormField)), value);
 }
 
 void main() {
@@ -718,7 +730,7 @@ void main() {
     const url = 'https://example.org/subscribe?token=a%26b';
     await tester.enterText(find.byType(TextFormField).at(0), '  Node subscription  ');
     await tester.enterText(find.byType(TextFormField).at(1), ' $url ');
-    await tester.enterText(find.byType(TextFormField).at(2), '120');
+    await _setSubscriptionInterval(tester, '120');
     await tester.tap(find.byTooltip('Save').last);
     await tester.pumpAndSettle();
     expect(saved, {'profileId': 3, 'profileRevision': 'default-r', 'name': 'Node subscription', 'url': url,
@@ -735,11 +747,13 @@ void main() {
     final box = await _mount(tester, profiles: [_default], selected: 3,
       nodes: {'profileId': 3, 'profileRevision': 'mixed-r', 'nodes': []}, handler: (call) async {
       calls.add(call);
-      if (call.method == 'subscriptions.import') return {
-        'added': 4, 'skipped': 7,
-        'warnings': [{'reason': 'the XHTTP transport is not supported by this core', 'count': 7}],
-        'source': {'id': 'mixed-source'},
-      };
+      if (call.method == 'subscriptions.import') {
+        return {
+          'added': 4, 'skipped': 7,
+          'warnings': [{'reason': 'the XHTTP transport is not supported by this core', 'count': 7}],
+          'source': {'id': 'mixed-source'},
+        };
+      }
       return null;
     });
     final listener = box.messages.stream.listen(messages.add);
@@ -793,7 +807,7 @@ void main() {
     const url = 'https://example.org/nodes';
     await tester.enterText(find.byType(TextFormField).at(0), 'Retry subscription');
     await tester.enterText(find.byType(TextFormField).at(1), url);
-    await tester.enterText(find.byType(TextFormField).at(2), '180');
+    await _setSubscriptionInterval(tester, '180');
     await Scrollable.ensureVisible(tester.element(find.text('Auto update')), alignment: .5);
     await tester.pumpAndSettle();
     expect(find.text('Auto update').hitTestable(), findsOneWidget);
@@ -901,7 +915,7 @@ void main() {
     sourceMenu().items.singleWhere((item) => item.label == 'Edit').onPressed!();
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).at(0), 'Edited A');
-    await tester.enterText(find.byType(TextFormField).at(2), '14');
+    await _setSubscriptionInterval(tester, '14');
     await tester.tap(find.byTooltip('Save').last);
     await tester.pumpAndSettle();
     expect(calls.where((call) => call.method == 'subscriptions.save'), isEmpty);

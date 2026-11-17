@@ -351,9 +351,26 @@ func uiApplySubscriptionNodes(current, subscription string, previous []string, r
 		return nil, E.New("subscription contains no usable proxy nodes")
 	}
 	groups := uiSubscriptionGroupNames(subscription)
+	unavailable := make(map[string]bool)
+	unnamedUnavailable := false
+	for _, item := range parsed.skipped {
+		skipped, _ := item.(*uiNodeObject)
+		if skipped.get("unsupported") == true {
+			if name := skipped.text("name"); name != "" {
+				unavailable[name] = true
+			} else {
+				unnamedUnavailable = true
+			}
+		}
+	}
 	for _, node := range parsed.nodes {
 		if groups[node.text("detour")] {
 			return nil, E.New("subscription node ", node.text("tag"), " refers to discarded subscription group ", node.text("detour"))
+		}
+		if detour := node.text("detour"); detour != "" && (unavailable[detour] || unnamedUnavailable) {
+			// A retained node with the same name must not stand in for a
+			// skipped subscription hop. Unnamed refusals are ambiguous too.
+			return nil, E.New("subscription detour refers to an unsupported or unnamed subscription node; the existing configuration was kept")
 		}
 	}
 	local, _, err := uiNodeLocalTags(current)

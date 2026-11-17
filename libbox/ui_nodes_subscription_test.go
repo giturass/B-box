@@ -60,6 +60,85 @@ func TestUINodeSubscriptionSourceReportsUnsupportedNodes(t *testing.T) {
 	}
 }
 
+func TestUINodeSubscriptionUnsupportedDetoursDoNotRebindRetainedNames(t *testing.T) {
+	for _, local := range []bool{false, true} {
+		for _, alias := range []string{"Exit", "203.0.113.2:443"} {
+			current := `{"outbounds":[{"type":"direct","tag":"direct"},
+				{"type":"selector","tag":"proxy","outbounds":["Owned","` + alias + `"]},` +
+				uiNodeTestNode("Owned", "198.51.100.1") + `,` + uiNodeTestNode(alias, "198.51.100.2") + `],"route":{"final":"proxy"}}`
+			if local {
+				current = uiNodeLocalPrefix + `["` + alias + `"]` + "\n" + current
+			}
+			name := ""
+			if alias == "Exit" {
+				name = "name: Exit, "
+			}
+			hop := "  - {name: Hop, type: ss, server: 203.0.113.1, port: 8388, cipher: aes-256-gcm, password: password, dialer-proxy: '" + alias + "'}\n"
+			refused := "  - {" + name + "type: vless, server: 203.0.113.2, port: 443, uuid: " + uiNodeTestUUID + ", network: xhttp}\n"
+			for _, sameBatchAlias := range []bool{false, true} {
+				body := "proxies:\n" + hop + refused
+				if sameBatchAlias {
+					body += "  - {name: '" + alias + "', type: ss, server: 203.0.113.3, port: 8388, cipher: aes-256-gcm, password: password}\n"
+				}
+				for _, encoded := range []bool{false, true} {
+					subscription := body
+					if encoded {
+						subscription = base64.StdEncoding.EncodeToString([]byte(body))
+					}
+					result, err := ApplyUISubscriptionNodes(current, subscription, `["Owned"]`, false)
+					if result != nil || err == nil || !strings.Contains(err.Error(), "unsupported or unnamed subscription node") {
+						t.Errorf("skipped detour silently rebound: local=%v, alias=%s, same-batch=%v, base64=%v, result=%v, err=%v", local, alias, sameBatchAlias, encoded, result, err)
+					}
+				}
+			}
+			// A named, unrelated unsupported proxy must not prevent a node
+			// from deliberately dialing through the retained configuration.
+			body := "proxies:\n" + hop + strings.Replace(refused, "{"+name+"type:", "{name: Unrelated, type:", 1)
+			updated := uiSubscriptionTestApply(t, current, body, `["Owned"]`, false)
+			if updated.Skipped != 1 || updated.Tags != `["Hop"]` ||
+				uiNodeTestFind(uiNodeTestObject(t, updated.Config).list("outbounds"), "Hop").text("detour") != alias {
+				t.Errorf("unrelated unsupported node changed an intentional retained detour: %+v", updated)
+			}
+		}
+	}
+}
+
+func TestUINodeSubscriptionRejectsMalformedClashProtocols(t *testing.T) {
+	valid := `{"name":"New","type":"ss","server":"203.0.113.1","port":8388,"cipher":"aes-256-gcm","password":"password"}`
+	for _, invalid := range []string{`{}`, `{"type":""}`, `{"type":"  "}`, `{"type":null}`, `{"type":12}`, `{"type":true}`} {
+		for _, body := range []string{
+			`{"proxies":[` + valid + `,` + invalid + `]}`,
+			"proxies:\n  - " + valid + "\n  - " + invalid + "\n",
+		} {
+			for _, encoded := range []bool{false, true} {
+				subscription := body
+				if encoded {
+					subscription = base64.StdEncoding.EncodeToString([]byte(body))
+				}
+				result, err := ApplyUISubscriptionNodes(uiNodeDefaultConfig, subscription, `[]`, true)
+				if result != nil || err == nil || !strings.Contains(err.Error(), "proxy protocol is missing") {
+					t.Errorf("damaged Clash proxy was treated as a skipped capability: base64=%v, invalid=%s, result=%v, err=%v", encoded, invalid, result, err)
+				}
+			}
+		}
+	}
+}
+
+func TestUINodeSubscriptionRefusedVMessUsesItsJSONName(t *testing.T) {
+	for _, name := range []string{"Exit", ""} {
+		body := `{"ps":"` + name + `","add":"203.0.113.2","port":443,"id":"` + uiNodeTestUUID + `","net":"xhttp"}`
+		link := "vmess://" + base64.StdEncoding.EncodeToString([]byte(body)) + "#Outer"
+		parsed := uiSubscriptionParse(baseContext(nil), link)
+		if parsed == nil || len(parsed.skipped) != 1 {
+			t.Fatalf("unsupported VMess JSON was not reported")
+		}
+		entry, _ := parsed.skipped[0].(*uiNodeObject)
+		if entry.text("name") != name || entry.get("unsupported") != true {
+			t.Errorf("VMess refusal used its ignored outer fragment instead of its actual name: %s", uiNodeTestText(entry))
+		}
+	}
+}
+
 func uiSubscriptionTestUpdate(t *testing.T, current, subscription string) string {
 	t.Helper()
 	result, err := UpdateUISubscriptionNodes(current, subscription)

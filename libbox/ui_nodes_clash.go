@@ -701,9 +701,13 @@ func uiNodeClashSnell(proxy *uiNodeObject, link *uiNodeLink) (*uiNodeObject, err
 // uiNodeClashProxy converts one entry of the proxy list. An entry that is not
 // a proxy server, such as a built-in policy, gives neither a node nor an error.
 func uiNodeClashProxy(proxy *uiNodeObject) (*uiNodeObject, error) {
+	protocol, typed := proxy.get("type").(string)
+	if !typed || strings.TrimSpace(protocol) == "" {
+		return nil, E.New("the proxy protocol is missing or not a non-empty string")
+	}
 	uiNodeClashKeys(proxy, 0)
 	var convert func(proxy *uiNodeObject, link *uiNodeLink) (*uiNodeObject, error)
-	switch strings.ToLower(proxy.scalar("type")) {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
 	case "ss", "shadowsocks":
 		convert = uiNodeClashShadowsocks
 	case "vmess":
