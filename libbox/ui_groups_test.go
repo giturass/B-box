@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/log"
 	N "github.com/sagernet/sing/common/network"
+	"github.com/sagernet/sing/service/filemanager"
 )
 
 func uiGroupTestConfig(t *testing.T, path, cacheID, fallback string) string {
@@ -174,30 +176,23 @@ func TestUIConfigGroupsCachedDefaultAndFirstSelection(t *testing.T) {
 	}
 }
 
-func TestUIConfigGroupsUnnamedTagsAndOutboundPrecedence(t *testing.T) {
-	for _, collision := range []bool{false, true} {
-		t.Run(map[bool]string{false: "endpoint index", true: "outbound overrides endpoint"}[collision], func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "cache.db")
-			encodedPath, _ := json.Marshal(path)
-			directTag, expectedType := `,"tag":"direct"`, "wireguard"
-			if collision {
-				directTag, expectedType = "", "direct"
-			}
-			config := `{
-				"endpoints":[{"type":"wireguard","address":["10.0.0.2/32"],"private_key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}],
-				"outbounds":[{"type":"direct"` + directTag + `},{"type":"selector","outbounds":["0"]}],
-				"experimental":{"cache_file":{"path":` + string(encodedPath) + `}}
-			}`
-			groups := uiGroupTestRead(t, config)
-			if len(groups) != 1 || groups[0].Tag != "1" || groups[0].Selected != "0" || len(groups[0].itemList) != 1 ||
-				groups[0].itemList[0].Tag != "0" || groups[0].itemList[0].Type != expectedType {
-				t.Fatalf("effective core tags or lookup precedence: %+v", groups)
-			}
-		})
-	}
-	path := filepath.Join(t.TempDir(), "unnamed.db")
+func TestUIConfigGroupsUsesEffectiveUnnamedTags(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.db")
 	encodedPath, _ := json.Marshal(path)
 	config := `{
+		"endpoints":[{"type":"wireguard","address":["10.0.0.2/32"],"private_key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}],
+		"outbounds":[{"type":"direct","tag":"direct"},{"type":"selector","outbounds":["0"]}],
+		"experimental":{"cache_file":{"path":` + string(encodedPath) + `}}
+	}`
+	groups := uiGroupTestRead(t, config)
+	if len(groups) != 1 || groups[0].Tag != "1" || groups[0].Selected != "0" || len(groups[0].itemList) != 1 ||
+		groups[0].itemList[0].Tag != "0" || groups[0].itemList[0].Type != "wireguard" {
+		t.Fatalf("effective unnamed core group or endpoint tags: %+v", groups)
+	}
+
+	path = filepath.Join(t.TempDir(), "unnamed.db")
+	encodedPath, _ = json.Marshal(path)
+	config = `{
 		"outbounds":[{"type":"selector","outbounds":["1","2"]},{"type":"direct"},{"type":"direct"}],
 		"experimental":{"cache_file":{"path":` + string(encodedPath) + `}}
 	}`
@@ -209,6 +204,31 @@ func TestUIConfigGroupsUnnamedTagsAndOutboundPrecedence(t *testing.T) {
 	}
 	if actual := uiGroupTestRead(t, config)[0].Selected; actual != "2" {
 		t.Fatal("unnamed group did not read its cached selection", actual)
+	}
+}
+
+func TestUIConfigGroupsRejectsDuplicateOutboundEndpointTags(t *testing.T) {
+	for _, tag := range []string{"", ",\"tag\":\"shared\""} {
+		path := filepath.Join(t.TempDir(), "cache.db")
+		encodedPath, _ := json.Marshal(path)
+		member := "shared"
+		if tag == "" {
+			member = "0"
+		}
+		config := `{
+			"endpoints":[{"type":"wireguard"` + tag + `,"address":["10.0.0.2/32"],"private_key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}],
+			"outbounds":[{"type":"direct"` + tag + `},{"type":"selector","tag":"proxy","outbounds":["` + member + `"]}],
+			"experimental":{"cache_file":{"path":` + string(encodedPath) + `}}
+		}`
+		if groups, err := GetUIConfigGroups(config); groups != nil || err == nil || !strings.Contains(err.Error(), "duplicate outbound/endpoint tag") {
+			t.Fatal("group projection accepted ambiguous outbound/endpoint tags", groups, err)
+		}
+		if err := SelectUIConfigGroup(config, "proxy", member); err == nil || !strings.Contains(err.Error(), "duplicate outbound/endpoint tag") {
+			t.Fatal("group selection accepted ambiguous outbound/endpoint tags", err)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatal("invalid group configuration created a cache database", err)
+		}
 	}
 }
 
@@ -368,6 +388,9 @@ func TestUIConfigGroupSelectionIsConsumedByCoreStartup(t *testing.T) {
 			}
 			ctx, cancel := context.WithCancel(baseContext(nil))
 			defer cancel()
+			// The host app calls Setup before startup. This standalone fixture
+			// supplies the same process ownership without changing global setup.
+			ctx = filemanager.WithDefault(ctx, sWorkingPath, sTempPath, os.Getuid(), os.Getgid())
 			options, err := parseConfig(ctx, config)
 			if err != nil {
 				t.Fatal(err)

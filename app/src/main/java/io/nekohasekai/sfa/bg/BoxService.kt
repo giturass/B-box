@@ -162,7 +162,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             try {
                 startOrReloadCore(content, generation, File(profile.typed.path).parent.orEmpty())
             } catch (e: Exception) {
-                stopAndAlert(generation, Alert.CreateService, e.message)
+                stopAndAlert(generation, Alert.CreateService, e.message, e)
                 return
             }
 
@@ -187,7 +187,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 if (!stopRequested) updateStatus(Status.Started)
             }
         } catch (e: Exception) {
-            stopAndAlert(generation, Alert.StartService, e.message)
+            stopAndAlert(generation, Alert.StartService, e.message, e)
             return
         }
     }
@@ -222,7 +222,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         try {
             startOrReloadCore(content, generation, File(profile.typed.path).parent.orEmpty())
         } catch (e: Exception) {
-            stopAndAlert(generation, Alert.CreateService, e.message)
+            stopAndAlert(generation, Alert.CreateService, e.message, e)
             // Return reload failures to the command client so configuration
             // editors can restore their previous content instead of reporting success.
             throw e
@@ -239,7 +239,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 // Reload belongs to a save transaction. Report failure so it can restore
                 // the previous config; a delayed permission callback must not start it again.
                 val error = IllegalStateException("Location permission is required for Wi-Fi rules; grant it before applying this configuration")
-                stopAndAlert(generation, Alert.CreateService, error.message)
+                stopAndAlert(generation, Alert.CreateService, error.message, error)
                 throw error
             }
         }
@@ -348,11 +348,16 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
     }
 
-    private suspend fun stopAndAlert(generation: Long, type: Alert, message: String? = null) {
+    private suspend fun stopAndAlert(generation: Long, type: Alert, message: String? = null, cause: Throwable? = null) {
         withContext(Dispatchers.Main) {
             // Do not join teardown here: this can be the startup job that the
             // stop job must join. Recovery waits for its final Stopped callback.
-            if (generation == serviceGeneration) stopService(type to message)
+            if (generation == serviceGeneration) {
+                // UI alerts are transient. Preserve startup/reload failures
+                // in the Android log, including the gomobile exception.
+                if (cause != null) Log.e(TAG, "Service $type failed", cause)
+                stopService(type to message)
+            }
         }
     }
 
@@ -385,7 +390,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 Application.application.setupLibbox()
                 startCommandServer()
             } catch (e: Exception) {
-                stopAndAlert(generation, Alert.StartCommandServer, e.message)
+                stopAndAlert(generation, Alert.StartCommandServer, e.message, e)
                 return@launch
             }
             startService(generation)

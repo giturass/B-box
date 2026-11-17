@@ -148,11 +148,8 @@ func TestUIMASQUEVPNExample(t *testing.T) {
 	account, _ := uiMASQUEAccount(t)
 	outbound := example["outbounds"].([]any)[0].(map[string]any)
 	outbound["private_key"], outbound["peer_public_key"] = account["private_key"], account["peer_public_key"]
-	for _, version := range []int{2, 3} {
-		if version == 3 && transportHTTP.NewHTTP3Client == nil {
-			continue
-		}
-		outbound["version"] = version
+	for _, version := range []int{0, 2, 3} {
+		outbound["http_version"] = version
 		encoded, err := stdjson.Marshal(example)
 		if err != nil {
 			t.Fatal(err)

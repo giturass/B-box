@@ -391,10 +391,15 @@ void main() {
         'nodes': [{'tag': 'Node A', 'type': 'vless'}, {'tag': 'Node B', 'type': 'vless'}],
         'groups': groups(selected),
       };
+      final preferences = <String, dynamic>{'proxyLayout': layout, 'closeConnectionsOnSelect': true,
+        'proxyUnfolded': {'local:2': ['Proxy']}};
       await _mount(tester, selected: 2, eventController: events, nodes: snapshot('Node A', 'profile-r'),
-        preferences: {'proxyLayout': layout, 'closeConnectionsOnSelect': true,
-          'proxyUnfolded': {'local:2': ['Proxy']}}, handler: (call) async {
+        preferences: preferences, handler: (call) async {
           calls.add(call);
+          if (call.method == 'preferences.set') {
+            preferences.addAll(json(json(call.arguments)['value']));
+            return preferences;
+          }
           if (call.method == 'groups.select') {
             if (rejectSelection) throw PlatformException(code: 'conflict', message: 'Configuration changed; reload it before saving');
             final args = json(call.arguments);
@@ -417,8 +422,8 @@ void main() {
       ]});
       await tester.pumpAndSettle();
       expect(find.text('Previous selector'), findsNothing);
-      await tester.tap(find.byTooltip('Test latency').first);
-      await tester.pumpAndSettle();
+      final latency = find.byWidgetPredicate((widget) => widget is IconButton && widget.tooltip == 'Test latency');
+      expect(tester.widget<IconButton>(latency.first).onPressed, isNull);
       expect(calls.where((call) => call.method == 'groups.test'), isEmpty);
 
       for (final status in ['Starting', 'Stopping']) {
@@ -454,6 +459,7 @@ void main() {
       expect(find.text('Proxy').hitTestable(), findsOneWidget);
       expect(find.text('Nodes').hitTestable(), findsNothing);
       expect(badge('Node B'), findsOneWidget);
+      expect(find.byType(ProxyListView), layout == 'List' ? findsOneWidget : findsNothing);
       expect(tester.getRect(card('Node B')), beforeStartup);
       await tester.tap(find.text('Node A'));
       await tester.pumpAndSettle();

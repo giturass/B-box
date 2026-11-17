@@ -56,8 +56,13 @@ Future<void> _open(WidgetTester tester) async {
 }
 
 Future<void> _reveal(WidgetTester tester, Finder finder) async {
+  if (finder.evaluate().isEmpty) {
+    await tester.scrollUntilVisible(finder, 200,
+      scrollable: find.descendant(of: find.byType(WarpPage), matching: find.byType(Scrollable)).first);
+  }
   await Scrollable.ensureVisible(tester.element(finder), alignment: .5);
   await tester.pump(const Duration(milliseconds: 300));
+  expect(finder.hitTestable(), findsOneWidget);
 }
 
 void main() {
@@ -219,12 +224,16 @@ void main() {
     final discard = find.byKey(const ValueKey('warp-discard'));
     await _reveal(tester, discard);
     await tester.tap(discard);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(AlertDialog), findsOneWidget);
     await tester.tap(find.text('Cancel').hitTestable());
     await tester.pumpAndSettle();
     expect(calls.where((call) => call.method == 'warp.discard'), isEmpty);
     await tester.tap(discard);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(AlertDialog), findsOneWidget);
     await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Discard')).hitTestable());
     await tester.pumpAndSettle();
     expect(json(calls.singleWhere((call) => call.method == 'warp.discard').arguments), {'pendingId': 'operation-1'});

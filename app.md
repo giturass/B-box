@@ -243,7 +243,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、Base64 混合 URL 订阅导入所选默认文件、跳过报告、VPN 授权、启停、配置文件与实际内核分组同页、底栏设置入口及进程重启后配置保留；原生组运行全部仪器测试并拒绝零测试结果。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
 
-- **结果与日志：** `build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。每组测试在应用启动前持续采集 main/system/crash/events 日志，结束后保存 Activity 和内存状态，API 30+ 另保存该应用的系统退出记录；`am start -W` 的输出单独保存，避免启动过程被末尾日志截断。
+- **结果与日志：** `build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。每组测试在应用启动前持续采集 main/system/crash/events 日志，结束后保存 Activity、服务和内存状态，API 30+ 另保存该应用的系统退出记录；`am start -W` 的输出单独保存，避免启动过程被末尾日志截断。当前代次的服务启动/重载失败由 `BoxService` 记录原始异常及堆栈，smoke 另提取为各组的 `service-errors.txt`，用于定位来不及在界面观察的错误；服务状态确认及失败恢复流程不变。
 - **启动与导入：** 启动阶段允许截图后关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 弹窗，再重新打开 B-box；不关闭 B-box 自身的 ANR 或其他错误。导入 smoke 等待弹层保存按钮在连续两次窗口观察中位置稳定后点击，记录实际点击边界；保存后须返回保持原配置名称的仪表盘，在来源页确认一个受支持节点及一个不支持的 KCP 节点的跳过原因已持久化，并检查实际核心节点及原分组。CI 通过 loopback SOCKS5 和 ADB reverse 提供可用节点，保存 `subscription-proxy.json` 连接诊断；默认规则集及探测目标仍需 runner 能联网访问。
 - **菜单长按：** Android 7 的 shell `input swipe` 使用未知工具类型，固定 Flutter 将其映射为 unknown，触摸菜单因此不响应。测试 APK 的 [SmokeGestureInstrumentation.java](app/src/androidTest/java/io/nekohasekai/sfa/flutter/SmokeGestureInstrumentation.java) 使用 `UiAutomation` 注入明确的手指事件；[测试清单](app/src/androidTest/AndroidManifest.xml) 的普通 runner 仍指向 B-box，手势助手只指向测试包。脚本安装后及调用前核对实际目标，记录坐标、时长、输入结果，并确认 B-box 主进程 PID 保持一致。助手只用于 CI，不加入原生 JUnit 用例计数，生产界面继续使用原有手势组件。
 - **MITM 测试服务器：** 脚本在 CI 临时目录生成独立测试服务器证书，经 ADB reverse 提供 HTTP 和原始流两个 TLS 端点，只把公钥 CA 传给仪器测试；私钥不写入仓库、设备或上传产物，套件结束删除。单独运行路由 MITM 用例需要脚本提供的 `mitmOriginPort` / `mitmTCPOriginPort` / `mitmOriginCA` 参数。
@@ -255,9 +255,9 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-WARP MASQUE 重写与工具页注册以 `2167896c44aa6f9cc7e08c124fd868ebb4f96e87` 为实现基线。当前工作树只进行源码、补丁、`git diff --check`、`python3 tools/verify_newui.py` 及文档链接静态检查；新增注册、传输、Flutter 和 Android 回归尚未在 Actions 运行，无本轮 Actions 链接。Cloudflare 真实注册/连接、网络切换及 ARM64 实机视觉尚未验收，以下历史运行不包含本次修改。
+WARP MASQUE 重写与工具页注册的源码为 `d825ccfc59e8a79568a8b78457e425503cd631d0`，[统一工作流 44113437340](https://github.com/giturass/B-box/actions/runs/44113437340) 已运行。Android AAR/APK 构建、JVM 回归及 `play` 编译通过；核心首组 `TestUI` 和 Flutter 交互测试失败，后续核心步骤及 Flutter ARM64 AAR 构建未执行，不能记录整体通过。当前修正核心的重复标签、缓存属主及示例版本字段夹具，以及 Flutter 的偏好和滚动/动画等待夹具；修正后的源码尚待 Actions 验证。Cloudflare 真实注册/连接、网络切换及 ARM64 实机视觉尚未验收。
 
-停服代理组选择修复以 `2bcb8fea68d554b597f24c96f283c8855ba0f209` 为实现基线；本机执行 `git diff --check`、`python3 tools/verify_newui.py` 及文档链接/旧引用静态检查。新增 Go、Flutter 和 Android 回归尚未在 Actions 运行，无本轮 Actions 链接；启停视觉与实机行为尚未验收。以下已有运行记录不包含本次修复。
+停服代理组选择源码 `2167896c44aa6f9cc7e08c124fd868ebb4f96e87` 的 [44106959931](https://github.com/giturass/B-box/actions/runs/44106959931) 同样在重复标签/缓存属主夹具与 Flutter 列表选择用例失败；API 24 原生 60 项通过，界面等待 Running 超时。较新 WARP 运行包含这项功能，其修复与验证统一按上段记录。
 
 本轮 XHTTP 与 VLESS Encryption 的验证源码为 `8c56b623b46c7ab4c5c4632b1db428ebc49dcb25`。[统一工作流 44086051274](https://github.com/giturass/B-box/actions/runs/44086051274) 已通过核心全部 `TestUI`、发货协议标签的 `TestUINode`、标准/uTLS Vision 指针回归、两组 XHTTP/Encryption race 矩阵，以及原 WARP、路由生命周期、HTTP 调试与路由回归。Go `checkptr` 检查保留。Flutter 287 项测试及 ARM64 Debug/Release AAR 通过，分析为 84 项 info、无 warning/error；[Android 作业](https://github.com/giturass/B-box/actions/runs/44086051274/job/134048707421) 的 56 项 JVM 测试无失败/错误/跳过，`play` 编译及模拟器 APK 构建通过。
 

@@ -221,9 +221,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-WARP 注册入口、交互与布局的当前检查范围见 [应用验证记录](app.md#当前验证记录)；新增页面未修改 FlClash/Prism 直接导入文件，尚无本轮 Actions 截图或实机视觉验收。
-
-本次停服代理组 UI 与选择修复的检查范围见 [应用验证记录](app.md#当前验证记录)；下面已有 Actions 和截图不包含本次修改。
+WARP 注册入口与停服代理组选择的当前检查范围及 Actions 结果见 [应用验证记录](app.md#当前验证记录)。源码 `d825ccfc59e8a79568a8b78457e425503cd631d0` 的交互测试在列表选择偏好、放弃确认的动画等待及窄屏按钮滚动用例失败；正在修正夹具，尚不能声明当前交互/布局通过。新增页面未修改 FlClash/Prism 直接导入文件，ARM64 实机视觉尚未验收；下面已有通过记录和截图不包含本次修改。
 
 本轮 XHTTP/VLESS Encryption 支持及许可登记的验证源码为 `8c56b623b46c7ab4c5c4632b1db428ebc49dcb25`。[统一工作流 44086051274](https://github.com/giturass/B-box/actions/runs/44086051274) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44086051274/job/134048708051) 已通过：分析为 84 项 info、无 warning/error，287 项交互/布局测试全部通过，ARM64 Debug/Release Flutter AAR 构建成功。
 

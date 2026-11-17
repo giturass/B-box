@@ -539,7 +539,12 @@ def diagnostics(name, sdk=0):
                                stdout=log, stderr=subprocess.STDOUT, timeout=45, check=False)
         except (subprocess.SubprocessError, OSError) as error:
             print(f"Log collection failed: {error}")
-    dumps = {"activities": ("activity", "activities"), "memory": ("meminfo",)}
+    if log_path.exists():
+        service_errors = "\n".join(line for line in log_path.read_text(errors="replace").splitlines()
+                                   if re.search(r"\bE BoxService\s*:", line))
+        (OUT / f"{name}-service-errors.txt").write_text(service_errors + "\n" if service_errors else "")
+    dumps = {"activities": ("activity", "activities"),
+             "services": ("activity", "services", PACKAGE), "memory": ("meminfo",)}
     if sdk >= 30:
         dumps["exit-info"] = ("activity", "exit-info", PACKAGE)
     for suffix, arguments in dumps.items():

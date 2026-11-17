@@ -59,7 +59,7 @@
 
 当前上游 [`box.go`](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/box.go) 在提供平台日志写入器时总是启用缓存，Android daemon 的启动路径提供该写入器，因此未声明或关闭 `cache_file.enabled` 也需使用同一缓存。上游 [`selector.go`](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/protocol/group/selector.go) 启动时先读取缓存再读取 default；停服选择直接保存该缓存，启动无需改写配置或补发选择命令。
 
-[ui_groups_test.go](libbox/ui_groups_test.go) 覆盖分组成员、默认及缓存选择、缓存路径/命名空间隔离、自动组和失效成员拒绝、缓存锁定/损坏保留，以及启动 selector 读取停服选择。统一工作流的 `TestUI` 入口安装并运行这些扩展；测试源码不表示当前工作树已通过 Actions 或实机验收。
+[ui_groups_test.go](libbox/ui_groups_test.go) 覆盖分组成员、未命名节点的实际标签、重复出站/端点标签拒绝、默认及缓存选择、缓存路径/命名空间隔离、自动组和失效成员拒绝、缓存锁定/损坏保留，以及启动 selector 读取停服选择。启动夹具按测试进程的 UID/GID 配置文件管理上下文，对应 Android 的 libbox `Setup`，不修改生产属主设置。统一工作流的 `TestUI` 入口安装并运行这些扩展；实际运行结果见 [应用验证记录](app.md#当前验证记录)。
 
 ### XHTTP 与 VLESS Encryption
 
