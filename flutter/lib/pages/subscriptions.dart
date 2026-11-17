@@ -5,15 +5,35 @@ import '../components/profile_card.dart';
 
 bool profileHasUpdates(Json profile) => profile['remote'] == true || rows(profile['subscriptions']).isNotEmpty;
 
+int _subscriptionCount(Object? value) => value is num && value.isFinite && value > 0 ? value.toInt() : 0;
+
+List<String> _subscriptionWarnings(BuildContext context, Json result) => [
+  for (final warning in rows(result['warnings']))
+    if (warning['reason'] is String && (warning['reason'] as String).isNotEmpty && _subscriptionCount(warning['count']) > 0)
+      '${context.tr(warning['reason'] as String)}: ${_subscriptionCount(warning['count'])}',
+];
+
+String subscriptionReportMessage(BuildContext context, Json result, {String? name}) => [
+  if (name != null && name.isNotEmpty) name,
+  '${context.tr('Nodes imported')}: ${_subscriptionCount(result['added'])}, ${context.tr('Skipped')}: ${_subscriptionCount(result['skipped'])}',
+  ..._subscriptionWarnings(context, result),
+].join('\n');
+
 /// Each source owns its nodes, so updating one source keeps the others.
-Future<void> updateProfileSubscriptions(BoxController box, Json profile, {bool Function()? canContinue}) async {
+Future<void> updateProfileSubscriptions(BuildContext context, Json profile, {bool Function()? canContinue}) async {
+  if (!context.mounted) return;
+  final box = context.box;
   final profileId = profile['id'], session = box.sessionRevision;
-  bool active() => !box.remote && box.sessionRevision == session && (canContinue?.call() ?? true);
+  bool active() => context.mounted && !box.remote && box.sessionRevision == session && (canContinue?.call() ?? true);
   if (!active()) return;
   if (profile['remote'] == true) await box.act('profiles.update', {'id': profileId});
   for (final source in rows(profile['subscriptions'])) {
     if (!active()) break;
-    await box.act('subscriptions.update', {'profileId': profileId, 'id': source['id']});
+    try {
+      final result = json(await box.call('subscriptions.update', {'profileId': profileId, 'id': source['id']}));
+      if (active()) box.messages.add(subscriptionReportMessage(context, result,
+        name: [profile['name'], source['name']].whereType<String>().where((name) => name.isNotEmpty).join(' · ')));
+    } catch (error) { box.report(error); }
   }
 }
 
@@ -91,7 +111,7 @@ class _SubscriptionFormState extends State<SubscriptionForm> {
   Future<void> _save() async {
     if (!mounted || _saving || _saved) return;
     if (_issue != null) { setState(() => _attempted = true); return; }
-    final box = context.box, imported = context.tr('Nodes imported');
+    final box = context.box;
     if (box.remote) return;
     setState(() => _saving = true);
     try {
@@ -103,8 +123,8 @@ class _SubscriptionFormState extends State<SubscriptionForm> {
         'name': _name.text.trim(), 'url': _url.text.trim(), 'autoUpdate': _auto,
         'interval': interval != null && interval >= 15 ? interval : previousInterval >= 15 ? previousInterval : 60,
       });
-      if (!_editing) box.messages.add('$imported: ${json(result)['added']}');
       if (mounted) {
+        if (!_editing) box.messages.add(subscriptionReportMessage(context, json(result), name: _name.text.trim()));
         setState(() => _saved = true);
         if (ModalRoute.of(context)?.isCurrent != false) context.safeNestedPop(true);
       }
@@ -130,7 +150,10 @@ class _SubscriptionFormState extends State<SubscriptionForm> {
             trailing: FormRowTextField(controller: _url, hintText: context.tr('Node subscription URL'),
               keyboardType: TextInputType.url, textInputAction: TextInputAction.next,
               autocorrect: false, enableSuggestions: false, onChanged: _changed)),
-        ], footer: context.tr('Supports Clash, sing-box JSON, node links and Base64. Only proxy nodes are imported from the URL; updates keep other profile settings.')),
+        ], footer: [
+          context.tr('Supports Clash, sing-box JSON, node links and Base64. Only proxy nodes are imported from the URL; updates keep other profile settings.'),
+          context.tr('Supported nodes are imported. Unsupported node counts and reasons are shown after importing or updating.'),
+        ].join(' ')),
         generateSection(items: [
           FormRow(title: context.tr('Auto update'), onPressed: () => setState(() => _auto = !_auto),
             trailing: Switch(value: _auto, onChanged: (value) => setState(() => _auto = value))),
@@ -214,8 +237,11 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
   });
 
   Future<void> _update(Json source) => _run(source, (box) async {
-    await box.call('subscriptions.update', {'profileId': _profileId, 'id': source['id']});
-    if (mounted) await _load();
+    final result = json(await box.call('subscriptions.update', {'profileId': _profileId, 'id': source['id']}));
+    if (mounted) {
+      box.messages.add(subscriptionReportMessage(context, result, name: source['name'] as String?));
+      await _load();
+    }
   });
 
   Future<void> _delete(Json source) => _run(source, (box) async {
@@ -255,6 +281,8 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
             subtitle: Text([
               source['url'].toString(),
               '${context.tr('Nodes')}: ${(source['tags'] as List?)?.length ?? 0}',
+              if (_subscriptionCount(source['skipped']) > 0) '${context.tr('Skipped')}: ${_subscriptionCount(source['skipped'])}',
+              ..._subscriptionWarnings(context, source),
               '${context.tr('Last updated')}: ${(source['updatedAt'] as num? ?? 0) <= 0 ? context.tr('Unknown') : localDate(source['updatedAt'])}',
               '${context.tr('Auto update')}: ${context.tr(source['autoUpdate'] == true ? 'Turn on' : 'Turn off')}',
             ].join('\n')),

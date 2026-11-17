@@ -18,7 +18,7 @@ class _ProfileDetailsPageState extends State<ProfileDetailsPage> {
   Future<void> _update(Json profile) async {
     if (!mounted || _updating) return;
     setState(() => _updating = true);
-    try { await updateProfileSubscriptions(context.box, profile, canContinue: () => mounted); }
+    try { await updateProfileSubscriptions(context, profile, canContinue: () => mounted); }
     finally { if (mounted) setState(() => _updating = false); }
   }
   @override Widget build(BuildContext context) {

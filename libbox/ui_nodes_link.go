@@ -350,7 +350,7 @@ func uiNodeLinkTLS(link *uiNodeLink, mode uiNodeTLSMode) (*uiNodeObject, error) 
 	}
 	// Dropping the ML-DSA-65 key would weaken the check of the server.
 	if link.value("pqv") != "" {
-		return nil, E.New("REALITY with an ML-DSA-65 verification key is not supported by this core")
+		return nil, uiNodeUnsupported("REALITY with an ML-DSA-65 verification key is not supported by this core")
 	}
 	key, valid := uiNodeBase64(publicKey)
 	if !valid || len(key) != 32 {
@@ -401,14 +401,14 @@ func uiNodeLinkTransport(link *uiNodeLink) (*uiNodeObject, error) {
 	case "quic":
 		for _, key := range []string{"quicSecurity", "headerType"} {
 			if value := link.value(key); value != "" && !strings.EqualFold(value, "none") {
-				return nil, E.New("the QUIC transport of this core takes neither encryption nor a header")
+				return nil, uiNodeUnsupported("the QUIC transport of this core takes neither encryption nor a header")
 			}
 		}
 		transport = uiNodeOf("type", "quic")
 	case "xhttp", "splithttp":
-		return nil, E.New("the XHTTP transport is not supported by this core")
+		return nil, uiNodeUnsupported("the XHTTP transport is not supported by this core")
 	default:
-		return nil, E.New("the transport of this node is not supported by this core")
+		return nil, uiNodeUnsupported("the transport of this node is not supported by this core")
 	}
 	switch transport.text("type") {
 	case "http":

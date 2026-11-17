@@ -33,6 +33,7 @@ import io.nekohasekai.sfa.constant.SettingsKey
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
+import io.nekohasekai.sfa.database.ProfileNodeSubscription
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.database.preference.KeyValueDatabase
@@ -1083,6 +1084,74 @@ class ProfileRecoveryTest {
         }
     }
 
+    @Test fun mixedSubscriptionReportsPersistWhileUpdatesProtectLocalAndOtherSources() = withRunningProfile { activity, profiles, id ->
+        val subscriptions = nodeSubscriptions(activity)
+        val nodes = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
+            withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
+        }
+        nodes.add(JSONObject(socksSubscription("local-report-node")).getJSONArray("outbounds").toString(), id, BoxProfiles.revision(profiles.read(id)))
+        SubscriptionServer(socksSubscription("other-report-node")).use { other ->
+            subscriptions.importSubscription(subscriptionArgs(profiles, id, "Other report source", other.url))
+            val otherSource = profiles.get(id).typed.subscriptions.single()
+            val keptNodes = configurationNodes(profiles.read(id)).associate { it.getString("tag") to it.toString() }
+            SubscriptionServer(mixedVlessSubscription("supported-tcp-node", 1)).use { server ->
+                val imported = subscriptions.importSubscription(subscriptionArgs(profiles, id, "Mixed TCP and XHTTP source", server.url))
+                val source = profiles.get(id).typed.subscriptions.single { it.url == server.url }
+                assertEquals(1, imported["added"])
+                assertEquals(1, imported["skipped"])
+                assertEquals(source.warnings.map { it.toWire() }, imported["warnings"])
+                assertEquals(listOf("supported-tcp-node"), source.tags)
+                assertEquals(1, source.skipped)
+                assertEquals(1, source.warnings.single().count)
+                assertTrue(source.warnings.single().reason.contains("xhttp", ignoreCase = true))
+                for (secret in listOf("ignored-xhttp-node", "11111111-1111-4111-8111-111111111111", "127.0.0.1")) {
+                    assertFalse("Warning leaked subscription node data", source.warnings.single().reason.contains(secret))
+                }
+                assertEquals(server.url, source.url)
+                assertTrue(source.updatedAt > 0L)
+                subscriptions.save(source.toWire() + mapOf("profileId" to id, "name" to "Renamed mixed source"))
+                assertEquals(source.copy(name = "Renamed mixed source"), profiles.get(id).typed.subscriptions.single { it.id == source.id })
+
+                server.content = mixedVlessSubscription("updated-tcp-node", 2)
+                val updated = subscriptions.update(id, source.id)
+                val saved = profiles.get(id).typed.subscriptions.single { it.id == source.id }
+                assertEquals(1, updated["added"])
+                assertEquals(2, updated["skipped"])
+                assertEquals(saved.warnings.map { it.toWire() }, updated["warnings"])
+                assertEquals(listOf("updated-tcp-node"), saved.tags)
+                assertEquals(2, saved.skipped)
+                assertEquals(2, saved.warnings.single().count)
+                assertEquals(server.url, saved.url)
+                assertEquals(otherSource, profiles.get(id).typed.subscriptions.single { it.id == otherSource.id })
+                val updatedNodes = configurationNodes(profiles.read(id)).associate { it.getString("tag") to it.toString() }
+                assertEquals(setOf("local-report-node", "other-report-node", "updated-tcp-node"), updatedNodes.keys)
+                keptNodes.forEach { (tag, content) -> assertEquals(content, updatedNodes[tag]) }
+
+                val beforeInvalid = profiles.read(id)
+                val beforeSources = profiles.get(id).typed.subscriptions
+                val generation = ProfileContent.generation
+                server.content = mixedVlessSubscription("must-not-commit", 1) + "\nunknown://127.0.0.1:443#bad-node"
+                assertTrue(runCatching { subscriptions.update(id, source.id) }.isFailure)
+                assertEquals(generation, ProfileContent.generation)
+                assertEquals(beforeInvalid, profiles.read(id))
+                assertEquals(beforeSources, profiles.get(id).typed.subscriptions)
+
+                server.content = mixedVlessSubscription("supported-again", 0)
+                val cleared = subscriptions.update(id, source.id)
+                assertEquals(0, cleared["skipped"])
+                assertEquals(emptyList<Map<String, Any>>(), cleared["warnings"])
+                val clearSource = profiles.get(id).typed.subscriptions.single { it.id == source.id }
+                assertEquals(0, clearSource.skipped)
+                assertTrue(clearSource.warnings.isEmpty())
+                assertEquals(otherSource, profiles.get(id).typed.subscriptions.single { it.id == otherSource.id })
+                assertEquals(server.url, clearSource.url)
+                assertEquals(id, Settings.selectedProfile)
+                assertEquals(Status.Started, activity.serviceStatus.value)
+                assertEquals(4, server.requests.get())
+            }
+        }
+    }
+
     @Test fun subscriptionsWithoutValidNodesDoNotCreateOrReplaceProfiles() = withRunningProfile { activity, profiles, id ->
         val profileIds = ProfileManager.list().map { it.id }.toSet()
         val rejected = listOf(
@@ -1238,7 +1307,7 @@ class ProfileRecoveryTest {
     }
 
     @Test fun subscriptionSourcesSurviveParcelProfileMetadataAndBackupRestore() = withRunningProfile { activity, profiles, id ->
-        SubscriptionServer(socksSubscription("backed-up-source-node")).use { server ->
+        SubscriptionServer(mixedVlessSubscription("backed-up-source-node", 1)).use { server ->
             val subscriptions = nodeSubscriptions(activity)
             subscriptions.importSubscription(subscriptionArgs(profiles, id, "中文 source 🌐", server.url))
             val saved = profiles.get(id)
@@ -1246,6 +1315,8 @@ class ProfileRecoveryTest {
             val converter = TypedProfile.Convertor()
             val decoded = converter.unmarshall(converter.marshall(saved.typed))
             assertEquals(saved.typed.subscriptions, decoded.subscriptions)
+            assertEquals(1, decoded.subscriptions.single().skipped)
+            assertEquals(1, decoded.subscriptions.single().warnings.single().count)
             assertEquals(saved.typed.path, decoded.path)
             assertEquals(saved.typed.type, decoded.type)
             profiles.save(mapOf("id" to id, "name" to "Renamed source profile"))
@@ -1259,12 +1330,25 @@ class ProfileRecoveryTest {
             assertEquals("中文 source 🌐", source["name"])
             assertEquals(server.url, source["url"])
             assertEquals(listOf("backed-up-source-node"), source["tags"])
+            assertEquals(1, source["skipped"])
+            assertEquals(1, rows(source["warnings"]).single()["count"])
             val read = backups.read(backups.encode(backup), "profiles")
             subscriptions.delete(id, saved.typed.subscriptions.single().id)
             assertTrue(profiles.get(id).typed.subscriptions.isEmpty())
             assertTrue(configurationNodes(profiles.read(id)).any { it.optString("tag") == "backed-up-source-node" })
             backups.restore(read, "profiles", "Compatible")
             assertEquals(saved.typed.subscriptions, profiles.get(id).typed.subscriptions)
+            assertEquals(content, profiles.read(id))
+            val legacySources = rows(entry["subscriptions"]).map { it.filterKeys { key -> key !in setOf("skipped", "warnings") } }
+            val legacyExpected = saved.typed.subscriptions.map { it.copy(skipped = 0, warnings = emptyList()) }
+            assertEquals(legacyExpected, ProfileNodeSubscription.decode(JSONArray(legacySources).toString()))
+            val legacyEntries = rows(backup["profiles"]).map { profile ->
+                if ((profile["id"] as Number).toLong() == id) profile + mapOf("subscriptions" to legacySources) else profile
+            }
+            val legacy = backups.read(backups.encode(backup + mapOf("profiles" to legacyEntries)), "profiles")
+            subscriptions.delete(id, saved.typed.subscriptions.single().id)
+            backups.restore(legacy, "profiles", "Compatible")
+            assertEquals(legacyExpected, profiles.get(id).typed.subscriptions)
             assertEquals(content, profiles.read(id))
             assertEquals(id, Settings.selectedProfile)
             assertEquals(Status.Started, activity.serviceStatus.value)
@@ -1302,33 +1386,40 @@ class ProfileRecoveryTest {
     }
 
     @Test fun failedSubscriptionSourceApplicationRestoresContentAndSourceMetadata() = withRunningProfile { activity, profiles, id ->
-        SubscriptionServer(socksSubscription("original-source-node")).use { original ->
+        SubscriptionServer(mixedVlessSubscription("original-source-node", 1)).use { original ->
             val subscriptions = nodeSubscriptions(activity)
             subscriptions.importSubscription(subscriptionArgs(profiles, id, "Original source", original.url))
             val before = profiles.read(id)
             val profileBefore = profiles.get(id)
+            assertEquals(1, profileBefore.typed.subscriptions.single().skipped)
             val file = File(profileBefore.typed.path)
             var persistedTags = emptyList<String>()
+            var persistedSources = emptyList<ProfileNodeSubscription>()
             val applications = mutableListOf<Boolean>()
             val failing = BoxNodeSubscriptions(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
                 applications.add(recover)
                 if (!recover) {
-                    persistedTags = profiles.get(id).typed.subscriptions.flatMap { it.tags }
+                    persistedSources = profiles.get(id).typed.subscriptions
+                    persistedTags = persistedSources.flatMap { it.tags }
                     assertTrue(configurationNodes(file.readText()).any { it.optString("tag").startsWith("failed-") })
                     error("Injected source application failure")
                 }
                 withContext(Dispatchers.Main) { activity.applyProfile(recover = true) }
             }
-            SubscriptionServer(socksSubscription("failed-import-node")).use { imported ->
+            SubscriptionServer(mixedVlessSubscription("failed-import-node", 3)).use { imported ->
                 assertTrue(runCatching { failing.importSubscription(subscriptionArgs(profiles, id, "Failed source", imported.url)) }.isFailure)
                 assertTrue("The new source metadata must be committed before application", "failed-import-node" in persistedTags)
+                assertEquals(3, persistedSources.single { it.url == imported.url }.skipped)
+                assertEquals(3, persistedSources.single { it.url == imported.url }.warnings.single().count)
                 assertEquals(before, profiles.read(id))
                 assertEquals(profileBefore.typed.subscriptions, profiles.get(id).typed.subscriptions)
                 assertEquals(profileBefore.typed.lastUpdated.time, profiles.get(id).typed.lastUpdated.time)
             }
-            original.content = socksSubscription("failed-update-node")
+            original.content = mixedVlessSubscription("failed-update-node", 2)
             assertTrue(runCatching { failing.update(id, profileBefore.typed.subscriptions.single().id) }.isFailure)
             assertTrue("The updated source metadata must be committed before application", "failed-update-node" in persistedTags)
+            assertEquals(2, persistedSources.single().skipped)
+            assertEquals(2, persistedSources.single().warnings.single().count)
             assertEquals(before, profiles.read(id))
             assertEquals(profileBefore.typed.subscriptions, profiles.get(id).typed.subscriptions)
             assertEquals(profileBefore.typed.lastUpdated.time, profiles.get(id).typed.lastUpdated.time)
@@ -1344,7 +1435,7 @@ class ProfileRecoveryTest {
             val defaultBefore = profiles.get(defaultId)
             val defaultContent = profiles.read(defaultId)
             val subscriptions = nodeSubscriptions(activity)
-            SubscriptionServer(socksSubscription("local-source-node")).use { local ->
+            SubscriptionServer(mixedVlessSubscription("local-source-node", 1)).use { local ->
                 SubscriptionServer(socksSubscription("default-source-node")).use { default ->
                     try {
                         subscriptions.importSubscription(subscriptionArgs(profiles, id, "Local automatic source", local.url, autoUpdate = true))
@@ -1362,10 +1453,12 @@ class ProfileRecoveryTest {
                                 ProfileManager.update(profile)
                             }
                         }
-                        local.content = socksSubscription("updated-local-source-node")
+                        local.content = mixedVlessSubscription("updated-local-source-node", 2)
                         default.content = socksSubscription("updated-default-source-node")
                         assertTrue(UpdateProfileWork.updateProfiles(activity.applicationContext))
                         assertEquals(listOf("updated-local-source-node"), profiles.get(id).typed.subscriptions.single().tags)
+                        assertEquals(2, profiles.get(id).typed.subscriptions.single().skipped)
+                        assertEquals(2, profiles.get(id).typed.subscriptions.single().warnings.single().count)
                         assertEquals(listOf("updated-default-source-node"), profiles.get(defaultId).typed.subscriptions.single { it.url == default.url }.tags)
                         assertTrue(profiles.get(id).typed.subscriptions.single().updatedAt > 0L)
                         assertTrue(profiles.get(defaultId).typed.subscriptions.single { it.url == default.url }.updatedAt > 0L)
@@ -1863,6 +1956,12 @@ class ProfileRecoveryTest {
     private fun socksSubscription(tag: String = "upstream"): String =
         JSONObject().put("outbounds", JSONArray().put(JSONObject()
             .put("type", "socks").put("tag", tag).put("server", "127.0.0.1").put("server_port", 1080))).toString()
+
+    private fun mixedVlessSubscription(tag: String, skipped: Int): String {
+        val address = "vless://11111111-1111-4111-8111-111111111111@127.0.0.1:443"
+        return (listOf("$address?security=tls&sni=example.test&type=tcp#$tag") +
+            (1..skipped).map { "$address?security=tls&sni=example.test&type=xhttp#ignored-xhttp-node-$it" }).joinToString("\n")
+    }
 
     private fun nodeSubscriptions(activity: BoxActivity) = BoxNodeSubscriptions(
         beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) },

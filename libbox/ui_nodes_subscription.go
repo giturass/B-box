@@ -3,6 +3,7 @@ package libbox
 import (
 	"context"
 	"slices"
+	"strconv"
 	"strings"
 
 	E "github.com/sagernet/sing/common/exceptions"
@@ -116,13 +117,45 @@ func uiSubscriptionProblems(parsed *uiNodeParsed) error {
 	reasons := make([]string, 0, len(parsed.skipped))
 	for _, item := range parsed.skipped {
 		skipped, _ := item.(*uiNodeObject)
+		if skipped.get("unsupported") == true {
+			continue
+		}
 		reason := skipped.text("reason")
 		if name := skipped.text("name"); name != "" {
 			reason = name + ": " + reason
 		}
 		reasons = append(reasons, reason)
 	}
+	if len(reasons) == 0 {
+		return nil
+	}
 	return E.New("subscription contains invalid proxy nodes: ", strings.Join(reasons, "; "))
+}
+
+// Persist counts and fixed capability reasons, without links, names or node
+// credentials. Sources expose this report even after an automatic refresh.
+func uiSubscriptionWarnings(parsed *uiNodeParsed) (int32, string, error) {
+	var count int32
+	reasons := make([]string, 0)
+	counts := make(map[string]int)
+	for _, item := range parsed.skipped {
+		skipped, _ := item.(*uiNodeObject)
+		if skipped.get("unsupported") != true {
+			continue
+		}
+		reason := skipped.text("reason")
+		if counts[reason] == 0 {
+			reasons = append(reasons, reason)
+		}
+		counts[reason]++
+		count++
+	}
+	warnings := make([]any, 0, len(reasons))
+	for _, reason := range reasons {
+		warnings = append(warnings, uiNodeOf("reason", reason, "count", uiNodeNumber(strconv.Itoa(counts[reason]))))
+	}
+	content, err := uiNodeEncode(warnings, false)
+	return count, content, err
 }
 
 // Read only the names of discarded groups. A subscription node that names
@@ -224,9 +257,11 @@ func uiSubscriptionGroupMemberCycle(root *uiNodeObject, member, group string) bo
 // UISubscriptionNodeUpdate identifies the nodes owned by one source after its
 // content is applied. Tags is a JSON name array for the next refresh.
 type UISubscriptionNodeUpdate struct {
-	Config string
-	Tags   string
-	Added  int32
+	Config   string
+	Tags     string
+	Added    int32
+	Skipped  int32
+	Warnings string
 }
 
 // ApplyUISubscriptionNodes appends a new source to an existing configuration or
@@ -277,6 +312,11 @@ func UpdateUISubscriptionNodes(current, subscription string) (*StringBox, error)
 	update, err := uiApplySubscriptionNodes(current, subscription, nil, true, newProfile)
 	if err != nil {
 		return nil, err
+	}
+	// The compatibility binding has no report channel. Keep it strict rather
+	// than silently discarding unsupported nodes from old Remote profiles.
+	if update.Skipped > 0 {
+		return nil, E.New("subscription contains unsupported proxy nodes: ", update.Warnings)
 	}
 	return wrapString(update.Config), nil
 }
@@ -409,5 +449,9 @@ func uiApplySubscriptionNodes(current, subscription string, previous []string, r
 	if err != nil {
 		return nil, err
 	}
-	return &UISubscriptionNodeUpdate{Config: content, Tags: tags, Added: int32(len(added))}, nil
+	skipped, warnings, err := uiSubscriptionWarnings(parsed)
+	if err != nil {
+		return nil, err
+	}
+	return &UISubscriptionNodeUpdate{Config: content, Tags: tags, Added: int32(len(added)), Skipped: skipped, Warnings: warnings}, nil
 }

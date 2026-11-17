@@ -6,6 +6,34 @@ import org.json.JSONObject
 import java.net.URI
 import java.util.UUID
 
+data class ProfileNodeSubscriptionWarning(val reason: String, val count: Int) {
+    fun toWire(): Map<String, Any> = mapOf("reason" to reason, "count" to count)
+
+    companion object {
+        fun read(value: Any?): List<ProfileNodeSubscriptionWarning> {
+            val list = value as? List<*> ?: error("Invalid subscription warnings")
+            val warnings = list.map { item ->
+                val entry = item as? Map<*, *> ?: error("Invalid subscription warning")
+                val reason = entry["reason"] as? String ?: error("Missing subscription warning reason")
+                require(reason.isNotBlank()) { "Invalid subscription warning reason" }
+                val count = entry["count"] as? Number ?: error("Invalid subscription warning count")
+                require(count.toDouble() == count.toInt().toDouble() && count.toInt() > 0) { "Invalid subscription warning count" }
+                ProfileNodeSubscriptionWarning(reason, count.toInt())
+            }
+            require(warnings.map { it.reason }.distinct().size == warnings.size) { "Duplicate subscription warning reasons" }
+            return warnings
+        }
+
+        fun decode(content: String): List<ProfileNodeSubscriptionWarning> {
+            val warnings = JSONArray(content)
+            return read((0 until warnings.length()).map { index ->
+                val entry = warnings.getJSONObject(index)
+                mapOf("reason" to entry.getString("reason"), "count" to entry.get("count"))
+            })
+        }
+    }
+}
+
 /** Subscription ownership belongs to a configuration, never to a shared node database. */
 data class ProfileNodeSubscription(
     val id: String,
@@ -15,10 +43,13 @@ data class ProfileNodeSubscription(
     val interval: Int,
     val updatedAt: Long,
     val tags: List<String>,
+    val skipped: Int = 0,
+    val warnings: List<ProfileNodeSubscriptionWarning> = emptyList(),
 ) {
     fun toWire(): Map<String, Any> = mapOf(
         "id" to id, "name" to name, "url" to url, "autoUpdate" to autoUpdate,
         "interval" to interval, "updatedAt" to updatedAt, "tags" to tags,
+        "skipped" to skipped, "warnings" to warnings.map { it.toWire() },
     )
 
     companion object {
@@ -43,7 +74,11 @@ data class ProfileNodeSubscription(
                     (it as? String)?.takeIf(String::isNotBlank) ?: error("Invalid subscription node name")
                 } ?: error("Invalid subscription node names")
                 require(tags.distinct().size == tags.size) { "Duplicate subscription node names" }
-                ProfileNodeSubscription(id, name, url, auto, interval.toInt(), updatedAt.toLong(), tags)
+                val skipped = if (entry.containsKey("skipped")) entry["skipped"] as? Number ?: error("Invalid skipped subscription count") else 0
+                require(skipped.toDouble() == skipped.toInt().toDouble() && skipped.toInt() >= 0) { "Invalid skipped subscription count" }
+                val warnings = if (entry.containsKey("warnings")) ProfileNodeSubscriptionWarning.read(entry["warnings"]) else emptyList()
+                require(warnings.sumOf { it.count.toLong() } == skipped.toLong()) { "Subscription warning counts do not match skipped nodes" }
+                ProfileNodeSubscription(id, name, url, auto, interval.toInt(), updatedAt.toLong(), tags, skipped.toInt(), warnings)
             }
             require(sources.map { it.id }.distinct().size == sources.size) { "Duplicate node subscriptions" }
             require(sources.map { it.url }.distinct().size == sources.size) { "Duplicate node subscription URLs" }
@@ -59,9 +94,12 @@ data class ProfileNodeSubscription(
             return read((0 until list.length()).map { index ->
                 val entry = list.getJSONObject(index)
                 val tags = entry.getJSONArray("tags")
-                mapOf("id" to entry.getString("id"), "name" to entry.getString("name"), "url" to entry.getString("url"),
+                val wire = mutableMapOf<String, Any>("id" to entry.getString("id"), "name" to entry.getString("name"), "url" to entry.getString("url"),
                     "autoUpdate" to entry.getBoolean("autoUpdate"), "interval" to entry.get("interval"),
                     "updatedAt" to entry.get("updatedAt"), "tags" to (0 until tags.length()).map { tags.getString(it) })
+                if (entry.has("skipped")) wire["skipped"] = entry.get("skipped")
+                if (entry.has("warnings")) wire["warnings"] = ProfileNodeSubscriptionWarning.decode(entry.getJSONArray("warnings").toString()).map { it.toWire() }
+                wire
             })
         }
 

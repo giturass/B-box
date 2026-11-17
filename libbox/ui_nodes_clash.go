@@ -165,7 +165,7 @@ func uiNodeClashTLS(proxy *uiNodeObject, link *uiNodeLink, enabled bool) error {
 	// Each of these wraps the connection in a protocol of its own.
 	for _, key := range []string{"shadow-tls-opts", "restls-opts", "jls-opts", "tlsmirror-opts"} {
 		if wrapper := proxy.object(key); wrapper != nil && len(wrapper.keys) > 0 {
-			return E.New("the TLS camouflage of this node is not supported by this core")
+			return uiNodeUnsupported("the TLS camouflage of this node is not supported by this core")
 		}
 	}
 	// Without its certificate the client would be turned away by the server.
@@ -245,9 +245,9 @@ func uiNodeClashStream(proxy *uiNodeObject, link *uiNodeLink, secure bool) error
 		link.query["type"] = "grpc"
 		link.query["serviceName"] = proxy.object("grpc-opts").scalar("grpc-service-name")
 	case "xhttp", "splithttp":
-		return E.New("the XHTTP transport is not supported by this core")
+		return uiNodeUnsupported("the XHTTP transport is not supported by this core")
 	default:
-		return E.New("the transport of this node is not supported by this core")
+		return uiNodeUnsupported("the transport of this node is not supported by this core")
 	}
 	// Clash names the server after the Host header for a WebSocket only.
 	if secure && network != "ws" && link.query["sni"] == "" && link.query["host"] != "" {
@@ -346,7 +346,7 @@ func uiNodeClashPlugin(proxy, node *uiNodeObject) error {
 		// The plugin of the core has no way to carry either of these.
 		if mode != "" && mode != "websocket" || options.truthy("v2ray-http-upgrade") ||
 			options.truthy("tls") && options.truthy("skip-cert-verify") {
-			return E.New("the Shadowsocks plugin of this node is not supported by this core")
+			return uiNodeUnsupported("the Shadowsocks plugin of this node is not supported by this core")
 		}
 		arguments = append(arguments, "mode=websocket")
 		if options.truthy("tls") {
@@ -433,7 +433,7 @@ func uiNodeClashVLESS(proxy *uiNodeObject, link *uiNodeLink) (*uiNodeObject, err
 func uiNodeClashTrojan(proxy *uiNodeObject, link *uiNodeLink) (*uiNodeObject, error) {
 	// trojan-go encrypts the stream once more with a Shadowsocks cipher.
 	if proxy.object("ss-opts").truthy("enabled") {
-		return nil, E.New("Trojan with a Shadowsocks layer is not supported by this core")
+		return nil, uiNodeUnsupported("Trojan with a Shadowsocks layer is not supported by this core")
 	}
 	link.user = proxy.scalar("password")
 	if err := uiNodeClashStream(proxy, link, true); err != nil {
@@ -540,7 +540,7 @@ func uiNodeClashAnyTLS(proxy *uiNodeObject, link *uiNodeLink) (*uiNodeObject, er
 
 func uiNodeClashSOCKS(proxy *uiNodeObject, link *uiNodeLink) (*uiNodeObject, error) {
 	if proxy.truthy("tls") {
-		return nil, E.New("SOCKS over TLS is not supported by this core")
+		return nil, uiNodeUnsupported("SOCKS over TLS is not supported by this core")
 	}
 	link.scheme = "socks5"
 	link.user, link.password, link.hasPassword = proxy.scalar("username"), proxy.scalar("password"), true
@@ -580,7 +580,7 @@ func uiNodeClashHTTP(proxy *uiNodeObject, link *uiNodeLink) (*uiNodeObject, erro
 func uiNodeClashWireGuard(proxy *uiNodeObject, link *uiNodeLink) (*uiNodeObject, error) {
 	// AmneziaWG changes what is sent to the server.
 	if amnezia := proxy.object("amnezia-wg-option"); amnezia != nil && len(amnezia.keys) > 0 {
-		return nil, E.New("AmneziaWG is not supported by this core")
+		return nil, uiNodeUnsupported("AmneziaWG is not supported by this core")
 	}
 	// A list of peers takes the place of the one written into the proxy.
 	sources := []any{proxy}
@@ -669,7 +669,7 @@ func uiNodeClashSnell(proxy *uiNodeObject, link *uiNodeLink) (*uiNodeObject, err
 		version = "4"
 	case "6":
 	default:
-		return nil, E.New("this version of Snell is not supported by this core")
+		return nil, uiNodeUnsupported("this version of Snell is not supported by this core")
 	}
 	node.set("version", uiNodeNumber(version))
 	node.set("psk", proxy.scalar("psk"))
@@ -688,7 +688,7 @@ func uiNodeClashSnell(proxy *uiNodeObject, link *uiNodeLink) (*uiNodeObject, err
 		node.set("obfs_mode", mode)
 		node.set("obfs_host", host)
 	default:
-		return nil, E.New("the obfuscation of this Snell node is not supported by this core")
+		return nil, uiNodeUnsupported("the obfuscation of this Snell node is not supported by this core")
 	}
 	// The sixth version shapes the traffic itself.
 	if version == "6" {
@@ -733,11 +733,11 @@ func uiNodeClashProxy(proxy *uiNodeObject) (*uiNodeObject, error) {
 	case "direct", "reject", "reject-drop", "dns", "rematch", "pass", "compatible":
 		return nil, nil
 	case "ssr":
-		return nil, E.New("ShadowsocksR was removed from the core")
+		return nil, uiNodeUnsupported("ShadowsocksR was removed from the core")
 	case "masque", "openvpn", "tailscale":
-		return nil, E.New("this protocol is not read from a Clash document")
+		return nil, uiNodeUnsupported("this protocol is not read from a Clash document")
 	default:
-		return nil, E.New("this protocol is not supported by this core")
+		return nil, uiNodeUnsupported("this protocol is not supported by this core")
 	}
 	node, err := convert(proxy, uiNodeClashLink(proxy))
 	if err != nil {

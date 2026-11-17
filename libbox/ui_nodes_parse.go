@@ -6,6 +6,7 @@ package libbox
 // document holds is left behind.
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 
@@ -13,6 +14,17 @@ import (
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/service"
 )
+
+// Unsupported features are distinct from damaged input. Subscription sources
+// can omit these nodes with a visible report; unreadable nodes still abort a
+// refresh before any existing configuration is changed.
+type uiNodeUnsupportedError struct {
+	reason string
+}
+
+func (e *uiNodeUnsupportedError) Error() string { return e.reason }
+
+func uiNodeUnsupported(reason string) error { return &uiNodeUnsupportedError{reason: reason} }
 
 // uiNodeParsed is what a text was read as.
 type uiNodeParsed struct {
@@ -32,7 +44,12 @@ const (
 
 // skip records a node that is left out. The reason never quotes the node.
 func (p *uiNodeParsed) skip(name string, reason error) {
-	p.skipped = append(p.skipped, uiNodeOf("name", name, "reason", reason.Error()))
+	entry := uiNodeOf("name", name, "reason", reason.Error())
+	var unsupported *uiNodeUnsupportedError
+	if errors.As(reason, &unsupported) {
+		entry.set("unsupported", true)
+	}
+	p.skipped = append(p.skipped, entry)
 }
 
 // uiNodeParseLinks reads share links, one to a line. A line may be a message
@@ -211,7 +228,7 @@ func uiNodeParseWireGuard(content string) *uiNodeParsed {
 func uiNodeWireGuardFile(device map[string]string, peers []map[string]string) (*uiNodeObject, error) {
 	for _, key := range uiNodeAmneziaKeys {
 		if device[key] != "" {
-			return nil, E.New("AmneziaWG is not supported by this core")
+			return nil, uiNodeUnsupported("AmneziaWG is not supported by this core")
 		}
 	}
 	node := uiNodeOf("type", "wireguard")

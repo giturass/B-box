@@ -713,7 +713,7 @@ void main() {
     expect(find.byType(SubscriptionForm), findsOneWidget);
     expect(find.byType(ProfileForm), findsNothing);
     expect(find.descendant(of: find.byType(SubscriptionForm), matching: find.text('Profile file')), findsOneWidget);
-    expect(find.text('Supports Clash, sing-box JSON, node links and Base64. Only proxy nodes are imported from the URL; updates keep other profile settings.'), findsOneWidget);
+    expect(find.textContaining('Supports Clash, sing-box JSON, node links and Base64. Only proxy nodes are imported from the URL; updates keep other profile settings.'), findsOneWidget);
     expect(find.text('This URL must serve a sing-box JSON configuration.'), findsNothing);
     const url = 'https://example.org/subscribe?token=a%26b';
     await tester.enterText(find.byType(TextFormField).at(0), '  Node subscription  ');
@@ -726,6 +726,54 @@ void main() {
     expect(saved?.containsKey('content'), isFalse);
     expect(calls, isNot(contains('profiles.save')));
     expect(find.byType(SubscriptionForm), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mixed URL subscriptions report imported nodes and unsupported node reasons', (tester) async {
+    final messages = <String>[];
+    final calls = <MethodCall>[];
+    final box = await _mount(tester, profiles: [_default], selected: 3,
+      nodes: {'profileId': 3, 'profileRevision': 'mixed-r', 'nodes': []}, handler: (call) async {
+      calls.add(call);
+      if (call.method == 'subscriptions.import') return {
+        'added': 4, 'skipped': 7,
+        'warnings': [{'reason': 'the XHTTP transport is not supported by this core', 'count': 7}],
+        'source': {'id': 'mixed-source'},
+      };
+      return null;
+    });
+    final listener = box.messages.stream.listen(messages.add);
+    addTearDown(listener.cancel);
+    openSubscriptionImport(tester.element(find.byType(HomePage)));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Unsupported node counts and reasons are shown after importing or updating.'), findsOneWidget);
+    await tester.enterText(find.byType(TextFormField).at(0), 'Mixed subscription');
+    await tester.enterText(find.byType(TextFormField).at(1), 'https://example.org/mixed');
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    expect(messages, ['Mixed subscription\nNodes imported: 4, Skipped: 7\nthe XHTTP transport is not supported by this core: 7']);
+    expect(find.byType(SubscriptionForm), findsNothing);
+    expect(json(calls.singleWhere((call) => call.method == 'subscriptions.import').arguments)['profileId'], 3);
+    expect(calls.map((call) => call.method), isNot(contains('profiles.save')));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('subscription report defaults and translated reasons never show absent values', (tester) async {
+    await _mount(tester);
+    final context = tester.element(find.byType(HomePage));
+    expect(subscriptionReportMessage(context, {}), 'Nodes imported: 0, Skipped: 0');
+    final report = subscriptionReportMessage(context, {
+      'added': 2, 'skipped': 0, 'warnings': [{'reason': null, 'count': 1}, {'count': 1}],
+    });
+    expect(report, 'Nodes imported: 2, Skipped: 0');
+    expect(report, isNot(contains('undefined')));
+    expect(report, isNot(contains('null')));
+    tester.binding.platformDispatcher.localesTestValue = const [Locale('zh')];
+    await tester.pumpAndSettle();
+    expect(subscriptionReportMessage(tester.element(find.byType(HomePage)), {
+      'added': 4, 'skipped': 7,
+      'warnings': [{'reason': 'the XHTTP transport is not supported by this core', 'count': 7}],
+    }), '已导入节点: 4, 已跳过: 7\n当前内核不支持 XHTTP 传输: 7');
     expect(tester.takeException(), isNull);
   });
 
@@ -903,6 +951,78 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Updated source'), findsNothing);
     expect(find.descendant(of: find.byType(SubscriptionsPage), matching: find.byTooltip('Import from URL')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('automatic subscription reports refresh and remain visible when their source is reopened', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    var sources = <Json>[{'id': 'automatic-source', 'name': 'Automatic source',
+      'url': 'https://example.org/mixed', 'tags': ['Supported node'], 'skipped': 0, 'warnings': []}];
+    var reads = 0, updates = 0;
+    await _mount(tester, profiles: [_default], selected: 3, eventController: events, handler: (call) async {
+      if (call.method == 'subscriptions.list') { reads++; return sources; }
+      if (call.method == 'subscriptions.update') updates++;
+      return null;
+    });
+    void openSources() { openForm(tester.element(find.byType(HomePage)), const SubscriptionsPage(profile: _default)); }
+    openSources();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Skipped: 7'), findsNothing);
+    sources = [{...sources.single, 'skipped': 7,
+      'warnings': [{'reason': 'the XHTTP transport is not supported by this core', 'count': 7}],
+      'updatedAt': 1700000000000}];
+    events.add({'type': 'profiles', 'value': [{..._default, 'subscriptions': sources}]});
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Skipped: 7'), findsOneWidget);
+    expect(find.textContaining('the XHTTP transport is not supported by this core: 7'), findsOneWidget);
+    tester.element(find.byType(SubscriptionsPage)).safeNestedPop();
+    await tester.pumpAndSettle();
+    openSources();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Skipped: 7'), findsOneWidget);
+    expect(find.textContaining('the XHTTP transport is not supported by this core: 7'), findsOneWidget);
+    expect(reads, 3);
+    expect(updates, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('manual and batch subscription updates report their counts and continue after a failed source', (tester) async {
+    final sources = <Json>[
+      {'id': 'source-a', 'name': 'Source A', 'url': 'https://example.org/a', 'tags': []},
+      {'id': 'source-b', 'name': 'Source B', 'url': 'https://example.org/b', 'tags': []},
+      {'id': 'source-c', 'name': 'Source C', 'url': 'https://example.org/c', 'tags': []},
+    ];
+    final profile = {..._default, 'subscriptions': sources};
+    final messages = <String>[], updates = <String>[];
+    final box = await _mount(tester, profiles: [profile], selected: 3, handler: (call) async {
+      if (call.method == 'subscriptions.list') return sources;
+      if (call.method == 'subscriptions.update') {
+        final id = json(call.arguments)['id'] as String;
+        updates.add(id);
+        if (id == 'source-b') throw PlatformException(code: 'download', message: 'HTTP 503 Service Unavailable');
+        if (id == 'source-c') return {'added': 2, 'skipped': 0, 'warnings': []};
+        return {'added': 4, 'skipped': 7,
+          'warnings': [{'reason': 'the XHTTP transport is not supported by this core', 'count': 7}]};
+      }
+      return null;
+    });
+    final listener = box.messages.stream.listen(messages.add);
+    addTearDown(listener.cancel);
+    openForm(tester.element(find.byType(HomePage)), SubscriptionsPage(profile: profile));
+    await tester.pumpAndSettle();
+    final menu = tester.widget<BoxMenu>(find.descendant(of: find.byType(SubscriptionsPage), matching: find.byType(BoxMenu)).first);
+    menu.items.singleWhere((item) => item.label == 'Update').onPressed!();
+    await tester.pumpAndSettle();
+    expect(messages, ['Source A\nNodes imported: 4, Skipped: 7\nthe XHTTP transport is not supported by this core: 7']);
+    await updateProfileSubscriptions(tester.element(find.byType(HomePage)), profile);
+    await tester.pumpAndSettle();
+    expect(updates, ['source-a', 'source-a', 'source-b', 'source-c']);
+    expect(messages.skip(1), [
+      'Profile file · Source A\nNodes imported: 4, Skipped: 7\nthe XHTTP transport is not supported by this core: 7',
+      'HTTP 503 Service Unavailable',
+      'Profile file · Source C\nNodes imported: 2, Skipped: 0',
+    ]);
+    expect(messages.every((message) => !message.contains('undefined') && !message.contains('null')), isTrue);
     expect(tester.takeException(), isNull);
   });
 

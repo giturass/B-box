@@ -28,7 +28,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
     final id = (profile['id'] as num).toInt();
     if (_updating.contains(id)) return;
     setState(() => _updating.add(id));
-    try { await updateProfileSubscriptions(context.box, profile, canContinue: () => mounted); }
+    try { await updateProfileSubscriptions(context, profile, canContinue: () => mounted); }
     finally { if (mounted) setState(() => _updating.remove(id)); }
   }
   Future<void> _updateAll() async {

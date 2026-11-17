@@ -56,7 +56,7 @@ func uiNodeShadowsocksPlugin(node *uiNodeObject, name, options string) error {
 	case "v2ray-plugin":
 		name = "v2ray-plugin"
 	default:
-		return E.New("the Shadowsocks plugin of this node is not supported by this core")
+		return uiNodeUnsupported("the Shadowsocks plugin of this node is not supported by this core")
 	}
 	node.set("plugin", name)
 	uiNodePut(node, "plugin_opts", options)
@@ -150,7 +150,7 @@ func uiNodeVMessJSON(content string) (*uiNodeObject, error) {
 	case "", "none":
 		link.query["security"] = "none"
 	default:
-		return nil, E.New("the TLS setting of this VMess link is not supported by this core")
+		return nil, uiNodeUnsupported("the TLS setting of this VMess link is not supported by this core")
 	}
 	for _, key := range []string{"sni", "alpn", "fp", "insecure", "allowInsecure"} {
 		link.query[key] = fields.scalar(key)
@@ -198,7 +198,7 @@ func uiNodeVLESSLink(link *uiNodeLink) (*uiNodeObject, error) {
 	}
 	// Leaving the encryption out would talk in clear to a server that expects it.
 	if encryption := strings.ToLower(link.value("encryption")); encryption != "" && encryption != "none" {
-		return nil, E.New("VLESS encryption is not supported by this core")
+		return nil, uiNodeUnsupported("VLESS encryption is not supported by this core")
 	}
 	node, err := uiNodeLinkNode(link, "vless", 443)
 	if err != nil {
@@ -356,7 +356,7 @@ func uiNodeLinkQUIC(link *uiNodeLink, node *uiNodeObject) (*uiNodeObject, error)
 
 func uiNodeHysteriaLink(link *uiNodeLink) (*uiNodeObject, error) {
 	if protocol := strings.ToLower(link.value("protocol")); protocol != "" && protocol != "udp" {
-		return nil, E.New("Hysteria over this transport is not supported by this core")
+		return nil, uiNodeUnsupported("Hysteria over this transport is not supported by this core")
 	}
 	node, err := uiNodeHysteriaNode(link, "hysteria")
 	if err != nil {
@@ -433,7 +433,7 @@ func uiNodeTUICLink(link *uiNodeLink) (*uiNodeObject, error) {
 	}
 	// Version 4 knew a client by a token alone.
 	if !valid {
-		return nil, E.New("TUIC with a token in place of a user ID and password is not supported by this core")
+		return nil, uiNodeUnsupported("TUIC with a token in place of a user ID and password is not supported by this core")
 	}
 	node, err := uiNodeLinkNode(link, "tuic", 443)
 	if err != nil {
@@ -698,9 +698,9 @@ func uiNodeLinkParse(text string) (*uiNodeObject, error) {
 	parse, known := uiNodeSchemes[link.scheme]
 	switch {
 	case link.scheme == "ssr":
-		return nil, E.New("ShadowsocksR was removed from the core")
+		return nil, uiNodeUnsupported("ShadowsocksR was removed from the core")
 	case !known || parse == nil:
-		return nil, E.New("this protocol is not supported by this core")
+		return nil, uiNodeUnsupported("this protocol is not supported by this core")
 	}
 	return parse(link)
 }

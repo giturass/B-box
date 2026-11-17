@@ -304,18 +304,14 @@ def ui_smoke():
     handler = functools.partial(SubscriptionHandler, directory=str(OUT))
     with (subscription_proxy() as (proxy_port, proxy_requests),
           SubscriptionHTTPServer(("127.0.0.1", 0), handler) as server):
-        # A Clash node document exercises the real URL bridge without taking
-        # the remote group, listener or DNS settings into the app's template.
-        (OUT / "profile.yaml").write_text(f"""mixed-port: 1
-log-level: debug
-dns: {{enable: true, nameserver: [203.0.113.1]}}
-proxies:
-  - {{name: Smoke node, type: socks5, server: 127.0.0.1, port: {proxy_port}}}
-proxy-groups:
-  - {{name: Smoke selector, type: select, proxies: [Smoke node]}}
-rules:
-  - MATCH,Smoke selector
-""")
+        # The actual URL bridge must import the supported node from a Base64
+        # mixed subscription and retain an explicit report for skipped XHTTP.
+        subscription = (
+            f"socks5://127.0.0.1:{proxy_port}#Smoke%20node\n"
+            "vless://11111111-1111-4111-8111-111111111111@127.0.0.1:443"
+            "?security=tls&sni=example.test&type=xhttp#Ignored%20XHTTP%20node\n"
+        )
+        (OUT / "profile.txt").write_text(base64.b64encode(subscription.encode()).decode() + "\n")
         port = server.server_port
         worker = threading.Thread(target=server.serve_forever, name="subscription-http")
         worker.start()
@@ -325,7 +321,7 @@ rules:
             wait_for("Dashboard", dismiss_launcher_anr=True)
             capture("01-startup")
             uri = "sing-box://import-remote-profile?" + urllib.parse.urlencode({
-                "url": f"http://127.0.0.1:{port}/profile.yaml",
+                "url": f"http://127.0.0.1:{port}/profile.txt",
             }) + "#" + urllib.parse.quote("Smoke subscription")
             # ADB's shell parses the encoded URI a second time.
             launch_activity("-a", "android.intent.action.VIEW", "-d", "'" + uri + "'")
@@ -345,7 +341,12 @@ rules:
             hold_node(cards[0])
             click("Edit")
             click("Node subscriptions")
-            wait_for("Smoke subscription")
+            current = wait_for("Smoke subscription", whole_window=True)
+            source_text = "\n".join(node.get("text", "") + "\n" + node.get("content-desc", "") for node in current)
+            assert re.search(r"\bNodes: 1\b", source_text), "The source must own exactly one supported node"
+            assert re.search(r"\bSkipped: 1\b", source_text), "The source must report one skipped node"
+            assert "the XHTTP transport is not supported by this core" in source_text, \
+                "The source must show the unsupported XHTTP reason"
             capture("02-subscription-source")
             adb("shell", "input", "keyevent", "4")
             adb("shell", "input", "keyevent", "4")

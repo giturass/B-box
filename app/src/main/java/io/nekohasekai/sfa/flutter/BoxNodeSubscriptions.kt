@@ -5,6 +5,7 @@ import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.ProfileNodeSubscription
+import io.nekohasekai.sfa.database.ProfileNodeSubscriptionWarning
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.HTTPClient
 import kotlinx.coroutines.currentCoroutineContext
@@ -40,7 +41,7 @@ internal class BoxNodeSubscriptions(
         require(interval.toDouble() == interval.toInt().toDouble() && interval.toInt() >= 15) { "Invalid subscription interval" }
         val source = ProfileNodeSubscription(previous?.id ?: UUID.randomUUID().toString(), name, url,
             args["autoUpdate"] == true, interval.toInt(),
-            previous?.updatedAt ?: 0L, previous?.tags.orEmpty())
+            previous?.updatedAt ?: 0L, previous?.tags.orEmpty(), previous?.skipped ?: 0, previous?.warnings.orEmpty())
         return ProfileNodeSubscription.read(listOf(source.toWire())).single()
     }
 
@@ -100,14 +101,15 @@ internal class BoxNodeSubscriptions(
         val content = File(snapshot.path).readText()
         val update = Libbox.applyUISubscriptionNodes(content, incoming, JSONArray(snapshot.source.tags).toString(), profile.typed.isDefault)
         val tags = JSONArray(update.tags)
-        val source = snapshot.source.copy(updatedAt = System.currentTimeMillis(), tags = (0 until tags.length()).map { tags.getString(it) })
+        val source = snapshot.source.copy(updatedAt = System.currentTimeMillis(), tags = (0 until tags.length()).map { tags.getString(it) },
+            skipped = update.skipped, warnings = ProfileNodeSubscriptionWarning.decode(update.warnings))
         val sources = if (snapshot.sources.any { it.id == source.id }) snapshot.sources.map { if (it.id == source.id) source else it }
             else snapshot.sources + source
         ProfileNodeSubscription.read(sources.map { it.toWire() })
         ProfileContent.replaceLocked(profile, update.config, expectedRevision = snapshot.revision, subscriptions = sources,
             beforeCommit = beforeCommit, beforeSave = beforeApply, applySelected = applySelected)
         io.nekohasekai.sfa.bg.UpdateProfileWork.reconfigureUpdater()
-        mapOf("added" to update.added, "source" to source.toWire())
+        mapOf("added" to update.added, "skipped" to source.skipped, "warnings" to source.warnings.map { it.toWire() }, "source" to source.toWire())
     }
 
     suspend fun save(args: Map<String, Any?>, beforeCommit: () -> Unit = {}) = ProfileContent.mutex.withLock {

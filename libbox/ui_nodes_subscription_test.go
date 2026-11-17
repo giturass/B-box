@@ -1,10 +1,111 @@
 package libbox
 
 import (
+	"bytes"
 	"encoding/base64"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestUINodeSubscriptionSourceReportsUnsupportedNodes(t *testing.T) {
+	current := uiNodeLocalPrefix + `["Local"]` + "\n" + `{"outbounds":[{"type":"direct","tag":"direct"},
+		{"type":"selector","tag":"proxy","outbounds":["Local","Other"]},` +
+		uiNodeTestNode("Local", "198.51.100.1") + `,` + uiNodeTestNode("Other", "198.51.100.2") + `],"route":{"final":"proxy"}}`
+	valid := "ss://aes-256-gcm:password@203.0.113.1:8388#New"
+	for _, item := range []struct{ name, body string }{
+		{"plain", valid + "\nvless://SECRETSECRET@203.0.113.2:443?type=xhttp&security=tls#SECRETNAME\nvless://SECRETSECRET@203.0.113.3:443?type=splithttp#SECRETNAME"},
+		{"Clash", "proxies:\n  - {name: New, type: ss, server: 203.0.113.1, port: 8388, cipher: aes-256-gcm, password: password}\n  - {name: SECRETNAME, type: vless, server: 203.0.113.2, port: 443, uuid: SECRETSECRET, network: xhttp}\n  - {name: SECRETNAME, type: vless, server: 203.0.113.3, port: 443, uuid: SECRETSECRET, network: splithttp}\n"},
+	} {
+		for _, encoded := range []bool{false, true} {
+			body := item.body
+			if encoded {
+				body = base64.StdEncoding.EncodeToString([]byte(body))
+			}
+			updated := uiSubscriptionTestApply(t, current, body, `[]`, false)
+			if updated.Added != 1 || updated.Tags != `["New"]` || updated.Skipped != 2 ||
+				updated.Warnings != `[{"reason":"the XHTTP transport is not supported by this core","count":2}]` ||
+				strings.Contains(updated.Warnings, "SECRET") {
+				t.Errorf("%s encoded=%v: unsupported nodes were not reported safely: %+v", item.name, encoded, updated)
+			}
+			root := uiNodeTestObject(t, updated.Config)
+			if uiNodeTestTags(root.list("outbounds")) != "direct,proxy,Local,Other,New" {
+				t.Errorf("%s encoded=%v: retained nodes changed: %s", item.name, encoded, updated.Config)
+			}
+			uiNodeTestLocal(t, updated.Config, "Local")
+			if err := CheckConfig(updated.Config); err != nil {
+				t.Errorf("%s encoded=%v: supported configuration: %v", item.name, encoded, err)
+			}
+			repeated := uiSubscriptionTestApply(t, updated.Config, body, updated.Tags, false)
+			if repeated.Config != updated.Config || repeated.Warnings != updated.Warnings || repeated.Skipped != 2 {
+				t.Errorf("%s encoded=%v: repeated mixed source update changed ownership/report", item.name, encoded)
+			}
+			clean := uiSubscriptionTestApply(t, repeated.Config, valid, repeated.Tags, false)
+			if clean.Skipped != 0 || clean.Warnings != `[]` || clean.Config != repeated.Config {
+				t.Errorf("%s encoded=%v: resolved warnings were not cleared: %+v", item.name, encoded, clean)
+			}
+		}
+	}
+	for _, body := range []string{
+		"vless://SECRETSECRET@203.0.113.2:443?type=xhttp#SECRETNAME",
+		valid + "\nvless://SECRETSECRET@203.0.113.2:443?type=xhttp\nss://nonesuch:SECRETSECRET@203.0.113.3:8388#Invalid",
+	} {
+		result, err := ApplyUISubscriptionNodes(current, body, `["Other"]`, false)
+		if result != nil || err == nil || strings.Contains(err.Error(), "SECRETSECRET") {
+			t.Errorf("empty supported batch or damaged node was accepted or leaked credentials: result=%v, err=%v", result, err)
+		}
+	}
+	// The legacy StringBox binding cannot show a warning report, so it keeps
+	// rejecting partial updates instead of silently applying them.
+	if result, err := UpdateUISubscriptionNodes(current, valid+"\nvless://SECRET@203.0.113.2:443?type=xhttp"); result != nil || err == nil || !strings.Contains(err.Error(), "unsupported proxy nodes") {
+		t.Errorf("legacy update silently dropped unsupported nodes: result=%v, err=%v", result, err)
+	}
+}
+
+func TestUINodeSubscriptionMixedBase64ProtocolAndTransportBatch(t *testing.T) {
+	// A public mixed subscription exposed the whole-batch rejection. Recreate
+	// its protocol/transport distribution with documentation hosts and test
+	// keys, so the regression never stores real servers or access credentials.
+	realityKey := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x11}, 32))
+	links := make([]string, 0, 46)
+	for index := range 22 {
+		options := "type=tcp&security=none"
+		switch {
+		case index < 9:
+			options = "type=tcp&security=reality&flow=xtls-rprx-vision&fp=chrome&sni=www.example.org&pbk=" + realityKey + "&sid=0123abcd"
+		case index < 14:
+			options = "type=grpc&mode=gun&serviceName=service&security=reality&fp=chrome&sni=www.example.org&pbk=" + realityKey + "&sid=0123abcd"
+		case index < 19:
+			options = "type=ws&path=%2Fws&host=cdn.example.org&security=tls&sni=www.example.org"
+		case index < 21:
+			options = "type=tcp&security=tls&sni=www.example.org"
+		}
+		links = append(links, "vless://"+uiNodeTestUUID+"@vless.example.com:443?encryption=none&"+options+"#VLESS-"+strconv.Itoa(index))
+	}
+	for index := range 7 {
+		links = append(links, "vless://"+uiNodeTestUUID+"@xhttp.example.com:443?type=xhttp&security=tls&sni=www.example.org#XHTTP-"+strconv.Itoa(index))
+	}
+	for index := range 15 {
+		links = append(links, "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@ss.example.com:8388#SS-"+strconv.Itoa(index))
+	}
+	vmess := `{"v":"2","ps":"VMess","add":"vmess.example.com","port":80,"id":"` + uiNodeTestUUID + `","aid":0,"scy":"auto","net":"tcp","type":"http","host":"www.example.org","path":"/one","tls":""}`
+	links = append(links, "vmess://"+base64.StdEncoding.EncodeToString([]byte(vmess)),
+		"trojan://password@trojan.example.com:443?type=tcp&security=tls&sni=www.example.org#Trojan")
+	body := base64.StdEncoding.EncodeToString([]byte(strings.Join(links, "\n")))
+	updated := uiSubscriptionTestApply(t, uiNodeDefaultConfig, body, `[]`, true)
+	names, err := uiNodeTextList(updated.Tags)
+	if err != nil || len(names) != 39 || updated.Added != 39 || updated.Skipped != 7 ||
+		updated.Warnings != `[{"reason":"the XHTTP transport is not supported by this core","count":7}]` {
+		t.Fatalf("mixed Base64 source: names=%d, error=%v, report=%+v", len(names), err, updated)
+	}
+	if err := CheckConfig(updated.Config); err != nil {
+		t.Fatalf("mixed supported batch failed complete core validation: %v", err)
+	}
+	repeated := uiSubscriptionTestApply(t, updated.Config, body, updated.Tags, true)
+	if repeated.Config != updated.Config || repeated.Added != 39 || repeated.Skipped != 7 {
+		t.Errorf("mixed Base64 refresh changed nodes or accumulated duplicates")
+	}
+}
 
 func uiSubscriptionTestUpdate(t *testing.T, current, subscription string) string {
 	t.Helper()
