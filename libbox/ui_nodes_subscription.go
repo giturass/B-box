@@ -25,6 +25,39 @@ func uiSubscriptionCheckEntries(ctx context.Context, parsed *uiNodeParsed, entri
 	}
 }
 
+func uiSubscriptionCheckLinks(parsed *uiNodeParsed, content string) {
+	if parsed == nil || parsed.format != "links" {
+		return
+	}
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
+			continue
+		}
+		scheme, _, isURI := strings.Cut(line, "://")
+		if !isURI || scheme == "" {
+			continue
+		}
+		// Only a URI entry at the start of a line is checked. Ordinary
+		// explanations, comments and web links are not subscription nodes.
+		valid := true
+		for index, char := range scheme {
+			letter := char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z'
+			if !letter && (index == 0 || !(char >= '0' && char <= '9' || char == '+' || char == '-' || char == '.')) {
+				valid = false
+				break
+			}
+		}
+		scheme = strings.ToLower(scheme)
+		if !valid || scheme == "http" || scheme == "https" {
+			continue
+		}
+		if _, known := uiNodeSchemes[scheme]; !known {
+			parsed.skip("", E.New("an entry of the subscription link list uses an unsupported URI scheme"))
+		}
+	}
+}
+
 func uiSubscriptionParse(ctx context.Context, content string) *uiNodeParsed {
 	content = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(content), "\ufeff"))
 	candidates := []string{content}
@@ -71,7 +104,9 @@ func uiSubscriptionParse(ctx context.Context, content string) *uiNodeParsed {
 		}
 		return parsed
 	}
-	return uiNodeParseText(ctx, content, false)
+	parsed := uiNodeParseText(ctx, content, false)
+	uiSubscriptionCheckLinks(parsed, candidates[len(candidates)-1])
+	return parsed
 }
 
 func uiSubscriptionProblems(parsed *uiNodeParsed) error {
@@ -147,6 +182,41 @@ func uiSubscriptionDetourCycle(root *uiNodeObject, tag string) bool {
 		}
 		node, _ := root.list(key)[index].(*uiNodeObject)
 		tag = node.text("detour")
+	}
+	return false
+}
+
+// A member is unsafe only if its detours and the groups it can select lead
+// back to this particular group. Detouring through an unrelated group is
+// valid and must not remove an existing local or other-source membership.
+func uiSubscriptionGroupMemberCycle(root *uiNodeObject, member, group string) bool {
+	seen := make(map[string]bool)
+	pending := []string{member}
+	for len(pending) > 0 {
+		tag := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if tag == group {
+			return true
+		}
+		if seen[tag] {
+			continue
+		}
+		seen[tag] = true
+		key, index := uiNodeFind(root, tag)
+		if index < 0 {
+			continue // The complete reference scan reports the missing name.
+		}
+		node, _ := root.list(key)[index].(*uiNodeObject)
+		if detour := node.text("detour"); detour != "" {
+			pending = append(pending, detour)
+		}
+		if uiNodeIsGroup(node) {
+			for _, item := range node.list("outbounds") {
+				if tag, isText := item.(string); isText {
+					pending = append(pending, tag)
+				}
+			}
+		}
 	}
 	return false
 }
@@ -280,6 +350,7 @@ func uiApplySubscriptionNodes(current, subscription string, previous []string, r
 		}
 	}
 	defined := uiNodeDefined(root)
+	groupMembers := make(map[*uiNodeObject][]any)
 	for _, item := range root.list("outbounds") {
 		group, _ := item.(*uiNodeObject)
 		if !uiNodeIsGroup(group) {
@@ -296,11 +367,13 @@ func uiApplySubscriptionNodes(current, subscription string, previous []string, r
 			key, index := uiNodeFind(root, tag)
 			node, _ := root.list(key)[index].(*uiNodeObject)
 			isNode, _ := uiNodeKind(ctx, node.text("type"))
-			// A replacement can make other sources or local nodes indirectly
-			// dial through this group. Remove unsafe proxy memberships while
-			// retaining direct access and nested groups such as proxy -> auto.
-			return isNode && !uiNodeGroupMember(root, tag)
+			return isNode && uiSubscriptionGroupMemberCycle(root, tag, group.text("tag"))
 		})
+		groupMembers[group] = members
+	}
+	// Decide all removals against the same graph, so group order cannot
+	// determine which memberships involved in a cycle survive.
+	for group, members := range groupMembers {
 		group.set("outbounds", members)
 	}
 	uiNodeAppendGroups(root, added, defaultProfile)

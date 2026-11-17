@@ -1,12 +1,26 @@
 package io.nekohasekai.sfa.flutter
 
+import android.annotation.SuppressLint
+import android.content.Context
 import android.os.Build
+import androidx.concurrent.futures.CallbackToFutureAdapter
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModelProvider
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.work.Configuration
+import androidx.work.ListenableWorker
+import androidx.work.WorkerFactory
+import androidx.work.WorkerParameters
+import androidx.work.impl.ExecutionListener
+import androidx.work.impl.WorkManagerImpl
+import androidx.work.impl.model.WorkGenerationalId
+import androidx.work.impl.model.generationalId
+import androidx.work.testing.SynchronousExecutor
+import androidx.work.testing.WorkManagerTestInitHelper
+import com.google.common.util.concurrent.ListenableFuture
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.backend.log.LogLevel
@@ -54,6 +68,7 @@ import java.util.Date
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SNIHostName
@@ -741,7 +756,7 @@ class ProfileRecoveryTest {
         }
     }
 
-    @Test fun remoteRefreshesKeepAddedNodesAndRollBackFailedApplications() {
+    @Test fun remoteRefreshesKeepAddedNodesAndRollBackFailedApplications() = withPausedScheduledUpdates {
         SubscriptionServer(socksSubscription()).use { server ->
             withRunningProfile(server.url) { activity, profiles, id ->
                 val original = """{
@@ -961,7 +976,7 @@ class ProfileRecoveryTest {
         }
     }
 
-    @Test fun largeSubscriptionsUpdateImportAndPreserveServiceState() {
+    @Test fun largeSubscriptionsUpdateImportAndPreserveServiceState() = withPausedScheduledUpdates {
         SubscriptionServer(socksSubscription().padEnd(16 * 1024 * 1024 + 1)).use { server ->
             withRunningProfile(server.url) { activity, profiles, id ->
                 profiles.update(id)
@@ -1323,69 +1338,130 @@ class ProfileRecoveryTest {
         }
     }
 
-    @Test fun automaticUpdatesIncludeLocalAndDefaultConfigurationSources() = withRunningProfile { activity, profiles, id ->
-        val defaultId = profiles.ensureDefault()
-        val defaultBefore = profiles.get(defaultId)
-        val defaultContent = profiles.read(defaultId)
-        val subscriptions = nodeSubscriptions(activity)
-        SubscriptionServer(socksSubscription("local-source-node")).use { local ->
-            SubscriptionServer(socksSubscription("default-source-node")).use { default ->
-                try {
-                    subscriptions.importSubscription(subscriptionArgs(profiles, id, "Local automatic source", local.url, autoUpdate = true))
-                    withContext(Dispatchers.Main) { activity.stopService() }
-                    withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
-                    profiles.select(defaultId) { activity.serviceStatus.value }
-                    subscriptions.importSubscription(subscriptionArgs(profiles, defaultId, "Default automatic source", default.url, autoUpdate = true))
-                    profiles.select(id) { activity.serviceStatus.value }
-                    withContext(Dispatchers.Main) { activity.applyProfile(recover = true) }
-                    assertEquals(Status.Started, activity.serviceStatus.value)
-                    ProfileContent.mutex.withLock {
-                        for (profileId in listOf(id, defaultId)) {
-                            val profile = profiles.get(profileId)
-                            profile.typed.subscriptions = profile.typed.subscriptions.map { it.copy(updatedAt = 0L) }
-                            ProfileManager.update(profile)
+    @Test fun automaticUpdatesIncludeLocalAndDefaultConfigurationSources() = withPausedScheduledUpdates {
+        withRunningProfile { activity, profiles, id ->
+            val defaultId = profiles.ensureDefault()
+            val defaultBefore = profiles.get(defaultId)
+            val defaultContent = profiles.read(defaultId)
+            val subscriptions = nodeSubscriptions(activity)
+            SubscriptionServer(socksSubscription("local-source-node")).use { local ->
+                SubscriptionServer(socksSubscription("default-source-node")).use { default ->
+                    try {
+                        subscriptions.importSubscription(subscriptionArgs(profiles, id, "Local automatic source", local.url, autoUpdate = true))
+                        withContext(Dispatchers.Main) { activity.stopService() }
+                        withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+                        profiles.select(defaultId) { activity.serviceStatus.value }
+                        subscriptions.importSubscription(subscriptionArgs(profiles, defaultId, "Default automatic source", default.url, autoUpdate = true))
+                        profiles.select(id) { activity.serviceStatus.value }
+                        withContext(Dispatchers.Main) { activity.applyProfile(recover = true) }
+                        assertEquals(Status.Started, activity.serviceStatus.value)
+                        ProfileContent.mutex.withLock {
+                            for (profileId in listOf(id, defaultId)) {
+                                val profile = profiles.get(profileId)
+                                profile.typed.subscriptions = profile.typed.subscriptions.map { it.copy(updatedAt = 0L) }
+                                ProfileManager.update(profile)
+                            }
                         }
+                        local.content = socksSubscription("updated-local-source-node")
+                        default.content = socksSubscription("updated-default-source-node")
+                        assertTrue(UpdateProfileWork.updateProfiles(activity.applicationContext))
+                        assertEquals(listOf("updated-local-source-node"), profiles.get(id).typed.subscriptions.single().tags)
+                        assertEquals(listOf("updated-default-source-node"), profiles.get(defaultId).typed.subscriptions.single { it.url == default.url }.tags)
+                        assertTrue(profiles.get(id).typed.subscriptions.single().updatedAt > 0L)
+                        assertTrue(profiles.get(defaultId).typed.subscriptions.single { it.url == default.url }.updatedAt > 0L)
+                        assertFalse(configurationNodes(profiles.read(id)).any { it.optString("tag") == "local-source-node" })
+                        assertFalse(configurationNodes(profiles.read(defaultId)).any { it.optString("tag") == "default-source-node" })
+                        assertEquals(TypedProfile.Type.Local, profiles.get(id).typed.type)
+                        assertTrue(profiles.get(defaultId).typed.isDefault)
+                        assertEquals(2, local.requests.get())
+                        assertEquals(2, default.requests.get())
+                        assertEquals(id, Settings.selectedProfile)
+                        assertEquals(Status.Started, activity.serviceStatus.value)
+                        val updated = profiles.get(id)
+                        updated.typed.subscriptions = updated.typed.subscriptions.map { it.copy(updatedAt = 0L) }
+                        ProfileManager.update(updated)
+                        val beforeFailure = profiles.read(id)
+                        val generation = ProfileContent.generation
+                        local.content = "{}"
+                        assertFalse(UpdateProfileWork.updateProfiles(activity.applicationContext))
+                        assertEquals(beforeFailure, profiles.read(id))
+                        assertEquals(updated.typed.subscriptions, profiles.get(id).typed.subscriptions)
+                        assertEquals(updated.typed.lastUpdated.time, profiles.get(id).typed.lastUpdated.time)
+                        assertEquals(generation, ProfileContent.generation)
+                        assertEquals(3, local.requests.get())
+                        assertEquals(2, default.requests.get())
+                        assertEquals(Status.Started, activity.serviceStatus.value)
+                    } finally {
+                        withContext(Dispatchers.Main) { activity.stopService() }
+                        withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+                        ProfileContent.mutex.withLock {
+                            ProfileContent.write(File(defaultBefore.typed.path), defaultContent)
+                            ProfileManager.update(defaultBefore)
+                        }
+                        profiles.select(id) { activity.serviceStatus.value }
                     }
-                    local.content = socksSubscription("updated-local-source-node")
-                    default.content = socksSubscription("updated-default-source-node")
-                    assertTrue(UpdateProfileWork.updateProfiles(activity.applicationContext))
-                    assertEquals(listOf("updated-local-source-node"), profiles.get(id).typed.subscriptions.single().tags)
-                    assertEquals(listOf("updated-default-source-node"), profiles.get(defaultId).typed.subscriptions.single { it.url == default.url }.tags)
-                    assertTrue(profiles.get(id).typed.subscriptions.single().updatedAt > 0L)
-                    assertTrue(profiles.get(defaultId).typed.subscriptions.single { it.url == default.url }.updatedAt > 0L)
-                    assertFalse(configurationNodes(profiles.read(id)).any { it.optString("tag") == "local-source-node" })
-                    assertFalse(configurationNodes(profiles.read(defaultId)).any { it.optString("tag") == "default-source-node" })
-                    assertEquals(TypedProfile.Type.Local, profiles.get(id).typed.type)
-                    assertTrue(profiles.get(defaultId).typed.isDefault)
-                    assertEquals(2, local.requests.get())
-                    assertEquals(2, default.requests.get())
-                    assertEquals(id, Settings.selectedProfile)
-                    assertEquals(Status.Started, activity.serviceStatus.value)
-                    val updated = profiles.get(id)
-                    updated.typed.subscriptions = updated.typed.subscriptions.map { it.copy(updatedAt = 0L) }
-                    ProfileManager.update(updated)
-                    val beforeFailure = profiles.read(id)
-                    val generation = ProfileContent.generation
-                    local.content = "{}"
-                    assertFalse(UpdateProfileWork.updateProfiles(activity.applicationContext))
-                    assertEquals(beforeFailure, profiles.read(id))
-                    assertEquals(updated.typed.subscriptions, profiles.get(id).typed.subscriptions)
-                    assertEquals(updated.typed.lastUpdated.time, profiles.get(id).typed.lastUpdated.time)
-                    assertEquals(generation, ProfileContent.generation)
-                    assertEquals(3, local.requests.get())
-                    assertEquals(2, default.requests.get())
-                    assertEquals(Status.Started, activity.serviceStatus.value)
-                } finally {
-                    withContext(Dispatchers.Main) { activity.stopService() }
-                    withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
-                    ProfileContent.mutex.withLock {
-                        ProfileContent.write(File(defaultBefore.typed.path), defaultContent)
-                        ProfileManager.update(defaultBefore)
-                    }
-                    profiles.select(id) { activity.serviceStatus.value }
                 }
             }
         }
+    }
+
+    /** Direct updateProfiles calls must not race the periodic worker they reschedule. */
+    @SuppressLint("RestrictedApi")
+    private fun withPausedScheduledUpdates(block: () -> Unit) {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val original = WorkManagerImpl.getInstance(context)
+        runBlocking(Dispatchers.IO) { cancelScheduledUpdates(original) }
+        val configuration = Configuration.Builder()
+            .setExecutor(SynchronousExecutor())
+            .setTaskExecutor(SynchronousExecutor())
+            .setWorkerFactory(object : WorkerFactory() {
+                override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker? =
+                    if (workerClassName == UpdateProfileWork.UpdateTask::class.java.name)
+                        PausedScheduledUpdate(appContext, workerParameters) else null
+            }).build()
+        WorkManagerTestInitHelper.initializeTestWorkManager(context, configuration)
+        try {
+            block()
+        } finally {
+            try {
+                runBlocking(Dispatchers.IO) { cancelScheduledUpdates(WorkManagerImpl.getInstance(context)) }
+                WorkManagerTestInitHelper.closeWorkDatabase()
+            } finally {
+                WorkManagerImpl.setDelegate(original)
+                runBlocking(Dispatchers.IO) { UpdateProfileWork.reconfigureUpdater() }
+            }
+        }
+    }
+
+    @SuppressLint("RestrictedApi")
+    private suspend fun cancelScheduledUpdates(manager: WorkManagerImpl) {
+        val completed = ConcurrentHashMap.newKeySet<WorkGenerationalId>()
+        val listener = ExecutionListener { id, _ -> completed.add(id) }
+        manager.processor.addExecutionListener(listener)
+        try {
+            val running = manager.getWorkInfosForUniqueWork("UpdateProfile").get(15, TimeUnit.SECONDS)
+                .mapNotNull { manager.processor.getRunningWorkSpec(it.id.toString())?.generationalId() }
+            manager.cancelUniqueWork("UpdateProfile").result.get(15, TimeUnit.SECONDS)
+            // Cancellation removes processor entries before coroutine cleanup
+            // finishes. Wait for its completion callback as well as the request.
+            withTimeout(15_000) {
+                while (running.any { it !in completed }) delay(10)
+            }
+        } finally {
+            manager.processor.removeExecutionListener(listener)
+        }
+    }
+
+    private class PausedScheduledUpdate(context: Context, parameters: WorkerParameters) : ListenableWorker(context, parameters) {
+        @Volatile private var completion: CallbackToFutureAdapter.Completer<Result>? = null
+
+        override fun startWork(): ListenableFuture<Result> = CallbackToFutureAdapter.getFuture { completer ->
+            completion = completer
+            if (isStopped) completer.setCancelled()
+            "Paused subscription scheduler in direct updater test"
+        }
+
+        override fun onStopped() { completion?.setCancelled() }
     }
 
     @Test fun selectedProfilesCannotBeDeletedWhileRunningOrStopped() = withRunningProfile { activity, profiles, id ->
@@ -1439,7 +1515,7 @@ class ProfileRecoveryTest {
         }
     }
 
-    @Test fun failedAutomaticNodeParsingPreservesDataAndRequestsRetry() {
+    @Test fun failedAutomaticNodeParsingPreservesDataAndRequestsRetry() = withPausedScheduledUpdates {
         SubscriptionServer("""{"outbounds":[{"type":"socks","tag":"invalid-node","server":"127.0.0.1","server_port":-1}]}""").use { server ->
             withRunningProfile(server.url) { activity, profiles, id ->
                 val profile = profiles.get(id)
@@ -1530,7 +1606,7 @@ class ProfileRecoveryTest {
         }
     }
 
-    @Test fun pendingAutomaticDownloadDoesNotBlockDisablingTheSubscription() {
+    @Test fun pendingAutomaticDownloadDoesNotBlockDisablingTheSubscription() = withPausedScheduledUpdates {
         val release = CountDownLatch(1)
         SubscriptionServer(socksSubscription(), release).use { server ->
             withRunningProfile(server.url) { activity, profiles, id -> coroutineScope {
@@ -1590,7 +1666,7 @@ class ProfileRecoveryTest {
         assertTrue(runCatching { io.nekohasekai.sfa.utils.CommandTarget.requireLocalSession(session) }.isFailure)
     }
 
-    @Test fun stoppedAndUnselectedUpdatesPreserveServiceState() {
+    @Test fun stoppedAndUnselectedUpdatesPreserveServiceState() = withPausedScheduledUpdates {
         SubscriptionServer(JSONObject(socksSubscription()).put("log", JSONObject().put("disabled", true)).toString()).use { server ->
             withRunningProfile(server.url) { activity, profiles, id ->
                 val other = profiles.save(mapOf("name" to "Unselected subscription", "content" to "{}", "url" to server.url))

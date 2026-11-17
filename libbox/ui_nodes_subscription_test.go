@@ -406,6 +406,97 @@ func TestUINodeSubscriptionSourceUpdateCleansIndirectGroupCycles(t *testing.T) {
 	}
 }
 
+func TestUINodeSubscriptionSourcesPreserveValidGroupDetourMemberships(t *testing.T) {
+	for _, local := range []bool{false, true} {
+		name := "other source"
+		marker := ""
+		if local {
+			name = "local node"
+			marker = uiNodeLocalPrefix + `["Via"]` + "\n"
+		}
+		for _, importing := range []bool{false, true} {
+			action := "update"
+			previous, tag := `["Owned"]`, "Owned"
+			if importing {
+				action = "append"
+				previous, tag = `[]`, "New"
+			}
+			t.Run(name+" "+action, func(t *testing.T) {
+				current := marker + `{"outbounds":[{"type":"direct","tag":"direct"},
+					{"type":"selector","tag":"upstream","outbounds":["Exit"]},
+					{"type":"selector","tag":"proxy","outbounds":["Via","Owned"],"default":"Via"},` +
+					uiNodeTestNode("Exit", "198.51.100.1") + `,` + uiNodeTestVia("Via", "198.51.100.2", "upstream") + `,` +
+					uiNodeTestNode("Owned", "198.51.100.3") + `],"route":{"final":"proxy"}}`
+				if err := CheckConfig(current); err != nil {
+					t.Fatalf("valid current group detour configuration: %v", err)
+				}
+				subscription := `[` + uiNodeTestNode(tag, "203.0.113.1") + `]`
+				updated := uiSubscriptionTestApply(t, current, subscription, previous, false)
+				root := uiNodeTestObject(t, updated.Config)
+				want := "Via,Owned"
+				if importing {
+					want += ",New"
+				}
+				if uiNodeTestMembers(root, "proxy") != want ||
+					uiNodeTestFind(root.list("outbounds"), "proxy").text("default") != "Via" ||
+					!uiNodeEqual(uiNodeTestFind(root.list("outbounds"), "Via"), uiNodeTestFind(uiNodeTestObject(t, current).list("outbounds"), "Via")) ||
+					updated.Tags != `["`+tag+`"]` {
+					t.Errorf("unrelated source changed a valid group detour membership: %s", updated.Config)
+				}
+				if local {
+					uiNodeTestLocal(t, updated.Config, "Via")
+				} else {
+					uiNodeTestLocal(t, updated.Config)
+				}
+				if err := CheckConfig(updated.Config); err != nil {
+					t.Errorf("valid group detour after source update: %v", err)
+				}
+				if repeated := uiSubscriptionTestApply(t, updated.Config, subscription, updated.Tags, false); repeated.Config != updated.Config {
+					t.Errorf("repeated source update changed a valid membership: %s", repeated.Config)
+				}
+			})
+		}
+	}
+}
+
+func TestUINodeSubscriptionSourcesRejectUnknownLinkEntries(t *testing.T) {
+	current := `{"outbounds":[{"type":"selector","tag":"proxy","outbounds":["Owned"]},` + uiNodeTestNode("Owned", "198.51.100.1") + `]}`
+	valid := "ss://aes-256-gcm:password@203.0.113.1:8388#New"
+	for _, scheme := range []string{"unknown", "future-proxy", "future.proxy", "FUTURE+proxy"} {
+		body := valid + "\n" + scheme + "://SECRETSECRET@203.0.113.2:443#Unreadable"
+		for _, encoded := range []bool{false, true} {
+			subscription := body
+			if encoded {
+				subscription = base64.StdEncoding.EncodeToString([]byte(body))
+			}
+			result, err := ApplyUISubscriptionNodes(current, subscription, `["Owned"]`, false)
+			if result != nil || err == nil || !strings.Contains(err.Error(), "unsupported URI scheme") || strings.Contains(err.Error(), "SECRETSECRET") {
+				t.Errorf("unknown source link was partly applied or leaked credentials: scheme=%s, encoded=%v, result=%v, err=%v", scheme, encoded, result, err)
+			}
+		}
+	}
+	// The general one-time importer continues to report only recognized
+	// node links. Its skip-and-review behavior is not made strict here.
+	if parsed := uiNodeTestParse(t, valid+"\nunknown://SECRETSECRET@203.0.113.2:443"); len(parsed.list("nodes")) != 1 || len(parsed.list("skipped")) != 0 {
+		t.Errorf("strict source link checks changed one-time importing: %s", uiNodeTestText(parsed))
+	}
+	for _, body := range []string{
+		"# unknown://SECRETSECRET@203.0.113.2:443\n// unknown://SECRETSECRET@203.0.113.2:443\nSubscription expires tomorrow\nDocumentation: unknown://describes-a-format\nhttps://example.test/help\n" + valid,
+		"proxies:\n  - {name: New, type: ss, server: 203.0.113.1, port: 8388, cipher: aes-256-gcm, password: password}\nextra: unknown://SECRETSECRET@203.0.113.2:443\n",
+	} {
+		for _, encoded := range []bool{false, true} {
+			subscription := body
+			if encoded {
+				subscription = base64.StdEncoding.EncodeToString([]byte(body))
+			}
+			updated := uiSubscriptionTestApply(t, current, subscription, `["Owned"]`, false)
+			if updated.Tags != `["New"]` || updated.Added != 1 {
+				t.Errorf("subscription notes or unrelated YAML URLs were rejected: encoded=%v, update=%+v", encoded, updated)
+			}
+		}
+	}
+}
+
 func TestUINodeSubscriptionSourceRequiresConfigurationAndUsesDefaultIdentity(t *testing.T) {
 	subscription := `[` + uiNodeTestNode("Source", "198.51.100.1") + `]`
 	_, err := ApplyUISubscriptionNodes("", subscription, `[]`, true)

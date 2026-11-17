@@ -124,6 +124,13 @@ def tap_node(item):
     time.sleep(0.6)
 
 
+def hold_node(item):
+    x1, y1, x2, y2 = map(int, re.findall(r"\d+", item.attrib["bounds"]))
+    x, y = (x1 + x2) // 2, (y1 + y2) // 2
+    adb("shell", "input", "swipe", str(x), str(y), str(x), str(y), "800")
+    time.sleep(0.6)
+
+
 def click(label, window=None, stable=False):
     found = wait_for(label, stable=stable) if window is None else matching(label, window)
     assert found, f"No {label!r} action in the observed window"
@@ -291,14 +298,20 @@ rules:
             click("Save", stable=True)
             current = wait_for("Start", whole_window=True)
             assert matching("Profile file", current), "Import changed the default selection"
-            click("Profile file", current)
+            click("Profiles", current)
+            current = wait_for("Profile file", whole_window=True, stable=True)
+            # File cards open their details from the long-press menu. The
+            # dashboard panel also contains timestamp tap targets, so tapping
+            # the center of its combined semantics need not open the details.
+            cards = [node for node in matching("Profile file", current) if node.get("clickable") == "true"]
+            assert len(cards) == 1, "The selected file card must be uniquely identifiable"
+            hold_node(cards[0])
+            click("Edit")
             click("Node subscriptions")
             wait_for("Smoke subscription")
             capture("02-subscription-source")
             adb("shell", "input", "keyevent", "4")
             adb("shell", "input", "keyevent", "4")
-            current = wait_for("Start", whole_window=True)
-            click("Profiles", current)
             current = wait_for("Profile file", whole_window=True)
             assert matching("Profile file", current), "Default profile disappeared after import"
             assert not matching("Smoke subscription", current), "Subscription created another configuration file"
