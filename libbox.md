@@ -6,12 +6,13 @@
 
 上游为 [SagerNet/sing-box](https://github.com/SagerNet/sing-box)，绑定位于 `experimental/libbox`。当前基线是 [`v1.15.0-alpha.13`](https://github.com/SagerNet/sing-box/tree/v1.15.0-alpha.13/experimental/libbox)，Go 为 `go1.26.10`；实际版本由 [version.properties](version.properties) 的 `VERSION_NAME` 和 `GO_VERSION` 决定，工作流检出 `v${VERSION_NAME}`。
 
-本仓库不存储完整核心或 AAR，构建补丁与扩展源码统一保存在 [libbox/](libbox/)。CI 通过 [setup-core](.github/actions/setup-core/action.yml) 检出上游至 `.core/`，先准备版本文件指定的 Go，再应用构建补丁、sing-tun 兼容补丁、WARP MASQUE 补丁和 HTTP 调试补丁。抓取引擎、路由适配及所有 `ui_*.go`及相应测试使用同一安装入口；Android 构建由 [build-libbox](.github/actions/build-libbox/action.yml) 生成标准 `libbox.aar`。仅有上游原版 AAR 不足以编译当前 B-box，因为它没有下面的 UI 扩展绑定，也不包含本仓库的路由和自动重定向兼容补丁。
+本仓库不存储完整核心或 AAR，构建补丁与扩展源码统一保存在 [libbox/](libbox/)。CI 通过 [setup-core](.github/actions/setup-core/action.yml) 检出上游至 `.core/`，先准备版本文件指定的 Go，再应用构建补丁、sing-tun 兼容补丁、XHTTP/VLESS Encryption 补丁、WARP MASQUE 补丁和 HTTP 调试补丁。抓取引擎、路由适配及所有 `ui_*.go`及相应测试使用同一安装入口；Android 构建由 [build-libbox](.github/actions/build-libbox/action.yml) 生成标准 `libbox.aar`。仅有上游原版 AAR 不足以编译当前 B-box，因为它没有下面的 UI 扩展绑定，也不包含本仓库的路由和自动重定向兼容补丁。
 
 | 差异 | 文件 | 作用 |
 | --- | --- | --- |
 | 排除 legacy 产物 | [libbox-no-legacy.patch](libbox/libbox-no-legacy.patch) | 修改上游 `cmd/internal/build_libbox/main.go`，删除 API 21 AAR 分支及只供该分支使用的 `filterTags` |
 | Android 自动重定向兼容 | [sing-tun-android-ingress.patch](libbox/sing-tun-android-ingress.patch) | 兼容 ingress discard BPF map 的 4/8 字节 value，保留接口归属检查和原值恢复 |
+| XHTTP 与 VLESS Encryption | [xhttp-vless.patch](libbox/xhttp-vless.patch)、[xhttp/](libbox/xhttp/) | 在当前核心基线上移植固定来源的 XHTTP 传输与 VLESS 加密，标准 AAR 启用 `with_xhttp` |
 | Cloudflare WARP MASQUE | [warp-masque.patch](libbox/warp-masque.patch)、[masque/](libbox/masque/) | 新增 `masque` 出站，适配 WARP 的 ECDSA 认证、公钥固定、HTTP/3 datagram 与 HTTP/2 capsule |
 | 运行时内存绑定 | [ui_dashboard.go](libbox/ui_dashboard.go) | 读取 Go 运行时内存和 goroutine 数，提供释放内存操作 |
 | HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码与完整响应，通过 `UIHTTPTask` 传播 Android 取消，供备份及 Release 元数据使用 |
@@ -36,7 +37,7 @@
 
 `ApplyUISubscriptionNodes(current, subscription, previousTags, defaultProfile)` 把一个 URL 来源的节点写入现有选中配置，返回 `UISubscriptionNodeUpdate` 的 `Config`、`Tags`、`Added`、`Skipped` 和 `Warnings`；`Tags` 是实际保存名称的 JSON 数组，`Skipped` 为因明确不支持的能力而跳过的节点数，`Warnings` 为按固定原因聚合的 `[{"reason":"原因","count":数量}]` JSON 数组，无跳过时返回 `[]`。报告不包含节点链接、名称或凭据。新增来源传入 `[]`，只追加节点并保留全部现有节点；更新传入该来源上次的 `Tags`，只替换这些名称对应的代理节点，不删除其他来源、本地标记节点或非代理出站/端点。配置内容及来源名称由 Android 在同一成功提交中保存，来源数据及应用/恢复流程见 [应用配置写入](app.md#配置服务应用与备份)。此接口要求 `current` 已存在，不创建配置或独立节点库。
 
-订阅只读取上述格式中的实际代理节点，忽略 DNS、路由、入站、代理组、配置处理和本地标记，不读取提供者、覆写或脚本。sing-box JSON 只把 `outbounds` / `endpoints` 交给节点解析，其他根级 `servers`、`proxies` 或提供者元数据不会抢先改变格式判断。WireGuard、原生 `masque-client` 等代理端点按当前注册表保留在 `endpoints`；Tailscale 和服务端等基础设施仍保留原配置能力，不作为订阅代理导入。已识别但当前核心明确不支持的能力（如 XHTTP、VLESS 额外加密或 SSR）只跳过对应节点，并由上述结果返回数量和原因；Android 随来源保存报告，界面在导入、更新及来源列表中明确展示。能力拒绝在对应转换器检查到不支持项时返回，该节点后续字段不再构造或保存。未知链接协议、非法列表或协议字段、受支持节点的非法选项，以及失效或循环 detour 仍拒绝整个更新；detour 指向被跳过节点，或存在未命名的被跳过节点而无法确定依赖时，同样拒绝，不能改绑配置中的同名节点。全部节点被跳过、没有可用节点或仅有提供者时失败，旧内容及来源不变。能力拒绝使用独立错误类型，不能把一般解析或校验错误当作可忽略节点。
+订阅只读取上述格式中的实际代理节点，忽略 DNS、路由、入站、代理组、配置处理和本地标记，不读取提供者、覆写或脚本。sing-box JSON 只把 `outbounds` / `endpoints` 交给节点解析，其他根级 `servers`、`proxies` 或提供者元数据不会抢先改变格式判断。WireGuard、原生 `masque-client` 等代理端点按当前注册表保留在 `endpoints`；Tailscale 和服务端等基础设施仍保留原配置能力，不作为订阅代理导入。已识别但当前核心明确不支持的能力（如 KCP 传输或 SSR）只跳过对应节点，并由上述结果返回数量和原因；Android 随来源保存报告，界面在导入、更新及来源列表中明确展示。能力拒绝在对应转换器检查到不支持项时返回，该节点后续字段不再构造或保存。未知链接协议、非法列表或协议字段、受支持节点的非法选项，以及失效或循环 detour 仍拒绝整个更新；detour 指向被跳过节点，或存在未命名的被跳过节点而无法确定依赖时，同样拒绝，不能改绑配置中的同名节点。全部节点被跳过、没有可用节点或仅有提供者时失败，旧内容及来源不变。能力拒绝使用独立错误类型，不能把一般解析或校验错误当作可忽略节点。
 
 订阅更新保留已有节点原名称，订阅节点与已有名称冲突时另取“名称 2”等空闲名称，并同步调整本批 detour。节点可以通过当前配置保留的本地节点、其他来源节点或 direct 拨号；通过本地代理组的节点不自动加入组，避免分组产生循环。更新只清理在具体成员组中形成拨号循环的代理成员，包括经本次更新节点间接形成循环的其他来源和本地节点；通过其他组拨号但不形成循环的合法成员关系及节点内容保留，direct 和嵌套组成员保留，组没有合法成员时更新失败。订阅自行定义但已丢弃的代理组只能报错，不能误绑定当前配置的同名组。每轮先移除本来源旧代理再添加新节点，重复更新不会持续增加重名节点。组成员保留仍有效的原顺序，清理已消失名称后追加新名称；失效的默认选择清理，明确声明的 direct 成员保留。`defaultProfile` 由当前配置的默认身份决定，仅默认配置的 auto/direct 单成员 fallback 会改为检测来源节点。路由、DNS、本地节点或其他来源仍直接引用已消失节点时整个更新失败，不删除用户规则。订阅节点不获得本地标记，完整 `CheckConfig` 和原子保存由 Android 共用流程完成。
 
@@ -44,9 +45,41 @@
 
 行为核对参考 Throne `dev` 的固定提交 [`48273be2870fd2c81059628ff2cc439ac711808e`](https://github.com/throneproj/Throne/tree/48273be2870fd2c81059628ff2cc439ac711808e)：[SubscriptionParser.cpp](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/src/configs/sub/SubscriptionParser.cpp#L267) 识别 `outbounds` / `endpoints` 并分别遍历代理，跳过基础设施类型；[Protocols.cpp](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/src/configs/common/Protocols.cpp#L95) 包含 WireGuard / MASQUE 的解析能力。B-box 将节点写入选中配置，由本仓库独立实现，未复制 Throne 代码或引入其依赖，无新增许可归属。
 
-[ui_nodes_subscription_test.go](libbox/ui_nodes_subscription_test.go) 和 [ui_nodes_subscription_utls_test.go](libbox/ui_nodes_subscription_utls_test.go) 覆盖配置设置保留、分享 URI/Base64/sing-box/Clash/SIP008/wg-quick、严格拒绝无效更新及 Plain/Base64 中的未知 URI 协议、Clash 协议字段结构检查、Plain/Base64/Clash 混合 XHTTP 的明确跳过报告及修复后清空报告、被跳过节点的 detour 不改绑保留或同批同名节点、VMess 拒绝名称来自内层 JSON、46 条脱敏混合链接导入 39 条并跳过 7 条的完整核心校验、组循环清理与合法 detour 成员保留、本地/来源重名及 detour、重复更新、双来源更新隔离、来源移除转本地、WireGuard/MASQUE 端点及元数据不改变端点格式。脱敏混合样例含 REALITY，使用 `with_utls` 在统一工作流的发货核心协议步骤运行，通用来源报告用例也在无该标签的基础检查运行。测试源码及静态检查不代表真实订阅网络已经验收。
+[ui_nodes_subscription_test.go](libbox/ui_nodes_subscription_test.go) 和 [ui_nodes_subscription_utls_test.go](libbox/ui_nodes_subscription_utls_test.go) 覆盖配置设置保留、分享 URI/Base64/sing-box/Clash/SIP008/wg-quick、严格拒绝无效更新及 Plain/Base64 中的未知 URI 协议、Clash 协议字段结构检查、Plain/Base64/Clash 混合 KCP 的明确跳过报告及修复后清空报告、被跳过节点的 detour 不改绑保留或同批同名节点、VMess 拒绝名称来自内层 JSON、46 条脱敏混合链接（包含 7 条 XHTTP）全部导入的完整核心校验、组循环清理与合法 detour 成员保留、本地/来源重名及 detour、重复更新、双来源更新隔离、来源移除转本地、WireGuard/MASQUE 端点及元数据不改变端点格式。脱敏混合样例含 REALITY，使用 `with_xhttp,with_utls` 在统一工作流的发货核心协议步骤运行，通用来源报告用例也在无该标签的基础检查运行。测试源码及静态检查不代表真实订阅网络已经验收。
 
 `GetUIDefaultConfig` 提供无账号的合法 sing-box 模板：proxy 默认包含 auto，auto 在未添加节点时使用 direct。`AddUIConfigNodes` / `RemoveUIConfigNodes` 的 `defaultProfile=true` 仅调整该默认模板的 auto 组：追加节点后 direct 单成员改为检测代理节点，删除最后一个节点时恢复配置中已有 direct。普通配置及已有远端配置保留明确声明的 direct 成员，缺少合法成员时仍拒绝删除。默认配置的显示及配置卡片布局由 [Flutter 配置页](flclash.md#导航与交互约定) 维护。
+
+### XHTTP 与 VLESS Encryption
+
+协议源码移植自 [MiChongs/sing-box](https://github.com/MiChongs/sing-box/tree/f88982450a13a818f680de884663fa914798e84a) 的固定提交 `f88982450a13a818f680de884663fa914798e84a`，该分支以 reF1nd/sing-box 为基础，协议行为参考 [Xray-core v26.9.30](https://github.com/XTLS/Xray-core/tree/b26a91de4f3294e26a0ad0a970b81a386a41f789)。B-box 继续检出官方 `v1.15.0-alpha.13`，只安装相关 option、传输、加密及 TLS 适配，不使用参考分支的 Provider 或其他协议扩展。[来源清单](libbox/xhttp/manifest.json) 记录原始和本地文件哈希；[安装脚本](tools/patch_xhttp_vless.py) 在共享核心准备入口应用 [补丁](libbox/xhttp-vless.patch)，标准 Android AAR 启用 `with_xhttp`，HTTP/3 另使用现有 `with_quic`。没有新增 gomobile 导出接口。
+
+`transport.type` 为 `xhttp`，与 VLESS、VMess、Trojan 等已有 V2Ray 传输层协议配合使用；同时提供入站和出站。支持 HTTP/1.1、HTTP/2、HTTP/3，模式为 `auto`、`packet-up`、`stream-up`、`stream-one`。明文默认 HTTP/1.1，REALITY 使用 HTTP/2，TLS 的 ALPN 仅为 `h3` 时使用 HTTP/3，仅为 `http/1.1` 时使用 HTTP/1.1，其余使用 HTTP/2。`auto` 在 REALITY 下选择 `stream-one`（上下行分离时为 `stream-up`），其他情况选择 `packet-up`。
+
+核心 JSON 将 XHTTP 字段直接放在 `transport` 中：`host`、`path`、`mode`、`headers`、填充/会话/序号/上行混淆选项、`xmux`、`download_settings` 及 QUIC 参数，具体字段由 [v2rayxhttp.go](libbox/xhttp/option/v2rayxhttp.go) 定义。范围值接受整数或 `"最小值-最大值"`。`download_settings` 的 XHTTP 参数不从上行继承，应显式提供；服务器地址未设置时使用上行地址。HTTP/3 忽略 uTLS 指纹，使用标准 TLS，同时保留 SNI、证书验证与当前核心支持的 ECH 设置；不增加参考分支独有的 TLS 字段。
+
+VLESS 出站新增 `encryption`，入站新增 `decryption`，空值或 `none` 保持原 VLESS 行为。加密方式为 `mlkem768x25519plus`，外观支持 `native`、`xorpub`、`random`；客户端使用 `0rtt` 或 `1rtt`，服务端使用票据有效期（如 `600s`、`300-600s` 或禁用复用的 `0s`），随后为可选填充和服务端提供的密钥参数。加密层使用 ML-KEM-768 与 X25519 混合握手，支持 X25519 或 ML-KEM-768 服务端认证、0-RTT 票据和重放拒绝。启用加密后 `xtls-rprx-vision` 可与 XHTTP、WebSocket 等传输配合，不要求外层 TLS；未启用加密时沿用原 Vision 的 TLS/REALITY 要求。
+
+例如服务器提供加密参数后，可在已有配置的 `outbounds` 中添加下列节点（占位值必须替换，不是可直接连接的账号）：
+
+```json
+{
+  "type": "vless",
+  "tag": "xhttp-vless",
+  "server": "example.com",
+  "server_port": 443,
+  "uuid": "服务器提供的 UUID",
+  "encryption": "mlkem768x25519plus.native.0rtt.服务器提供的客户端密钥",
+  "flow": "xtls-rprx-vision",
+  "tls": { "enabled": true, "server_name": "example.com" },
+  "transport": { "type": "xhttp", "path": "/xhttp", "mode": "auto" }
+}
+```
+
+节点分享链接识别 `type=xhttp` 和 `type=splithttp`（保存为 `xhttp`）、`host`、`path`、`mode` 与 `extra`；Clash 节点支持 `network: xhttp/splithttp` 和 `xhttp-opts`，VLESS 的 `encryption` 按原值保存，大小写不会改变密钥。Xray/Clash 的 XHTTP 设置转换为核心选项，再统一解码和构造校验；不支持的额外设置明确报告，非法模式、范围或加密参数不能作为可忽略节点静默保存。sing-box JSON 节点直接保留原生字段。所有导入仍只提取节点，保存前检查完整配置，更新只替换对应来源节点。
+
+[XHTTP 传输测试](libbox/xhttp/transport/v2rayxhttp) 覆盖各模式、真实 HTTP/1.1/2/3 传输、上下行分离、连接复用、取消/关闭/期限、混淆及证书拒绝；[加密测试](libbox/xhttp/protocol/vless/encryption/encryption_test.go) 覆盖认证/握手、0-RTT、票据过期、重放和 Vision。节点解析、实际 Android AAR 的配置及来源回归由统一测试工作流运行。这些回归及源码来源不代替与外部 Xray 服务的互通或 ARM64 实机验收，实际运行结果见 [应用验证记录](app.md#当前验证记录)。
+
+移植保留 MiChongs/sing-box 的 GPL-3.0-or-later 许可及 Xray-core 的 MPL-2.0 来源；原始许可随应用打包并通过许可证页展示：[MiChongs/sing-box](flutter/assets/licenses/michongs-sing-box-LICENSE)、[Xray-core](flutter/assets/licenses/xray-core-LICENSE)。
 
 ### Cloudflare WARP MASQUE
 
@@ -379,9 +412,9 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 - [统一测试工作流](.github/workflows/newui.yml) 的 Android job 使用同一构建 Action，核心目标为 `android/amd64`，用于 JVM 及 [Android 模拟器矩阵](app.md#模拟器-smoke-矩阵) 的回归。两种架构的构建均要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
 - 同一工作流的 core job 使用共享准备 Action 把扩展、补丁和回归文件安装到上游检出目录，不构建核心 AAR。所有生产扩展均参与编译，测试按名称前缀或目录自动纳入，不维护具体扩展名的筛选清单。该 job 依次运行：
   1. `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1`：Android ingress-discard map 布局兼容。
-  2. `go test -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`：全部 `TestUI` 扩展回归；随后以 `-tags=with_quic,with_wireguard,with_utls,with_clash_api` 单独运行 `^TestUINode`，核对随发布核心包含的节点协议。
-  3. `go test -race -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m`，再以 `-tags=with_quic` 运行同一命令，随后执行 `go test -tags=with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIMASQUE' -count=1`：WARP 认证及 HTTP/2、HTTP/3 隧道。HTTP/3 用例只在 `with_quic` 构建中编译。
-  4. `go test -race -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(Egress|Route|HTTP|Profile)' -count=1`：路由、出口探测、HTTP 任务和订阅的数据竞争。
+  2. `go test -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`：全部 `TestUI` 扩展回归；随后以 `-tags=with_xhttp,with_quic,with_wireguard,with_utls,with_clash_api` 单独运行 `^TestUINode`，核对随发布核心包含的节点协议。
+  3. `go test -race -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m`，再以 `-tags=with_quic` 运行同一命令，随后执行 `go test -tags=with_xhttp,with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIMASQUE' -count=1`：WARP 认证及 HTTP/2、HTTP/3 隧道。HTTP/3 用例只在 `with_quic` 构建中编译。
+  4. `go test -race -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(Egress|Route|HTTP|Profile)' -count=1`：路由、出口探测、HTTP 任务和订阅的数据竞争。
   5. `go test -race ./experimental/httpdebug -count=1 -timeout=5m` 与 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m`：HTTP/MITM 抓取与处理引擎的全部用例及数据竞争，以及原出站和嗅探字节保留。
 - 获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py) 以受限并发运行独立的抓取引擎测试，它不构建 Android 绑定。
 
@@ -466,6 +499,8 @@ Cron：
 
 - [script_cron_test.go](libbox/httpdebug/script_cron_test.go)：脚本独立校验且校验不执行 Cron，Cron 语法/时区/DST，HTTP 回调与证书校验，仅含 Cron 的配置不拦截 HTTP，记录开关不重建调度，停服取消在途请求。
 - [script_cron_queue_test.go](libbox/httpdebug/script_cron_queue_test.go)：通过阻塞路由拨号控制脚本完成顺序，检查不同任务并行运行、同一任务未完成时的重复触发合并且不重叠、单次超时不影响其他任务和后续调度，以及关闭时取消并等待全部调用、不保留待运行任务。
+
+XHTTP 与 VLESS Encryption 的独立传输、加密与 race 回归由同一 core job 分别在 `with_xhttp` 和 `with_xhttp,with_quic,with_utls` 下运行 `./transport/v2rayxhttp ./protocol/vless/encryption`；范围见 [XHTTP 与 VLESS Encryption](#xhttp-与-vless-encryption)。
 
 ### 升级核心
 

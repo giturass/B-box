@@ -37,6 +37,7 @@ runs:
         git -C .core apply --check ../libbox/node-profile.patch
         git -C .core apply ../libbox/node-profile.patch
         python3 tools/patch_sing_tun.py .core
+        python3 tools/patch_xhttp_vless.py .core
         python3 tools/patch_warp_masque.py .core
         python3 tools/patch_httpdebug.py .core
         cp libbox/ui_*.go .core/experimental/libbox/

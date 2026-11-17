@@ -444,7 +444,7 @@ func (o *uiNodeObject) retagged(tag string) *uiNodeObject {
 // The options whose text is a credential.
 var uiNodeSecretKeys = []string{
 	"password", "uuid", "private_key", "private_key_passphrase", "pre_shared_key",
-	"psk", "auth", "auth_str", "obfs", "username", "user",
+	"psk", "auth", "auth_str", "obfs", "username", "user", "encryption", "decryption",
 }
 
 // uiNodeRedact takes the credentials of a node out of a message of the core,
@@ -457,6 +457,15 @@ func uiNodeRedact(value any, message string) string {
 				message = uiNodeRedact(typed.values[key], message)
 			} else if len(text) > 3 && slices.Contains(uiNodeSecretKeys, key) {
 				message = strings.ReplaceAll(message, text, "…")
+				if key == "encryption" || key == "decryption" {
+					// The handshake parser may report only a bad RTT, padding or
+					// key segment rather than repeating the complete setting.
+					for _, part := range strings.Split(text, ".") {
+						if len(part) > 3 {
+							message = strings.ReplaceAll(message, part, "…")
+						}
+					}
+				}
 			}
 		}
 	case []any:
@@ -594,6 +603,24 @@ func uiNodeCollectReferences(value any, path string, keys []string, references *
 func uiNodeIsGroup(outbound *uiNodeObject) bool {
 	nodeType := outbound.text("type")
 	return nodeType == C.TypeSelector || nodeType == C.TypeURLTest
+}
+
+// These are the outbound dialers a node actually uses. An XHTTP download may
+// have its own detour independently of the upload; a disabled download does
+// not participate in the dialing graph.
+func uiNodeDialDetours(node *uiNodeObject) []string {
+	var detours []string
+	if detour := node.text("detour"); detour != "" {
+		detours = append(detours, detour)
+	}
+	if transport := node.object("transport"); transport.text("type") == "xhttp" {
+		if download := transport.object("download_settings"); download != nil && download.get("enabled") != false {
+			if detour := download.text("detour"); detour != "" && !slices.Contains(detours, detour) {
+				detours = append(detours, detour)
+			}
+		}
+	}
+	return detours
 }
 
 // uiNodeDefined returns the names a configuration defines itself.

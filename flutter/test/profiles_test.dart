@@ -750,7 +750,7 @@ void main() {
       if (call.method == 'subscriptions.import') {
         return {
           'added': 4, 'skipped': 7,
-          'warnings': [{'reason': 'the XHTTP transport is not supported by this core', 'count': 7}],
+          'warnings': [{'reason': 'the transport of this node is not supported by this core', 'count': 7}],
           'source': {'id': 'mixed-source'},
         };
       }
@@ -765,7 +765,7 @@ void main() {
     await tester.enterText(find.byType(TextFormField).at(1), 'https://example.org/mixed');
     await tester.tap(find.byTooltip('Save').last);
     await tester.pumpAndSettle();
-    expect(messages, ['Mixed subscription\nNodes imported: 4, Skipped: 7\nthe XHTTP transport is not supported by this core: 7']);
+    expect(messages, ['Mixed subscription\nNodes imported: 4, Skipped: 7\nthe transport of this node is not supported by this core: 7']);
     expect(find.byType(SubscriptionForm), findsNothing);
     expect(json(calls.singleWhere((call) => call.method == 'subscriptions.import').arguments)['profileId'], 3);
     expect(calls.map((call) => call.method), isNot(contains('profiles.save')));
@@ -786,8 +786,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(subscriptionReportMessage(tester.element(find.byType(HomePage)), {
       'added': 4, 'skipped': 7,
-      'warnings': [{'reason': 'the XHTTP transport is not supported by this core', 'count': 7}],
-    }), '已导入节点: 4, 已跳过: 7\n当前内核不支持 XHTTP 传输: 7');
+      'warnings': [{'reason': 'the transport of this node is not supported by this core', 'count': 7}],
+    }), '已导入节点: 4, 已跳过: 7\n当前内核不支持此节点的传输方式: 7');
     expect(tester.takeException(), isNull);
   });
 
@@ -983,18 +983,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Skipped: 7'), findsNothing);
     sources = [{...sources.single, 'skipped': 7,
-      'warnings': [{'reason': 'the XHTTP transport is not supported by this core', 'count': 7}],
+      'warnings': [{'reason': 'the transport of this node is not supported by this core', 'count': 7}],
       'updatedAt': 1700000000000}];
     events.add({'type': 'profiles', 'value': [{..._default, 'subscriptions': sources}]});
     await tester.pumpAndSettle();
     expect(find.textContaining('Skipped: 7'), findsOneWidget);
-    expect(find.textContaining('the XHTTP transport is not supported by this core: 7'), findsOneWidget);
+    expect(find.textContaining('the transport of this node is not supported by this core: 7'), findsOneWidget);
     tester.element(find.byType(SubscriptionsPage)).safeNestedPop();
     await tester.pumpAndSettle();
     openSources();
     await tester.pumpAndSettle();
     expect(find.textContaining('Skipped: 7'), findsOneWidget);
-    expect(find.textContaining('the XHTTP transport is not supported by this core: 7'), findsOneWidget);
+    expect(find.textContaining('the transport of this node is not supported by this core: 7'), findsOneWidget);
     expect(reads, 3);
     expect(updates, 0);
     expect(tester.takeException(), isNull);
@@ -1016,7 +1016,7 @@ void main() {
         if (id == 'source-b') throw PlatformException(code: 'download', message: 'HTTP 503 Service Unavailable');
         if (id == 'source-c') return {'added': 2, 'skipped': 0, 'warnings': []};
         return {'added': 4, 'skipped': 7,
-          'warnings': [{'reason': 'the XHTTP transport is not supported by this core', 'count': 7}]};
+          'warnings': [{'reason': 'the transport of this node is not supported by this core', 'count': 7}]};
       }
       return null;
     });
@@ -1027,12 +1027,12 @@ void main() {
     final menu = tester.widget<BoxMenu>(find.descendant(of: find.byType(SubscriptionsPage), matching: find.byType(BoxMenu)).first);
     menu.items.singleWhere((item) => item.label == 'Update').onPressed!();
     await tester.pumpAndSettle();
-    expect(messages, ['Source A\nNodes imported: 4, Skipped: 7\nthe XHTTP transport is not supported by this core: 7']);
+    expect(messages, ['Source A\nNodes imported: 4, Skipped: 7\nthe transport of this node is not supported by this core: 7']);
     await updateProfileSubscriptions(tester.element(find.byType(HomePage)), profile);
     await tester.pumpAndSettle();
     expect(updates, ['source-a', 'source-a', 'source-b', 'source-c']);
     expect(messages.skip(1), [
-      'Profile file · Source A\nNodes imported: 4, Skipped: 7\nthe XHTTP transport is not supported by this core: 7',
+      'Profile file · Source A\nNodes imported: 4, Skipped: 7\nthe transport of this node is not supported by this core: 7',
       'HTTP 503 Service Unavailable',
       'Profile file · Source C\nNodes imported: 2, Skipped: 0',
     ]);

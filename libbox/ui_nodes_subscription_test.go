@@ -12,8 +12,8 @@ func TestUINodeSubscriptionSourceReportsUnsupportedNodes(t *testing.T) {
 		uiNodeTestNode("Local", "198.51.100.1") + `,` + uiNodeTestNode("Other", "198.51.100.2") + `],"route":{"final":"proxy"}}`
 	valid := "ss://aes-256-gcm:password@203.0.113.1:8388#New"
 	for _, item := range []struct{ name, body string }{
-		{"plain", valid + "\nvless://SECRETSECRET@203.0.113.2:443?type=xhttp&security=tls#SECRETNAME\nvless://SECRETSECRET@203.0.113.3:443?type=splithttp#SECRETNAME"},
-		{"Clash", "proxies:\n  - {name: New, type: ss, server: 203.0.113.1, port: 8388, cipher: aes-256-gcm, password: password}\n  - {name: SECRETNAME, type: vless, server: 203.0.113.2, port: 443, uuid: SECRETSECRET, network: xhttp}\n  - {name: SECRETNAME, type: vless, server: 203.0.113.3, port: 443, uuid: SECRETSECRET, network: splithttp}\n"},
+		{"plain", valid + "\nvless://SECRETSECRET@203.0.113.2:443?type=kcp&security=tls#SECRETNAME\nvless://SECRETSECRET@203.0.113.3:443?type=kcp#SECRETNAME"},
+		{"Clash", "proxies:\n  - {name: New, type: ss, server: 203.0.113.1, port: 8388, cipher: aes-256-gcm, password: password}\n  - {name: SECRETNAME, type: vless, server: 203.0.113.2, port: 443, uuid: SECRETSECRET, network: kcp}\n  - {name: SECRETNAME, type: vless, server: 203.0.113.3, port: 443, uuid: SECRETSECRET, network: kcp}\n"},
 	} {
 		for _, encoded := range []bool{false, true} {
 			body := item.body
@@ -22,7 +22,7 @@ func TestUINodeSubscriptionSourceReportsUnsupportedNodes(t *testing.T) {
 			}
 			updated := uiSubscriptionTestApply(t, current, body, `[]`, false)
 			if updated.Added != 1 || updated.Tags != `["New"]` || updated.Skipped != 2 ||
-				updated.Warnings != `[{"reason":"the XHTTP transport is not supported by this core","count":2}]` ||
+				updated.Warnings != `[{"reason":"the transport of this node is not supported by this core","count":2}]` ||
 				strings.Contains(updated.Warnings, "SECRET") {
 				t.Errorf("%s encoded=%v: unsupported nodes were not reported safely: %+v", item.name, encoded, updated)
 			}
@@ -45,8 +45,8 @@ func TestUINodeSubscriptionSourceReportsUnsupportedNodes(t *testing.T) {
 		}
 	}
 	for _, body := range []string{
-		"vless://SECRETSECRET@203.0.113.2:443?type=xhttp#SECRETNAME",
-		valid + "\nvless://SECRETSECRET@203.0.113.2:443?type=xhttp\nss://nonesuch:SECRETSECRET@203.0.113.3:8388#Invalid",
+		"vless://SECRETSECRET@203.0.113.2:443?type=kcp#SECRETNAME",
+		valid + "\nvless://SECRETSECRET@203.0.113.2:443?type=kcp\nss://nonesuch:SECRETSECRET@203.0.113.3:8388#Invalid",
 	} {
 		result, err := ApplyUISubscriptionNodes(current, body, `["Other"]`, false)
 		if result != nil || err == nil || strings.Contains(err.Error(), "SECRETSECRET") {
@@ -55,7 +55,7 @@ func TestUINodeSubscriptionSourceReportsUnsupportedNodes(t *testing.T) {
 	}
 	// The legacy StringBox binding cannot show a warning report, so it keeps
 	// rejecting partial updates instead of silently applying them.
-	if result, err := UpdateUISubscriptionNodes(current, valid+"\nvless://SECRET@203.0.113.2:443?type=xhttp"); result != nil || err == nil || !strings.Contains(err.Error(), "unsupported proxy nodes") {
+	if result, err := UpdateUISubscriptionNodes(current, valid+"\nvless://SECRET@203.0.113.2:443?type=kcp"); result != nil || err == nil || !strings.Contains(err.Error(), "unsupported proxy nodes") {
 		t.Errorf("legacy update silently dropped unsupported nodes: result=%v, err=%v", result, err)
 	}
 }
@@ -74,7 +74,7 @@ func TestUINodeSubscriptionUnsupportedDetoursDoNotRebindRetainedNames(t *testing
 				name = "name: Exit, "
 			}
 			hop := "  - {name: Hop, type: ss, server: 203.0.113.1, port: 8388, cipher: aes-256-gcm, password: password, dialer-proxy: '" + alias + "'}\n"
-			refused := "  - {" + name + "type: vless, server: 203.0.113.2, port: 443, uuid: " + uiNodeTestUUID + ", network: xhttp}\n"
+			refused := "  - {" + name + "type: vless, server: 203.0.113.2, port: 443, uuid: " + uiNodeTestUUID + ", network: kcp}\n"
 			for _, sameBatchAlias := range []bool{false, true} {
 				body := "proxies:\n" + hop + refused
 				if sameBatchAlias {
@@ -126,7 +126,7 @@ func TestUINodeSubscriptionRejectsMalformedClashProtocols(t *testing.T) {
 
 func TestUINodeSubscriptionRefusedVMessUsesItsJSONName(t *testing.T) {
 	for _, name := range []string{"Exit", ""} {
-		body := `{"ps":"` + name + `","add":"203.0.113.2","port":443,"id":"` + uiNodeTestUUID + `","net":"xhttp"}`
+		body := `{"ps":"` + name + `","add":"203.0.113.2","port":443,"id":"` + uiNodeTestUUID + `","net":"kcp"}`
 		link := "vmess://" + base64.StdEncoding.EncodeToString([]byte(body)) + "#Outer"
 		parsed := uiSubscriptionParse(baseContext(nil), link)
 		if parsed == nil || len(parsed.skipped) != 1 {

@@ -1,0 +1,414 @@
+--- a/cmd/internal/build_libbox/main.go
++++ b/cmd/internal/build_libbox/main.go
+@@ -63,7 +63,7 @@
+ 	sharedFlags = append(sharedFlags, "-ldflags", build_shared.LinkerFlags(currentTag, false))
+ 	debugFlags = append(debugFlags, "-ldflags", build_shared.LinkerFlags(currentTag, true))
+ 
+-	sharedTags = append(sharedTags, "with_quic", "with_wireguard", "with_utls", "with_naive_outbound", "with_clash_api", "with_usbip", "with_openvpn", "with_openconnect", "badlinkname", "tfogo_checklinkname0")
++	sharedTags = append(sharedTags, "with_quic", "with_xhttp", "with_wireguard", "with_utls", "with_naive_outbound", "with_clash_api", "with_usbip", "with_openvpn", "with_openconnect", "badlinkname", "tfogo_checklinkname0")
+ 	darwinTags = append(darwinTags, "with_dhcp", "grpcnotrace")
+ 	// memcTags = append(memcTags, "with_tailscale")
+ 	sharedTags = append(sharedTags, "with_tailscale", "ts_omit_logtail", "ts_omit_ssh", "ts_omit_drive", "ts_omit_taildrop", "ts_omit_webclient", "ts_omit_doctor", "ts_omit_capture", "ts_omit_kube", "ts_omit_aws", "ts_omit_synology", "ts_omit_bird")
+--- a/common/tls/ech.go
++++ b/common/tls/ech.go
+@@ -130,6 +130,14 @@
+ func (s *ECHClientConfig) fetchAndHandshake(ctx context.Context, conn net.Conn) (aTLS.Conn, error) {
+ 	s.access.Lock()
+ 	defer s.access.Unlock()
++	if err := s.fetchECHConfigList(ctx); err != nil {
++		return nil, err
++	}
++	return s.Client(conn)
++}
++
++// fetchECHConfigList is called with access held by TCP and QUIC handshakes.
++func (s *ECHClientConfig) fetchECHConfigList(ctx context.Context) error {
+ 	if len(s.ECHConfigList()) == 0 || s.lastTTL == 0 || time.Since(s.lastUpdate) > s.lastTTL {
+ 		queryServerName := s.queryServerName
+ 		if queryServerName == "" {
+@@ -149,10 +157,10 @@
+ 		}
+ 		response, err := s.dnsRouter.Exchange(ctx, message, adapter.DNSQueryOptions{})
+ 		if err != nil {
+-			return nil, E.Cause(err, "fetch ECH config list")
++			return E.Cause(err, "fetch ECH config list")
+ 		}
+ 		if response.Rcode != mDNS.RcodeSuccess {
+-			return nil, E.Cause(dns.RcodeError(response.Rcode), "fetch ECH config list")
++			return E.Cause(dns.RcodeError(response.Rcode), "fetch ECH config list")
+ 		}
+ 	match:
+ 		for _, rr := range response.Answer {
+@@ -162,7 +170,7 @@
+ 					if value.Key().String() == "ech" {
+ 						echConfigList, err := base64.StdEncoding.DecodeString(value.String())
+ 						if err != nil {
+-							return nil, E.Cause(err, "decode ECH config")
++							return E.Cause(err, "decode ECH config")
+ 						}
+ 						s.lastTTL = time.Duration(rr.Header().Ttl) * time.Second
+ 						s.lastUpdate = time.Now()
+@@ -173,10 +181,10 @@
+ 			}
+ 		}
+ 		if len(s.ECHConfigList()) == 0 {
+-			return nil, E.New("no ECH config found in DNS records")
+-		}
+-	}
+-	return s.Client(conn)
++			return E.New("no ECH config found in DNS records")
++		}
++	}
++	return nil
+ }
+ 
+ func (s *ECHClientConfig) Clone() Config {
+--- a/constant/v2ray.go
++++ b/constant/v2ray.go
+@@ -6,4 +6,5 @@
+ 	V2RayTransportTypeQUIC        = "quic"
+ 	V2RayTransportTypeGRPC        = "grpc"
+ 	V2RayTransportTypeHTTPUpgrade = "httpupgrade"
++	V2RayTransportTypeXHTTP       = "xhttp"
+ )
+--- a/option/v2ray_transport.go
++++ b/option/v2ray_transport.go
+@@ -12,12 +12,16 @@
+ )
+ 
+ type _V2RayTransportOptions struct {
+-	Type               string                  `json:"type" enum:"http,ws,quic,grpc,httpupgrade"`
++	Type               string                  `json:"type" enum:"http,ws,quic,grpc,httpupgrade,xhttp"`
+ 	HTTPOptions        V2RayHTTPOptions        `json:"-"`
+ 	WebsocketOptions   V2RayWebsocketOptions   `json:"-"`
+ 	QUICOptions        V2RayQUICOptions        `json:"-"`
+ 	GRPCOptions        V2RayGRPCOptions        `json:"-"`
+ 	HTTPUpgradeOptions V2RayHTTPUpgradeOptions `json:"-"`
++	// Extra 给外挂 transport 用（XHTTP 等）。对应的具体 options 类型由
++	// v2rayTransportOptionFactory 里注册的工厂函数决定，UnmarshalJSON
++	// 检测到未知 type 时会 factory() 分配实例再用 badjson 填充。
++	Extra any `json:"-"`
+ }
+ 
+ type V2RayTransportOptions _V2RayTransportOptions
+@@ -38,6 +42,11 @@
+ 	case "":
+ 		return nil, E.New("missing transport type")
+ 	default:
++		// Plugin transports (e.g. XHTTP) 的 options 存在 Extra 里
++		if _, ok := lookupV2RayTransportOptionFactory(o.Type); ok && o.Extra != nil {
++			v = o.Extra
++			break
++		}
+ 		return nil, E.New("unknown transport type: " + o.Type)
+ 	}
+ 	return badjson.MarshallObjects(_V2RayTransportOptions(o), v)
+@@ -61,6 +70,11 @@
+ 	case C.V2RayTransportTypeHTTPUpgrade:
+ 		v = &o.HTTPUpgradeOptions
+ 	default:
++		if factory, ok := lookupV2RayTransportOptionFactory(o.Type); ok {
++			o.Extra = factory()
++			v = o.Extra
++			break
++		}
+ 		return E.New("unknown transport type: " + o.Type)
+ 	}
+ 	err = badjson.UnmarshallExcluded(bytes, (*_V2RayTransportOptions)(o), v)
+@@ -72,13 +86,18 @@
+ 
+ func (o V2RayTransportOptions) DescribeSchema(builder schema.Builder) (*schema.Node, error) {
+ 	return builder.Define("V2RayTransport", func() (*schema.Node, error) {
+-		return schema.DiscriminatedUnion(builder, "type", true, []schema.UnionVariant{
++		variants := []schema.UnionVariant{
+ 			{Value: C.V2RayTransportTypeHTTP, StructType: reflect.TypeFor[V2RayHTTPOptions]()},
+ 			{Value: C.V2RayTransportTypeWebsocket, StructType: reflect.TypeFor[V2RayWebsocketOptions]()},
+ 			{Value: C.V2RayTransportTypeQUIC, StructType: reflect.TypeFor[V2RayQUICOptions]()},
+ 			{Value: C.V2RayTransportTypeGRPC, StructType: reflect.TypeFor[V2RayGRPCOptions]()},
+ 			{Value: C.V2RayTransportTypeHTTPUpgrade, StructType: reflect.TypeFor[V2RayHTTPUpgradeOptions]()},
+-		}, nil)
++		}
++		for _, name := range V2RayTransportPluginTypes() {
++			factory, _ := lookupV2RayTransportOptionFactory(name)
++			variants = append(variants, schema.UnionVariant{Value: name, StructType: reflect.TypeOf(factory()).Elem()})
++		}
++		return schema.DiscriminatedUnion(builder, "type", true, variants, nil)
+ 	})
+ }
+ 
+--- a/option/vless.go
++++ b/option/vless.go
+@@ -2,7 +2,8 @@
+ 
+ type VLESSInboundOptions struct {
+ 	ListenOptions
+-	Users []VLESSUser `json:"users,omitempty"`
++	Users      []VLESSUser `json:"users,omitempty"`
++	Decryption string      `json:"decryption,omitempty"`
+ 	InboundTLSOptionsContainer
+ 	Multiplex *InboundMultiplexOptions `json:"multiplex,omitempty"`
+ 	Transport *V2RayTransportOptions   `json:"transport,omitempty"`
+@@ -17,9 +18,10 @@
+ type VLESSOutboundOptions struct {
+ 	DialerOptions
+ 	ServerOptions
+-	UUID    string      `json:"uuid"`
+-	Flow    string      `json:"flow,omitempty"`
+-	Network NetworkList `json:"network,omitempty"`
++	UUID       string      `json:"uuid"`
++	Flow       string      `json:"flow,omitempty"`
++	Encryption string      `json:"encryption,omitempty"`
++	Network    NetworkList `json:"network,omitempty"`
+ 	OutboundTLSOptionsContainer
+ 	Multiplex      *OutboundMultiplexOptions `json:"multiplex,omitempty"`
+ 	Transport      *V2RayTransportOptions    `json:"transport,omitempty"`
+--- a/protocol/vless/inbound.go
++++ b/protocol/vless/inbound.go
+@@ -14,6 +14,7 @@
+ 	C "github.com/sagernet/sing-box/constant"
+ 	"github.com/sagernet/sing-box/log"
+ 	"github.com/sagernet/sing-box/option"
++	"github.com/sagernet/sing-box/protocol/vless/encryption"
+ 	"github.com/sagernet/sing-box/transport/v2ray"
+ 	"github.com/sagernet/sing-vmess/packetaddr"
+ 	"github.com/sagernet/sing-vmess/vless"
+@@ -35,24 +36,27 @@
+ 
+ type Inbound struct {
+ 	inbound.Adapter
+-	ctx        context.Context
+-	router     adapter.ConnectionRouterEx
+-	logger     logger.ContextLogger
+-	listener   *listener.Listener
+-	users      []option.VLESSUser
+-	service    *vless.Service[int]
+-	tlsConfig  tls.ServerConfig
+-	transport  adapter.V2RayServerTransport
+-	references []string
++	ctx               context.Context
++	router            adapter.ConnectionRouterEx
++	logger            logger.ContextLogger
++	listener          *listener.Listener
++	users             []option.VLESSUser
++	service           *vless.Service[int]
++	decryptionContext context.Context
++	decryption        *encryption.ServerInstance
++	tlsConfig         tls.ServerConfig
++	transport         adapter.V2RayServerTransport
++	references        []string
+ }
+ 
+ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.VLESSInboundOptions) (adapter.Inbound, error) {
+ 	inbound := &Inbound{
+-		Adapter: inbound.NewAdapter(C.TypeVLESS, tag),
+-		ctx:     ctx,
+-		router:  uot.NewRouter(router, logger),
+-		logger:  logger,
+-		users:   options.Users,
++		Adapter:           inbound.NewAdapter(C.TypeVLESS, tag),
++		ctx:               ctx,
++		decryptionContext: ctx,
++		router:            uot.NewRouter(router, logger),
++		logger:            logger,
++		users:             options.Users,
+ 	}
+ 	var err error
+ 	inbound.router, err = mux.NewRouterWithOptions(inbound.router, logger, common.PtrValueOrDefault(options.Multiplex))
+@@ -68,6 +72,10 @@
+ 		return it.Flow
+ 	}))
+ 	inbound.service = service
++	inbound.decryption, err = encryption.NewServer(options.Decryption)
++	if err != nil {
++		return nil, err
++	}
+ 	if options.TLS != nil {
+ 		inbound.tlsConfig, err = tls.NewServerWithOptions(tls.ServerOptions{
+ 			Context: ctx,
+@@ -106,6 +114,10 @@
+ 	if stage != adapter.StartStateStart {
+ 		return nil
+ 	}
++	if h.decryption != nil {
++		h.decryptionContext = scope.Context()
++		scope.Add(h.decryption.Close)
++	}
+ 	if h.tlsConfig != nil {
+ 		err := h.tlsConfig.Start()
+ 		if err != nil {
+@@ -159,6 +171,25 @@
+ 			return
+ 		}
+ 		conn = tlsConn
++	}
++	if h.decryption != nil {
++		rawConn := conn
++		closeConn := func() { rawConn.Close() }
++		stopCaller := context.AfterFunc(ctx, closeConn)
++		stopService := context.AfterFunc(h.decryptionContext, closeConn)
++		encryptedConn, err := h.decryption.Handshake(rawConn)
++		callerStopped, serviceStopped := stopCaller(), stopService()
++		if !callerStopped || !serviceStopped {
++			err = context.Canceled
++		}
++		if err != nil {
++			N.CloseOnHandshakeFailure(rawConn, onClose, err)
++			if !E.IsClosedOrCanceled(err) {
++				h.logger.ErrorContext(ctx, E.Cause(err, "process connection from ", metadata.Source, ": VLESS decryption handshake"))
++			}
++			return
++		}
++		conn = encryptedConn
+ 	}
+ 	err := h.service.NewConnection(adapter.WithContext(ctx, &metadata), conn, metadata.Source, onClose)
+ 	if err != nil {
+--- a/protocol/vless/outbound.go
++++ b/protocol/vless/outbound.go
+@@ -12,6 +12,7 @@
+ 	C "github.com/sagernet/sing-box/constant"
+ 	"github.com/sagernet/sing-box/log"
+ 	"github.com/sagernet/sing-box/option"
++	"github.com/sagernet/sing-box/protocol/vless/encryption"
+ 	"github.com/sagernet/sing-box/transport/v2ray"
+ 	"github.com/sagernet/sing-vmess/packetaddr"
+ 	"github.com/sagernet/sing-vmess/vless"
+@@ -38,6 +39,7 @@
+ 	logger          logger.ContextLogger
+ 	dialer          N.Dialer
+ 	client          *vless.Client
++	encryption      *encryption.ClientInstance
+ 	serverAddr      M.Socksaddr
+ 	multiplexDialer *mux.Client
+ 	tlsConfig       tls.Config
+@@ -71,7 +73,9 @@
+ 		if err != nil {
+ 			return nil, err
+ 		}
+-		outbound.tlsDialer = tls.NewDialer(outboundDialer, outbound.tlsConfig)
++		if outbound.tlsConfig != nil {
++			outbound.tlsDialer = tls.NewDialer(outboundDialer, outbound.tlsConfig)
++		}
+ 	}
+ 	if options.Transport != nil {
+ 		outbound.transport, err = v2ray.NewClientTransport(ctx, outbound.dialer, outbound.serverAddr, common.PtrValueOrDefault(options.Transport), outbound.tlsConfig)
+@@ -96,6 +100,10 @@
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	outbound.encryption, err = encryption.NewClient(options.Encryption)
++	if err != nil {
++		return nil, err
++	}
+ 	outbound.multiplexDialer, err = mux.NewClientWithOptions((*vlessDialer)(outbound), logger, common.PtrValueOrDefault(options.Multiplex))
+ 	if err != nil {
+ 		return nil, err
+@@ -189,15 +197,7 @@
+ 	ctx, metadata := adapter.ExtendContext(ctx)
+ 	metadata.Outbound = h.Tag()
+ 	metadata.Destination = destination
+-	var conn net.Conn
+-	var err error
+-	if h.transport != nil {
+-		conn, err = h.transport.DialContext(ctx)
+-	} else if h.tlsDialer != nil {
+-		conn, err = h.tlsDialer.DialTLSContext(ctx, h.serverAddr)
+-	} else {
+-		conn, err = h.dialer.DialContext(ctx, N.NetworkTCP, h.serverAddr)
+-	}
++	conn, err := h.dialServer(ctx)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+@@ -231,6 +231,27 @@
+ 	ctx, metadata := adapter.ExtendContext(ctx)
+ 	metadata.Outbound = h.Tag()
+ 	metadata.Destination = destination
++	conn, err := h.dialServer(ctx)
++	if err != nil {
++		return nil, err
++	}
++	if h.xudp {
++		return h.client.DialEarlyXUDPPacketConn(conn, destination)
++	} else if h.packetAddr {
++		if destination.IsDomain() {
++			return nil, E.New("packetaddr: domain destination is not supported")
++		}
++		conn, err := h.client.DialEarlyPacketConn(conn, M.Socksaddr{Fqdn: packetaddr.SeqPacketMagicAddress})
++		if err != nil {
++			return nil, err
++		}
++		return packetaddr.NewConn(conn, destination), nil
++	} else {
++		return h.client.DialEarlyPacketConn(conn, destination)
++	}
++}
++
++func (h *vlessDialer) dialServer(ctx context.Context) (net.Conn, error) {
+ 	var conn net.Conn
+ 	var err error
+ 	if h.transport != nil {
+@@ -241,21 +262,22 @@
+ 		conn, err = h.dialer.DialContext(ctx, N.NetworkTCP, h.serverAddr)
+ 	}
+ 	if err != nil {
+-		common.Close(conn)
+-		return nil, err
+-	}
+-	if h.xudp {
+-		return h.client.DialEarlyXUDPPacketConn(conn, destination)
+-	} else if h.packetAddr {
+-		if destination.IsDomain() {
+-			return nil, E.New("packetaddr: domain destination is not supported")
+-		}
+-		conn, err := h.client.DialEarlyPacketConn(conn, M.Socksaddr{Fqdn: packetaddr.SeqPacketMagicAddress})
+-		if err != nil {
+-			return nil, err
+-		}
+-		return packetaddr.NewConn(conn, destination), nil
+-	} else {
+-		return h.client.DialEarlyPacketConn(conn, destination)
+-	}
+-}
++		return nil, err
++	}
++	if h.encryption == nil {
++		return conn, nil
++	}
++	stop := context.AfterFunc(ctx, func() {
++		conn.Close()
++	})
++	encryptedConn, err := h.encryption.Handshake(conn)
++	if !stop() {
++		conn.Close()
++		return nil, E.Cause(ctx.Err(), "VLESS encryption handshake")
++	}
++	if err != nil {
++		conn.Close()
++		return nil, E.Cause(err, "VLESS encryption handshake")
++	}
++	return encryptedConn, nil
++}
+--- a/transport/v2ray/transport.go
++++ b/transport/v2ray/transport.go
+@@ -40,6 +40,11 @@
+ 	case C.V2RayTransportTypeHTTPUpgrade:
+ 		return v2rayhttpupgrade.NewServer(ctx, logger, options.HTTPUpgradeOptions, tlsConfig, handler)
+ 	default:
++		// Fallback 到 plugin registry（见 plugin.go）。XHTTP 等外挂 transport
++		// 在 init 时注册构造器。未知 type 且未注册时才报错。
++		if plugin, ok := LookupPlugin(options.Type); ok && plugin.Server != nil {
++			return plugin.Server(ctx, logger, options.Extra, tlsConfig, handler)
++		}
+ 		return nil, E.New("unknown transport type: " + options.Type)
+ 	}
+ }
+@@ -63,6 +68,9 @@
+ 	case C.V2RayTransportTypeHTTPUpgrade:
+ 		return v2rayhttpupgrade.NewClient(ctx, dialer, serverAddr, options.HTTPUpgradeOptions, tlsConfig)
+ 	default:
++		if plugin, ok := LookupPlugin(options.Type); ok && plugin.Client != nil {
++			return plugin.Client(ctx, dialer, serverAddr, options.Extra, tlsConfig)
++		}
+ 		return nil, E.New("unknown transport type: " + options.Type)
+ 	}
+ }

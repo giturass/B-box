@@ -183,6 +183,11 @@ func (p *uiNodeParsed) entry(ctx context.Context, item any) string {
 	// The resolver is a DNS server of the document the node came from. The
 	// configuration that uses the node names its own.
 	node.remove("domain_resolver")
+	if transport := node.object("transport"); transport.text("type") == "xhttp" {
+		if download := transport.object("download_settings"); download != nil {
+			download.remove("domain_resolver")
+		}
+	}
 	p.nodes = append(p.nodes, node)
 	return uiNodeFormatBox
 }
@@ -390,6 +395,20 @@ func (p *uiNodeParsed) check(ctx context.Context) {
 		}
 	}
 	p.nodes = kept
+	graph := make([]any, len(p.nodes))
+	for index, node := range p.nodes {
+		graph[index] = node
+	}
+	root := uiNodeOf("outbounds", graph)
+	kept = p.nodes[:0]
+	for _, node := range p.nodes {
+		if uiSubscriptionDetourCycle(root, node.text("tag")) {
+			p.skip(node.text("tag"), E.New("this node has a cyclic detour"))
+		} else {
+			kept = append(kept, node)
+		}
+	}
+	p.nodes = kept
 	// Leaving one node out may leave another without its detour.
 	for changed := true; changed; {
 		changed = false
@@ -399,7 +418,14 @@ func (p *uiNodeParsed) check(ctx context.Context) {
 		}
 		kept = p.nodes[:0]
 		for _, node := range p.nodes {
-			if detour := node.text("detour"); detour != "" && (!names[detour] || detour == node.text("tag")) {
+			missing := false
+			for _, detour := range uiNodeDialDetours(node) {
+				if !names[detour] || detour == node.text("tag") {
+					missing = true
+					break
+				}
+			}
+			if missing {
 				p.skip(node.text("tag"), E.New("this node connects through another that is not among the nodes read"))
 				changed = true
 			} else {

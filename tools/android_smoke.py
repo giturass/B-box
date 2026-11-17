@@ -305,11 +305,11 @@ def ui_smoke():
     with (subscription_proxy() as (proxy_port, proxy_requests),
           SubscriptionHTTPServer(("127.0.0.1", 0), handler) as server):
         # The actual URL bridge must import the supported node from a Base64
-        # mixed subscription and retain an explicit report for skipped XHTTP.
+        # mixed subscription and retain an explicit report for skipped KCP.
         subscription = (
             f"socks5://127.0.0.1:{proxy_port}#Smoke%20node\n"
             "vless://11111111-1111-4111-8111-111111111111@127.0.0.1:443"
-            "?security=tls&sni=example.test&type=xhttp#Ignored%20XHTTP%20node\n"
+            "?security=tls&sni=example.test&type=kcp#Ignored%20KCP%20node\n"
         )
         (OUT / "profile.txt").write_text(base64.b64encode(subscription.encode()).decode() + "\n")
         port = server.server_port
@@ -345,8 +345,8 @@ def ui_smoke():
             source_text = "\n".join(node.get("text", "") + "\n" + node.get("content-desc", "") for node in current)
             assert re.search(r"\bNodes: 1\b", source_text), "The source must own exactly one supported node"
             assert re.search(r"\bSkipped: 1\b", source_text), "The source must report one skipped node"
-            assert "the XHTTP transport is not supported by this core" in source_text, \
-                "The source must show the unsupported XHTTP reason"
+            assert "the transport of this node is not supported by this core" in source_text, \
+                "The source must show the unsupported KCP reason"
             capture("02-subscription-source")
             adb("shell", "input", "keyevent", "4")
             adb("shell", "input", "keyevent", "4")

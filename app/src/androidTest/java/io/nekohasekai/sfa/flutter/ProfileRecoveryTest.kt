@@ -62,6 +62,7 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
+import java.net.URLEncoder
 import java.security.KeyStore
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
@@ -839,8 +840,8 @@ class ProfileRecoveryTest {
                     val failure = runCatching { profiles.update(id) }.exceptionOrNull()
                     assertTrue(failure is IllegalArgumentException)
                     assertTrue(failure!!.message.orEmpty().contains("1 unsupported nodes"))
-                    assertTrue(failure.message.orEmpty().contains("XHTTP"))
-                    assertFalse(failure.message.orEmpty().contains("ignored-xhttp-node"))
+                    assertTrue(failure.message.orEmpty().contains("transport of this node"))
+                    assertFalse(failure.message.orEmpty().contains("ignored-kcp-node"))
                     assertEquals(generation, ProfileContent.generation)
                     assertEquals(beforeUnsupported, profiles.read(id))
                     val preserved = profiles.get(id)
@@ -1117,7 +1118,7 @@ class ProfileRecoveryTest {
             val otherSource = profiles.get(id).typed.subscriptions.single()
             val keptNodes = configurationNodes(profiles.read(id)).associate { it.getString("tag") to it.toString() }
             SubscriptionServer(mixedVlessSubscription("supported-tcp-node", 1)).use { server ->
-                val imported = subscriptions.importSubscription(subscriptionArgs(profiles, id, "Mixed TCP and XHTTP source", server.url))
+                val imported = subscriptions.importSubscription(subscriptionArgs(profiles, id, "Mixed TCP and KCP source", server.url))
                 val source = profiles.get(id).typed.subscriptions.single { it.url == server.url }
                 assertEquals(1, imported["added"])
                 assertEquals(1, imported["skipped"])
@@ -1125,8 +1126,8 @@ class ProfileRecoveryTest {
                 assertEquals(listOf("supported-tcp-node"), source.tags)
                 assertEquals(1, source.skipped)
                 assertEquals(1, source.warnings.single().count)
-                assertTrue(source.warnings.single().reason.contains("xhttp", ignoreCase = true))
-                for (secret in listOf("ignored-xhttp-node", "11111111-1111-4111-8111-111111111111", "127.0.0.1")) {
+                assertTrue(source.warnings.single().reason.contains("transport of this node"))
+                for (secret in listOf("ignored-kcp-node", "11111111-1111-4111-8111-111111111111", "127.0.0.1")) {
                     assertFalse("Warning leaked subscription node data", source.warnings.single().reason.contains(secret))
                 }
                 assertEquals(server.url, source.url)
@@ -1170,6 +1171,94 @@ class ProfileRecoveryTest {
                 assertEquals(id, Settings.selectedProfile)
                 assertEquals(Status.Started, activity.serviceStatus.value)
                 assertEquals(4, server.requests.get())
+            }
+        }
+    }
+
+    @Test fun xhttpEncryptedSubscriptionsKeepFieldsOwnershipAndConfigurationSettings() = withRunningProfile { activity, profiles, id ->
+        val original = """{
+            "log":{"level":"warn"},
+            "dns":{"servers":[{"type":"local","tag":"fixture-dns"}]},
+            "inbounds":[{"type":"mixed","tag":"fixture-in","listen":"127.0.0.1","listen_port":0}],
+            "outbounds":[{"type":"socks","tag":"local-encryption-node","server":"127.0.0.1","server_port":1080},
+                {"type":"selector","tag":"proxy","outbounds":["local-encryption-node"]},
+                {"type":"direct","tag":"local-direct"}],
+            "route":{"final":"local-direct"}
+        }"""
+        profiles.writeContent(id, original, BoxProfiles.revision(profiles.read(id)))
+        val subscriptions = nodeSubscriptions(activity)
+        fun link(tag: String, mode: String, encryption: String): String {
+            val query = linkedMapOf(
+                "security" to "tls", "sni" to "upload.example.test", "type" to "xhttp",
+                "mode" to mode, "host" to "upload.example.test", "path" to "/encrypted?fixture=1",
+                "encryption" to encryption,
+                "extra" to JSONObject().put("no_grpc_header", true).put("sc_max_each_post_bytes", "1024-2048").toString(),
+            ).entries.joinToString("&") { (key, value) -> "$key=${URLEncoder.encode(value, "UTF-8")}" }
+            return "vless://11111111-1111-4111-8111-111111111111@127.0.0.1:443?$query#$tag"
+        }
+        SubscriptionServer(socksSubscription("other-encryption-node")).use { other ->
+            subscriptions.importSubscription(subscriptionArgs(profiles, id, "Other source", other.url))
+            val otherSource = profiles.get(id).typed.subscriptions.single()
+            val base = configuration(profiles.read(id))
+            val localNode = configurationNodes(profiles.read(id)).single { it.optString("tag") == "local-encryption-node" }.toString()
+            val encryption = "mlkem768x25519plus.native.0rtt.${VlessEncryptionTestKeys.rawX25519()}"
+            SubscriptionServer(link("encrypted-xhttp-node", "stream-up", encryption)).use { server ->
+                val profileIds = ProfileManager.list().map { it.id }.toSet()
+                val imported = subscriptions.importSubscription(subscriptionArgs(profiles, id, "XHTTP Encryption source", server.url))
+                assertEquals(1, imported["added"])
+                assertEquals(0, imported["skipped"])
+                assertEquals(emptyList<Map<String, Any>>(), imported["warnings"])
+                var source = profiles.get(id).typed.subscriptions.single { it.url == server.url }
+                assertEquals(listOf("encrypted-xhttp-node"), source.tags)
+                assertEquals(0, source.skipped)
+                assertTrue(source.warnings.isEmpty())
+                assertTrue(source.updatedAt > 0L)
+                assertEquals(profileIds, ProfileManager.list().map { it.id }.toSet())
+                assertEquals(id, Settings.selectedProfile)
+
+                suspend fun assertNode(tag: String, mode: String) {
+                    val saved = configuration(profiles.read(id))
+                    for (section in listOf("log", "dns", "route", "inbounds")) {
+                        assertEquals("Subscription replaced $section", base.get(section).toString(), saved.get(section).toString())
+                    }
+                    val nodes = configurationNodes(profiles.read(id))
+                    assertEquals(localNode, nodes.single { it.optString("tag") == "local-encryption-node" }.toString())
+                    assertTrue(nodes.any { it.optString("tag") == "other-encryption-node" })
+                    val node = nodes.single { it.optString("tag") == tag }
+                    assertEquals(encryption, node.getString("encryption"))
+                    val transport = node.getJSONObject("transport")
+                    assertEquals("xhttp", transport.getString("type"))
+                    assertEquals(mode, transport.getString("mode"))
+                    assertEquals("/encrypted?fixture=1", transport.getString("path"))
+                    val host = transport.get("host")
+                    assertEquals("upload.example.test", if (host is JSONArray) host.getString(0) else host as String)
+                    assertTrue(transport.getBoolean("no_grpc_header"))
+                    assertEquals("1024-2048", transport.getString("sc_max_each_post_bytes"))
+                    val group = nodes.single { it.optString("tag") == "proxy" }.getJSONArray("outbounds")
+                    assertEquals(setOf("local-encryption-node", "other-encryption-node", tag), (0 until group.length()).map { group.getString(it) }.toSet())
+                    assertEquals(otherSource, profiles.get(id).typed.subscriptions.single { it.id == otherSource.id })
+                    assertEquals(Status.Started, activity.serviceStatus.value)
+                }
+                assertNode("encrypted-xhttp-node", "stream-up")
+
+                server.content = link("updated-encrypted-xhttp-node", "packet-up", encryption)
+                val updated = subscriptions.update(id, source.id)
+                assertEquals(1, updated["added"])
+                assertEquals(0, updated["skipped"])
+                source = profiles.get(id).typed.subscriptions.single { it.id == source.id }
+                assertEquals(listOf("updated-encrypted-xhttp-node"), source.tags)
+                assertEquals(server.url, source.url)
+                assertFalse(configurationNodes(profiles.read(id)).any { it.optString("tag") == "encrypted-xhttp-node" })
+                assertNode("updated-encrypted-xhttp-node", "packet-up")
+
+                val beforeFailure = profiles.read(id)
+                val beforeSources = profiles.get(id).typed.subscriptions
+                server.content = link("invalid-encryption-node", "packet-up", "mlkem768x25519plus.native.0rtt.invalid-key")
+                assertTrue(runCatching { subscriptions.update(id, source.id) }.isFailure)
+                assertEquals(beforeFailure, profiles.read(id))
+                assertEquals(beforeSources, profiles.get(id).typed.subscriptions)
+                assertEquals(id, Settings.selectedProfile)
+                assertEquals(Status.Started, activity.serviceStatus.value)
             }
         }
     }
@@ -1982,7 +2071,7 @@ class ProfileRecoveryTest {
     private fun mixedVlessSubscription(tag: String, skipped: Int): String {
         val address = "vless://11111111-1111-4111-8111-111111111111@127.0.0.1:443"
         return (listOf("$address?security=tls&sni=example.test&type=tcp#$tag") +
-            (1..skipped).map { "$address?security=tls&sni=example.test&type=xhttp#ignored-xhttp-node-$it" }).joinToString("\n")
+            (1..skipped).map { "$address?security=tls&sni=example.test&type=kcp#ignored-kcp-node-$it" }).joinToString("\n")
     }
 
     private fun nodeSubscriptions(activity: BoxActivity) = BoxNodeSubscriptions(

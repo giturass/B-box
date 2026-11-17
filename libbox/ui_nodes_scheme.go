@@ -143,6 +143,21 @@ func uiNodeVMessJSON(content string) (*uiNodeObject, error) {
 		link.query["headerType"] = header
 	}
 	link.query["type"], link.query["host"], link.query["path"] = network, host, path
+	if network == "xhttp" || network == "splithttp" {
+		link.query["mode"] = fields.scalar("mode")
+		if extra := fields.get("extra"); extra != nil {
+			if text, isText := extra.(string); isText {
+				link.query["extra"] = text
+			} else if object, isObject := extra.(*uiNodeObject); isObject {
+				link.query["extra"], err = uiNodeEncode(object, false)
+				if err != nil {
+					return nil, E.New("the XHTTP extra settings must be a JSON object")
+				}
+			} else {
+				return nil, E.New("the XHTTP extra settings must be a JSON object")
+			}
+		}
+	}
 	// Without the tls field there is no TLS, whatever sni still holds.
 	switch strings.ToLower(fields.scalar("tls")) {
 	case "tls":
@@ -196,15 +211,16 @@ func uiNodeVLESSLink(link *uiNodeLink) (*uiNodeObject, error) {
 	if link.user == "" {
 		return nil, E.New("the VLESS node has no user ID")
 	}
-	// Leaving the encryption out would talk in clear to a server that expects it.
-	if encryption := strings.ToLower(link.value("encryption")); encryption != "" && encryption != "none" {
-		return nil, uiNodeUnsupported("VLESS encryption is not supported by this core")
-	}
 	node, err := uiNodeLinkNode(link, "vless", 443)
 	if err != nil {
 		return nil, err
 	}
 	node.set("uuid", link.user)
+	// Encryption includes case-sensitive public keys; only the none switch is
+	// compared without case. The core validates the complete handshake value.
+	if encryption := link.value("encryption"); encryption != "" && !strings.EqualFold(encryption, "none") {
+		node.set("encryption", encryption)
+	}
 	switch flow := strings.ToLower(link.value("flow")); flow {
 	case "", "none":
 	case "xtls-rprx-vision-udp443":

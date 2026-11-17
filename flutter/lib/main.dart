@@ -29,6 +29,8 @@ const _licenses = {
   'Google pprof': 'pprof-LICENSE',
   'Brotli': 'brotli-LICENSE',
   'klauspost/compress': 'klauspost-compress-LICENSE',
+  'MiChongs/sing-box XHTTP and VLESS Encryption': 'michongs-sing-box-LICENSE',
+  'XTLS/Xray-core': 'xray-core-LICENSE',
   'JetBrains Mono': 'JetBrainsMono-OFL.txt',
   'Twemoji / Mozilla': 'Twemoji-LICENSE.md',
 };

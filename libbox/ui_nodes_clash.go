@@ -245,7 +245,13 @@ func uiNodeClashStream(proxy *uiNodeObject, link *uiNodeLink, secure bool) error
 		link.query["type"] = "grpc"
 		link.query["serviceName"] = proxy.object("grpc-opts").scalar("grpc-service-name")
 	case "xhttp", "splithttp":
-		return uiNodeUnsupported("the XHTTP transport is not supported by this core")
+		link.query["type"] = "xhttp"
+		transport, err := uiNodeXHTTPClash(proxy, link)
+		if err != nil {
+			return err
+		}
+		link.xhttp = transport
+		link.query["host"] = strings.Join(uiNodeClashTexts(transport.get("host")), ",")
 	default:
 		return uiNodeUnsupported("the transport of this node is not supported by this core")
 	}

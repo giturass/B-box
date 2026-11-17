@@ -42,15 +42,15 @@ func TestUINodeSubscriptionMixedBase64ProtocolAndTransportBatch(t *testing.T) {
 	body := base64.StdEncoding.EncodeToString([]byte(strings.Join(links, "\n")))
 	updated := uiSubscriptionTestApply(t, uiNodeDefaultConfig, body, `[]`, true)
 	names, err := uiNodeTextList(updated.Tags)
-	if err != nil || len(names) != 39 || updated.Added != 39 || updated.Skipped != 7 ||
-		updated.Warnings != `[{"reason":"the XHTTP transport is not supported by this core","count":7}]` {
+	if err != nil || len(names) != 46 || updated.Added != 46 || updated.Skipped != 0 ||
+		updated.Warnings != `[]` {
 		t.Fatalf("mixed Base64 source: names=%d, error=%v, report=%+v", len(names), err, updated)
 	}
 	if err := CheckConfig(updated.Config); err != nil {
 		t.Fatalf("mixed supported batch failed complete core validation: %v", err)
 	}
 	repeated := uiSubscriptionTestApply(t, updated.Config, body, updated.Tags, true)
-	if repeated.Config != updated.Config || repeated.Added != 39 || repeated.Skipped != 7 {
+	if repeated.Config != updated.Config || repeated.Added != 46 || repeated.Skipped != 0 {
 		t.Errorf("mixed Base64 refresh changed nodes or accumulated duplicates")
 	}
 }

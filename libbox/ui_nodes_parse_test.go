@@ -48,7 +48,7 @@ func TestUINodeParseLinkList(t *testing.T) {
 
 func TestUINodeParseLinkListLeavesOut(t *testing.T) {
 	result := uiNodeTestParse(t, "ssr://U0VDUkVU#Old\n"+
-		"vless://SECRET@refused.example:443?type=xhttp&security=tls#Split\n"+
+		"vless://SECRET@refused.example:443?type=kcp&security=tls#Split\n"+
 		"ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@198.51.100.1:8388#Kept\n"+
 		"ss://nonesuch:SECRETSECRET@198.51.100.2:8388#Cipher\n")
 	uiNodeTestResult(t, "list", result, "links", "Kept", uiNodeTestSkipped(result), "")
@@ -58,7 +58,7 @@ func TestUINodeParseLinkListLeavesOut(t *testing.T) {
 	}
 	for index, want := range []struct{ name, reason string }{
 		{"Old", "ShadowsocksR was removed from the core"},
-		{"Split", "the XHTTP transport is not supported by this core"},
+		{"Split", "the transport of this node is not supported by this core"},
 		{"Cipher", ""},
 	} {
 		entry, _ := skipped[index].(*uiNodeObject)

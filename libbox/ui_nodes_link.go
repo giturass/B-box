@@ -31,6 +31,7 @@ type uiNodeLink struct {
 	port        string
 	path        string
 	query       map[string]string
+	xhttp       *uiNodeObject // already converted Clash XHTTP settings
 }
 
 // uiNodeUnescape leaves a plus sign alone: keys and passwords are written
@@ -406,7 +407,7 @@ func uiNodeLinkTransport(link *uiNodeLink) (*uiNodeObject, error) {
 		}
 		transport = uiNodeOf("type", "quic")
 	case "xhttp", "splithttp":
-		return nil, uiNodeUnsupported("the XHTTP transport is not supported by this core")
+		return uiNodeXHTTPLink(link)
 	default:
 		return nil, uiNodeUnsupported("the transport of this node is not supported by this core")
 	}
@@ -480,7 +481,7 @@ func uiNodeLinkStream(link *uiNodeLink, node *uiNodeObject, mode uiNodeTLSMode) 
 		hosts := uiNodeCommaList(link.value("host"))
 		if len(hosts) > 0 && tlsOptions.text("server_name") == "" && tlsOptions.get("disable_sni") == nil {
 			switch transport.text("type") {
-			case "http", "ws", "httpupgrade":
+			case "http", "ws", "httpupgrade", "xhttp":
 				if _, err = netip.ParseAddr(hosts[0].(string)); err != nil {
 					tlsOptions.set("server_name", hosts[0])
 				}

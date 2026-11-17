@@ -319,8 +319,10 @@ const _zh = <String, String>{
   'Its nodes will stay in this profile as local nodes.': '此订阅的节点将作为本地节点保留在配置中。',
   'Supports Clash, sing-box JSON, node links and Base64. Only proxy nodes are imported from the URL; updates keep other profile settings.': '支持 Clash、sing-box JSON、节点链接和 Base64。仅从链接导入代理节点，更新时保留其他配置设置。',
   'Supported nodes are imported. Unsupported node counts and reasons are shown after importing or updating.': '导入受支持的节点。导入或更新后会显示不支持节点的数量及跳过原因。',
+  // Reports saved by older cores remain readable until the source is updated.
   'the XHTTP transport is not supported by this core': '当前内核不支持 XHTTP 传输',
   'the transport of this node is not supported by this core': '当前内核不支持此节点的传输方式',
+  'an XHTTP setting is not supported by this core': '当前内核不支持此 XHTTP 设置',
   'the TLS camouflage of this node is not supported by this core': '当前内核不支持此节点的 TLS 伪装',
   'the Shadowsocks plugin of this node is not supported by this core': '当前内核不支持此节点的 Shadowsocks 插件',
   'Trojan with a Shadowsocks layer is not supported by this core': '当前内核不支持带 Shadowsocks 层的 Trojan',

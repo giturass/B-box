@@ -203,20 +203,27 @@ func uiSubscriptionGroupNames(content string) map[string]bool {
 }
 
 func uiSubscriptionDetourCycle(root *uiNodeObject, tag string) bool {
-	seen := make(map[string]bool)
-	for tag != "" {
-		if seen[tag] {
-			return true
+	state := make(map[string]int)
+	var visit func(string) bool
+	visit = func(tag string) bool {
+		if state[tag] != 0 {
+			return state[tag] == 1
 		}
-		seen[tag] = true
 		key, index := uiNodeFind(root, tag)
 		if index < 0 {
 			return false // The complete reference scan reports the missing name.
 		}
 		node, _ := root.list(key)[index].(*uiNodeObject)
-		tag = node.text("detour")
+		state[tag] = 1
+		for _, detour := range uiNodeDialDetours(node) {
+			if visit(detour) {
+				return true
+			}
+		}
+		state[tag] = 2
+		return false
 	}
-	return false
+	return tag != "" && visit(tag)
 }
 
 // A member is unsafe only if its detours and the groups it can select lead
@@ -240,9 +247,7 @@ func uiSubscriptionGroupMemberCycle(root *uiNodeObject, member, group string) bo
 			continue // The complete reference scan reports the missing name.
 		}
 		node, _ := root.list(key)[index].(*uiNodeObject)
-		if detour := node.text("detour"); detour != "" {
-			pending = append(pending, detour)
-		}
+		pending = append(pending, uiNodeDialDetours(node)...)
 		if uiNodeIsGroup(node) {
 			for _, item := range node.list("outbounds") {
 				if tag, isText := item.(string); isText {
@@ -364,13 +369,15 @@ func uiApplySubscriptionNodes(current, subscription string, previous []string, r
 		}
 	}
 	for _, node := range parsed.nodes {
-		if groups[node.text("detour")] {
-			return nil, E.New("subscription node ", node.text("tag"), " refers to discarded subscription group ", node.text("detour"))
-		}
-		if detour := node.text("detour"); detour != "" && (unavailable[detour] || unnamedUnavailable) {
-			// A retained node with the same name must not stand in for a
-			// skipped subscription hop. Unnamed refusals are ambiguous too.
-			return nil, E.New("subscription detour refers to an unsupported or unnamed subscription node; the existing configuration was kept")
+		for _, detour := range uiNodeDialDetours(node) {
+			if groups[detour] {
+				return nil, E.New("subscription node ", node.text("tag"), " refers to discarded subscription group ", detour)
+			}
+			if unavailable[detour] || unnamedUnavailable {
+				// A retained node with the same name must not stand in for a
+				// skipped subscription hop. Unnamed refusals are ambiguous too.
+				return nil, E.New("subscription detour refers to an unsupported or unnamed subscription node; the existing configuration was kept")
+			}
 		}
 	}
 	local, _, err := uiNodeLocalTags(current)

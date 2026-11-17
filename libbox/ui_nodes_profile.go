@@ -111,11 +111,12 @@ type UIConfigNodeUpdate struct {
 // imports reuse identical nodes; remote merges keep every local node distinct
 // from upstream nodes, with upstream retaining its original names.
 func uiNodePlaceConfig(root *uiNodeObject, incoming []*uiNodeObject, deduplicate bool) ([]string, int) {
-	batch := make([]any, len(incoming))
+	nodeReferences := make([][]uiNodeReference, len(incoming))
+	var references []uiNodeReference
 	for index, node := range incoming {
-		batch[index] = node
+		nodeReferences[index] = uiNodeReferences(uiNodeOf("outbounds", []any{node}))
+		references = append(references, nodeReferences[index]...)
 	}
-	references := uiNodeReferences(uiNodeOf("outbounds", batch))
 	existing := make(map[string]*uiNodeObject)
 	for _, key := range []string{"outbounds", "endpoints"} {
 		for _, item := range root.list(key) {
@@ -143,10 +144,19 @@ func uiNodePlaceConfig(root *uiNodeObject, incoming []*uiNodeObject, deduplicate
 		}
 		state[index] = visiting
 		node := incoming[index]
-		if target, exists := first[node.text("detour")]; exists && target != index {
-			resolve(target)
-			if state[target] == done {
-				node.set("detour", final[target])
+		// Resolve every outbound reference before comparing node content.
+		// Nested dialers (such as XHTTP's download connection) affect identity
+		// just as the outer detour does.
+		for _, reference := range nodeReferences[index] {
+			if target, exists := first[reference.tag]; exists && target != index {
+				resolve(target)
+				if state[target] == done {
+					if reference.index < 0 {
+						reference.holder.set(reference.key, final[target])
+					} else {
+						reference.holder.list(reference.key)[reference.index] = final[target]
+					}
+				}
 			}
 		}
 		base, candidate := node.text("tag"), node.text("tag")
@@ -199,12 +209,12 @@ func uiNodePlaceConfig(root *uiNodeObject, incoming []*uiNodeObject, deduplicate
 // uiNodeGroupMember excludes unresolved or cyclic detours and detours through
 // any group. Putting such a node into a group could create a routing loop.
 func uiNodeGroupMember(root *uiNodeObject, tag string) bool {
-	seen := make(map[string]bool)
-	for tag != "" {
-		if seen[tag] {
-			return false
+	state := make(map[string]int)
+	var visit func(string) bool
+	visit = func(tag string) bool {
+		if state[tag] != 0 {
+			return state[tag] == 2
 		}
-		seen[tag] = true
 		key, index := uiNodeFind(root, tag)
 		if index < 0 {
 			return false
@@ -213,9 +223,16 @@ func uiNodeGroupMember(root *uiNodeObject, tag string) bool {
 		if uiNodeIsGroup(node) {
 			return false
 		}
-		tag = node.text("detour")
+		state[tag] = 1
+		for _, detour := range uiNodeDialDetours(node) {
+			if !visit(detour) {
+				return false
+			}
+		}
+		state[tag] = 2
+		return true
 	}
-	return true
+	return tag == "" || visit(tag)
 }
 
 func uiNodeAppendGroups(root *uiNodeObject, tags []string, defaultProfile bool) {
@@ -287,6 +304,11 @@ func AddUIConfigNodes(config, nodes string, defaultProfile bool) (*UIConfigNodeU
 		return nil, E.New(incoming[refusals[0].index].text("tag"), ": ", refusals[0].reason)
 	}
 	added, skipped := uiNodePlaceConfig(root, incoming, true)
+	for _, tag := range added {
+		if uiSubscriptionDetourCycle(root, tag) {
+			return nil, E.New("node ", tag, " has a cyclic detour")
+		}
+	}
 	uiNodeAppendGroups(root, added, defaultProfile)
 	content, err := uiNodeEncodeConfig(root, append(local, added...), true)
 	if err != nil {
