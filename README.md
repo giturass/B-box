@@ -24,6 +24,15 @@
 
 ## 致谢
 
+感谢以下开源项目提供源码、组件和实现参考：
+
+- [SagerNet/sing-box-for-android](https://github.com/SagerNet/sing-box-for-android)：Android 服务、数据与平台后端基础。
+- [SagerNet/sing-box](https://github.com/SagerNet/sing-box)：代理核心与 libbox 基础。
+- [FlClash](https://github.com/chen08209/FlClash) 及 [prism_ui](https://github.com/chen08209/prism_ui)：Flutter 界面组件来源。
+- [MiChongs/sing-box](https://github.com/MiChongs/sing-box)：XHTTP 与 VLESS Encryption 的移植源码来源。
+- [XTLS/Xray-core](https://github.com/XTLS/Xray-core)：XHTTP 与 VLESS Encryption 的协议实现参考。
+- [Throne](https://github.com/throneproj/Throne)：订阅节点提取及出站、端点分类的行为参考。
+
 感谢 [LINUX DO](https://linux.do) 社区的支持。
 
 ## License
