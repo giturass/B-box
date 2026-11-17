@@ -19,6 +19,7 @@
 | HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码与完整响应，通过 `UIHTTPTask` 传播 Android 取消，供备份及 Release 元数据使用 |
 | 订阅下载绑定 | [ui_profile.go](libbox/ui_profile.go) | 可取消的完整订阅下载，失败响应不读取正文 |
 | 节点导入与订阅更新 | [ui_nodes.go](libbox/ui_nodes.go)、[ui_nodes_profile.go](libbox/ui_nodes_profile.go)、[ui_nodes_subscription.go](libbox/ui_nodes_subscription.go)、[node-profile.patch](libbox/node-profile.patch) | 节点直接写入所选配置，远端订阅只更新代理节点并保留本地配置和追加节点，格式化保留配置内的本地节点注释 |
+| VMess 外部节点加密选择 | [ui_nodes_scheme.go](libbox/ui_nodes_scheme.go) | Clash 和 VMess 分享链接的 `auto` 在导入时解析为明确 AEAD，避免 TLS 下被核心改为 `zero` |
 | 配置分组与停服选择 | [ui_groups.go](libbox/ui_groups.go) | 读取配置分组及 selector 缓存，停服时只更新对应选择缓存，不启动核心 |
 | 出口探测绑定 | [ui_egress.go](libbox/ui_egress.go) | 可取消的设备网络/运行中路由探测、出口 IP 多源查询与质量请求传输 |
 | 路由生命周期 | [ui_route.go](libbox/ui_route.go) | 出口探测与脚本共用路由准入、取消及退出等待，包含脚本指定出站的拨号 |
@@ -52,6 +53,14 @@
 `GetUIDefaultConfig` 提供无账号的合法 sing-box 模板：proxy 默认包含 auto，auto 在未添加节点时使用 direct。模板显式使用 `certificate.store: "mozilla"`，以当前固定核心内置的可信 CA 校验 HTTPS，避免旧 Android 系统证书库无法验证当前公共证书链；仍检查链、域名及有效期。机制与可信库范围见同版本的 [官方证书配置](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/docs/configuration/certificate/index.md)。配置可显式选择 `system` / `chrome` / `none` 或增加自有 PEM 证书；没有改变这些原生选项的语义。已有文件的保留规则见 [应用配置流程](app.md#配置服务应用与备份)。
 
 `AddUIConfigNodes` / `RemoveUIConfigNodes` 的 `defaultProfile=true` 仅调整该默认模板的 auto 组：追加节点后 direct 单成员改为检测代理节点，删除最后一个节点时恢复配置中已有 direct。普通配置及已有远端配置保留明确声明的 direct 成员，缺少合法成员时仍拒绝删除；证书设置和其他根级配置保留。默认配置的显示及配置卡片布局由 [Flutter 配置页](flclash.md#导航与交互约定) 维护。
+
+### VMess 外部节点的 auto 加密
+
+行为参考 [MiChongs/sing-box 修复提交 `22c9be74053d383baa831ccd7ea11c3a65bb2c29`](https://github.com/MiChongs/sing-box/commit/22c9be74053d383baa831ccd7ea11c3a65bb2c29) 的 [VMess 订阅加密解析](https://github.com/MiChongs/sing-box/blob/22c9be74053d383baa831ccd7ea11c3a65bb2c29/provider/parser/vmess.go)。当前官方核心的 [VMess 出站](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/protocol/vmess/outbound.go) 在启用 TLS 时将 `security: "auto"` 改为 `zero`，与外部节点来源所表达的自动 AEAD 加密不同。
+
+[uiNodeVMessNode](libbox/ui_nodes_scheme.go) 在 Clash `cipher`、VMess Base64 JSON 的 `scy` 及 VMess URI 的 `encryption` 为 `auto` 或缺省时，按当前固定 [sing-vmess 的 `AutoSecurityType`](https://github.com/SagerNet/sing-vmess/blob/a0c58542bd9d99b00ea0c3cfacce6f03cf8a4017/protocol.go#L137) 写入明确的 `aes-128-gcm` 或 `chacha20-poly1305`，有无 TLS 使用同一规则。显式 `none`、`zero` 和其他受支持 cipher 保留；原生 sing-box JSON 的 `security` 不经过此转换，继续使用核心原有语义。已有节点通过重新导入或刷新对应订阅来源获得修复，不批量改写已有配置。
+
+[ui_nodes_vmess_test.go](libbox/ui_nodes_vmess_test.go) 覆盖上述导入格式、TLS 开关、显式 cipher、原生 JSON 保留及订阅应用后的配置校验。文件通过共享准备 Action 的 `ui_*.go` 安装规则进入统一工作流的基础 `^TestUI` 和发货协议 `^TestUINode` 检查；测试源码的存在不代表当前源码已通过 Actions 或外部服务互通验收。
 
 ### 配置分组与停服选择
 

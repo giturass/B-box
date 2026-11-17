@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sagernet/sing-vmess"
 	E "github.com/sagernet/sing/common/exceptions"
 )
 
@@ -186,6 +187,15 @@ func uiNodeVMessNode(link *uiNodeLink) (*uiNodeObject, error) {
 	cipher := strings.ToLower(link.value("encryption"))
 	if !slices.Contains(uiNodeVMessCiphers, cipher) {
 		cipher = "auto"
+	}
+	// Foreign nodes use auto for AEAD even with TLS. Resolve it before the
+	// sing-box outbound can turn auto into zero when TLS is enabled.
+	if cipher == "auto" {
+		if vmess.AutoSecurityType() == vmess.SecurityTypeAes128Gcm {
+			cipher = "aes-128-gcm"
+		} else {
+			cipher = "chacha20-poly1305"
+		}
 	}
 	node.set("security", cipher)
 	if alterID, valid := uiNodeDigits(link.value("alterId", "aid")); valid && alterID != "0" {

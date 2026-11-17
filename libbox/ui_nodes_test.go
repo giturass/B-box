@@ -158,12 +158,12 @@ func TestUINodeLinkShadowsocksAndVMess(t *testing.T) {
 		{
 			"v2rayN VMess with gRPC and TLS",
 			vmess(`{"v":"2","ps":"VMess One","add":"vmess.example.com","port":"8443","id":"` + uiNodeTestUUID + `","aid":0,"scy":"auto","net":"grpc","type":"gun","host":"","path":"svc","tls":"tls","sni":"sni.example.com","alpn":"h2","fp":""}`),
-			`{"type":"vmess","tag":"VMess One","server":"vmess.example.com","server_port":8443,"uuid":"` + uiNodeTestUUID + `","security":"auto","tls":{"enabled":true,"server_name":"sni.example.com","alpn":["h2"]},"transport":{"type":"grpc","service_name":"svc"}}`,
+			`{"type":"vmess","tag":"VMess One","server":"vmess.example.com","server_port":8443,"uuid":"` + uiNodeTestUUID + `","security":"` + uiNodeTestVMessAutoSecurity(t) + `","tls":{"enabled":true,"server_name":"sni.example.com","alpn":["h2"]},"transport":{"type":"grpc","service_name":"svc"}}`,
 		},
 		{
 			"v2rayN VMess with numbers and a WebSocket in clear",
 			vmess(`{"v":"2","ps":"VMess WS","add":"203.0.113.5","port":80,"id":"` + uiNodeTestUUID + `","aid":2,"net":"ws","host":"h.example.com","path":"/v","tls":""}`),
-			`{"type":"vmess","tag":"VMess WS","server":"203.0.113.5","server_port":80,"uuid":"` + uiNodeTestUUID + `","security":"auto","alter_id":2,"transport":{"type":"ws","path":"/v","headers":{"Host":"h.example.com"}}}`,
+			`{"type":"vmess","tag":"VMess WS","server":"203.0.113.5","server_port":80,"uuid":"` + uiNodeTestUUID + `","security":"` + uiNodeTestVMessAutoSecurity(t) + `","alter_id":2,"transport":{"type":"ws","path":"/v","headers":{"Host":"h.example.com"}}}`,
 		},
 		{
 			"VMess in the VLESS notation with HTTP camouflage",
