@@ -19,6 +19,7 @@
 | HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码与完整响应，通过 `UIHTTPTask` 传播 Android 取消，供备份及 Release 元数据使用 |
 | 订阅下载绑定 | [ui_profile.go](libbox/ui_profile.go) | 可取消的完整订阅下载，失败响应不读取正文 |
 | 节点导入与订阅更新 | [ui_nodes.go](libbox/ui_nodes.go)、[ui_nodes_profile.go](libbox/ui_nodes_profile.go)、[ui_nodes_subscription.go](libbox/ui_nodes_subscription.go)、[node-profile.patch](libbox/node-profile.patch) | 节点直接写入所选配置，远端订阅只更新代理节点并保留本地配置和追加节点，格式化保留配置内的本地节点注释 |
+| 配置分组与停服选择 | [ui_groups.go](libbox/ui_groups.go) | 读取配置分组及 selector 缓存，停服时只更新对应选择缓存，不启动核心 |
 | 出口探测绑定 | [ui_egress.go](libbox/ui_egress.go) | 可取消的设备网络/运行中路由探测、出口 IP 多源查询与质量请求传输 |
 | 路由生命周期 | [ui_route.go](libbox/ui_route.go) | 出口探测与脚本共用路由准入、取消及退出等待，包含脚本指定出站的拨号 |
 | 正则取消 | [regexp2-cancel.patch](libbox/regexp2-cancel.patch)、[goja-regexp-cancel.patch](libbox/goja-regexp-cancel.patch) | 将请求取消和 VM 中断传入回溯执行，不对不同请求共用可变期限 |
@@ -49,6 +50,16 @@
 [ui_nodes_subscription_test.go](libbox/ui_nodes_subscription_test.go) 和 [ui_nodes_subscription_utls_test.go](libbox/ui_nodes_subscription_utls_test.go) 覆盖配置设置保留、分享 URI/Base64/sing-box/Clash/SIP008/wg-quick、严格拒绝无效更新及 Plain/Base64 中的未知 URI 协议、Clash 协议字段结构检查、Plain/Base64/Clash 混合 KCP 的明确跳过报告及修复后清空报告、被跳过节点的 detour 不改绑保留或同批同名节点、VMess 拒绝名称来自内层 JSON、46 条脱敏混合链接（包含 7 条 XHTTP）全部导入的完整核心校验、组循环清理与合法 detour 成员保留、本地/来源重名及 detour、重复更新、双来源更新隔离、来源移除转本地、WireGuard/MASQUE 端点及元数据不改变端点格式。脱敏混合样例含 REALITY，使用 `with_xhttp,with_utls` 在统一工作流的发货核心协议步骤运行，通用来源报告用例也在无该标签的基础检查运行。测试源码及静态检查不代表真实订阅网络已经验收。
 
 `GetUIDefaultConfig` 提供无账号的合法 sing-box 模板：proxy 默认包含 auto，auto 在未添加节点时使用 direct。`AddUIConfigNodes` / `RemoveUIConfigNodes` 的 `defaultProfile=true` 仅调整该默认模板的 auto 组：追加节点后 direct 单成员改为检测代理节点，删除最后一个节点时恢复配置中已有 direct。普通配置及已有远端配置保留明确声明的 direct 成员，缺少合法成员时仍拒绝删除。默认配置的显示及配置卡片布局由 [Flutter 配置页](flclash.md#导航与交互约定) 维护。
+
+### 配置分组与停服选择
+
+[ui_groups.go](libbox/ui_groups.go) 的 `GetUIConfigGroups(config)` 使用当前核心的配置解码器读取 selector/urltest，按配置顺序返回与运行时相同的 `OutboundGroupIterator`，成员保留原生协议类型，包含 direct、嵌套组及端点。selector 的选中项按当前核心顺序取合法缓存、显式 default 或首个成员；没有运行内核时，自动组的选中项和所有成员的延迟保持未知，不虚构测速结果。未被分组引用的出站不额外组成虚拟节点组。
+
+`SelectUIConfigGroup(config, group, tag)` 检查完整配置、手动组及成员后，以单次 bbolt 事务只写入核心的 `selected` 缓存。路径与 libbox 服务一致，使用工作目录及 `experimental.cache_file.path`，命名空间沿用 `cache_id` 的 `0x00 + ID` bucket；不修改其他组、DNS、规则集等缓存，不清空或重建损坏文件。读取只打开已有文件，缺少文件时使用配置默认选择；锁定或损坏报错。两项绑定仅供本机停服路径调用，Android 在配置及启动快照锁内确认状态及修订，见 [应用说明](app.md#配置服务应用与备份)。
+
+当前上游 [`box.go`](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/box.go) 在提供平台日志写入器时总是启用缓存，Android daemon 的启动路径提供该写入器，因此未声明或关闭 `cache_file.enabled` 也需使用同一缓存。上游 [`selector.go`](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/protocol/group/selector.go) 启动时先读取缓存再读取 default；停服选择直接保存该缓存，启动无需改写配置或补发选择命令。
+
+[ui_groups_test.go](libbox/ui_groups_test.go) 覆盖分组成员、默认及缓存选择、缓存路径/命名空间隔离、自动组和失效成员拒绝、缓存锁定/损坏保留，以及启动 selector 读取停服选择。统一工作流的 `TestUI` 入口安装并运行这些扩展；测试源码不表示当前工作树已通过 Actions 或实机验收。
 
 ### XHTTP 与 VLESS Encryption
 

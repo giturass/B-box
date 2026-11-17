@@ -224,8 +224,6 @@ class _GroupSliverState extends State<_GroupSliver> with SingleTickerProviderSta
   Widget _pinnedHeader(bool unfolded) {
     final height = _headerHeight(context);
     final groupExtent = height + (_controller.isDismissed ? 0 : _rowsExtent);
-    // Stopped profile nodes have no active selection or latency test.
-    final profileNodes = widget.group.group['profileNodes'] == true;
     (double, double, double, Color)? previous;
     Widget? header;
     return SliverLayoutBuilder(builder: (context, constraints) {
@@ -246,8 +244,8 @@ class _GroupSliverState extends State<_GroupSliver> with SingleTickerProviderSta
         SizedBox(height: height, child: ProxyGroupHeader(group: widget.group.group, expanded: widget.expanded,
           unfolded: unfolded, floating: floating, lift: lift, testing: widget.testing.contains(widget.group.name),
           onToggle: () => widget.onToggle(widget.group.name),
-          onLocate: profileNodes ? null : () => widget.onLocate(widget.group.name),
-          onTest: profileNodes ? null : () => widget.onTest(widget.group.name))),
+          onLocate: () => widget.onLocate(widget.group.name),
+          onTest: () => widget.onTest(widget.group.name))),
       ])));
     });
   }

@@ -37,8 +37,14 @@ class BoxController extends ChangeNotifier {
   Json toolState = {}, stun = {}, quality = {}, inbox = {}, ping = {};
   Json terminal = {};
   Json memory = {}, lan = {};
-  /// The selected profile's nodes and revision, without node credentials.
-  Json selectedProfileNodes = {};
+  /// The selected profile's nodes, stopped groups and revision, without credentials.
+  Json _selectedProfileNodes = {};
+  List<Json> _profileGroups = [];
+  Json get selectedProfileNodes => _selectedProfileNodes;
+  set selectedProfileNodes(Json value) {
+    _selectedProfileNodes = value;
+    _profileGroups = _normalizeGroups(value['groups'], _profileGroups);
+  }
   List<Json> transfers = [], usbDevices = [];
   List<Json> outbounds = [];
   List<Json> profiles = [], groups = [], connections = [], logs = [];
@@ -101,8 +107,8 @@ class BoxController extends ChangeNotifier {
 
   Future<Uint8List?> appIcon(String package) => appIcons.get(package);
 
-  bool _setGroups(Object? value) {
-    final previous = {for (final group in groups) group['tag']: group};
+  List<Json> _normalizeGroups(Object? value, List<Json> source) {
+    final previous = {for (final group in source) group['tag']: group};
     final next = <Json>[];
     for (final group in rows(value)) {
       final old = previous[group['tag']];
@@ -116,7 +122,12 @@ class BoxController extends ChangeNotifier {
       group['items'] = listEquals(oldItems, items) ? oldItems : items;
       next.add(old != null && const MapEquality<String, dynamic>().equals(old, group) ? old : group);
     }
-    if (listEquals(groups, next)) return false;
+    return listEquals(source, next) ? source : next;
+  }
+
+  bool _setGroups(Object? value) {
+    final next = _normalizeGroups(value, groups);
+    if (identical(groups, next)) return false;
     final selections = {for (final group in groups) group['tag']: group['selected']};
     groups = next;
     // Route observers also run without a Flutter frame, but latency and group
@@ -147,6 +158,10 @@ class BoxController extends ChangeNotifier {
       ? dashboard['remoteConnected'] == true
       : dashboard['status'] == 'Started';
   bool get transitioning => ['Starting', 'Stopping'].contains(dashboard['status']);
+  bool get canSelectProxy => !transitioning && (running || !remote && dashboard['status'] == 'Stopped');
+  /// Remote sessions always use their own live groups, including while disconnected.
+  List<Json> get proxyGroups => running || remote ? groups :
+      selectedProfileNodes['profileId'] == selectedProfileId ? _profileGroups : const [];
   int get selectedProfileId => (dashboard['selectedProfileId'] as num?)?.toInt() ?? -1;
   Json? get selectedProfile {
     for (final profile in profiles) {
@@ -325,7 +340,7 @@ class BoxController extends ChangeNotifier {
         return const [BoxAspect.state];
       case 'nodes':
         selectedProfileNodes = json(value);
-        return const [BoxAspect.state];
+        return const [BoxAspect.state, BoxAspect.groups];
       case 'settings':
         settings = json(value);
         return const [BoxAspect.state];

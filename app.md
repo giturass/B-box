@@ -60,6 +60,7 @@ XHTTP 与 VLESS Encryption 通过同一 JSON、节点导入和订阅更新入口
 
 - 保存前检查内容修订和完整 `Libbox.checkConfig`，以原子写入替换内容。分项配置编辑原生 DNS、路由、规则集、入站、出站、端点和日志；原始 JSON 编辑保留配置元数据及订阅 URL。
 - [BoxNodes.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxNodes.kt) 将新建和导入节点直接追加到所选配置的 `outbounds` / `endpoints`，编辑及删除也只写该配置。节点操作固定配置 ID 和内容修订，在持久化前复核选择；停服可以保存，运行中沿用服务应用及失败恢复。没有共享节点库或运行时注入，不读取或迁移旧共享节点；订阅来源属于当前配置文件，随其备份保存。节点解析、分组成员和本地追加标记见 [核心说明](libbox.md#节点导入与配置合并)。
+- 本机停服时，`BoxNodes.state()` 通过 libbox 返回当前配置的 selector/urltest 分组，随节点状态携带配置 ID 和内容修订；运行中及远程会话不读取本机分组缓存。`groups.select` 的停服路径在配置互斥锁及启动快照锁内复核本机会话、宿主/服务均已 Stopped、配置选择和修订，再写入当前配置对应的核心选择缓存；成功后发布节点/分组快照。该操作不改配置正文、Room 元数据或更新时间，不启动服务。缓存路径、命名空间及启动优先级见 [核心说明](libbox.md#配置分组与停服选择)；运行中仍使用当前会话的命令客户端。
 - 默认配置是带 `TypedProfile.isDefault` 身份的实际本地配置；启动和读取配置列表时检查并在缺少时创建，即使已有配置也显示。系统名称为 `Profile file`，中文显示“配置文件”；旧系统名称 `Default profile` 更新为新名称，保留用户自定义名称及内容更新时间。默认配置可以改名和编辑内容，保持本地类型并禁止删除；创建时保留已有选择，未选择配置时自动选择默认配置。备份携带默认身份，兼容恢复匹配本机默认项，旧备份没有该身份时后续补建。
 - 普通应用设置、查询策略/托管扫描结果、终端设置、配置选择及服务模式通过 [RoomPreferenceDataStore.kt](app/src/main/java/io/nekohasekai/sfa/database/preference/RoomPreferenceDataStore.kt) 的确认事务保存；只有 Room 提交成功才发布缓存并向调用方返回成功。查询策略先用于扫描，成功后与其他设置一起提交。保留的同步属性写入在失败时恢复缓存，`flush()` 报告此前尚未报告的错误，较早写入的完成或失败不能覆盖后续排队的值；服务清理与广播结束不因刷盘失败中断。字符串集合按 UTF-8 字节长度编码，支持中文及 emoji。
 - 本地配置创建时在 Room 记录时间，原始 JSON 编辑、分项配置编辑及局域网入站变更成功保存内容时更新 `lastUpdated`；无内容变化和仅编辑名称等元数据不刷新时间。保存或应用失败与内容一起恢复旧时间。远程配置的该字段仍表示订阅更新时间，手动 JSON 编辑不覆盖它；没有时间记录的旧配置保持未知。界面展示见 [flclash.md](flclash.md#配置页与内核差异)。
@@ -219,7 +220,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 以下用例使用实际 libbox AAR，由 smoke 矩阵的原生组在每个环境运行。模拟器中的自有客户端和本地测试服务器不代表第三方目标应用信任、真实网络或 Root 模块已经实机通过。
 
-- **配置应用与恢复：** [ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/完整备份恢复失败、注入的订阅应用失败恢复，以及停服和未选中配置更新的服务状态；另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。`failedSelectionRestoresThePreviousSelectionAndService` 连续五轮核对选配置失败恢复、停止释放核心及重新启动，防止服务清理竞态污染后续用例。
+- **配置应用与恢复：** [ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/完整备份恢复失败、注入的订阅应用失败恢复，以及停服和未选中配置更新的服务状态；停服 selector 回归核对已保存选择在启动时生效、运行选择在停服后保留、不改配置正文/更新时间或启动服务，并拒绝自动组、失效成员、配置选择/修订及会话冲突；另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。`failedSelectionRestoresThePreviousSelectionAndService` 连续五轮核对选配置失败恢复、停止释放核心及重新启动，防止服务清理竞态污染后续用例。
 - **默认文件：** `defaultProfileStaysAvailableAlongsideExistingProfiles` 检查默认文件与其他配置一同显示、持久身份及删除限制；旧系统名称更新保持内容和更新时间，自定义名称及当前选择保留。
 - **配置内订阅来源：** 覆盖 URL 导入保持所选默认文件的本地身份且不创建文件、Clash/Base64/WireGuard 端点、空或混合非法来源拒绝、混合 KCP 的跳过报告及更新后报告清除、XHTTP/VLESS Encryption 分享链接导入及更新、多来源及本地节点隔离、改名/删除后的归属、下载期间选择和内容冲突、来源编辑后旧下载拒绝、移除来源保留本地节点、Parcel/备份回读，以及来源和内容的应用失败恢复。本地/默认文件的自动更新成功及失败重试也使用实际绑定验证。直接更新用例调用生产 `UpdateProfileWork.updateProfiles`，以受控 WorkManager 暂停周期执行，避免重复下载干扰请求计数；测试结束取消并等待任务、恢复原调度实例。这些用例验证更新逻辑及真实绑定，不验证系统后台调度的实际时序；运行结果见下文记录。
 - **配置时间与日志级别：** `localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。`logLevelFollowsSuccessfulConfigurationReloads` 覆盖真实内核日志订阅的默认级别、运行中修改 `log.level` 后刷新，以及移除该字段后恢复当前核心的默认值。
@@ -250,6 +251,8 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 统一工作流的 `root-ca` job 在独立 Linux PID/mount namespace 中运行 [test_mitm_ca.py](tools/test_mitm_ca.py)，使用 BusyBox 和导出的原始脚本，覆盖 APEX 延迟就绪、旧系统缺少 APEX、hash 冲突和原证书保留、已有二级后代/隐藏模块路径、同一 namespace 的重新挂载、准备失败、service 重试和禁用退出。该测试只在 Actions 运行，不对本机 Android 做 Root 挂载，也不代表真实 Magisk/KernelSU/APatch 安装与重启已验收。
 
 ### 当前验证记录
+
+停服代理组选择修复以 `2bcb8fea68d554b597f24c96f283c8855ba0f209` 为实现基线；本机执行 `git diff --check`、`python3 tools/verify_newui.py` 及文档链接/旧引用静态检查。新增 Go、Flutter 和 Android 回归尚未在 Actions 运行，无本轮 Actions 链接；启停视觉与实机行为尚未验收。以下已有运行记录不包含本次修复。
 
 本轮 XHTTP 与 VLESS Encryption 的验证源码为 `8c56b623b46c7ab4c5c4632b1db428ebc49dcb25`。[统一工作流 44086051274](https://github.com/giturass/B-box/actions/runs/44086051274) 已通过核心全部 `TestUI`、发货协议标签的 `TestUINode`、标准/uTLS Vision 指针回归、两组 XHTTP/Encryption race 矩阵，以及原 WARP、路由生命周期、HTTP 调试与路由回归。Go `checkptr` 检查保留。Flutter 287 项测试及 ARM64 Debug/Release AAR 通过，分析为 84 项 info、无 warning/error；[Android 作业](https://github.com/giturass/B-box/actions/runs/44086051274/job/134048707421) 的 56 项 JVM 测试无失败/错误/跳过，`play` 编译及模拟器 APK 构建通过。
 

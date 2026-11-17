@@ -1,10 +1,14 @@
 package io.nekohasekai.sfa.flutter
 
 import io.nekohasekai.libbox.Libbox
+import io.nekohasekai.sfa.backend.model.Group
+import io.nekohasekai.sfa.bg.BoxService
+import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileContent
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
+import io.nekohasekai.sfa.utils.CommandTarget
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
@@ -20,7 +24,7 @@ internal class BoxNodes(
     /** List identities and addresses, without exposing node credentials to the page. */
     suspend fun state(): Map<String, Any?> = mutex.withLock {
         val profile = ProfileManager.get(Settings.selectedProfile)
-            ?: return@withLock mapOf("profileId" to -1L, "profileRevision" to "", "nodes" to emptyList<Any>())
+            ?: return@withLock mapOf("profileId" to -1L, "profileRevision" to "", "nodes" to emptyList<Any>(), "groups" to emptyList<Any>())
         val content = File(profile.typed.path).readText()
         val root = JSONObject(Libbox.formatConfig(content).value)
         val entries = listOf("outbounds", "endpoints").flatMap { section ->
@@ -37,7 +41,16 @@ internal class BoxNodes(
                 "server" to node.optString("server").ifEmpty { peer?.optString("address").orEmpty() },
                 "port" to node.optInt("server_port", peer?.optInt("port") ?: 0))
         }
-        mapOf("profileId" to profile.id, "profileRevision" to ProfileContent.revision(content), "nodes" to nodes)
+        // The running core owns its cache lock and provides live groups through
+        // the command stream. Only the stopped local session reads its cache.
+        val groups = ProfileContent.snapshotMutex.withLock {
+            if (CommandTarget.isRemote || BoxService.currentStatus != Status.Stopped) emptyList()
+            else {
+                val iterator = Libbox.getUIConfigGroups(content)
+                buildList { while (iterator.hasNext()) add(Group(iterator.next()).toWire()) }
+            }
+        }
+        mapOf("profileId" to profile.id, "profileRevision" to ProfileContent.revision(content), "nodes" to nodes, "groups" to groups)
     }
 
     fun parse(text: String): String = Libbox.parseUINodes(text).value
@@ -62,6 +75,25 @@ internal class BoxNodes(
     private suspend fun writeProfile(profile: Profile, content: String, expectedRevision: String, renamedNode: Pair<String, String>? = null) =
         ProfileContent.replaceLocked(profile, content, expectedRevision = expectedRevision, renamedNode = renamedNode,
             beforeSave = beforeApply, applySelected = applySelected)
+
+    /** Preserve the core's selector choice without editing or starting its configuration. */
+    suspend fun select(group: String, tag: String, profileId: Long, profileRevision: String,
+        beforeCommit: () -> Unit = {}) = mutex.withLock {
+        val (profile, content) = selected(profileId, profileRevision)
+        beforeApply()
+        ProfileContent.snapshotMutex.withLock {
+            beforeCommit()
+            beforeApply()
+            require(!CommandTarget.isRemote && BoxService.currentStatus == Status.Stopped) {
+                "Wait for the local service to stop before selecting a node"
+            }
+            require(profile.id == Settings.selectedProfile) { "Selected profile changed; reload it before saving" }
+            require(ProfileContent.revision(File(profile.typed.path).readText()) == profileRevision) {
+                "Configuration changed; reload it before saving"
+            }
+            Libbox.selectUIConfigGroup(content, group, tag)
+        }
+    }
 
     suspend fun add(nodes: String, profileId: Long, profileRevision: String): Map<String, Any?> = mutex.withLock {
         val (profile, content) = selected(profileId, profileRevision)

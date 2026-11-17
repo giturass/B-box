@@ -315,7 +315,7 @@ void main() {
     });
   }
 
-  testWidgets('stopped service shows only selected-profile nodes and edits them with revisions', (tester) async {
+  testWidgets('stopped groups ignore other profiles and edit nodes through the menu with revisions', (tester) async {
     final events = StreamController<dynamic>.broadcast();
     final calls = <MethodCall>[];
     await _mount(tester, eventController: events, handler: (call) async {
@@ -332,17 +332,23 @@ void main() {
     events.add({'type': 'nodes', 'value': {
       'profileId': 2, 'profileRevision': 'other-r',
       'nodes': [{'tag': 'Other profile node', 'type': 'vless'}],
+      'groups': [{'tag': 'Other selector', 'type': 'Selector', 'selectable': true, 'selected': 'Other profile node',
+        'items': [{'tag': 'Other profile node', 'type': 'VLESS', 'delay': 0, 'testedAt': 0}]}],
     }});
     await tester.pumpAndSettle();
     expect(find.text('Other profile node'), findsNothing);
+    expect(find.text('Other selector'), findsNothing);
     events.add({'type': 'nodes', 'value': {
       'profileId': 1, 'profileRevision': 'profile-r',
       'nodes': [{'tag': 'Profile node', 'type': 'vless', 'server': 'example.org', 'port': 443}],
+      'groups': [{'tag': 'Profile selector', 'type': 'Selector', 'selectable': true, 'selected': 'Profile node',
+        'items': [{'tag': 'Profile node', 'type': 'VLESS', 'delay': 0, 'testedAt': 0}]}],
     }});
     await tester.pumpAndSettle();
     expect(find.text('Add nodes'), findsNothing);
-    expect(find.text('Nodes').hitTestable(), findsOneWidget);
-    expect(tester.widget<ProxyNodeCard>(find.byType(ProxyNodeCard)).onTest, isNull);
+    expect(find.text('Profile selector').hitTestable(), findsOneWidget);
+    expect(find.text('Nodes').hitTestable(), findsNothing);
+    expect(tester.widget<ProxyNodeCard>(find.byType(ProxyNodeCard)).onTest, isNotNull);
     await tester.tap(find.byTooltip('More').last);
     await tester.pumpAndSettle();
     expect(find.text('Shared nodes'), findsNothing);
@@ -351,6 +357,10 @@ void main() {
     expect(calls.map((call) => call.method).where((method) => method == 'profiles.update' || method.startsWith('nodes.update')),
       ['profiles.update']);
     await tester.tap(find.text('Profile node'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NodeEditorPage), findsNothing);
+    expect(calls.where((call) => call.method == 'nodes.get' || call.method == 'groups.select'), isEmpty);
+    tester.widget<ProxyNodeCard>(find.byType(ProxyNodeCard)).menuItems.singleWhere((item) => item.label == 'Edit').onPressed!();
     await tester.pumpAndSettle();
     expect(find.byType(NodeEditorPage), findsOneWidget);
     expect(calls.where((call) => call.method == 'nodes.get').map((call) => json(call.arguments)),
@@ -364,6 +374,118 @@ void main() {
     });
     expect(tester.takeException(), isNull);
   });
+
+  for (final layout in ['Tabs', 'List']) {
+    testWidgets('stopped selectors select with revisions and keep their layout after startup ($layout)', (tester) async {
+      final events = StreamController<dynamic>.broadcast();
+      final calls = <MethodCall>[];
+      var rejectSelection = true;
+      List<Json> groups(String selected) => [
+        {'tag': 'Proxy', 'type': 'Selector', 'selectable': true, 'selected': selected, 'items': [
+          {'tag': 'Node A', 'type': 'VLESS', 'delay': 0, 'testedAt': 0},
+          {'tag': 'Node B', 'type': 'VLESS', 'delay': 0, 'testedAt': 0},
+        ]},
+      ];
+      Json snapshot(String selected, String revision) => {
+        'profileId': 2, 'profileRevision': revision,
+        'nodes': [{'tag': 'Node A', 'type': 'vless'}, {'tag': 'Node B', 'type': 'vless'}],
+        'groups': groups(selected),
+      };
+      await _mount(tester, selected: 2, eventController: events, nodes: snapshot('Node A', 'profile-r'),
+        preferences: {'proxyLayout': layout, 'closeConnectionsOnSelect': true,
+          'proxyUnfolded': {'local:2': ['Proxy']}}, handler: (call) async {
+          calls.add(call);
+          if (call.method == 'groups.select') {
+            if (rejectSelection) throw PlatformException(code: 'conflict', message: 'Configuration changed; reload it before saving');
+            final args = json(call.arguments);
+            events.add(args.containsKey('profileId')
+              ? {'type': 'nodes', 'value': snapshot(args['tag'] as String, 'selected-r')}
+              : {'type': 'groups', 'value': groups(args['tag'] as String)});
+          }
+          return null;
+        });
+      await _profiles(tester);
+      Finder card(String tag) => find.byWidgetPredicate((widget) => widget is ProxyNodeCard && widget.node['tag'] == tag);
+      Finder badge(String tag) => find.descendant(of: card(tag), matching: find.byType(SelectionBadge));
+      expect(find.text('Proxy').hitTestable(), findsOneWidget);
+      expect(find.text('Nodes').hitTestable(), findsNothing);
+      expect(badge('Node A'), findsOneWidget);
+      expect(badge('Node B'), findsNothing);
+      events.add({'type': 'groups', 'value': [
+        {'tag': 'Previous selector', 'type': 'Selector', 'selectable': true, 'selected': 'Previous node',
+          'items': [{'tag': 'Previous node', 'type': 'VLESS'}]},
+      ]});
+      await tester.pumpAndSettle();
+      expect(find.text('Previous selector'), findsNothing);
+      await tester.tap(find.byTooltip('Test latency').first);
+      await tester.pumpAndSettle();
+      expect(calls.where((call) => call.method == 'groups.test'), isEmpty);
+
+      for (final status in ['Starting', 'Stopping']) {
+        events.add({'type': 'dashboard', 'value': {'status': status, 'selectedProfileId': 2}});
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Node B'));
+        await tester.pumpAndSettle();
+        expect(calls.where((call) => call.method == 'groups.select'), isEmpty);
+        expect(badge('Node A'), findsOneWidget);
+      }
+      events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 2}});
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Node B'));
+      await tester.pumpAndSettle();
+      expect(badge('Node A'), findsOneWidget, reason: 'A failed selection must retain the confirmed choice.');
+      expect(badge('Node B'), findsNothing);
+      expect(find.byType(NodeEditorPage), findsNothing);
+      expect(calls.where((call) => call.method == 'nodes.get'), isEmpty);
+      rejectSelection = false;
+      await tester.tap(find.text('Node B'));
+      await tester.pumpAndSettle();
+      expect(calls.where((call) => call.method == 'groups.select').map((call) => json(call.arguments)), [
+        {'group': 'Proxy', 'tag': 'Node B', 'profileId': 2, 'profileRevision': 'profile-r'},
+        {'group': 'Proxy', 'tag': 'Node B', 'profileId': 2, 'profileRevision': 'profile-r'},
+      ]);
+      expect(badge('Node A'), findsNothing);
+      expect(badge('Node B'), findsOneWidget);
+      expect(calls.where((call) => call.method == 'connections.closeAll'), isEmpty);
+      final beforeStartup = tester.getRect(card('Node B'));
+      events.add({'type': 'groups', 'value': groups('Node B')});
+      events.add({'type': 'dashboard', 'value': {'status': 'Started', 'selectedProfileId': 2}});
+      await tester.pumpAndSettle();
+      expect(find.text('Proxy').hitTestable(), findsOneWidget);
+      expect(find.text('Nodes').hitTestable(), findsNothing);
+      expect(badge('Node B'), findsOneWidget);
+      expect(tester.getRect(card('Node B')), beforeStartup);
+      await tester.tap(find.text('Node A'));
+      await tester.pumpAndSettle();
+      expect(json(calls.lastWhere((call) => call.method == 'groups.select').arguments), {'group': 'Proxy', 'tag': 'Node A'});
+      expect(calls.where((call) => call.method == 'connections.closeAll'), hasLength(1));
+      expect(badge('Node A'), findsOneWidget);
+      expect(find.byType(NodeEditorPage), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('stopped automatic groups cannot select or open node editors ($layout)', (tester) async {
+      final calls = <MethodCall>[];
+      await _mount(tester, selected: 2,
+        preferences: {'proxyLayout': layout, 'proxyUnfolded': {'local:2': ['Auto']}},
+        nodes: {'profileId': 2, 'profileRevision': 'profile-r',
+          'nodes': [{'tag': 'Node A', 'type': 'vless'}, {'tag': 'Node B', 'type': 'vless'}],
+          'groups': [{'tag': 'Auto', 'type': 'URLTest', 'selectable': false, 'selected': '', 'items': [
+            {'tag': 'Node A', 'type': 'VLESS', 'delay': 0, 'testedAt': 0},
+            {'tag': 'Node B', 'type': 'VLESS', 'delay': 0, 'testedAt': 0},
+          ]}]}, handler: (call) async { calls.add(call); return null; });
+      await _profiles(tester);
+      expect(find.text('Auto').hitTestable(), findsOneWidget);
+      await tester.tap(find.text('Node B'));
+      await tester.pumpAndSettle();
+      expect(calls.where((call) => call.method == 'groups.select' || call.method == 'nodes.get'), isEmpty);
+      expect(find.descendant(of: find.byType(ProxyNodeCard), matching: find.byType(SelectionBadge)), findsNothing);
+      expect(find.byType(NodeEditorPage), findsNothing);
+      final node = tester.widget<ProxyNodeCard>(find.byWidgetPredicate((widget) => widget is ProxyNodeCard && widget.node['tag'] == 'Node B'));
+      expect(node.menuItems.map((item) => item.label), contains('Edit'));
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('node imports retain their target and preview after a revision conflict', (tester) async {
     final events = StreamController<dynamic>.broadcast();
@@ -406,7 +528,8 @@ void main() {
     await _mount(tester, eventController: events,
       nodes: {'profileId': 1, 'profileRevision': 'file-r', 'nodes': [
         {'type': 'vless', 'tag': 'File node'},
-      ]}, handler: (call) async {
+      ], 'groups': [{'tag': 'File selector', 'type': 'Selector', 'selectable': true, 'selected': 'File node',
+        'items': [{'tag': 'File node', 'type': 'VLESS', 'delay': 0, 'testedAt': 0}]}]}, handler: (call) async {
         if (call.method == 'nodes.set') writes.add(json(call.arguments));
         return null;
       });
@@ -437,6 +560,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Live selector').hitTestable(), findsOneWidget);
     expect(find.text('File node'), findsNothing);
+    expect(find.text('File selector'), findsNothing);
     expect(find.text('Nodes').hitTestable(), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -647,11 +771,15 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('remote sessions expose remote groups without local profile actions', (tester) async {
+  testWidgets('remote sessions isolate local groups and disable selection after disconnect', (tester) async {
     final events = StreamController<dynamic>.broadcast();
     final selections = <Json>[];
     await _mount(tester, remoteSession: true, eventController: events,
       dashboard: {'profileName': 'Private local profile'}, profiles: [{'id': 1, 'name': 'Private local profile'}],
+      nodes: {'profileId': 1, 'profileRevision': 'private-r',
+        'nodes': [{'tag': 'Private local node', 'type': 'vless'}],
+        'groups': [{'tag': 'Private local selector', 'type': 'Selector', 'selectable': true, 'selected': 'Private local node',
+          'items': [{'tag': 'Private local node', 'type': 'VLESS', 'delay': 0, 'testedAt': 0}]}]},
       handler: (call) async {
         if (call.method == 'groups.select') selections.add(json(call.arguments));
         return null;
@@ -672,9 +800,21 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Remote selector').hitTestable(), findsOneWidget);
     expect(find.text('Private local profile'), findsNothing);
+    expect(find.text('Private local selector'), findsNothing);
+    expect(find.text('Private local node'), findsNothing);
+    final remoteCard = find.byWidgetPredicate((widget) => widget is ProxyNodeCard && widget.node['tag'] == 'Remote B');
+    expect(tester.widget<ProxyNodeCard>(remoteCard).menuItems, isEmpty);
     await tester.tap(find.text('Remote B'));
     await tester.pumpAndSettle();
     expect(selections, [{'group': 'Remote selector', 'tag': 'Remote B'}]);
+    events.add({'type': 'dashboard', 'value': {'status': 'Stopped', 'selectedProfileId': 1,
+      'remote': 'Server', 'remoteConnected': false}});
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remote B'));
+    await tester.pumpAndSettle();
+    expect(selections, hasLength(1));
+    expect(find.text('Private local selector'), findsNothing);
+    expect(find.byType(NodeEditorPage), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

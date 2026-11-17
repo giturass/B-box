@@ -7,7 +7,7 @@ import 'nodes.dart';
 
 class ProxiesPage extends StatefulWidget {
   const ProxiesPage({super.key, this.title = 'Proxies', this.header, this.emptyState, this.idleAction,
-    this.actions = const [], this.menuItems = const [], this.profileNodes = false});
+    this.actions = const [], this.menuItems = const []});
   final String title;
   final Widget? header, emptyState;
   /// Offered when the selected profile has no listed nodes or live groups.
@@ -15,8 +15,6 @@ class ProxiesPage extends StatefulWidget {
   final List<Widget> actions;
   /// Entries of the page around this one, listed before the display options.
   final List<PopupMenuItem> menuItems;
-  /// Whether to show the selected profile's nodes while its service is stopped.
-  final bool profileNodes;
   @override State<ProxiesPage> createState() => _ProxiesPageState();
 }
 class _ProxiesPageState extends State<ProxiesPage> {
@@ -31,7 +29,6 @@ class _ProxiesPageState extends State<ProxiesPage> {
   // The nodes marked for one action on all of them; null while a tap selects a node.
   Set<String>? _picked;
   int _pickRevision = 0;
-  Json? _profileGroup;
   String? _profileKey;
   Set<String> _tags = const {}, _editableTags = const {};
 
@@ -64,35 +61,17 @@ class _ProxiesPageState extends State<ProxiesPage> {
 
   Future<void> _select(Json group, Json node) async {
     final box = context.box;
-    if (!box.running || group['selectable'] != true || node['tag'] == group['selected']) return;
-    if (await box.act('groups.select', {'group': group['tag'], 'tag': node['tag']})) {
-      if (box.preferences['closeConnectionsOnSelect'] == true) await box.act('connections.closeAll');
-    }
-  }
-
-  // A stopped local service has no live groups; show nodes from the selected configuration.
-  Json? _stoppedProfileGroup(BoxController box) {
+    if (!box.canSelectProxy || group['selectable'] != true || node['tag'] == group['selected']) return;
+    final running = box.running, session = box.sessionRevision;
     final snapshot = box.selectedProfileNodes;
-    final nodes = widget.profileNodes && !box.remote && !box.running && snapshot['profileId'] == box.selectedProfileId
-      ? rows(snapshot['nodes']) : const <Json>[];
-    if (nodes.isEmpty) return _profileGroup = null;
-    final label = context.tr('Nodes');
-    final previous = _profileGroup?['items'] as List<Json>? ?? const <Json>[];
-    final before = {for (final node in previous) node['tag']: node};
-    final items = <Json>[];
-    for (final node in nodes) {
-      final tag = node['tag'].toString(), type = nodeSummary(node);
-      final old = before[tag];
-      items.add(old != null && old['type'] == type ? old : {'tag': tag, 'type': type});
+    if (!running && snapshot['profileId'] != box.selectedProfileId) return;
+    if (await box.act('groups.select', {
+      'group': group['tag'], 'tag': node['tag'],
+      if (!running) ...{'profileId': snapshot['profileId'], 'profileRevision': snapshot['profileRevision']},
+    })) {
+      if (running && box.running && session == box.sessionRevision &&
+          box.preferences['closeConnectionsOnSelect'] == true) await box.act('connections.closeAll');
     }
-    var same = _profileGroup?['tag'] == label && previous.length == items.length;
-    for (var index = 0; same && index < items.length; index++) { same = identical(previous[index], items[index]); }
-    if (same) return _profileGroup;
-    return _profileGroup = {
-      'tag': label, 'profileNodes': true, 'selectable': false,
-      'type': context.tr('{count} nodes').replaceFirst('{count}', '${items.length}'),
-      'caption': context.tr('Nodes in this profile. Tap a node to edit it.'), 'items': items,
-    };
   }
 
   List<Json> _nodes(Json group) {
@@ -128,13 +107,11 @@ class _ProxiesPageState extends State<ProxiesPage> {
   Widget _card(BuildContext context, Json group, Json node) {
     final tag = node['tag'] as String;
     final editable = _editable(node);
-    final profileNodes = group['profileNodes'] == true;
     void edit() => openForm(this.context, NodeEditorPage(tag: tag));
     return ProxyNodeCard(
       group: group, node: node, testing: _testing.contains(group['tag']) || _testing.contains(tag),
       onSelect: () => _select(group, node),
-      onTest: profileNodes ? null : () => _test(tag),
-      onOpen: profileNodes && editable ? edit : null,
+      onTest: () => _test(tag),
       picked: _picked?.contains(tag), onPick: editable ? () => _pick(tag) : null,
       menuItems: !editable ? const [] : [
         PopupMenuItem(section: const PopupMenuSection(), glyph: AppGlyphs.edit, label: this.context.tr('Edit'), onPressed: edit),
@@ -181,12 +158,12 @@ class _ProxiesPageState extends State<ProxiesPage> {
       _profileKey = profileKey;
       _picked = null;
       _pickRevision++;
-      _profileGroup = null;
       _nodeLists.clear();
       _grids.clear();
     }
     final snapshot = box.selectedProfileNodes;
-    final groupTags = box.groups.map((group) => group['tag']).toSet();
+    final groups = box.proxyGroups;
+    final groupTags = groups.map((group) => group['tag']).toSet();
     final editableTags = !box.remote && snapshot['profileId'] == box.selectedProfileId ? <String>{
       for (final node in rows(snapshot['nodes']))
         if (!groupTags.contains(node['tag'])) node['tag'].toString(),
@@ -195,9 +172,6 @@ class _ProxiesPageState extends State<ProxiesPage> {
       _editableTags = editableTags;
       _pickRevision++;
     }
-    final live = box.running || box.remote ? box.groups : const <Json>[];
-    final stopped = live.isEmpty ? _stoppedProfileGroup(box) : null;
-    final groups = stopped == null ? live : [stopped];
     final tags = _tags = groups.map((group) => group['tag'].toString()).toSet();
     _nodeLists.removeWhere((tag, _) => !tags.contains(tag));
     _grids.removeWhere((tag, _) => !tags.contains(tag));
@@ -212,7 +186,7 @@ class _ProxiesPageState extends State<ProxiesPage> {
     }
     final list = box.preferences['proxyLayout'] == 'List';
     if (!groups.any((group) => group['tag'] == _currentGroup)) _currentGroup = groups.firstOrNull?['tag'] as String?;
-    final testable = box.running && _currentGroup != null && _currentGroup != stopped?['tag'];
+    final testable = box.running && _currentGroup != null;
     // Nodes that left the groups, and a session that cannot edit, end what was marked.
     if (box.remote) _picked = null;
     final picked = _picked;
@@ -220,8 +194,8 @@ class _ProxiesPageState extends State<ProxiesPage> {
     final pickable = picked == null ? const <String>[] : _pickable(groups, list);
     final allPicked = picked != null && pickable.isNotEmpty && picked.containsAll(pickable);
     final topPadding = widget.header == null ? context.contentTopPadding : 0.0;
-    final body = live.isEmpty && widget.emptyState != null ? widget.emptyState! : groups.isEmpty ? NullStatus(
-      label: context.tr(box.running ? 'No proxy groups in this configuration' : 'Start the service to view proxy groups'),
+    final body = groups.isEmpty && widget.emptyState != null ? widget.emptyState! : groups.isEmpty ? NullStatus(
+      label: context.tr(box.remote && !box.running ? 'Start the service to view proxy groups' : 'No proxy groups in this configuration'),
       illustration: NullStatusIllustration.proxies,
       description: widget.idleAction == null ? null : context.tr('Add nodes to the selected profile.'),
       action: widget.idleAction,
@@ -271,9 +245,8 @@ class _ProxiesPageState extends State<ProxiesPage> {
         if (list) _options('Icon style', AppGlyphs.iconTile, 'proxyIconStyle', const ['Filled', 'Plain', 'Hidden'], 'Filled'),
         PopupMenuItem(glyph: AppGlyphs.eyeOff, label: context.tr('Hide timeout proxies'), checked: box.preferences['hideTimeoutProxies'] == true,
           section: const PopupMenuSection(), onPressed: () => box.setPreference('hideTimeoutProxies', box.preferences['hideTimeoutProxies'] != true)),
-        PopupMenuItem(glyph: AppGlyphs.bolt, label: context.tr('Test all'), onPressed: () async {
-          if (!box.running) return;
-          for (final group in live) { await _test(group['tag'] as String); }
+        PopupMenuItem(glyph: AppGlyphs.bolt, label: context.tr('Test all'), onPressed: !box.running ? null : () async {
+          for (final group in groups) { await _test(group['tag'] as String); }
         }),
         PopupMenuItem(glyph: AppGlyphs.connections, label: context.tr('Close connections after switching'), checked: box.preferences['closeConnectionsOnSelect'] == true,
           onPressed: () => box.setPreference('closeConnectionsOnSelect', box.preferences['closeConnectionsOnSelect'] != true)),

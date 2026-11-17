@@ -114,7 +114,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
       final updating = _updatingAll || _updating.isNotEmpty;
       final updatable = profiles.any(profileHasUpdates);
       return ProxiesPage(
-        title: 'Profiles', profileNodes: true,
+        title: 'Profiles',
         emptyState: !box.remote && profiles.isEmpty ? emptyState : null,
         idleAction: box.remote ? null : AddProfileMenu(builder: (open) => TonalButton(size: TonalButtonSize.bar,
           glyph: AppGlyphs.addCircle, label: context.tr('Add nodes'), onPressed: open)),

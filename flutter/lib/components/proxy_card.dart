@@ -26,14 +26,12 @@ int proxyColumns(double width, Json preferences) {
 class ProxyNodeCard extends StatelessWidget {
   const ProxyNodeCard({super.key, required this.group, required this.node,
     required this.testing, required this.onSelect, required this.onTest,
-    this.onOpen, this.menuItems = const [], this.picked, this.onPick});
+    this.menuItems = const [], this.picked, this.onPick});
   final Json group, node;
   final bool testing;
   final VoidCallback onSelect;
   /// Null for a node the running core does not hold: it has no latency to test.
   final VoidCallback? onTest;
-  /// What a tap does in place of selecting the node.
-  final VoidCallback? onOpen;
   /// Entries of the page, listed after those of the card.
   final List<PopupMenuItem> menuItems;
   /// Whether the card is marked while several nodes are chosen; null outside that mode.
@@ -63,7 +61,7 @@ class ProxyNodeCard extends StatelessWidget {
       ],
       child: Card(
         radius: AppCorner.lg, enterActionsOnRight: true, isSelected: marked,
-        onPressed: picking ? onPick : onOpen ?? (group['selectable'] == true && context.box.running ? onSelect : null),
+        onPressed: picking ? onPick : group['selectable'] == true && context.box.canSelectProxy ? onSelect : null,
         child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Column(
           mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(crossAxisAlignment: CrossAxisAlignment.start, children: [

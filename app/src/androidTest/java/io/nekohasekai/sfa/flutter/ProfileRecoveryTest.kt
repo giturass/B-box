@@ -22,6 +22,7 @@ import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.WorkManagerTestInitHelper
 import com.google.common.util.concurrent.ListenableFuture
 import io.nekohasekai.libbox.Libbox
+import io.nekohasekai.libbox.OutboundGroup
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.backend.log.LogLevel
 import io.nekohasekai.sfa.backend.log.LogViewModel
@@ -38,6 +39,9 @@ import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import io.nekohasekai.sfa.database.preference.KeyValueDatabase
 import io.nekohasekai.sfa.vendor.PackageQueryManager
+import io.nekohasekai.sfa.utils.CommandClient
+import io.nekohasekai.sfa.utils.CommandTarget
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -755,6 +759,91 @@ class ProfileRecoveryTest {
         } finally {
             if (Settings.selectedProfile == other) profiles.select(id) { activity.serviceStatus.value }
             profiles.delete(other)
+        }
+    }
+
+    @Test fun stoppedSelectorChoicesUseTheCoreCacheWithoutEditingOrStarting() = withRunningProfile { activity, profiles, id ->
+        val nodes = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) {
+            error("Selecting a stopped proxy must not apply or start the configuration")
+        }
+        val cache = File(activity.cacheDir, "offline-selector-${UUID.randomUUID()}.db")
+        val other = profiles.save(mapOf("name" to "Separate selector configuration", "content" to "{}"))
+        try {
+            withContext(Dispatchers.Main) { activity.stopService() }
+            withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+            val content = JSONObject("""{
+                "outbounds":[
+                    {"type":"selector","tag":"proxy","outbounds":["a","auto","b"],"default":"a"},
+                    {"type":"urltest","tag":"auto","outbounds":["a","b"]},
+                    {"type":"direct","tag":"a"},{"type":"direct","tag":"b"}
+                ],
+                "route":{"final":"proxy"},
+                "experimental":{"cache_file":{"enabled":false,"cache_id":"offline-selection-fixture"}}
+            }""").apply { getJSONObject("experimental").getJSONObject("cache_file").put("path", cache.absolutePath) }.toString()
+            profiles.writeContent(id, content, BoxProfiles.revision(profiles.read(id)))
+            val revision = BoxProfiles.revision(profiles.read(id))
+            val updatedAt = profiles.get(id).typed.lastUpdated.time
+            val initialGroups = rows(nodes.state()["groups"])
+            assertEquals(listOf("proxy", "auto"), initialGroups.map { it["tag"] })
+            assertEquals("a", initialGroups.first()["selected"])
+            assertEquals(true, initialGroups.first()["selectable"])
+            assertEquals(false, initialGroups.last()["selectable"])
+            assertFalse("Reading stopped groups must not create a cache", cache.exists())
+
+            nodes.select("proxy", "b", id, revision)
+            assertTrue(cache.isFile)
+            assertEquals("b", rows(nodes.state()["groups"]).first()["selected"])
+            assertEquals(content, profiles.read(id))
+            assertEquals(updatedAt, profiles.get(id).typed.lastUpdated.time)
+            assertEquals(Status.Stopped, activity.serviceStatus.value)
+            assertNull(BoxService.dashboardServer)
+            for ((group, tag) in listOf("auto" to "a", "missing" to "a", "proxy" to "missing")) {
+                assertNotNull(runCatching { nodes.select(group, tag, id, revision) }.exceptionOrNull())
+            }
+            assertEquals("b", rows(nodes.state()["groups"]).first()["selected"])
+
+            profiles.select(other) { activity.serviceStatus.value }
+            assertTrue(runCatching { nodes.select("proxy", "a", id, revision) }.exceptionOrNull() is IllegalArgumentException)
+            profiles.select(id) { activity.serviceStatus.value }
+            val edited = JSONObject(content).put("log", JSONObject().put("level", "warn")).toString()
+            profiles.writeContent(id, edited, revision)
+            assertTrue(runCatching { nodes.select("proxy", "a", id, revision) }.exceptionOrNull() is IllegalArgumentException)
+            val currentRevision = BoxProfiles.revision(edited)
+            val session = CommandTarget.localSession()
+            CommandTarget.setRemoteServer(null)
+            assertNotNull(runCatching {
+                nodes.select("proxy", "a", id, currentRevision) { CommandTarget.requireLocalSession(session) }
+            }.exceptionOrNull())
+            assertEquals("b", rows(nodes.state()["groups"]).first()["selected"])
+
+            withContext(Dispatchers.Main) { activity.applyProfile(recover = true) }
+            coroutineScope {
+                val selected = CompletableDeferred<String>()
+                val client = CommandClient(this, CommandClient.ConnectionType.Groups, object : CommandClient.Handler {
+                    override fun updateGroups(newGroups: MutableList<OutboundGroup>) {
+                        newGroups.firstOrNull { it.tag == "proxy" }?.let { selected.complete(it.selected) }
+                    }
+                }, localOnly = true)
+                try {
+                    client.connect()
+                    assertEquals("b", withTimeout(15_000) { selected.await() })
+                } finally {
+                    client.disconnect()
+                }
+            }
+            assertTrue(rows(nodes.state()["groups"]).isEmpty())
+            assertTrue(runCatching { nodes.select("proxy", "a", id, currentRevision) }.exceptionOrNull() is IllegalArgumentException)
+            Libbox.newStandaloneCommandClient().selectOutbound("proxy", "auto")
+            withContext(Dispatchers.Main) { activity.stopService() }
+            withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+            assertEquals("auto", rows(nodes.state()["groups"]).first()["selected"])
+            assertEquals(edited, profiles.read(id))
+        } finally {
+            withContext(Dispatchers.Main) { activity.stopService() }
+            withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+            if (Settings.selectedProfile == other) profiles.select(id) { activity.serviceStatus.value }
+            profiles.delete(other)
+            cache.delete()
         }
     }
 

@@ -7,7 +7,7 @@ import 'dashboard_chip.dart';
 class ProxyGroupsPanel extends StatelessWidget {
   const ProxyGroupsPanel({super.key});
   @override Widget build(BuildContext context) {
-    final box = context.watchBox(BoxAspect.groups), groups = box.groups;
+    final box = context.watchBox(BoxAspect.groups), groups = box.proxyGroups;
     final timeout = <String>{for (final group in groups) for (final node in rows(group['items']))
       if ((node['testedAt'] as num? ?? 0) > 0 && (node['delay'] as num? ?? 0) <= 0) node['tag'].toString()};
     return BoxPanel(onTap: groups.isEmpty ? null : () => openForm(context, const ProfilesPage()), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -19,7 +19,7 @@ class ProxyGroupsPanel extends StatelessWidget {
       if (groups.isEmpty) Padding(padding: const EdgeInsets.fromLTRB(24, 12, 24, 24), child: Column(spacing: 6, children: [
         ShapeBadge(shape: MaterialShapes.cookie9Sided, color: SurfaceLevel.block.colorOf(context.colorScheme), size: 64,
           child: GlyphIcon(AppGlyphs.layers, size: 26, color: context.colorScheme.onSurfaceVariant)),
-        Text(context.tr(box.running ? 'No proxy groups in this configuration' : 'Start the service to view proxy groups'), textAlign: TextAlign.center,
+        Text(context.tr(box.remote && !box.running ? 'Start the service to view proxy groups' : 'No proxy groups in this configuration'), textAlign: TextAlign.center,
           style: AppTextStyle.subheadline.of(context, emphasized: true)),
       ]))
       else Row(spacing: 12, children: [

@@ -398,7 +398,6 @@ const _zh = <String, String>{
   'Nodes': '节点', 'Profile file': '配置文件',
   'Import nodes': '导入节点', 'Nodes imported': '已导入节点', 'Add nodes': '添加节点', 'New node': '新建节点', 'Skipped': '已跳过',
   'Select multiple': '多选', '{count} selected': '已选择 {count} 项', '{count} nodes': '{count} 个节点',
-  'Nodes in this profile. Tap a node to edit it.': '此配置文件中的节点，点按节点即可编辑。',
   'Delete this node?': '删除此节点？', 'Delete the selected nodes?': '删除所选节点？',
   'Import nodes from the clipboard?': '导入剪贴板中的节点？', 'Offer copied node links': '提示导入已复制的节点链接',
   'Nodes served by proxy providers are not included.': '不包含由代理提供者下发的节点。',

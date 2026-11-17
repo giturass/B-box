@@ -127,7 +127,12 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 groups.updateServiceStatus(it)
                 connections.updateServiceStatus(it)
                 logs.updateServiceStatus(it)
-                if (it == Status.Stopped) emit("rates", mapOf("upload" to 0L, "download" to 0L))
+                if (it == Status.Stopped) {
+                    emit("rates", mapOf("upload" to 0L, "download" to 0L))
+                    scope.launch {
+                        operations.withLock { emit("nodes", withContext(Dispatchers.IO) { nodeState() }) }
+                    }
+                }
             }
         }
         scope.launch {
@@ -521,13 +526,25 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
 
     private suspend fun invokeProxy(method: String, args: Map<String, Any?>): Any? {
         when (method) {
-            "groups.select" -> operations.withLock {
-                val name = args.string("group")
-                val tag = args.string("tag")
-                val group = groups.uiState.value.groups.firstOrNull { it.tag == name } ?: error("Group no longer exists")
-                require(group.selectable) { "This group is selected automatically by sing-box" }
-                require(group.items.any { it.tag == tag }) { "Node no longer exists" }
-                withContext(Dispatchers.IO) { CommandTarget.standaloneClient().selectOutbound(group.tag, tag) }
+            "groups.select" -> {
+                if (args["profileId"] is Number) {
+                    val session = CommandTarget.localSession()
+                    changeNodes(session) {
+                        nodes.select(args.string("group"), args.string("tag"), args.long("profileId"), args.string("profileRevision")) {
+                            CommandTarget.requireLocalSession(session)
+                            require(activity.serviceStatus.value == Status.Stopped) {
+                                "Wait for the local service to stop before selecting a node"
+                            }
+                        }
+                    }
+                } else operations.withLock {
+                    val name = args.string("group")
+                    val tag = args.string("tag")
+                    val group = groups.uiState.value.groups.firstOrNull { it.tag == name } ?: error("Group no longer exists")
+                    require(group.selectable) { "This group is selected automatically by sing-box" }
+                    require(group.items.any { it.tag == tag }) { "Node no longer exists" }
+                    withContext(Dispatchers.IO) { CommandTarget.standaloneClient().selectOutbound(group.tag, tag) }
+                }
             }
             "groups.test" -> withContext(Dispatchers.IO) {
                 val tag = args.string("tag")
@@ -745,7 +762,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Exception) {
-        mapOf("profileId" to Settings.selectedProfile, "profileRevision" to "", "nodes" to emptyList<Any>())
+        mapOf("profileId" to Settings.selectedProfile, "profileRevision" to "", "nodes" to emptyList<Any>(), "groups" to emptyList<Any>())
     }
 
     private suspend fun publishProfiles(ensureDefault: Boolean = true) {

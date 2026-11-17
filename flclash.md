@@ -38,7 +38,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 | --- | --- | --- |
 | 首页与状态 | [dashboard.dart](flutter/lib/pages/dashboard.dart)、[status_panel.dart](flutter/lib/components/status_panel.dart)、[start_toggle.dart](flutter/lib/components/start_toggle.dart) | 复用状态布局、国家徽章、服务按钮形变及网络速率展示；启停调用原生服务流程 |
 | 配置卡与分组概览 | [profile_panel.dart](flutter/lib/components/profile_panel.dart)、[proxy_groups_panel.dart](flutter/lib/components/proxy_groups_panel.dart) | 使用真实配置元数据和内核分组；配置切换按钮固定在右侧，与进入配置的箭头同列居中对齐，按钮名称位于其独立 32 dp 点击语义中。代理组、出站、路由规则数字及加载占位与对应标签逐列居中对齐，远端未知数量保持未知 |
-| 配置页代理区域 | [proxies.dart](flutter/lib/pages/proxies.dart)、[proxy_card.dart](flutter/lib/components/proxy_card.dart)、[proxy_list.dart](flutter/lib/components/proxy_list.dart) | 在配置文件下方显示 libbox 分组，保留卡片/列表、搜索、测速与节点定位；只有可选择的组显示选择操作。本机停服时显示所选配置文件中的节点并允许编辑，运行时显示真实内核分组 |
+| 配置页代理区域 | [proxies.dart](flutter/lib/pages/proxies.dart)、[proxy_card.dart](flutter/lib/components/proxy_card.dart)、[proxy_list.dart](flutter/lib/components/proxy_list.dart) | 在配置文件下方显示 libbox 分组，保留卡片/列表、搜索、测速与节点定位；只有可选择的组显示选择操作。本机停服时由 libbox 读取所选配置的 selector/urltest 并允许选择手动组，启停前后复用同一分组界面；编辑从节点菜单进入 |
 | 配置文件管理 | [profiles.dart](flutter/lib/pages/profiles.dart)、[profile_card.dart](flutter/lib/components/profile_card.dart)、[profile_details.dart](flutter/lib/pages/profile_details.dart)、[subscriptions.dart](flutter/lib/pages/subscriptions.dart) | 顶部横向配置卡片复用行高、对号选中态与相对更新时间，卡片外边框与代理区域使用相同的 16 dp 左右间距；默认文件显示为“配置文件”并与已有配置一同显示，保留添加、更新、排序、编辑和导入 sing-box JSON；URL 节点导入当前文件并保留独立来源，编辑页可管理来源，切换弹层使用自适应网格 |
 | 首页编辑 | [dashboard_editor.dart](flutter/lib/components/dashboard_editor.dart) | 右上角 FlClash 铅笔按钮或长按卡片进入原地编辑，保留摇摆、长按排序、移除徽章及添加列表 |
 | 内存与局域网 | [memory_panel.dart](flutter/lib/components/memory_panel.dart)、[intranet_panel.dart](flutter/lib/components/intranet_panel.dart) | 分别使用 Go/进程内存和 sing-box 监听配置，不虚构 Mihomo 内存或全局代理端口 |
@@ -99,7 +99,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 页面右上角依次为搜索、当前分组测速、添加和收纳菜单；配置卡片外不再显示“配置文件”标题及独立管理按钮行。卡片样式下测速按钮固定在工具栏、不参与收纳，列表样式由各分组标题测速；节点定位沿用工具栏收纳逻辑。添加按钮和空状态按钮打开同一菜单，分为三段：扫描二维码、文件和剪贴板按读到的内容区分配置与节点，“配置”段提供从 URL 导入和“新建配置”，“节点”段提供新建节点。收纳菜单首段为全部更新、配置排序和剪贴板节点导入提示开关，其后是样式、节点排序、布局、尺寸等显示选项；全部更新依次更新各文件的订阅来源及已有远程配置，没有可更新来源或正在更新时禁用，配置文件不足两个时禁用排序。配置排序使用分组背景、拖动手柄及拖动浮起效果。长按菜单依次提供编辑、更新（有订阅来源或远程类型）、复制链接和二维码（远程配置）、分享、导出及删除，删除标为危险操作。当前选中配置的删除项禁用，停服时也需先切换到其他配置；配置页和切换弹层均在打开确认框前及确认后复核最新选择，原生保护见 [app.md](app.md#配置服务应用与备份)。编辑页显示配置摘要，提供元数据分组表单、节点订阅管理、分项配置和原始 JSON 编辑入口。
 
-本机服务未启动时，配置页显示所选配置文件中的“节点”分组，内容由该配置文件读取；来自其他配置的迟到快照不会显示。点按节点打开编辑，长按提供编辑、多选和删除，停服时没有选中项或测速操作。服务运行后改为显示当前内核分组，内核节点点按即选择，长按菜单不含“选择”项；所选配置中定义的节点保留编辑、多选和删除，多选时工具栏显示数量、全选和删除。切换配置或会话清理多选状态。没有可显示的节点或分组时，空状态提供“添加节点”按钮。远程会话仅显示远端分组。
+本机服务未启动时，由 libbox 读取所选配置中的 selector/urltest 分组和手动组的已保存选择，配置页与首页分组卡使用该快照；来自其他配置的迟到快照不会显示。启动前后使用相同的标签页、列表、节点卡片、选中对号和定位入口，点按手动组节点即选择，自动组始终禁止手选。停服及启停过渡期间保留测速控件并禁用，过渡期间同时禁用节点选择；运行后数据由当前内核上报。停服选择由原生确认保存后刷新，不关闭连接或启动服务；选择持久化见 [应用说明](app.md#配置服务应用与备份)，核心读取及自动组未知状态见 [配置分组与停服选择](libbox.md#配置分组与停服选择)。所选配置中定义的节点从长按菜单编辑、多选和删除，多选时工具栏显示数量、全选和删除；普通点按不进入编辑。切换配置或会话清理多选状态。没有分组时，空状态提供“添加节点”按钮。远程会话仅显示远端分组，断开时也不使用本机快照。
 
 [节点导入与编辑](flutter/lib/pages/nodes.dart) 将新建节点、仅含节点的文件/二维码/剪贴板导入和前台剪贴板提示的导入结果直接追加到当前选中配置文件。预览显示目标配置名称，保存和删除同时传递打开操作时的配置 ID 与内容修订，配置切换或内容冲突由原生拒绝，失败保留预览或草稿。独立共享节点页面及节点库状态已移除。
 
@@ -184,14 +184,14 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 **配置、编辑与备份**
 
-- [profiles_test.dart](flutter/test/profiles_test.dart)：新建与二进制导入的内容/元数据、URL 节点导入当前选中文件而不创建配置、失败后保留输入重试、读取修订期间切换配置及冲突后的原目标保留、来源单独编辑/更新/移除、原生元数据事件刷新来源列表及远程会话隔离；覆盖迟到列表响应、来源写操作串行化、退出管理页后的迟到更新、详情页连续更新点击、会话切换后停止单文件/全部更新、草稿取消不写入及保存期间禁止退出。添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、本地时间未知占位、自动更新校验和选中配置定位继续覆盖。横向滑动不切页或选择配置，卡片与列表两种代理样式仍能测速并通过原生确认切换配置，卡片样式从工具栏按钮测速。停服时的“添加节点”空状态、当前配置的对号选中态、所选配置节点分组、迟到快照隔离和节点编辑，以及收纳菜单的全部更新同时处理本地/默认文件来源和已有远程配置均有覆盖。新增节点和仅节点导入携带目标配置修订，冲突保留预览，删除确认期间切换配置保留原目标；默认文件在已有配置旁显示、不可删除或转远端，以及手机/大字号/宽屏下配置卡片边框与代理区域对齐均有用例。列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、通过右上角收纳菜单进入配置排序后的冲突恢复，以及远程分组选择及本机配置隔离继续覆盖。
+- [profiles_test.dart](flutter/test/profiles_test.dart)：新建与二进制导入的内容/元数据、URL 节点导入当前选中文件而不创建配置、失败后保留输入重试、读取修订期间切换配置及冲突后的原目标保留、来源单独编辑/更新/移除、原生元数据事件刷新来源列表及远程会话隔离；覆盖迟到列表响应、来源写操作串行化、退出管理页后的迟到更新、详情页连续更新点击、会话切换后停止单文件/全部更新、草稿取消不写入及保存期间禁止退出。添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、本地时间未知占位、自动更新校验和选中配置定位继续覆盖。横向滑动不切页或选择配置，卡片与列表两种代理样式仍能测速并通过原生确认切换配置，卡片样式从工具栏按钮测速。停服时的“添加节点”空状态、当前配置的对号选中态、所选配置分组、迟到快照隔离和菜单节点编辑，以及收纳菜单的全部更新同时处理本地/默认文件来源和已有远程配置均有覆盖。新增节点和仅节点导入携带目标配置修订，冲突保留预览，删除确认期间切换配置保留原目标；默认文件在已有配置旁显示、不可删除或转远端，以及手机/大字号/宽屏下配置卡片边框与代理区域对齐均有用例。列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、通过右上角收纳菜单进入配置排序后的冲突恢复，以及远程分组选择及本机配置隔离继续覆盖。
 - [configuration_test.dart](flutter/test/configuration_test.dart)：MITM、HTTP 改写、脚本三种配置及 Cron 草稿通过独立路径保存，HTTP/2、证书校验及 QUIC 显式关闭选项正确保存，关闭改写保留 MITM/脚本，校验失败保留内容，原始编辑按修订写入内容且不改动配置元数据。带本地节点注释的格式化内容可加载和保存后回读，原始编辑保留注释，JSON 字符串中的 URL/注释样式文字及其他注释不被统一剥除。
 - [code_editor_test.dart](flutter/test/code_editor_test.dart)：加载应用实际的等宽字体，对照 `RenderEditable` 检查行号在折行、宽度/字号变化及滚动后的对齐，覆盖空行、末尾换行和替换内容。选区用例在 0.8、1.0、1.4 倍字号下实际拖动两端手柄，检查跨行选择、折行文档滚动后的定位，以及通过复制菜单取得的原文范围。
 - [backup_test.dart](flutter/test/backup_test.dart)：取消本地选择器不报告成功也不恢复数据，导出使用紧凑 JSON；恢复传递范围与策略，失败后可重试；WebDAV 上传等待服务器确认且不打开本地选择器；WebDAV 表单校验目录 URL，保存失败和取消关闭后保留长输入。
 
 **代理、状态与出口查询**
 
-- [proxies_test.dart](flutter/test/proxies_test.dart) 与 [proxy_nodes_test.dart](flutter/test/proxy_nodes_test.dart)：自动组禁止手选、延迟测试目标、分组切换、列表折叠及视口外节点定位；节点筛选复用未变化的结果，超时、改名、相同延迟重排和移除使排序结果失效。
+- [proxies_test.dart](flutter/test/proxies_test.dart)、[proxy_nodes_test.dart](flutter/test/proxy_nodes_test.dart) 与 [profiles_test.dart](flutter/test/profiles_test.dart)：自动组禁止手选、延迟测试目标、分组切换、列表折叠及视口外节点定位；停服手动选择在卡片/列表两种样式下携带配置 ID 与修订，失败保留选中项，确认后刷新，启停前后保留分组与节点布局；停服自动组、启停过渡及断开的远程会话禁止选择，远程会话不使用本机快照；节点筛选复用未变化的结果，超时、改名、相同延迟重排和移除使排序结果失效。
 - [status_panel_test.dart](flutter/test/status_panel_test.dart)：状态卡片与出口查询的刷新和会话约定，并将启动按钮的独立无障碍点击入口与配置可用性、实际桥接调用一起验证。
 - [status_panel_parity_test.dart](flutter/test/status_panel_parity_test.dart)：与冻结的 [flclash_status_reference.dart](flutter/test/support/flclash_status_reference.dart) 比较像素，覆盖中英文、深浅主题、0.8/1.0/1.4 字号比例、IPv6、查询等待/失败、组织/ASN 回退及质量等级；停止按钮另行比较，停服状态包含无配置首次启动和设备网络查询的成功/等待/失败情况。参考渲染器独立保留原版标题、chips、徽章、形变、卡片表面和排版，不导入 B-box 的适配仪表盘组件；比较使用相同视口、字号、语言、主题及 Roboto/Noto Sans SC 字体，按卡片自然高度截图并断言高度，双方图像上传为 CI Artifact。
 - [ip_quality_test.dart](flutter/test/ip_quality_test.dart) 与 [ip_quality_cache_test.dart](flutter/test/ip_quality_cache_test.dart)：各来源的类型和标志解析、查询目标地址、不增加固定期限、用户取消不启动后续批次、首个声明类型的来源胜出并取消其余、前序失败或静默时进入后续批次、全部应答后回退推断类型及失败原因；成功结果的内存共享与按 IP 持久化、三天到期边界、无效记录忽略、失败五分钟内存冷却且不持久化、手动重试和刷新跳过缓存、缓存读写失败不丢弃成功结果、取消不返回旧数据也不产生冷却，以及同一 IP 的并发查询共享结果。
@@ -218,6 +218,8 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 - [http_message_test.dart](flutter/test/http_message_test.dart)：JSON 数值/重复键/转义保真、无效内容回退、正文页缩进输出过大时回退原文，以及重复 Cookie、空值、等号和 Expires 逗号。请求正文不完整或截断时不提供 cURL 导出。
 
 ### 当前验证记录
+
+本次停服代理组 UI 与选择修复的检查范围见 [应用验证记录](app.md#当前验证记录)；下面已有 Actions 和截图不包含本次修改。
 
 本轮 XHTTP/VLESS Encryption 支持及许可登记的验证源码为 `8c56b623b46c7ab4c5c4632b1db428ebc49dcb25`。[统一工作流 44086051274](https://github.com/giturass/B-box/actions/runs/44086051274) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44086051274/job/134048708051) 已通过：分析为 84 项 info、无 warning/error，287 项交互/布局测试全部通过，ARM64 Debug/Release Flutter AAR 构建成功。
 
