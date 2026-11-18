@@ -247,6 +247,8 @@ const _zh = <String, String>{
   'Upload and download traffic': '上传和下载流量', 'Selected sing-box configuration': '当前 sing-box 配置',
   'Groups and selected nodes': '代理组和所选节点', 'Available routing modes': '当前可用的路由模式',
   'Import': '导入', 'URL': '链接', 'File': '文件', 'Clipboard': '剪贴板', 'Scan QR code': '扫描二维码',
+  'Scan from image': '从图片识别', 'Reading image…': '正在读取图片…', 'Flash': '闪光灯',
+  'No QR code found in the image': '图片中未找到二维码', 'Unable to read the selected image': '无法读取所选图片',
   'Name': '名称', 'Save': '保存', 'Cancel': '取消', 'Back': '返回', 'Close': '关闭',
   'Delete': '删除', 'Edit': '编辑', 'Update': '更新', 'Update all': '全部更新',
   'Share': '分享', 'Copy': '复制', 'Copied': '已复制', 'Copy link': '复制链接', 'Export': '导出',

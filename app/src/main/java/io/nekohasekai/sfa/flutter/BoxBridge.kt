@@ -8,6 +8,11 @@ import android.net.Uri
 import android.os.PowerManager
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -50,6 +55,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
+import java.io.IOException
 
 class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) : Closeable {
     private val scope = activity.lifecycleScope
@@ -425,6 +431,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             "profiles.reorder" -> changeProfiles { profiles.reorder((args["ids"] as List<*>).map { (it as Number).toLong() }) }
             "profiles.importFile" -> return importProfile()
             "profiles.importResource" -> return importResource(args)
+            "profiles.scan.image" -> return scanImage()
             "profiles.scan" -> return withContext(Dispatchers.Default) { qrScanner.scan(args.string("session"), args.string("text")) }
             "profiles.scan.close" -> qrScanner.close(args.string("session"))
             "profiles.decodeIntent" -> return decodeIntent(args.string("uri"))
@@ -451,6 +458,23 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private suspend fun importProfile(): Map<String, Any?>? {
         val uri = activity.pickDocument() ?: return null
         return withContext(Dispatchers.IO) { decodeDocument(uri) }
+    }
+
+    private suspend fun scanImage(): List<String>? {
+        val uri = activity.pickDocument(mimeType = "image/*") ?: return null
+        return withContext(Dispatchers.IO) {
+            val image = try {
+                InputImage.fromFilePath(activity, uri)
+            } catch (error: IOException) {
+                throw IOException("Unable to read the selected image", error)
+            }
+            val options = BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
+            BarcodeScanning.getClient(options).use { scanner ->
+                Tasks.await(scanner.process(image)).mapNotNull { barcode ->
+                    barcode.rawValue?.takeIf { it.isNotBlank() }
+                }
+            }
+        }
     }
 
     private fun decodeDocument(uri: Uri): Map<String, Any?> {

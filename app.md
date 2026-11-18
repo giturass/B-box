@@ -38,6 +38,8 @@
 | 服务与数据 | `bg/`、`database/`、`utils/` | 保留 sing-box 服务、Room、订阅更新及本地/远程命令目标 |
 | 应用查询 | [vendor/](app/src/main/java/io/nekohasekai/sfa/vendor/) | 普通、Root/Shizuku 应用查询和托管列表扫描；API 24+ 实现及依赖由 `play` / `other` 共用 |
 
+`profiles.scan.image` 复用 Android 文档选择器，以 `image/*` 筛选图片。Android 在后台线程用与 `mobile_scanner` 相同的内置 ML Kit 模型读取所选 URI，只向 Flutter 返回识别出的二维码文本。取消选择返回空值，图片选择和解码可在相机权限被拒绝时使用。
+
 Flutter 配置是 sing-box JSON，分组、可选节点、延迟和模式由 libbox 提供；自动组不可手动选择。VPN 授权、前台服务、连接管理、日志、流量、本地/远程会话及路由保持原有能力边界。具体布局、语言、卡片与工具入口见 [flclash.md](flclash.md)。
 
 Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/Shizuku 终端、Ghostty 设置和导入字体、OpenConnect/OpenVPN 认证、USB/IP 和网络诊断通过 Flutter 页面使用现有后端。崩溃/OOM/电量报告的存储、读取和导出桥接仍保留，既有报告及设置数据不因界面入口调整而清理；当前入口范围见 [导航与交互约定](flclash.md#导航与交互约定)。

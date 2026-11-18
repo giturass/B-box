@@ -295,12 +295,12 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
         }
     }
 
-    suspend fun pickDocument(saveName: String? = null): Uri? {
+    suspend fun pickDocument(saveName: String? = null, mimeType: String = "*/*"): Uri? {
         check(documentRequest == null) { "A document picker is already open" }
         val request = CompletableDeferred<Uri?>()
         documentRequest = request
         try {
-            if (saveName == null) openDocument.launch(arrayOf("*/*")) else createDocument.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            if (saveName == null) openDocument.launch(arrayOf(mimeType)) else createDocument.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = java.net.URLConnection.guessContentTypeFromName(saveName) ?: "application/octet-stream"
                 putExtra(Intent.EXTRA_TITLE, saveName)

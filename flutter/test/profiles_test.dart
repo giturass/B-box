@@ -13,11 +13,31 @@ import 'package:b_box_ui/pages/subscriptions.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 const _remote = {'id': 1, 'name': 'Remote A', 'remote': true,
   'url': 'https://example.org/config.json', 'autoUpdate': true, 'interval': 120, 'updatedAt': 1700000000000};
 const _local = {'id': 2, 'name': 'Local B', 'remote': false};
 const _default = {'id': 3, 'name': 'Profile file', 'remote': false, 'default': true};
+
+class _DeniedCamera extends MobileScannerPlatform {
+  @override
+  Stream<BarcodeCapture?> get barcodesStream => const Stream.empty();
+
+  @override
+  Stream<TorchState> get torchStateStream => const Stream.empty();
+
+  @override
+  Stream<double> get zoomScaleStateStream => const Stream.empty();
+
+  @override
+  Future<MobileScannerViewAttributes> start(StartOptions startOptions) async {
+    throw const MobileScannerException(errorCode: MobileScannerErrorCode.permissionDenied);
+  }
+
+  @override
+  Future<void> dispose() async {}
+}
 
 Future<BoxController> _mount(WidgetTester tester, {List<Json> profiles = const [_remote, _local],
   int selected = 1, bool remoteSession = false, StreamController<dynamic>? eventController,
@@ -114,6 +134,73 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls.where((method) => method == 'profiles.importFile'), hasLength(1));
     expect(find.byType(ProfileForm), findsNothing);
+    expect(calls, isNot(contains('profiles.save')));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('QR images open the existing import preview even when camera access is denied', (tester) async {
+    final platform = MobileScannerPlatform.instance;
+    MobileScannerPlatform.instance = _DeniedCamera();
+    addTearDown(() => MobileScannerPlatform.instance = platform);
+    final cancelledPick = Completer<List<String>?>();
+    final calls = <String>[];
+    final scanned = <String>[];
+    const url = 'https://example.org/nodes';
+    const unrelated = 'Unrelated text';
+    var picks = 0;
+    await _mount(tester, profiles: [_default], selected: 3,
+      nodes: {'profileId': 3, 'profileRevision': 'default-r', 'nodes': []}, handler: (call) async {
+        calls.add(call.method);
+        switch (call.method) {
+          case 'profiles.scan.image':
+            return switch (++picks) {
+              1 => await cancelledPick.future,
+              2 => <String>[],
+              _ => [unrelated, url],
+            };
+          case 'profiles.scan':
+            final text = json(call.arguments)['text'] as String;
+            scanned.add(text);
+            return {'text': text};
+          case 'profiles.decodeIntent':
+            expect(json(call.arguments)['uri'], url);
+            return {'name': 'Image subscription', 'url': url};
+          case 'config.check':
+            throw PlatformException(code: 'invalid_config', message: 'Invalid configuration');
+        }
+        return null;
+      },
+    );
+    await _profiles(tester);
+    await tester.tap(find.byTooltip('Add profile'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Scan QR code'));
+    await tester.pumpAndSettle();
+    expect(find.text('Retry'), findsOneWidget);
+
+    final scanImage = find.text('Scan from image');
+    final noCode = find.text('No QR code found in the image');
+    await tester.tap(scanImage);
+    await tester.pumpAndSettle();
+    expect(find.text('Reading image…'), findsOneWidget);
+    cancelledPick.complete(null);
+    await tester.pumpAndSettle();
+    expect(scanImage, findsOneWidget);
+    expect(noCode, findsNothing);
+
+    await tester.tap(scanImage);
+    await tester.pumpAndSettle();
+    expect(noCode, findsOneWidget);
+    expect(scanned, isEmpty);
+
+    await tester.tap(scanImage);
+    await tester.pumpAndSettle();
+    expect(scanned, [unrelated, url]);
+    expect(find.byType(ScanPage), findsNothing);
+    final preview = tester.widget<SubscriptionForm>(find.byType(SubscriptionForm));
+    expect(preview.profileId, 3);
+    expect(preview.initial['url'], url);
+    expect(calls, isNot(contains('subscriptions.import')));
     expect(calls, isNot(contains('profiles.save')));
     expect(tester.takeException(), isNull);
   });

@@ -4,7 +4,7 @@ import io.nekohasekai.sfa.qrs.QRSDecoder
 import java.nio.ByteBuffer
 import kotlin.io.encoding.Base64
 
-/** One decoder per visible scanner; frames never cross camera sessions. */
+/** One decoder per visible scanner; camera and image frames share that scanner's session. */
 internal class BoxQrScanner(private val decode: (ByteArray, String) -> Map<String, Any?>) {
     private val sessions = mutableMapOf<String, QRSDecoder>()
 

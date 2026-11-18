@@ -178,6 +178,8 @@ dependencies {
     val lifecycleVersion = "2.11.0"
     val roomVersion = "2.8.4"
 
+    // Same bundled model as mobile_scanner, also used directly for document URIs.
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.preference:preference-ktx:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")

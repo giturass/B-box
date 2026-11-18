@@ -454,9 +454,12 @@ class _ScanPageState extends State<ScanPage> {
   final _camera = MobileScannerController(formats: const [BarcodeFormat.qrCode]);
   final _session = DateTime.now().microsecondsSinceEpoch.toString();
   BoxController? _box;
-  bool _complete = false, _busy = false;
+  Future<void>? _cameraScan;
+  bool _complete = false, _pickingImage = false;
   int _decoded = 0, _total = 0;
   String? _error;
+  bool get _canScan => mounted && !_complete && ModalRoute.of(context)?.isCurrent != false;
+
   @override void didChangeDependencies() { super.didChangeDependencies(); _box ??= context.box; }
   @override void dispose() {
     _box?.act('profiles.scan.close', {'session': _session});
@@ -464,41 +467,100 @@ class _ScanPageState extends State<ScanPage> {
     super.dispose();
   }
 
-  Future<void> _scan(String text) async {
-    if (_busy || _complete) return;
-    _busy = true;
+  Future<void> _scanText(String text) async {
     try {
       final result = json(await _box!.call('profiles.scan', {'session': _session, 'text': text}));
-      if (!mounted) return;
+      if (!_canScan) return;
       final profile = result['profile'] is Map ? json(result['profile'])
           : result['text'] is String ? await decodeImport(_box!, result['text'] as String) : null;
-      if (!mounted) return;
-      if (profile != null) { _complete = true; context.safeNestedPop(profile); }
-      else { setState(() { _decoded = (result['decoded'] as num).toInt(); _total = (result['total'] as num).toInt(); _error = null; }); }
-    } catch (error) { if (mounted) setState(() => _error = BoxController.describe(error)); }
-    finally { _busy = false; }
+      if (!_canScan) return;
+      if (profile != null) {
+        _complete = true;
+        context.safeNestedPop(profile);
+      } else {
+        setState(() {
+          _decoded = (result['decoded'] as num).toInt();
+          _total = (result['total'] as num).toInt();
+          _error = null;
+        });
+      }
+    } catch (error) {
+      if (_canScan) setState(() => _error = BoxController.describe(error));
+    }
   }
+
+  Future<void> _scanCamera(BarcodeCapture capture) async {
+    if (_pickingImage || _cameraScan != null || !_canScan) return;
+    for (final code in capture.barcodes) {
+      final text = code.rawValue;
+      if (text == null || text.isEmpty) continue;
+      final scan = _scanText(text);
+      _cameraScan = scan;
+      try {
+        await scan;
+      } finally {
+        _cameraScan = null;
+      }
+      break;
+    }
+  }
+
+  Future<void> _pickImage() async {
+    if (_pickingImage || !_canScan) return;
+    setState(() {
+      _pickingImage = true;
+      _error = null;
+    });
+    try {
+      await _cameraScan;
+      if (!_canScan) return;
+      final texts = (await _box!.call('profiles.scan.image') as List<Object?>?)?.cast<String>();
+      if (texts == null || !_canScan) return;
+      if (texts.isEmpty) {
+        setState(() => _error = 'No QR code found in the image');
+        return;
+      }
+      for (final text in texts) {
+        if (!_canScan) break;
+        await _scanText(text);
+      }
+    } catch (error) {
+      if (_canScan) setState(() => _error = BoxController.describe(error));
+    } finally {
+      if (mounted) setState(() => _pickingImage = false);
+    }
+  }
+
   @override Widget build(BuildContext context) => Scaffold(
     title: context.tr('Scan QR code'),
-    iconActions: [IconButtonData(glyph: AppGlyphs.torch, tooltip: 'Flash', onPressed: _camera.toggleTorch)],
-    body: Padding(padding: EdgeInsets.only(top: context.appBarInset), child: Column(children: [Expanded(child: MobileScanner(
-      controller: _camera,
-      onDetect: (capture) {
-        if (_complete || _busy) return;
-        for (final code in capture.barcodes) {
-          final text = code.rawValue;
-          if (text == null || text.isEmpty) continue;
-          _scan(text);
-          break;
-        }
-      },
-      errorBuilder: (context, error) => ErrorState(error, retry: _camera.start),
-    )),
-      if (_total > 0) Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-        LinearProgressIndicator(value: _decoded / _total),
-        Text('${context.tr('Scanning configuration')} $_decoded / $_total'),
-      ])),
-      if (_error != null) Padding(padding: const EdgeInsets.all(16), child: Text(_error!)),
-    ])),
+    iconActions: [IconButtonData(glyph: AppGlyphs.torch, tooltip: context.tr('Flash'), onPressed: _camera.toggleTorch)],
+    body: Padding(
+      padding: EdgeInsets.only(top: context.appBarInset),
+      child: Column(children: [
+        Expanded(child: MobileScanner(
+          controller: _camera,
+          onDetect: _scanCamera,
+          errorBuilder: (context, error) => ErrorState(error, retry: _camera.start),
+        )),
+        Padding(
+          padding: EdgeInsets.fromLTRB(16, 12, 16, 16 + context.bottomInset),
+          child: Column(spacing: 8, children: [
+            if (_total > 0) ...[
+              LinearProgressIndicator(value: _decoded / _total),
+              Text('${context.tr('Scanning configuration')} $_decoded / $_total'),
+            ],
+            if (_error case final error?) Semantics(
+              liveRegion: true,
+              child: Text(context.tr(error), textAlign: TextAlign.center),
+            ),
+            TonalButton(
+              glyph: AppGlyphs.photos,
+              label: context.tr(_pickingImage ? 'Reading image…' : 'Scan from image'),
+              onPressed: _pickingImage ? null : _pickImage,
+            ),
+          ]),
+        ),
+      ]),
+    ),
   );
 }
