@@ -10,6 +10,7 @@ class WarpPage extends StatefulWidget {
 
 class _WarpPageState extends State<WarpPage> {
   static int _requestSequence = 0;
+  static const _emptyNameError = 'Node name must not be empty';
   final _name = TextEditingController(text: 'WARP');
   String _transport = 'http3';
   BoxController? _box;
@@ -98,7 +99,7 @@ class _WarpPageState extends State<WarpPage> {
     if (profileId < 0 || profileId != box.selectedProfileId || box.selectedProfile == null) return;
     final name = _name.text.trim();
     if (pending == null && name.isEmpty) {
-      setState(() => _error = 'Node name must not be empty');
+      setState(() => _error = _emptyNameError);
       return;
     }
     final transport = _transport, session = box.sessionRevision;
@@ -132,10 +133,10 @@ class _WarpPageState extends State<WarpPage> {
     } catch (error) {
       if (!_sameSession(box, session)) return;
       setState(() {
-        _error = BoxController.describe(error);
-        if (error is PlatformException && error.code == 'warp_pending') {
-          _pending = _pendingMetadata(error.details) ?? pending;
-        }
+        final pendingResult = error is PlatformException && error.code == 'warp_pending'
+          ? _pendingMetadata(error.details) ?? pending : null;
+        if (pendingResult != null) _pending = pendingResult;
+        _error = pendingResult == null ? BoxController.describe(error) : null;
       });
     } finally {
       if (mounted) {
@@ -176,60 +177,156 @@ class _WarpPageState extends State<WarpPage> {
     return profile == null ? context.tr('Profile no longer exists') : profileDisplayName(context, profile);
   }
 
+  String _transportLabel(Object? value) => value == 'http2' ? 'HTTP/2' : 'HTTP/3';
+
+  Widget _registrationForm(Json? profile) {
+    final readOnly = _busy || _registeringElsewhere;
+    final transportTitle = Text(context.tr('MASQUE transport'));
+    return generateSection(
+      title: context.tr('Node settings'),
+      footer: _transport == 'http3' ? context.tr('HTTP/3 can fall back to HTTP/2.') : null,
+      items: [
+        ListItem(
+          title: Text(context.tr('Current profile')),
+          subtitle: Text(profile == null ? context.tr('No profile') : profileDisplayName(context, profile)),
+        ),
+        DecorationListItem(
+          minVerticalPadding: 12,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            spacing: 4,
+            children: [
+              Text(context.tr('Node name'), style: context.listSubtitleStyle),
+              TextField(
+                key: const ValueKey('warp-name'),
+                controller: _name,
+                readOnly: readOnly,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  isCollapsed: true,
+                  border: const NoInputBorder(),
+                  hintText: context.tr('Required'),
+                  errorText: _error == _emptyNameError ? context.tr(_emptyNameError) : null,
+                ),
+                onChanged: (_) {
+                  if (_error == _emptyNameError) setState(() => _error = null);
+                },
+              ),
+            ],
+          ),
+        ),
+        if (readOnly)
+          ListItem(title: transportTitle, trailing: Text(_transportLabel(_transport)))
+        else
+          ListItem<String>.options(
+            title: transportTitle,
+            options: const ['http3', 'http2'],
+            value: _transport,
+            textBuilder: _transportLabel,
+            onChanged: (value) {
+              if (!_busy && !_registeringElsewhere) setState(() => _transport = value);
+            },
+          ),
+      ],
+    );
+  }
+
   @override Widget build(BuildContext context) {
     final box = context.box;
     if (box.remote) return BoxEditGuard(dirty: false, busy: _busy, child: const BoxPage(
-      title: 'WARP registration', children: [EmptyState('Disconnect remote session to register WARP')],
+      title: 'WARP registration',
+      children: [EmptyState('Disconnect remote session to register WARP', glyph: AppGlyphs.cloudDownload)],
     ));
-    final pending = _pending, saved = _saved;
+
+    final pending = _pending, saved = _saved, profile = box.selectedProfile;
     final target = pending?['profileId'] as int? ?? box.selectedProfileId;
-    final canSave = !_busy && !_loading && _snapshotLoaded && !_registeringElsewhere && !box.transitioning &&
-      box.selectedProfile != null && target == box.selectedProfileId;
+    final targetAvailable = profile != null && target == box.selectedProfileId;
+    final locked = _busy || _loading || _registeringElsewhere;
+    final canSave = !locked && _snapshotLoaded && !box.transitioning && targetAvailable;
+    final operation = switch ((_busy, _discarding, _canceling, _retrying)) {
+      (false, _, _, _) => null,
+      (_, true, _, _) => 'Discarding WARP node',
+      (_, _, true, _) => 'Canceling WARP registration',
+      (_, _, _, true) => 'Saving WARP configuration',
+      _ => 'Registering WARP and saving configuration',
+    };
+    final notice = _registeringElsewhere ? 'WARP registration is already running'
+      : box.transitioning ? 'Wait for the service to finish starting or stopping'
+      : pending == null && profile == null ? 'Select a profile before registering WARP' : null;
+    final error = _error == _emptyNameError ? null : _error;
+
     return BoxEditGuard(dirty: false, busy: _busy, child: BoxPage(
-      title: 'WARP registration', loading: _busy || _loading || _registeringElsewhere,
+      title: 'WARP registration',
+      loading: locked,
       actions: [IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Refresh'), onPressed: _busy || _loading ? null : _refresh)],
       children: [
-        ListFooter(text: context.tr('Register a WARP MASQUE node and add it to the selected configuration.')),
-        if (_error != null) Padding(padding: const EdgeInsets.all(16),
-          child: Text(context.tr(_error!), style: context.listSubtitleStyle.copyWith(color: context.colorScheme.error))),
-        if (pending != null) generateSection(title: context.tr('Registration succeeded; configuration was not saved'),
-          footer: context.tr('Retry saves the registered node to its original configuration.'), items: [
-            ListItem(title: Text(context.tr('Profile')), subtitle: Text(_profileName(box, target))),
-            ListItem(title: Text(context.tr('Node name')), subtitle: Text(pending['name'] as String)),
-            ListItem(title: Text(context.tr('MASQUE transport')), trailing: Text(pending['transport'] == 'http2' ? 'HTTP/2' : 'HTTP/3')),
+        if (saved != null) generateSection(items: [
+          Semantics(liveRegion: true, child: ListItem(
+            leading: GlyphIcon(AppGlyphs.checkCircle, color: context.colorScheme.success),
+            title: Text(context.tr('WARP saved to configuration')),
+            subtitle: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_profileName(box, saved['profileId'] as int)),
+              Text(saved['tag'] as String),
+            ]),
+          )),
+        ]),
+        if (pending != null)
+          generateSection(
+            footer: context.tr(targetAvailable ? 'Retry saves the registered node to its original configuration.'
+              : 'Select the original profile before retrying WARP'),
+            items: [
+              Semantics(liveRegion: true, child: ListItem(
+                leading: GlyphIcon(AppGlyphs.warning, color: context.colorScheme.warning),
+                title: Text(context.tr('WARP node awaiting save')),
+              )),
+              ListItem(title: Text(context.tr('Profile')), subtitle: Text(_profileName(box, target))),
+              ListItem(title: Text(context.tr('Node name')), subtitle: Text(pending['name'] as String)),
+              ListItem(title: Text(context.tr('MASQUE transport')), trailing: Text(_transportLabel(pending['transport']))),
+            ],
+          )
+        else
+          _registrationForm(profile),
+        if (error != null || notice != null || operation != null) generateSection(items: [
+          if (error != null) Semantics(liveRegion: true, child: ListItem(
+            leading: GlyphIcon(AppGlyphs.error, color: context.colorScheme.error),
+            title: Text(context.tr(error)),
+          )),
+          if (notice != null) ListItem(leading: const GlyphIcon(AppGlyphs.info), title: Text(context.tr(notice))),
+          if (operation != null) Semantics(liveRegion: true, child: ListItem(
+            leading: const ActivityIndicator(size: 18),
+            title: Text(context.tr(operation)),
+          )),
+        ]),
+        Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, spacing: 4, children: [
+            FilledButton.icon(
+              key: const ValueKey('warp-register'),
+              onPressed: canSave ? _registerOrRetry : null,
+              icon: GlyphIcon(pending == null ? AppGlyphs.cloudDownload : AppGlyphs.check),
+              label: Text(context.tr(pending == null ? 'Register and save' : 'Retry saving'), textAlign: TextAlign.center),
+            ),
+            if (_busy && _requestId != null && !_retrying) TextButton(
+              key: const ValueKey('warp-cancel'),
+              onPressed: _canceling ? null : _cancel,
+              child: Text(context.tr('Cancel registration')),
+            ),
+            if (pending != null) TextButton(
+              key: const ValueKey('warp-discard'),
+              onPressed: locked ? null : _discard,
+              child: Text(context.tr('Discard')),
+            ),
           ]),
-        if (saved != null) generateSection(title: context.tr('WARP saved to configuration'), items: [
-          ListItem(title: Text(_profileName(box, saved['profileId'] as int)), subtitle: Text(saved['tag'] as String)),
-        ]),
+        ),
         if (pending == null) generateSection(items: [
-          ListItem(title: Text(context.tr('Current profile')), subtitle: Text(box.selectedProfile == null
-            ? context.tr('No profile') : profileDisplayName(context, box.selectedProfile!))),
-          Padding(padding: const EdgeInsets.all(16), child: BoxField(label: context.tr('Node name'),
-            child: TextField(key: const ValueKey('warp-name'), controller: _name, readOnly: _busy || _registeringElsewhere,
-              autocorrect: false, onChanged: (_) { if (_error != null) setState(() => _error = null); }))),
-          AbsorbPointer(absorbing: _busy || _registeringElsewhere, child: ListItem<String>.options(
-            title: Text(context.tr('MASQUE transport')), options: const ['http3', 'http2'],
-            value: _transport, textBuilder: (value) => value == 'http2' ? 'HTTP/2' : 'HTTP/3',
-            onChanged: (value) => setState(() => _transport = value))),
+          ListItem(
+            leading: const GlyphIcon(AppGlyphs.link),
+            title: Text(context.tr('Cloudflare WARP terms of service')),
+            subtitle: Text(context.tr('Registration creates a device account with Cloudflare.')),
+            trailing: const GlyphIcon(AppGlyphs.openExternal),
+            onTap: _busy ? null : () => box.act('url.open', {'url': 'https://www.cloudflare.com/application/terms/'}),
+          ),
         ]),
-        if (_registeringElsewhere) ListFooter(text: context.tr('WARP registration is already running')),
-        if (box.transitioning) ListFooter(text: context.tr('Wait for the service to finish starting or stopping')),
-        if (box.selectedProfile == null) ListFooter(text: context.tr('Select a profile before registering WARP')),
-        if (pending != null && target != box.selectedProfileId) ListFooter(text: context.tr('Select the original profile before retrying WARP')),
-        Padding(padding: const EdgeInsets.symmetric(vertical: 16), child: FilledButton(
-          key: const ValueKey('warp-register'), onPressed: canSave ? _registerOrRetry : null,
-          child: Text(context.tr(_busy ? _discarding ? 'Discarding WARP node' : _canceling ? 'Canceling WARP registration' : _retrying ? 'Saving WARP configuration' : 'Registering WARP and saving configuration'
-            : pending == null ? 'Register and save' : 'Retry saving')),
-        )),
-        if (_busy && _requestId != null && !_retrying) TextButton(key: const ValueKey('warp-cancel'),
-          onPressed: _canceling ? null : _cancel, child: Text(context.tr('Cancel registration'))),
-        if (pending != null) TextButton(key: const ValueKey('warp-discard'), onPressed: _busy || _loading || _registeringElsewhere ? null : _discard,
-          child: Text(context.tr('Discard'))),
-        if (pending == null) ...[
-          ListFooter(text: context.tr('Registering creates a device account with Cloudflare and saves the node to this configuration.')),
-          TextButton(onPressed: _busy ? null : () => box.act('url.open', {'url': 'https://www.cloudflare.com/application/terms/'}),
-            child: Text(context.tr('Cloudflare WARP terms of service'), style: context.listSubtitleStyle.copyWith(color: context.colorScheme.primary))),
-        ],
       ],
     ));
   }

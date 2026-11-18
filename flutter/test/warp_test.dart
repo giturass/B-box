@@ -14,9 +14,10 @@ const _profiles = [
 
 Future<BoxController> _mount(WidgetTester tester, {Json dashboard = const {},
   StreamController<dynamic>? eventController, Size size = const Size(360, 800), double scale = 1,
+  Locale locale = const Locale('en'),
   Future<dynamic> Function(MethodCall)? handler}) async {
   reportFlutterErrors();
-  tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];
+  tester.binding.platformDispatcher.localesTestValue = [locale];
   addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -41,13 +42,14 @@ Future<BoxController> _mount(WidgetTester tester, {Json dashboard = const {},
     await events.close();
     messenger.setMockMethodCallHandler(channel, null);
   });
-  await tester.tap(find.text('Tools').last);
+  await tester.tap(find.text(tester.element(find.byType(HomePage)).tr('Tools')).last);
   await tester.pumpAndSettle();
   return box;
 }
 
 Future<void> _open(WidgetTester tester) async {
-  final entry = find.descendant(of: find.byType(ToolsPage), matching: find.text('WARP registration'));
+  final tools = find.byType(ToolsPage);
+  final entry = find.descendant(of: tools, matching: find.text(tester.element(tools).tr('WARP registration')));
   await Scrollable.ensureVisible(tester.element(entry), alignment: .5);
   await tester.pumpAndSettle();
   await tester.tap(entry);
@@ -81,12 +83,23 @@ void main() {
     expect(tester.getCenter(terminal).dy, lessThan(tester.getCenter(warp).dy));
     expect(tester.getCenter(warp).dy, lessThan(tester.getCenter(diagnostics).dy));
     await _open(tester);
-    await tester.enterText(find.byKey(const ValueKey('warp-name')), 'Cloudflare');
+    final field = find.byKey(const ValueKey('warp-name'));
+    final action = find.byKey(const ValueKey('warp-register'));
+    expect(find.text('HTTP/3 can fall back to HTTP/2.'), findsOneWidget);
+    await tester.enterText(field, '');
+    await _reveal(tester, action);
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(field).decoration?.errorText, 'Node name must not be empty');
+    expect(calls.where((call) => call.method == 'warp.register'), isEmpty);
+    await tester.enterText(field, 'Cloudflare');
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(field).decoration?.errorText, isNull);
     await tester.tap(find.text('HTTP/3'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('HTTP/2').hitTestable());
     await tester.pumpAndSettle();
-    final action = find.byKey(const ValueKey('warp-register'));
+    expect(find.text('HTTP/3 can fall back to HTTP/2.'), findsNothing);
     await _reveal(tester, action);
     await tester.tap(action);
     await tester.pumpAndSettle();
@@ -123,6 +136,7 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(tester.widget<FilledButton>(action).onPressed, isNull);
+    expect(find.text('Registering WARP and saving configuration'), findsOneWidget);
     final guard = tester.widget<BoxEditGuard>(find.descendant(of: find.byType(WarpPage), matching: find.byType(BoxEditGuard)));
     expect(guard.busy, isTrue);
     final popGuard = tester.widget<PopGuard>(find.descendant(of: find.byType(WarpPage), matching: find.byType(PopGuard)).first);
@@ -136,7 +150,7 @@ void main() {
     expect(json(calls.singleWhere((call) => call.method == 'warp.cancel').arguments), {'requestId': registerArgs['requestId']});
     expect(find.byType(WarpPage), findsOneWidget);
     expect(tester.widget<FilledButton>(action).onPressed, isNotNull);
-    expect(find.text('Registration succeeded; configuration was not saved'), findsOneWidget,
+    expect(find.text('WARP node awaiting save'), findsOneWidget,
       reason: 'Cancellation after registration must recover the native pending node.');
     expect(calls.where((call) => call.method == 'warp.snapshot'), hasLength(2));
     expect(find.text('WARP saved to configuration'), findsNothing);
@@ -190,19 +204,19 @@ void main() {
     await _reveal(tester, action);
     await tester.tap(action);
     await tester.pumpAndSettle();
-    expect(find.text('Registration succeeded; configuration was not saved'), findsOneWidget);
+    expect(find.text('WARP node awaiting save'), findsOneWidget);
     expect(find.textContaining('never-display-this-secret'), findsNothing);
     tester.element(find.byType(WarpPage)).safeNestedPop();
     await tester.pumpAndSettle();
     await _open(tester);
-    expect(find.text('Registration succeeded; configuration was not saved'), findsOneWidget);
+    expect(find.text('WARP node awaiting save'), findsOneWidget);
     await _reveal(tester, action);
     await tester.tap(action);
     await tester.pumpAndSettle();
     expect(calls.where((call) => call.method == 'warp.register'), hasLength(1));
     expect(json(calls.singleWhere((call) => call.method == 'warp.retry').arguments),
       {'profileId': 1, 'profileRevision': 'revision-2', 'pendingId': 'operation-1'});
-    expect(find.text('Registration succeeded; configuration was not saved'), findsNothing);
+    expect(find.text('WARP node awaiting save'), findsNothing);
     expect(find.text('WARP saved to configuration'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
@@ -237,7 +251,7 @@ void main() {
     await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Discard')).hitTestable());
     await tester.pumpAndSettle();
     expect(json(calls.singleWhere((call) => call.method == 'warp.discard').arguments), {'pendingId': 'operation-1'});
-    expect(find.text('Registration succeeded; configuration was not saved'), findsNothing);
+    expect(find.text('WARP node awaiting save'), findsNothing);
     expect(calls.where((call) => call.method == 'warp.retry'), isEmpty);
     expect(tester.takeException(), isNull);
   });
@@ -289,14 +303,16 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('WARP remains usable at 320 pixels with large text and exposes the Cloudflare terms link', (tester) async {
+  testWidgets('WARP remains usable in Chinese at 320 pixels with large text and exposes the terms link', (tester) async {
     final calls = <MethodCall>[];
-    await _mount(tester, size: const Size(320, 800), scale: 1.4, handler: (call) async {
+    await _mount(tester, size: const Size(320, 800), scale: 1.4, locale: const Locale('zh'), handler: (call) async {
       calls.add(call);
       if (call.method == 'warp.snapshot') return {'registering': false};
       return true;
     });
     await _open(tester);
+    expect(find.text('节点设置'), findsOneWidget);
+    expect(find.text('HTTP/3 可以回退到 HTTP/2。'), findsOneWidget);
     final field = find.byKey(const ValueKey('warp-name'));
     final action = find.byKey(const ValueKey('warp-register'));
     expect(tester.getRect(field).left, greaterThanOrEqualTo(16));
@@ -304,7 +320,7 @@ void main() {
     await _reveal(tester, action);
     expect(action.hitTestable(), findsOneWidget);
     expect(tester.getSize(action).width, lessThanOrEqualTo(288));
-    final terms = find.text('Cloudflare WARP terms of service');
+    final terms = find.text('Cloudflare WARP 服务条款');
     await _reveal(tester, terms);
     await tester.tap(terms);
     await tester.pumpAndSettle();
