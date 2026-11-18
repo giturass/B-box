@@ -556,6 +556,15 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                 nodeState()
             }
             "nodes.get" -> return localProfiles { nodes.get(args.string("tag"), args.long("profileId")) }
+            "nodes.share" -> {
+                val session = CommandTarget.localSession()
+                return localProfiles(session) {
+                    nodes.share((args["tags"] as List<*>).map { it as String },
+                        args.long("profileId"), args.string("profileRevision")).also {
+                        CommandTarget.requireLocalSession(session)
+                    }
+                }
+            }
             "nodes.add" -> return changeNodes { nodes.add(args.string("nodes"), args.long("profileId"), args.string("profileRevision")) }
             "nodes.set" -> changeNodes { nodes.set(args.string("tag"), args.string("content"), args["revision"] as? String,
                 args.long("profileId"), args.string("profileRevision")) }

@@ -658,6 +658,60 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('node cards share one QR or multiple links and discard a stale preview', (tester) async {
+    final events = StreamController<dynamic>.broadcast();
+    final requests = <Json>[], shared = <String>[];
+    const first = 'socks5://192.0.2.10:1080#Node%20A';
+    const second = 'socks5://192.0.2.20:1080#Node%20B';
+    const profileNodes = {
+      'profileId': 1, 'profileRevision': 'file-r',
+      'nodes': [{'tag': 'Node A', 'type': 'socks'}, {'tag': 'Node B', 'type': 'socks'}],
+      'groups': [{'tag': 'Proxy', 'type': 'Selector', 'selectable': true, 'selected': 'Node A',
+        'items': [{'tag': 'Node A', 'type': 'socks'}, {'tag': 'Node B', 'type': 'socks'}]}],
+    };
+    await _mount(tester, eventController: events, nodes: profileNodes, handler: (call) async {
+      final args = json(call.arguments);
+      if (call.method == 'nodes.share') {
+        requests.add(args);
+        return (args['tags'] as List).length == 1
+            ? '{"nodes":[{"tag":"Node A","link":"$first"}],"json":"[]"}'
+            : '{"nodes":[{"tag":"Node A","link":"$first"},{"tag":"Node B","link":"$second"}],"json":"[]"}';
+      }
+      if (call.method == 'share.text') shared.add(args['content'] as String);
+      return null;
+    });
+    await _profiles(tester);
+    Finder card(String tag) => find.byWidgetPredicate((widget) => widget is ProxyNodeCard && widget.node['tag'] == tag);
+    await tester.longPress(card('Node A'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Share').hitTestable());
+    await tester.pumpAndSettle();
+    expect(tester.widget<QrCodeView>(find.byType(QrCodeView)).data, first);
+    expect(requests.single, {'tags': ['Node A'], 'profileId': 1, 'profileRevision': 'file-r'});
+    tester.element(find.byType(NodeSharePage)).safeNestedPop();
+    await tester.pumpAndSettle();
+
+    await tester.longPress(card('Node A'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Select multiple').hitTestable());
+    await tester.pumpAndSettle();
+    await tester.tap(card('Node B'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Share nodes').hitTestable());
+    await tester.pumpAndSettle();
+    expect(requests.last, {'tags': ['Node A', 'Node B'], 'profileId': 1, 'profileRevision': 'file-r'});
+    expect(find.byType(QrCodeView), findsNothing);
+    await tester.tap(find.byTooltip('Share').hitTestable());
+    await tester.pumpAndSettle();
+    expect(shared, ['$first\n$second']);
+
+    events.add({'type': 'nodes', 'value': {...profileNodes, 'profileRevision': 'changed-r'}});
+    await tester.pumpAndSettle();
+    expect(find.text('Configuration changed. Reopen node sharing.'), findsOneWidget);
+    expect(find.byTooltip('Share').hitTestable(), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('node delete confirmation keeps the original profile and revision', (tester) async {
     final events = StreamController<dynamic>.broadcast();
     final deletions = <Json>[];

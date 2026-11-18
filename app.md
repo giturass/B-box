@@ -40,6 +40,8 @@
 
 `profiles.scan.image` 复用 Android 文档选择器，以 `image/*` 筛选图片。Android 在后台线程用与 `mobile_scanner` 相同的内置 ML Kit 模型读取所选 URI，只向 Flutter 返回识别出的二维码文本。取消选择返回空值，图片选择和解码可在相机权限被拒绝时使用。
 
+`nodes.share` 按所选配置 ID、内容修订和节点名称读取本地配置。在配置互斥锁内生成分享内容，返回前复核本机会话。节点凭据只随该请求返回给分享页。用户点击系统分享时复用 `share.text` 的 Android 文本选择器。交互和可用格式见 [节点分享](flclash.md#节点分享)。
+
 Flutter 配置是 sing-box JSON，分组、可选节点、延迟和模式由 libbox 提供；自动组不可手动选择。VPN 授权、前台服务、连接管理、日志、流量、本地/远程会话及路由保持原有能力边界。具体布局、语言、卡片与工具入口见 [flclash.md](flclash.md)。
 
 Tailscale 端点/节点/出口节点/Ping、Taildrop 收发与分享、SSH/Root/Shizuku 终端、Ghostty 设置和导入字体、OpenConnect/OpenVPN 认证、USB/IP 和网络诊断通过 Flutter 页面使用现有后端。崩溃/OOM/电量报告的存储、读取和导出桥接仍保留，既有报告及设置数据不因界面入口调整而清理；当前入口范围见 [导航与交互约定](flclash.md#导航与交互约定)。

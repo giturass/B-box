@@ -110,6 +110,11 @@ internal class BoxNodes(
             "revision" to ProfileContent.revision(nodeContent), "profileId" to profile.id, "profileRevision" to ProfileContent.revision(content))
     }
 
+    suspend fun share(tags: List<String>, profileId: Long, profileRevision: String): String = mutex.withLock {
+        val (_, content) = selected(profileId, profileRevision)
+        Libbox.shareUIConfigNodes(content, JSONArray(tags).toString()).value
+    }
+
     suspend fun set(tag: String, content: String, expectedRevision: String?, profileId: Long, profileRevision: String) = mutex.withLock {
         val (profile, previous) = selected(profileId, profileRevision)
         if (tag.isNotEmpty()) {

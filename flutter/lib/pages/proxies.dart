@@ -29,7 +29,7 @@ class _ProxiesPageState extends State<ProxiesPage> {
   // The nodes marked for one action on all of them; null while a tap selects a node.
   Set<String>? _picked;
   int _pickRevision = 0;
-  String? _profileKey;
+  (int, int)? _profileSession;
   Set<String> _tags = const {}, _editableTags = const {};
 
   @override void dispose() {
@@ -97,6 +97,18 @@ class _ProxiesPageState extends State<ProxiesPage> {
     if (await removeNodes(context, tags) && mounted && _picked != null) _endPicking();
   }
 
+  void _share(List<String> tags, {required int profileId, required int session, required bool showQr}) {
+    if (!mounted) return;
+    final box = context.box;
+    if (box.remote || box.selectedProfileId != profileId || box.sessionRevision != session) return;
+    final snapshot = box.selectedProfileNodes;
+    if (snapshot['profileId'] != profileId || snapshot['profileRevision'] is! String) return;
+    openForm(context, NodeSharePage(
+      tags: tags, profileId: profileId, profileRevision: snapshot['profileRevision'] as String,
+      session: session, showQr: showQr,
+    ));
+  }
+
   List<String> _pickable(List<Json> groups, bool list) => {
     for (final group in groups)
       if (list || group['tag'] == _currentGroup)
@@ -107,6 +119,8 @@ class _ProxiesPageState extends State<ProxiesPage> {
   Widget _card(BuildContext context, Json group, Json node) {
     final tag = node['tag'] as String;
     final editable = _editable(node);
+    final box = this.context.box;
+    final profileId = box.selectedProfileId, session = box.sessionRevision;
     void edit() => openForm(this.context, NodeEditorPage(tag: tag));
     return ProxyNodeCard(
       group: group, node: node, testing: _testing.contains(group['tag']) || _testing.contains(tag),
@@ -115,6 +129,8 @@ class _ProxiesPageState extends State<ProxiesPage> {
       picked: _picked?.contains(tag), onPick: editable ? () => _pick(tag) : null,
       menuItems: !editable ? const [] : [
         PopupMenuItem(section: const PopupMenuSection(), glyph: AppGlyphs.edit, label: this.context.tr('Edit'), onPressed: edit),
+        PopupMenuItem(glyph: AppGlyphs.upload, label: this.context.tr('Share'),
+          onPressed: () => _share([tag], profileId: profileId, session: session, showQr: true)),
         PopupMenuItem(glyph: AppGlyphs.checkDouble, label: this.context.tr('Select multiple'), onPressed: () => _pick(tag)),
         PopupMenuItem(danger: true, glyph: AppGlyphs.delete, label: this.context.tr('Delete'), onPressed: () => _remove([tag])),
       ],
@@ -153,9 +169,11 @@ class _ProxiesPageState extends State<ProxiesPage> {
 
   @override Widget build(BuildContext context) {
     final box = context.watchBox(BoxAspect.groups);
-    final profileKey = box.remote ? 'remote:${box.dashboard['remote']}' : 'local:${box.selectedProfileId}';
-    if (_profileKey != profileKey) {
-      _profileKey = profileKey;
+    final profileId = box.selectedProfileId, session = box.sessionRevision;
+    final profileKey = box.remote ? 'remote:${box.dashboard['remote']}' : 'local:$profileId';
+    final profileSession = (session, profileId);
+    if (_profileSession != profileSession) {
+      _profileSession = profileSession;
       _picked = null;
       _pickRevision++;
       _nodeLists.clear();
@@ -200,8 +218,8 @@ class _ProxiesPageState extends State<ProxiesPage> {
       description: widget.idleAction == null ? null : context.tr('Add nodes to the selected profile.'),
       action: widget.idleAction,
     ) : list ? ProxyListView(
-      key: ValueKey(box.remote ? 'remote:${box.dashboard['remote']}' : 'local:${box.selectedProfileId}'),
-      profileKey: box.remote ? 'remote:${box.dashboard['remote']}' : 'local:${box.selectedProfileId}',
+      key: ValueKey(profileKey),
+      profileKey: profileKey,
       topPadding: topPadding,
       groups: [for (final group in groups) ProxyListGroup(group, _nodes(group))],
       testing: Set.of(_testing), revision: _pickRevision, cardBuilder: _card, onTest: _test,
@@ -223,6 +241,8 @@ class _ProxiesPageState extends State<ProxiesPage> {
             if (allPicked) { picked.removeAll(pickable); } else { picked.addAll(pickable); }
             _pickRevision++;
           })),
+        IconButtonData(glyph: AppGlyphs.upload, tooltip: context.tr('Share nodes'),
+          onPressed: picked.isEmpty ? null : () => _share(picked.toList(), profileId: profileId, session: session, showQr: false)),
         IconButtonData(glyph: AppGlyphs.delete, tooltip: context.tr('Delete'),
           onPressed: picked.isEmpty ? null : () => _remove(picked.toList())),
       ],

@@ -3,6 +3,18 @@ import 'package:flutter/widgets.dart';
 import 'package:prism_ui/l10n.dart';
 
 const _zh = <String, String>{
+  'Share nodes': '分享节点',
+  'Copy links': '复制链接',
+  'Copy JSON': '复制 JSON',
+  'Standard links': '标准链接',
+  'Configuration changed. Reopen node sharing.': '配置已变更，请重新打开节点分享。',
+  'These nodes are available as sing-box JSON.': '所选节点可使用 sing-box JSON 分享。',
+  'Standard links available for {available} of {total} nodes.': '所选 {total} 个节点中，{available} 个可分享标准链接。',
+  'Too long for a QR code. Copy or share the text.': '内容超出二维码容量，可以复制或分享文本。',
+  'Select nodes to share': '请选择要分享的节点',
+  'Unable to read configuration for sharing': '无法读取要分享的配置',
+  'Selected node is unavailable for sharing': '所选节点无法分享',
+  'Unable to encode selected nodes': '无法生成节点分享内容',
   'WARP registration': 'WARP 注册',
   'Register and save': '注册并保存',
   'Registering WARP and saving configuration': '正在注册 WARP 并保存配置',

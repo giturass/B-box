@@ -54,6 +54,10 @@
 
 `AddUIConfigNodes` / `RemoveUIConfigNodes` 的 `defaultProfile=true` 仅调整该默认模板的 auto 组：追加节点后 direct 单成员改为检测代理节点，删除最后一个节点时恢复配置中已有 direct。普通配置及已有远端配置保留明确声明的 direct 成员，缺少合法成员时仍拒绝删除；证书设置和其他根级配置保留。默认配置的显示及配置卡片布局由 [Flutter 配置页](flclash.md#导航与交互约定) 维护。
 
+### 节点分享
+
+`ShareUIConfigNodes(config, tags)` 从所选配置的 `outbounds` 和 `endpoints` 读取代理节点，按传入标签的顺序返回各节点的可用分享链接及完整节点 JSON 数组。当前可生成 SIP002 Shadowsocks、v2rayN VMess、VLESS、Trojan、Hysteria、Hysteria2、TUIC、AnyTLS、SOCKS、Naive 和单对端 WireGuard 的常见链接。核心重新解析生成的链接并比较 sing-box 选项。证书路径、配置内的拨号依赖和无法在 URI 中表达的选项会使该节点使用 JSON 分享。JSON 保留节点的配置内引用，接收端若要使用该节点，仍需有对应的配置或文件。[核心实现](libbox/ui_nodes_share.go) · [编码与回读回归](libbox/ui_nodes_share_test.go) · [Shadowsocks SIP002](https://shadowsocks.org/doc/sip002.html) · [Hysteria 2 URI](https://v2.hysteria.network/docs/developers/URI-Scheme/)
+
 ### VMess 外部节点的 auto 加密
 
 行为参考 [MiChongs/sing-box 修复提交 `22c9be74053d383baa831ccd7ea11c3a65bb2c29`](https://github.com/MiChongs/sing-box/commit/22c9be74053d383baa831ccd7ea11c3a65bb2c29) 的 [VMess 订阅加密解析](https://github.com/MiChongs/sing-box/blob/22c9be74053d383baa831ccd7ea11c3a65bb2c29/provider/parser/vmess.go)。当前官方核心的 [VMess 出站](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/protocol/vmess/outbound.go) 在启用 TLS 时将 `security: "auto"` 改为 `zero`，与外部节点来源所表达的自动 AEAD 加密不同。
