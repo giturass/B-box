@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/pages/about.dart';
 import 'package:b_box_ui/components/app_update_dialog.dart';
 import 'package:b_box_ui/widgets.dart';
+import 'package:flutter/foundation.dart' show TargetPlatform, debugDefaultTargetPlatformOverride;
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/errors.dart';
@@ -36,6 +40,7 @@ class _AboutFixture {
 
 Future<_AboutFixture> _mount(WidgetTester tester, {Json initialUpdate = const {'status': 'idle'},
   Size size = const Size(360, 800), double scale = 1, Locale locale = const Locale('en'),
+  GlobalKey? boundaryKey,
   Future<dynamic> Function(MethodCall)? handler}) async {
   reportFlutterErrors();
   tester.binding.platformDispatcher.localesTestValue = [locale];
@@ -45,6 +50,12 @@ Future<_AboutFixture> _mount(WidgetTester tester, {Json initialUpdate = const {'
   tester.platformDispatcher.textScaleFactorTestValue = scale;
   addTearDown(tester.view.reset);
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+  if (boundaryKey != null) {
+    // Linux's registered CJK fallback makes CI images readable. B-box still
+    // selects its Android phone layout from this test's narrow viewport.
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+  }
   const channel = MethodChannel('test.about');
   final events = StreamController<dynamic>.broadcast();
   final fixture = _AboutFixture(BoxController(channel: channel, events: events.stream), events, initialUpdate);
@@ -64,7 +75,8 @@ Future<_AboutFixture> _mount(WidgetTester tester, {Json initialUpdate = const {'
       default: return null;
     }
   });
-  await tester.pumpWidget(BoxApp(controller: fixture.box));
+  final app = BoxApp(controller: fixture.box);
+  await tester.pumpWidget(boundaryKey == null ? app : RepaintBoundary(key: boundaryKey, child: app));
   await tester.pumpAndSettle();
   addTearDown(() async {
     await tester.pumpWidget(const SizedBox());
@@ -78,7 +90,9 @@ Future<_AboutFixture> _mount(WidgetTester tester, {Json initialUpdate = const {'
 
 Future<void> _openUpdate(WidgetTester tester) async {
   final button = find.descendant(of: find.byType(AboutPage), matching: find.byType(TonalButton));
-  await tester.ensureVisible(button);
+  await Scrollable.ensureVisible(tester.element(button), alignment: .5);
+  await tester.pumpAndSettle();
+  expect(button.hitTestable(), findsOneWidget);
   await tester.tap(button);
   await tester.pumpAndSettle();
   expect(find.byType(AppUpdateDialog), findsOneWidget);
@@ -90,7 +104,63 @@ Future<void> _action(WidgetTester tester, String label, {bool settle = true}) as
   else { await tester.pump(); }
 }
 
+Future<void> _capture(WidgetTester tester, GlobalKey key, String label) async {
+  await tester.runAsync(() async {
+    final boundary = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+    final bitmap = await boundary.toImage();
+    try {
+      final data = await bitmap.toByteData(format: ui.ImageByteFormat.png);
+      final file = File('build/screenshots/about-updates/$label.png');
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(data!.buffer.asUint8List());
+    } finally { bitmap.dispose(); }
+  });
+}
+
+Future<void> _narrowStates(WidgetTester tester, Locale locale, {bool screenshots = false}) async {
+  final boundaryKey = screenshots ? GlobalKey() : null;
+  final fixture = await _mount(tester, size: const Size(320, 568), scale: 1.4, locale: locale, boundaryKey: boundaryKey);
+  await _openUpdate(tester);
+  final dialogContext = tester.element(find.byType(AppUpdateDialog));
+  expect(Theme.of(dialogContext).platform, screenshots ? TargetPlatform.linux : TargetPlatform.android);
+  await _action(tester, dialogContext.tr('Download'));
+  for (final (status, labels) in [
+    ('downloading', ['Close', 'Cancel download']),
+    ('permissionRequired', ['Close', 'Discard update', 'Retry install']),
+    ('error', ['Close', 'Discard update', 'Retry download']),
+  ]) {
+    fixture.emit(_snapshot(status, downloaded: 2048,
+      error: status == 'error' ? 'APK signing identity does not match this installation' : null));
+    await tester.pumpAndSettle();
+    for (final label in labels) {
+      final action = find.widgetWithText(TextButton, dialogContext.tr(label));
+      expect(action.hitTestable(), findsOneWidget);
+      final rect = tester.getRect(action);
+      expect(rect.left, greaterThanOrEqualTo(0));
+      expect(rect.right, lessThanOrEqualTo(320));
+      expect(rect.bottom, lessThanOrEqualTo(568));
+    }
+    if (boundaryKey != null) {
+      await _capture(tester, boundaryKey, '${locale.languageCode}-${status == 'error' ? 'signature-error' : status}');
+    }
+  }
+  expect(find.text(locale.languageCode == 'zh' ? '安装包签名与当前应用不一致'
+      : 'APK signing identity does not match this installation'), findsOneWidget);
+  expect(tester.takeException(), isNull);
+}
+
 void main() {
+  setUpAll(() async {
+    final cjk = await File('test/support/fonts/NotoSansSC-updates.ttf').readAsBytes();
+    await (FontLoader('Noto Sans SC')..addFont(Future.value(ByteData.sublistView(cjk)))).load();
+    final root = Platform.environment['FLUTTER_ROOT'];
+    if (root == null) return;
+    final font = File('$root/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf');
+    if (font.existsSync()) {
+      await (FontLoader('Roboto')..addFont(Future.value(ByteData.sublistView(await font.readAsBytes())))).load();
+    }
+  });
+
   testWidgets('About distinguishes application version from the current sing-box core', (tester) async {
     await _mount(tester);
     expect(find.text('v1.0.1'), findsOneWidget);
@@ -182,6 +252,9 @@ void main() {
     await _action(tester, 'Retry download');
     expect(fixture.calls.where((call) => call.method == 'updates.download'), hasLength(2));
     fixture.emit(_snapshot('verifying', downloaded: 4096));
+    // The asynchronous broadcast schedules the model's frame after delivery.
+    // Keep the indeterminate indicator active without waiting for it to settle.
+    await tester.pump();
     await tester.pump();
     expect(find.text('Verifying downloaded APK'), findsOneWidget);
     expect(tester.widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator)).value, isNull);
@@ -287,30 +360,12 @@ void main() {
 
   for (final locale in [const Locale('en'), const Locale('zh', 'CN')]) {
     testWidgets('update dialog keeps progress and controls reachable on a narrow phone in $locale', (tester) async {
-      final fixture = await _mount(tester, size: const Size(320, 568), scale: 1.4, locale: locale);
-      await _openUpdate(tester);
-      final dialogContext = tester.element(find.byType(AppUpdateDialog));
-      await _action(tester, dialogContext.tr('Download'));
-      for (final (status, labels) in [
-        ('downloading', ['Close', 'Cancel download']),
-        ('permissionRequired', ['Close', 'Discard update', 'Retry install']),
-        ('error', ['Close', 'Discard update', 'Retry download']),
-      ]) {
-        fixture.emit(_snapshot(status, downloaded: 2048,
-          error: status == 'error' ? 'APK signing identity does not match this installation' : null));
-        await tester.pumpAndSettle();
-        for (final label in labels) {
-          final action = find.widgetWithText(TextButton, dialogContext.tr(label));
-          expect(action.hitTestable(), findsOneWidget);
-          final rect = tester.getRect(action);
-          expect(rect.left, greaterThanOrEqualTo(0));
-          expect(rect.right, lessThanOrEqualTo(320));
-          expect(rect.bottom, lessThanOrEqualTo(568));
-        }
-      }
-      expect(find.text(locale.languageCode == 'zh' ? '安装包签名与当前应用不一致'
-          : 'APK signing identity does not match this installation'), findsOneWidget);
-      expect(tester.takeException(), isNull);
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      await _narrowStates(tester, locale);
+    });
+    testWidgets('update dialog screenshots use readable CI fonts in $locale', (tester) async {
+      await _narrowStates(tester, locale, screenshots: true);
     });
   }
 }

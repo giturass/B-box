@@ -1,4 +1,4 @@
-# Status-card test font
+# Test fonts
 
 `NotoSansSC-status.ttf` is a 14 KiB Noto Sans SC v41 subset obtained from the
 [Google Fonts CSS API](https://developers.google.com/fonts/docs/css2) on 2026-10-28
@@ -9,3 +9,14 @@ with its `text` parameter. It provides these Chinese glyphs for both renderers:
 SHA256: `8d4c75f24149089e28fcbcd20dc79e586d765b5cba2b8a17c245d93b2cef9d22`.
 The [SIL Open Font License](OFL.txt) covers this test resource. The font is
 registered as `BboxStatusCJK` by the parity tests, alongside the SDK's Roboto.
+
+`NotoSansSC-updates.ttf` is a Noto Sans SC v41 regular (weight 400) subset
+obtained on 2026-11-19 using this exact [Google Fonts request](https://fonts.googleapis.com/css?family=Noto+Sans+SC&text=+%21%22%23%24%25%26%27%28%29%2A%2B%2C-.%2F0123456789%3A%3B%3C%3D%3E%3F%40ABCDEFGHIJKLMNOPQRSTUVWXYZ%5B%5C%5D%5E_%60abcdefghijklmnopqrstuvwxyz%7B%7C%7D~%E3%80%82%E4%B8%80%E4%B8%8B%E4%B8%8D%E4%B8%8E%E4%B8%AD%E4%BA%8E%E4%BB%96%E4%BB%A3%E4%BB%A5%E4%BC%9A%E4%BD%9C%E4%BF%9D%E4%BF%A1%E5%80%BC%E5%85%81%E5%85%88%E5%85%B3%E5%85%B6%E5%86%85%E5%86%8D%E5%88%86%E5%88%9B%E5%89%8D%E5%8C%85%E5%8C%96%E5%8F%91%E5%8F%96%E5%8F%98%E5%8F%AF%E5%90%8D%E5%90%8E%E5%99%A8%E5%9B%9E%E5%9C%A8%E5%A4%9A%E5%A4%A7%E5%A4%B1%E5%AD%98%E5%AE%89%E5%AE%8C%E5%AE%A2%E5%B0%8F%E5%B0%9A%E5%B1%9E%E5%B7%B2%E5%B8%83%E5%B8%B8%E5%B9%B6%E5%BA%94%E5%BB%BA%E5%BC%80%E5%BC%83%E5%BC%B9%E5%BD%93%E5%BD%95%E5%BE%80%E5%BE%85%E6%81%AF%E6%88%90%E6%88%B7%E6%89%93%E6%8C%81%E6%93%8D%E6%94%AF%E6%94%BE%E6%96%B0%E6%97%A0%E6%97%B6%E6%98%8E%E6%98%AF%E6%9A%82%E6%9B%B4%E6%9C%80%E6%9C%89%E6%9C%AA%E6%9C%AC%E6%9F%A5%E6%A0%A1%E6%A0%B8%E6%A3%80%E6%AD%A3%E6%AD%A4%E6%B3%95%E6%B6%88%E6%BA%90%E7%89%88%E7%94%A8%E7%95%8C%E7%9A%84%E7%9B%AE%E7%9C%8B%E7%A0%81%E7%A8%8D%E7%AA%97%E7%AB%AF%E7%AD%BE%E7%BB%A7%E7%BB%AD%E7%BC%93%E7%BD%AE%E8%87%B4%E8%A1%8C%E8%A3%85%E8%A7%84%E8%AE%B8%E8%AE%BE%E8%AF%81%E8%AF%95%E8%AF%B4%E8%AF%B7%E8%AF%BB%E8%B4%A5%E8%B6%85%E8%BD%BD%E8%BF%87%E8%BF%90%E8%BF%94%E8%BF%99%E8%BF%9B%E9%83%A8%E9%87%87%E9%87%8C%E9%87%8D%E9%97%AD%E9%9D%A2%E9%A1%B5%E9%AA%8C%E9%AB%98%EF%BC%8C).
+The returned TrueType font contains 225 glyphs and is 48,748 bytes.
+
+SHA256: `03f81880f4f8f414d4bdd998296f587cce769bfae0ebba574c1eb6bcfbc69946`.
+The same [SIL Open Font License](OFL.txt) covers this resource.
+[about_test.dart](../../about_test.dart) registers it as `Noto Sans SC`,
+alongside the SDK's Roboto, for readable Chinese in Linux screenshot cases.
+Separate Android-platform narrow-phone cases retain the original interaction
+and layout assertions. These fonts are test resources and are not app assets.
