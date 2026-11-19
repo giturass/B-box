@@ -81,10 +81,10 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
           onPressed: _busy ? null : () => _run(box.cancelUpdate),
           child: Text(context.tr(downloading ? 'Cancel download' : 'Discard update'))),
         if (canInstall && status != 'installing' && hasVersionCode) TextButton(
-          onPressed: _busy ? null : () => _run(() => box.installUpdate(versionCode!)),
+          onPressed: _busy ? null : () => _run(() => box.installUpdate(versionCode)),
           child: Text(context.tr(status == 'ready' && _error == null ? 'Install' : 'Retry install'))),
         if (!downloading && !canInstall && status != 'installing' && (canDownload || retryDownload)) TextButton(
-          onPressed: _busy ? null : () => _run(() => box.downloadUpdate(versionCode!)),
+          onPressed: _busy ? null : () => _run(() => box.downloadUpdate(versionCode)),
           child: Text(context.tr(status == 'idle' && _error == null ? 'Download' : 'Retry download'))),
         if (!active && (!canDownload && available || !available && (release['hasMetadata'] == false || incomplete))) TextButton(
           onPressed: () {
