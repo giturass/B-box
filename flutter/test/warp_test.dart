@@ -67,6 +67,15 @@ Future<void> _reveal(WidgetTester tester, Finder finder) async {
   expect(finder.hitTestable(), findsOneWidget);
 }
 
+Future<void> _chooseProtocol(WidgetTester tester, String current, String next) async {
+  final selector = find.byKey(const ValueKey('warp-protocol'));
+  await _reveal(tester, selector);
+  await tester.tap(find.descendant(of: selector, matching: find.text(current)));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(next).hitTestable());
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('tools places WARP between Terminal and network diagnostics and saves HTTP/2 to the selected revision', (tester) async {
     final calls = <MethodCall>[];
@@ -85,7 +94,7 @@ void main() {
     await _open(tester);
     final field = find.byKey(const ValueKey('warp-name'));
     final action = find.byKey(const ValueKey('warp-register'));
-    expect(find.text('HTTP/3 can fall back to HTTP/2.'), findsOneWidget);
+    expect(find.text('HTTP/3 can fall back to HTTP/2.'), findsNothing);
     await tester.enterText(field, '');
     await _reveal(tester, action);
     await tester.tap(action);
@@ -100,6 +109,10 @@ void main() {
     await tester.tap(find.text('HTTP/2').hitTestable());
     await tester.pumpAndSettle();
     expect(find.text('HTTP/3 can fall back to HTTP/2.'), findsNothing);
+    await _chooseProtocol(tester, 'MASQUE', 'WireGuard');
+    expect(find.text('MASQUE transport'), findsNothing);
+    await _chooseProtocol(tester, 'WireGuard', 'MASQUE');
+    expect(find.text('HTTP/2'), findsOneWidget, reason: 'Switching protocols retains the selected MASQUE transport.');
     await _reveal(tester, action);
     await tester.tap(action);
     await tester.pumpAndSettle();
@@ -110,6 +123,46 @@ void main() {
     expect(find.text('WARP saved to configuration'), findsWidgets);
     expect(find.text('Cloudflare'), findsWidgets);
     expect(calls.where((call) => call.method == 'profiles.write'), isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('WireGuard registers and saves against the current selected configuration revision', (tester) async {
+    final calls = <MethodCall>[];
+    final registration = Completer<Json>();
+    await _mount(tester, dashboard: const {'selectedProfileId': 2}, handler: (call) async {
+      calls.add(call);
+      if (call.method == 'warp.snapshot') return {'registering': false};
+      if (call.method == 'nodes.list') return {'profileId': 2, 'profileRevision': 'wireguard-revision'};
+      if (call.method == 'warp.register') return registration.future;
+      return null;
+    });
+    await _open(tester);
+    expect(find.text('HTTP/3'), findsOneWidget);
+    expect(find.text('HTTP/3 can fall back to HTTP/2.'), findsNothing);
+    await _chooseProtocol(tester, 'MASQUE', 'WireGuard');
+    expect(find.text('MASQUE transport'), findsNothing);
+    expect(find.text('HTTP/3 can fall back to HTTP/2.'), findsNothing);
+    expect(find.text('WireGuard is saved as an endpoint in the current configuration.'), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('warp-name')), 'WARP WireGuard');
+    final action = find.byKey(const ValueKey('warp-register'));
+    await _reveal(tester, action);
+    await tester.tap(action);
+    await tester.pump();
+    await tester.pump();
+    expect(tester.widget<FilledButton>(action).onPressed, isNull);
+    final selector = find.byKey(const ValueKey('warp-protocol'));
+    expect(find.descendant(of: selector, matching: find.byType(TextButton)), findsNothing,
+      reason: 'The protocol cannot change while registration is running.');
+    final args = json(calls.singleWhere((call) => call.method == 'warp.register').arguments);
+    expect(args['requestId'], isA<String>());
+    expect(args['requestId'], isNotEmpty);
+    expect({...args}..remove('requestId'),
+      {'profileId': 2, 'profileRevision': 'wireguard-revision', 'name': 'WARP WireGuard', 'transport': 'wireguard'});
+    registration.complete({'tag': 'WARP WireGuard', 'profileId': 2, 'added': 1});
+    await tester.pumpAndSettle();
+    expect(find.text('WARP saved to configuration'), findsWidgets);
+    expect(find.text('Another configuration'), findsWidgets);
+    expect(calls.where((call) => call.method == 'profiles.write' || call.method == 'service.start'), isEmpty);
     expect(tester.takeException(), isNull);
   });
 
@@ -147,6 +200,7 @@ void main() {
     await tester.tap(cancel);
     await tester.pumpAndSettle();
     final registerArgs = json(calls.singleWhere((call) => call.method == 'warp.register').arguments);
+    expect(registerArgs['transport'], 'http3', reason: 'MASQUE HTTP/3 remains the default.');
     expect(json(calls.singleWhere((call) => call.method == 'warp.cancel').arguments), {'requestId': registerArgs['requestId']});
     expect(find.byType(WarpPage), findsOneWidget);
     expect(tester.widget<FilledButton>(action).onPressed, isNotNull);
@@ -182,44 +236,57 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('pending registration survives page navigation and retries only the original configuration with its latest revision', (tester) async {
-    const operation = {'pendingId': 'operation-1', 'profileId': 1, 'name': 'WARP', 'transport': 'http3'};
-    Json? retained;
-    final calls = <MethodCall>[];
-    var reads = 0;
-    await _mount(tester, handler: (call) async {
-      calls.add(call);
-      if (call.method == 'warp.snapshot') return {'registering': false, if (retained != null) 'pending': retained};
-      if (call.method == 'nodes.list') return {'profileId': 1, 'profileRevision': 'revision-${++reads}'};
-      if (call.method == 'warp.register') {
-        retained = operation;
-        throw PlatformException(code: 'warp_pending', message: 'WARP registered, but the configuration could not be saved. Select the original profile and retry saving.',
-          details: {...operation, 'privateKey': 'never-display-this-secret'});
+  for (final transport in ['http3', 'wireguard']) {
+    testWidgets('pending $transport registration survives navigation and retries its original configuration with the latest revision', (tester) async {
+      final operation = {'pendingId': 'operation-1', 'profileId': 1, 'name': 'WARP', 'transport': transport};
+      Json? retained;
+      final calls = <MethodCall>[];
+      var reads = 0;
+      await _mount(tester, handler: (call) async {
+        calls.add(call);
+        if (call.method == 'warp.snapshot') return {'registering': false, if (retained != null) 'pending': retained};
+        if (call.method == 'nodes.list') return {'profileId': 1, 'profileRevision': 'revision-${++reads}'};
+        if (call.method == 'warp.register') {
+          retained = operation;
+          throw PlatformException(code: 'warp_pending', message: 'WARP registered, but the configuration could not be saved. Select the original profile and retry saving.',
+            details: {...operation, 'privateKey': 'never-display-this-secret'});
+        }
+        if (call.method == 'warp.retry') { retained = null; return {'profileId': 1, 'tag': 'WARP', 'added': 1}; }
+        return null;
+      });
+      await _open(tester);
+      if (transport == 'wireguard') await _chooseProtocol(tester, 'MASQUE', 'WireGuard');
+      final action = find.byKey(const ValueKey('warp-register'));
+      await _reveal(tester, action);
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      expect(find.text('WARP node awaiting save'), findsOneWidget);
+      expect(find.byKey(const ValueKey('warp-registration-description')), findsNothing,
+        reason: 'Retrying an existing account does not create another device.');
+      expect(find.text(transport == 'wireguard' ? 'WireGuard' : 'MASQUE'), findsOneWidget);
+      if (transport == 'wireguard') {
+        expect(find.text('MASQUE transport'), findsNothing);
+        expect(find.text('HTTP/3'), findsNothing);
       }
-      if (call.method == 'warp.retry') { retained = null; return {'profileId': 1, 'tag': 'WARP', 'added': 1}; }
-      return null;
+      expect(find.textContaining('never-display-this-secret'), findsNothing);
+      tester.element(find.byType(WarpPage)).safeNestedPop();
+      await tester.pumpAndSettle();
+      await _open(tester);
+      expect(find.text('WARP node awaiting save'), findsOneWidget);
+      expect(find.text(transport == 'wireguard' ? 'WireGuard' : 'MASQUE'), findsOneWidget,
+        reason: 'Reopening the page retains the pending protocol from the native snapshot.');
+      if (transport == 'wireguard') expect(find.text('MASQUE transport'), findsNothing);
+      await _reveal(tester, action);
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      expect(calls.where((call) => call.method == 'warp.register'), hasLength(1));
+      expect(json(calls.singleWhere((call) => call.method == 'warp.retry').arguments),
+        {'profileId': 1, 'profileRevision': 'revision-2', 'pendingId': 'operation-1'});
+      expect(find.text('WARP node awaiting save'), findsNothing);
+      expect(find.text('WARP saved to configuration'), findsWidgets);
+      expect(tester.takeException(), isNull);
     });
-    await _open(tester);
-    final action = find.byKey(const ValueKey('warp-register'));
-    await _reveal(tester, action);
-    await tester.tap(action);
-    await tester.pumpAndSettle();
-    expect(find.text('WARP node awaiting save'), findsOneWidget);
-    expect(find.textContaining('never-display-this-secret'), findsNothing);
-    tester.element(find.byType(WarpPage)).safeNestedPop();
-    await tester.pumpAndSettle();
-    await _open(tester);
-    expect(find.text('WARP node awaiting save'), findsOneWidget);
-    await _reveal(tester, action);
-    await tester.tap(action);
-    await tester.pumpAndSettle();
-    expect(calls.where((call) => call.method == 'warp.register'), hasLength(1));
-    expect(json(calls.singleWhere((call) => call.method == 'warp.retry').arguments),
-      {'profileId': 1, 'profileRevision': 'revision-2', 'pendingId': 'operation-1'});
-    expect(find.text('WARP node awaiting save'), findsNothing);
-    expect(find.text('WARP saved to configuration'), findsWidgets);
-    expect(tester.takeException(), isNull);
-  });
+  }
 
   testWidgets('pending registration cannot write a different selected profile and discard requires the chosen action', (tester) async {
     final events = StreamController<dynamic>.broadcast();
@@ -227,7 +294,7 @@ void main() {
     await _mount(tester, eventController: events, handler: (call) async {
       calls.add(call);
       if (call.method == 'warp.snapshot') return {'registering': false, 'pending':
-        {'pendingId': 'operation-1', 'profileId': 1, 'name': 'WARP', 'transport': 'http3'}};
+        {'pendingId': 'operation-1', 'profileId': 1, 'name': 'WARP', 'transport': 'wireguard'}};
       return true;
     });
     await _open(tester);
@@ -312,7 +379,17 @@ void main() {
     });
     await _open(tester);
     expect(find.text('节点设置'), findsOneWidget);
-    expect(find.text('HTTP/3 可以回退到 HTTP/2。'), findsOneWidget);
+    expect(find.text('HTTP/3 可以回退到 HTTP/2。'), findsNothing);
+    final selector = find.byKey(const ValueKey('warp-protocol'));
+    await _reveal(tester, selector);
+    final protocolTitle = find.descendant(of: selector, matching: find.text('WARP 协议'));
+    expect(tester.getRect(protocolTitle).left, greaterThanOrEqualTo(16));
+    expect(tester.getRect(protocolTitle).right, lessThanOrEqualTo(tester.getRect(find.text('MASQUE')).left));
+    await _chooseProtocol(tester, 'MASQUE', 'WireGuard');
+    expect(find.text('MASQUE 传输'), findsNothing);
+    expect(find.text('WireGuard 将保存到当前配置的端点中。'), findsOneWidget);
+    expect(tester.getRect(find.text('WireGuard')).right, lessThanOrEqualTo(304));
+    expect(tester.getRect(protocolTitle).right, lessThanOrEqualTo(tester.getRect(find.text('WireGuard')).left));
     final field = find.byKey(const ValueKey('warp-name'));
     final action = find.byKey(const ValueKey('warp-register'));
     expect(tester.getRect(field).left, greaterThanOrEqualTo(16));
@@ -320,8 +397,16 @@ void main() {
     await _reveal(tester, action);
     expect(action.hitTestable(), findsOneWidget);
     expect(tester.getSize(action).width, lessThanOrEqualTo(288));
+    final description = find.byKey(const ValueKey('warp-registration-description'));
+    await _reveal(tester, description);
+    expect(find.text('注册将在 Cloudflare 创建设备账号，并写入当前配置文件。'), findsOneWidget);
+    expect(tester.getRect(description).top, greaterThan(tester.getRect(action).bottom));
+    expect(tester.getRect(description).left, greaterThanOrEqualTo(16));
+    expect(tester.getRect(description).right, lessThanOrEqualTo(304));
+    expect(find.text('注册将在 Cloudflare 创建设备账号。'), findsNothing);
     final terms = find.text('Cloudflare WARP 服务条款');
     await _reveal(tester, terms);
+    expect(tester.getRect(terms).top, greaterThan(tester.getRect(description).bottom));
     await tester.tap(terms);
     await tester.pumpAndSettle();
     expect(json(calls.singleWhere((call) => call.method == 'url.open').arguments), {'url': 'https://www.cloudflare.com/application/terms/'});

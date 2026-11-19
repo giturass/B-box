@@ -23,6 +23,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.security.KeyPairGenerator
+import java.security.SecureRandom
 import java.security.spec.ECGenParameterSpec
 
 @RunWith(AndroidJUnit4::class)
@@ -30,6 +31,20 @@ class WarpRegistrationTest {
     private fun outbounds(content: String): List<JSONObject> {
         val rows = JSONObject(Libbox.formatConfig(content).value).getJSONArray("outbounds")
         return (0 until rows.length()).map { rows.getJSONObject(it) }
+    }
+
+    private fun endpoints(content: String): List<JSONObject> {
+        val rows = JSONObject(Libbox.formatConfig(content).value).optJSONArray("endpoints") ?: JSONArray()
+        return (0 until rows.length()).map { rows.getJSONObject(it) }
+    }
+
+    private fun strings(rows: JSONArray): List<String> = (0 until rows.length()).map { rows.getString(it) }
+
+    private fun localTags(content: String): List<String> {
+        val prefix = "// b-box-local-nodes: "
+        val header = content.trimStart().substringBefore('\n')
+        assertTrue("Registered account is missing its local node marker", header.startsWith(prefix))
+        return strings(JSONArray(header.removePrefix(prefix)))
     }
 
     @Test fun registrationWritesTheSelectedFileAndSubscriptionUpdatesPreserveItsCredentials() = withProfiles { profiles, id, other ->
@@ -71,6 +86,139 @@ class WarpRegistrationTest {
             assertEquals(Status.Stopped, BoxService.currentStatus)
         } finally { warp.close() }
     }
+
+    @Test fun wireGuardRegistrationWritesTheSelectedEndpointAndSubscriptionRefreshPreservesIt() = withProfiles { profiles, id, other ->
+        val existing = JSONObject(warpWireGuardRegistrationTestAccount()).put("tag", "WARP 2")
+        val original = """{"dns":{"servers":[{"type":"local","tag":"local"}]},
+            "inbounds":[{"type":"mixed","tag":"mixed","listen":"127.0.0.1","listen_port":2080}],
+            "outbounds":[{"type":"direct","tag":"WARP"},
+                {"type":"selector","tag":"proxy","outbounds":["WARP"],"default":"WARP"},
+                {"type":"urltest","tag":"auto","outbounds":["WARP"]}],
+            "endpoints":[$existing],"route":{"final":"proxy"}}"""
+        profiles.writeContent(id, original, ProfileContent.revision(profiles.read(id)))
+        var subscription = """[{"type":"socks","tag":"upstream","server":"127.0.0.1","server_port":1080}]"""
+        val sources = BoxNodeSubscriptions(download = { subscription }) { assertEquals(Status.Stopped, BoxService.currentStatus) }
+        sources.importSubscription(mapOf("profileId" to id, "profileRevision" to ProfileContent.revision(profiles.read(id)),
+            "name" to "WireGuard preservation fixture", "url" to "https://fixture.invalid/wireguard-nodes", "autoUpdate" to false, "interval" to 60))
+        val previousSources = ProfileManager.get(id)!!.typed.subscriptions
+        val beforeRegistration = profiles.read(id)
+        val previous = JSONObject(Libbox.formatConfig(beforeRegistration).value)
+        val persistence = BoxWarpProfiles { assertEquals(Status.Stopped, BoxService.currentStatus) }
+        val node = warpWireGuardRegistrationTestAccount()
+        var registrations = 0
+        val warp = BoxWarp(persistence::prepare, persistence::commit,
+            registerNode = { _, _, transport, registered ->
+                assertEquals("wireguard", transport)
+                registrations++
+                registered(node)
+            })
+        try {
+            val result = warp.register("selected-wireguard-file", id, ProfileContent.revision(beforeRegistration), "WARP", "wireguard")
+            assertEquals("WARP 3", result["tag"])
+            assertEquals(id, result["profileId"])
+            assertEquals(1, (result["added"] as Number).toInt())
+            assertEquals(0, (result["skipped"] as Number).toInt())
+            assertEquals(1, registrations)
+            val saved = profiles.read(id)
+            Libbox.checkConfig(saved)
+            val current = JSONObject(Libbox.formatConfig(saved).value)
+            for (key in listOf("dns", "route")) {
+                assertEquals(previous.getJSONObject(key).toString(), current.getJSONObject(key).toString())
+            }
+            assertEquals(previous.getJSONArray("inbounds").toString(), current.getJSONArray("inbounds").toString())
+            assertEquals(previousSources, ProfileManager.get(id)!!.typed.subscriptions)
+            assertEquals(listOf("WARP 3"), localTags(saved))
+            assertEquals(2, endpoints(saved).size)
+            assertFalse(outbounds(saved).any { it.optString("type") == "wireguard" })
+            assertEquals(endpoints(beforeRegistration).single().toString(), endpoints(saved).single { it.getString("tag") == "WARP 2" }.toString())
+            val registered = endpoints(saved).single { it.getString("tag") == "WARP 3" }
+            assertEquals(JSONObject(node).getString("private_key"), registered.getString("private_key"))
+            val expected = endpoints(JSONObject().put("endpoints", JSONArray().put(JSONObject(node))).toString()).single()
+            assertEquals(expected.getJSONArray("peers").toString(), registered.getJSONArray("peers").toString())
+            for (tag in listOf("proxy", "auto")) {
+                val before = outbounds(beforeRegistration).single { it.getString("tag") == tag }
+                val after = outbounds(saved).single { it.getString("tag") == tag }
+                assertEquals(strings(before.getJSONArray("outbounds")) + "WARP 3", strings(after.getJSONArray("outbounds")))
+            }
+            assertEquals("WARP", outbounds(saved).single { it.getString("tag") == "proxy" }.getString("default"))
+            assertEquals("{}", profiles.read(other))
+
+            subscription = """[{"type":"socks","tag":"upstream","server":"127.0.0.1","server_port":1081}]"""
+            sources.update(id, previousSources.single().id)
+            val updated = profiles.read(id)
+            Libbox.checkConfig(updated)
+            assertEquals(registered.toString(), endpoints(updated).single { it.getString("tag") == "WARP 3" }.toString())
+            assertEquals(listOf("WARP 3"), localTags(updated))
+            assertEquals(listOf("upstream"), ProfileManager.get(id)!!.typed.subscriptions.single().tags)
+            assertEquals(1081, outbounds(updated).single { it.getString("tag") == "upstream" }.getInt("server_port"))
+            assertFalse(outbounds(updated).any { it.optString("type") == "wireguard" })
+            for (tag in listOf("proxy", "auto")) {
+                assertTrue(strings(outbounds(updated).single { it.getString("tag") == tag }.getJSONArray("outbounds")).contains("WARP 3"))
+            }
+            assertEquals("{}", profiles.read(other))
+            assertEquals(Status.Stopped, BoxService.currentStatus)
+        } finally { warp.close() }
+    }
+
+    @Test fun wireGuardConflictsKeepTheAccountPendingForTheOriginalProfileAndRetryWithoutRegistering() = withProfiles { profiles, id, other -> coroutineScope {
+        for (conflict in listOf("revision", "selection")) {
+            Settings.saveProfileSelection(id)
+            profiles.writeContent(id, "{}", ProfileContent.revision(profiles.read(id)))
+            val originalRevision = ProfileContent.revision(profiles.read(id))
+            val persistence = BoxWarpProfiles { assertEquals(Status.Stopped, BoxService.currentStatus) }
+            val entered = CompletableDeferred<Unit>()
+            val response = CompletableDeferred<String>()
+            val node = warpWireGuardRegistrationTestAccount()
+            var registrations = 0
+            val warp = BoxWarp(persistence::prepare, persistence::commit,
+                registerNode = { _, _, transport, registered ->
+                    assertEquals("wireguard", transport)
+                    registrations++
+                    entered.complete(Unit)
+                    registered(response.await())
+                })
+            try {
+                val operation = async { runCatching { warp.register("wireguard-$conflict", id, originalRevision, "WARP", "wireguard") } }
+                entered.await()
+                if (conflict == "revision") {
+                    profiles.writeContent(id, """{"log":{"level":"warn"}}""", originalRevision)
+                } else {
+                    Settings.saveProfileSelection(other)
+                }
+                response.complete(node)
+                val error = operation.await().exceptionOrNull() as BoxWarpException
+                assertEquals("warp_pending", error.code)
+                val pending = error.details!!
+                assertEquals(id, pending["profileId"])
+                assertEquals("wireguard", pending["transport"])
+                val pendingId = pending["pendingId"] as String
+                val unchanged = profiles.read(id)
+                assertTrue(endpoints(unchanged).isEmpty())
+                assertFalse(outboundsOrEmpty(unchanged).any { it.optString("type") == "wireguard" })
+                assertEquals("{}", profiles.read(other))
+                assertEquals("warp_pending", (runCatching { warp.retry(pendingId, other, ProfileContent.revision(profiles.read(other))) }.exceptionOrNull() as BoxWarpException).code)
+                assertEquals("warp_pending", (runCatching { warp.retry(pendingId, id, originalRevision) }.exceptionOrNull() as BoxWarpException).code)
+                assertEquals(unchanged, profiles.read(id))
+                assertEquals("{}", profiles.read(other))
+
+                Settings.saveProfileSelection(id)
+                val result = warp.retry(pendingId, id, ProfileContent.revision(unchanged))
+                assertEquals("WARP", result["tag"])
+                val saved = profiles.read(id)
+                Libbox.checkConfig(saved)
+                assertEquals(JSONObject(node).getString("private_key"), endpoints(saved).single().getString("private_key"))
+                assertEquals(listOf("WARP"), localTags(saved))
+                assertFalse(outboundsOrEmpty(saved).any { it.optString("type") == "wireguard" })
+                if (conflict == "revision") {
+                    assertEquals("warn", JSONObject(Libbox.formatConfig(saved).value).getJSONObject("log").getString("level"))
+                }
+                assertEquals(1, registrations)
+                assertNull(warp.snapshot()["pending"])
+                assertEquals("{}", profiles.read(other))
+                assertEquals(Status.Stopped, BoxService.currentStatus)
+            } finally { warp.close() }
+        }
+    } }
 
     @Test fun changedRevisionSelectionSessionAndServiceTransitionPreventCredentialWrites() = withProfiles { profiles, id, other -> coroutineScope {
         var hostStatus = Status.Stopped
@@ -143,4 +291,20 @@ internal fun warpRegistrationTestAccount(): String {
         .put("address", JSONArray().put("172.16.0.2/32").put("2001:db8::2/128"))
         .put("http_version", 3).put("disable_version_fallback", true)
         .put("tls", JSONObject().put("enabled", true).put("server_name", "consumer-api.cloudflareclient.com")).toString()
+}
+
+internal fun warpWireGuardRegistrationTestAccount(): String {
+    val random = SecureRandom()
+    val privateKey = ByteArray(32).also(random::nextBytes).apply {
+        this[0] = (this[0].toInt() and 248).toByte()
+        this[31] = ((this[31].toInt() and 127) or 64).toByte()
+    }
+    val peerKey = ByteArray(32).also(random::nextBytes)
+    return JSONObject().put("type", "wireguard").put("tag", "WARP").put("mtu", 1280)
+        .put("private_key", Base64.encodeToString(privateKey, Base64.NO_WRAP))
+        .put("address", JSONArray().put("172.16.0.2/32").put("2001:db8::2/128"))
+        .put("peers", JSONArray().put(JSONObject().put("address", "engage.cloudflareclient.com").put("port", 2408)
+            .put("public_key", Base64.encodeToString(peerKey, Base64.NO_WRAP))
+            .put("allowed_ips", JSONArray().put("0.0.0.0/0").put("::/0"))
+            .put("reserved", JSONArray().put(1).put(2).put(3)))).toString()
 }

@@ -12,7 +12,7 @@ class _WarpPageState extends State<WarpPage> {
   static int _requestSequence = 0;
   static const _emptyNameError = 'Node name must not be empty';
   final _name = TextEditingController(text: 'WARP');
-  String _transport = 'http3';
+  String _protocol = 'masque', _transport = 'http3';
   BoxController? _box;
   String? _requestId;
   String? _error;
@@ -58,7 +58,11 @@ class _WarpPageState extends State<WarpPage> {
     return {
       'pendingId': data['pendingId'], 'profileId': (data['profileId'] as num).toInt(),
       'name': data['name'] is String ? data['name'] : 'WARP',
-      'transport': data['transport'] == 'http2' ? 'http2' : 'http3',
+      'transport': switch (data['transport']) {
+        'wireguard' => 'wireguard',
+        'http2' => 'http2',
+        _ => 'http3',
+      },
     };
   }
 
@@ -102,7 +106,7 @@ class _WarpPageState extends State<WarpPage> {
       setState(() => _error = _emptyNameError);
       return;
     }
-    final transport = _transport, session = box.sessionRevision;
+    final transport = _protocol == 'wireguard' ? 'wireguard' : _transport, session = box.sessionRevision;
     setState(() { _busy = true; _retrying = pending != null; _canceling = false; _error = null; _saved = null; });
     try {
       final revision = await _revision(box, profileId);
@@ -177,14 +181,16 @@ class _WarpPageState extends State<WarpPage> {
     return profile == null ? context.tr('Profile no longer exists') : profileDisplayName(context, profile);
   }
 
+  String _protocolLabel(Object? value) => value == 'wireguard' ? 'WireGuard' : 'MASQUE';
   String _transportLabel(Object? value) => value == 'http2' ? 'HTTP/2' : 'HTTP/3';
 
   Widget _registrationForm(Json? profile) {
     final readOnly = _busy || _registeringElsewhere;
+    final protocolTitle = Text(context.tr('WARP protocol'));
     final transportTitle = Text(context.tr('MASQUE transport'));
     return generateSection(
       title: context.tr('Node settings'),
-      footer: _transport == 'http3' ? context.tr('HTTP/3 can fall back to HTTP/2.') : null,
+      footer: _protocol == 'wireguard' ? context.tr('WireGuard is saved as an endpoint in the current configuration.') : null,
       items: [
         ListItem(
           title: Text(context.tr('Current profile')),
@@ -216,17 +222,31 @@ class _WarpPageState extends State<WarpPage> {
           ),
         ),
         if (readOnly)
-          ListItem(title: transportTitle, trailing: Text(_transportLabel(_transport)))
+          ListItem(key: const ValueKey('warp-protocol'), title: protocolTitle, trailing: Text(_protocolLabel(_protocol)))
         else
           ListItem<String>.options(
-            title: transportTitle,
-            options: const ['http3', 'http2'],
-            value: _transport,
-            textBuilder: _transportLabel,
+            key: const ValueKey('warp-protocol'),
+            title: protocolTitle,
+            options: const ['masque', 'wireguard'],
+            value: _protocol,
+            textBuilder: _protocolLabel,
             onChanged: (value) {
-              if (!_busy && !_registeringElsewhere) setState(() => _transport = value);
+              if (!_busy && !_registeringElsewhere) setState(() => _protocol = value);
             },
           ),
+        if (_protocol == 'masque')
+          if (readOnly)
+            ListItem(title: transportTitle, trailing: Text(_transportLabel(_transport)))
+          else
+            ListItem<String>.options(
+              title: transportTitle,
+              options: const ['http3', 'http2'],
+              value: _transport,
+              textBuilder: _transportLabel,
+              onChanged: (value) {
+                if (!_busy && !_registeringElsewhere) setState(() => _transport = value);
+              },
+            ),
       ],
     );
   }
@@ -281,7 +301,9 @@ class _WarpPageState extends State<WarpPage> {
               )),
               ListItem(title: Text(context.tr('Profile')), subtitle: Text(_profileName(box, target))),
               ListItem(title: Text(context.tr('Node name')), subtitle: Text(pending['name'] as String)),
-              ListItem(title: Text(context.tr('MASQUE transport')), trailing: Text(_transportLabel(pending['transport']))),
+              ListItem(title: Text(context.tr('WARP protocol')), trailing: Text(_protocolLabel(pending['transport']))),
+              if (pending['transport'] != 'wireguard')
+                ListItem(title: Text(context.tr('MASQUE transport')), trailing: Text(_transportLabel(pending['transport']))),
             ],
           )
         else
@@ -306,6 +328,15 @@ class _WarpPageState extends State<WarpPage> {
               icon: GlyphIcon(pending == null ? AppGlyphs.cloudDownload : AppGlyphs.check),
               label: Text(context.tr(pending == null ? 'Register and save' : 'Retry saving'), textAlign: TextAlign.center),
             ),
+            if (pending == null) Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+              child: Text(
+                context.tr('Registration creates a device account with Cloudflare and writes it to the current configuration file.'),
+                key: const ValueKey('warp-registration-description'),
+                style: context.listSubtitleStyle,
+                textAlign: TextAlign.center,
+              ),
+            ),
             if (_busy && _requestId != null && !_retrying) TextButton(
               key: const ValueKey('warp-cancel'),
               onPressed: _canceling ? null : _cancel,
@@ -318,11 +349,10 @@ class _WarpPageState extends State<WarpPage> {
             ),
           ]),
         ),
-        if (pending == null) generateSection(items: [
+        generateSection(items: [
           ListItem(
             leading: const GlyphIcon(AppGlyphs.link),
             title: Text(context.tr('Cloudflare WARP terms of service')),
-            subtitle: Text(context.tr('Registration creates a device account with Cloudflare.')),
             trailing: const GlyphIcon(AppGlyphs.openExternal),
             onTap: _busy ? null : () => box.act('url.open', {'url': 'https://www.cloudflare.com/application/terms/'}),
           ),

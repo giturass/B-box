@@ -121,6 +121,70 @@ class BoxWarpTest {
         warp.close()
     }
 
+    @Test fun wireGuardUsesTheSelectedTargetAndRetriesTheSameAccountWithItsProtocol() = runTest {
+        var registrations = 0
+        var attempts = 0
+        val warp = BoxWarp(
+            prepare = { id, revision, session -> WarpProfileSnapshot(id, revision, session, "selected-profile") },
+            registerNode = { target, name, transport, registered ->
+                assertEquals(9L, target.profileId)
+                assertEquals("initial", target.revision)
+                assertEquals("Cloudflare", name)
+                assertEquals("wireguard", transport)
+                registrations++
+                registered(secretNode)
+            },
+            commit = { target, node ->
+                assertEquals(9L, target.profileId)
+                assertEquals(secretNode, node)
+                if (++attempts == 1) error("Configuration conflict $secretNode")
+                assertEquals("updated", target.revision)
+                mapOf("profileId" to target.profileId, "tag" to "Cloudflare")
+            },
+            localSession = { 3L },
+        )
+        try {
+            val failure = runCatching {
+                warp.register("wireguard", 9L, "initial", " Cloudflare ", "wireguard")
+            }.exceptionOrNull() as BoxWarpException
+            assertEquals("warp_pending", failure.code)
+            val record = pending(warp)
+            assertEquals("wireguard", record["transport"])
+            assertEquals(9L, record["profileId"])
+            assertFalse(record.toString().contains(secretNode))
+            assertEquals(failure.details, record)
+            val result = warp.retry(record["pendingId"] as String, 9L, "updated")
+            assertEquals(9L, result["profileId"])
+            assertEquals(1, registrations)
+            assertEquals(2, attempts)
+            assertNull(warp.snapshot()["pending"])
+        } finally { warp.close() }
+    }
+
+    @Test fun unsupportedProtocolsAreRejectedBeforePreparingOrRegistering() = runTest {
+        var prepared = 0
+        var registrations = 0
+        val warp = BoxWarp(
+            prepare = { id, revision, session -> prepared++; WarpProfileSnapshot(id, revision, session, "profile") },
+            registerNode = { _, _, _, registered -> registrations++; registered(secretNode) },
+            commit = { _, _ -> error("Must not save") },
+            localSession = { 1L },
+        )
+        try {
+            for (transport in listOf("", "http1", "masque", "WIREGUARD")) {
+                val failure = runCatching {
+                    warp.register("invalid", 1L, "revision", "WARP", transport)
+                }.exceptionOrNull() as BoxWarpException
+                assertEquals("warp_error", failure.code)
+                assertEquals("Select WireGuard, HTTP/2 or HTTP/3 for WARP", failure.message)
+            }
+            assertEquals(0, prepared)
+            assertEquals(0, registrations)
+            assertEquals(false, warp.snapshot()["registering"])
+            assertNull(warp.snapshot()["pending"])
+        } finally { warp.close() }
+    }
+
     @Test fun invalidTargetsFailBeforeRegisteringAndNativeFailuresAreSanitized() = runTest {
         var calls = 0
         val stale = BoxWarp(

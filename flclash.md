@@ -46,7 +46,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 | 外观与关于 | [appearance.dart](flutter/lib/pages/appearance.dart)、[about.dart](flutter/lib/pages/about.dart) | 复用主题预览、调色和版本/许可布局，保持 B-box 品牌及其 Release 来源 |
 | 备份 | [backup.dart](flutter/lib/pages/backup.dart)、[form.dart](flutter/lib/components/form.dart) | 复用本地/远程分区、WebDAV 表单、连通状态、恢复范围及策略，后端使用 `bbox-1` 格式 |
 | 连接与请求 | [requests.dart](flutter/lib/pages/requests.dart)、[connection_record.dart](flutter/lib/components/connection_record.dart)、[request_settings.dart](flutter/lib/pages/request_settings.dart)、[mitm_certificate.dart](flutter/lib/pages/mitm_certificate.dart)、[capture_domains.dart](flutter/lib/pages/capture_domains.dart) | 统一网络活动列表与详情、连接管理、本机录制、独立 MITM 与证书、TCP 流、域名选择及 HAR/cURL 导出；复用共享列表、表单和导航 |
-| WARP 注册 | [warp.dart](flutter/lib/pages/warp.dart)、[tools.dart](flutter/lib/pages/tools.dart) | 复用列表、表单、按钮和返回保护，注册 MASQUE 节点并保存到所选配置；页面为 B-box 业务代码 |
+| WARP 注册 | [warp.dart](flutter/lib/pages/warp.dart)、[tools.dart](flutter/lib/pages/tools.dart) | 复用列表、表单、按钮和返回保护，可选 MASQUE / WireGuard，分别追加到所选配置的 `outbounds` / `endpoints`；页面为 B-box 业务代码 |
 
 记录组件使用 [record.dart](flutter/lib/components/record.dart) 中 `RecordTone` 的标签前景色和容器色；首页拖动浮层使用 [dashboard_editor.dart](flutter/lib/components/dashboard_editor.dart) 的 `DashboardShadows.e2` 阴影。应用层已移除未调用的强调色和一级阴影辅助实现，适配差异记录在来源清单；像素比较的独立状态参考渲染器继续保留自己使用的阴影实现。
 
@@ -128,7 +128,7 @@ XHTTP 与 VLESS Encryption 使用现有节点链接、订阅及 sing-box JSON �
 
 已有配置的编辑保留 B-box 的本地/远程类型切换；新建配置创建本地文件，URL 通过订阅表单导入。不会因视觉对齐加入参考版的 age 密钥等未接入能力。保存、修订冲突、配置应用及失败恢复继续由既有桥接处理，见 [app.md](app.md#配置服务应用与备份)。
 
-“工具 → WARP 注册”用 Prism 列表分组显示当前配置、节点名称与 MASQUE 传输。选择 HTTP/3 时在表单下提示可回退到 HTTP/2。点击“注册并保存”会向当前配置追加节点，Cloudflare 服务条款通过下方的外链列表项打开。注册进度、错误和保存结果使用列表状态行，节点名称为空时在输入框内提示。注册或保存期间禁用重复提交并保护返回，远程会话及服务启停期间禁用本机操作。待保存列表显示原配置、节点名称和传输，重进页面可找回进程内的待保存项。“重试保存”复用账号，目标变化时提示先选择原配置。已保存节点可通过“网络 → 出站”或原始 JSON 编辑器修改。字段及示例见 [核心文档](libbox.md#cloudflare-warp-masque)，注册与配置写入保障见 [应用说明](app.md#配置服务应用与备份)。
+“工具 → WARP 注册”用 Prism 列表分组显示当前配置、节点名称与 WARP 协议，可选 MASQUE 或 WireGuard。默认 MASQUE，其独立传输选项默认 HTTP/3，可选择 HTTP/2，界面不显示回退提示。切换协议保留此前选择的 MASQUE 传输。WireGuard 隐藏 MASQUE 传输项，并提示保存到当前配置的端点。点击“注册并保存”会将 MASQUE 追加到当前配置的 `outbounds`，将 WireGuard 追加到 `endpoints`；按钮下方显示“注册将在 Cloudflare 创建设备账号，并写入当前配置文件。”，待保存重试时不显示新注册说明。Cloudflare 服务条款作为页面底部独立外链列表项，注册说明不附在条款下。注册进度、错误和保存结果使用列表状态行，节点名称为空时在输入框内提示。注册或保存期间禁用重复提交与协议修改并保护返回，远程会话及服务启停期间禁用本机操作。待保存列表显示原配置、节点名称和实际注册协议，仅 MASQUE 显示 HTTP 传输，重进页面可找回进程内的待保存项。“重试保存”复用账号，目标变化时提示先选择原配置。已保存 WireGuard 可通过“网络 → 端点”修改，MASQUE 通过“网络 → 出站”修改，两者均可使用原始 JSON 编辑器。字段及示例见 [核心文档](libbox.md#cloudflare-warp-masque)，注册与配置写入保障见 [应用说明](app.md#配置服务应用与备份)。
 
 原始 JSON 编辑器使用 [code_editor.dart](flutter/lib/components/code_editor.dart) 显示从 1 开始的逻辑行号，空行和末尾换行保留编号；长行折行不增加行号，行号随正文滚动。编辑器只保存逻辑行起始偏移，在同一帧先布局正文，再复用 `RenderEditable` 的排版及未取整选区端点计算可见行号，输入、替换内容和调整尺寸时无需等待下一帧，也不为行号排版第二份完整文本。正文滚动及视口尺寸变化后同步选区端点，使手柄显示位置与拖动计算使用同一组正文坐标，避免按旧位置选中其他行；搜索、格式化、撤销及修订校验沿用原编辑流程。
 
@@ -189,7 +189,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 - [appearance_test.dart](flutter/test/appearance_test.dart)：主题选择与重开页面后的偏好，旧字体偏好不覆盖默认字体，系统字号运行时变化和既有缩放上下限。导航、状态、内网 IP、出站模式及请求页面的字号场景通过系统缩放模拟，不依赖已退役的应用偏好。
 - [licenses_test.dart](flutter/test/licenses_test.dart)：异步加载、共享许可按包分组、搜索及完整可选中正文。
 - [about_test.dart](flutter/test/about_test.dart)：版本检查完整/未完成与可升级/不可升级的四种组合，等待时禁止重复请求、未完成提示、APK 下载条件和发布页面入口。
-- [warp_test.dart](flutter/test/warp_test.dart)：工具入口顺序、HTTP/2 注册保存、重复提交/返回保护与取消、读取修订时目标/会话变化、待保存项重进与原配置重试、放弃确认，以及远程/启停/无配置禁用和窄屏大字号布局。导航测试另生成 WARP 页布局截图；桥接替身不验证真实注册网络。
+- [warp_test.dart](flutter/test/warp_test.dart)：工具入口顺序、HTTP/2 与 WireGuard 注册保存、默认 HTTP/3 和协议切换时的传输保留、重复提交/返回保护与取消、读取修订时目标/会话变化、MASQUE / WireGuard 待保存协议重进与原配置重试、放弃确认，以及远程/启停/无配置禁用和中文 320 宽/1.4 倍字号下两种协议、按钮说明及底部条款的几何布局。导航测试另生成 WARP 页布局截图；桥接替身不验证真实注册网络及内核节点写入。
 - [dashboard_editor_test.dart](flutter/test/dashboard_editor_test.dart)、[outbound_mode_test.dart](flutter/test/outbound_mode_test.dart) 和 [terminal_settings_test.dart](flutter/test/terminal_settings_test.dart)：铅笔点击及卡片长按进入首页原位编辑，保留卡片状态并检查排序、移除、添加及保存失败；出站模式图形与 Android 一致并保留内核顺序和当前选择；停服时从终端页打开 Ghostty 设置并保存原生配置。
 
 **配置、编辑与备份**
@@ -234,6 +234,8 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 WARP 注册入口与停服代理组选择的验证源码为 `5017c42c890fa3cdaebd5edfa7323c7473107005`。[统一工作流 44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229762) 已通过：分析为 92 项 info、无 warning/error，302 项交互/布局测试全部通过，ARM64 Debug/Release Flutter AAR 构建成功。列表用例的偏好替身返回完整设置；放弃确认使用有限帧等待，窄屏按钮先滚动构建，保留连接关闭与可点击断言。新增页面未修改 FlClash/Prism 直接导入文件。
 
 `newui-validation` 内三张初始页面截图为 `360-light-1.0-WARP-registration.png`、`360-dark-1.4-WARP-registration.png` 和 `800-light-1.0-WARP-registration.png`；分别为 360×800、360×800 和 800×1000，与源码 `7e1ca0d0bc476fc3642f4daa58a2d52a284dfe9c` 当时实际查看的产物 SHA256 逐张相同。标题/返回/刷新、所选配置、名称输入、HTTP/3、注册按钮与条款无可见横向溢出或遮挡，深色大字号下传输标签与条款自然换行。截图仅覆盖英文初始页面及替身配置，不覆盖注册中、待保存、取消、中文或 ARM64 实机；320 宽/1.4 倍字号通过几何交互测试，没有单独截图。Android 和核心的实际结果见 [应用记录](app.md#当前验证记录)。
+
+上述运行和截图早于 WireGuard 选项及注册说明调整，本轮协议选择、待保存展示、按钮说明和底部条款变更尚无新的 Actions 或实机验证结果。
 
 ### 历史验证记录
 

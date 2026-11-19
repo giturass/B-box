@@ -58,9 +58,9 @@ Flutter 从 `ready` 和配置/设置变更事件取得配置列表与设置，�
 
 [BoxProfiles.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxProfiles.kt) 负责导入、编辑、手动订阅更新、配置切换及局域网代理保存；[ProfileContent.kt](app/src/main/java/io/nekohasekai/sfa/database/ProfileContent.kt) 的互斥锁和内容替换流程由前台编辑和后台订阅更新共用。
 
-Cloudflare WARP MASQUE 由 [BoxWarp.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxWarp.kt) 接入工具页注册：`warp.register` 固定所选配置 ID、内容修订和本机会话，注册期间不持有配置或桥接操作锁；完成后复核目标并调用既有 `Libbox.addUIConfigNodes` 和 `ProfileContent.replaceLocked`。完整 `Libbox.checkConfig`、本地节点标记、原子写入、运行中服务确认及失败恢复沿用节点保存流程，保留 DNS、路由、入站、分组和订阅来源。远程会话及服务启停期间拒绝注册和写入；停服保存不自动启动 VPN。协议、注册绑定、网络路径与示例由 [核心文档](libbox.md#cloudflare-warp-masque) 维护。
+Cloudflare WARP 由 [BoxWarp.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxWarp.kt) 接入工具页注册，协议可选 MASQUE 或 WireGuard。`warp.register` 的 `transport` 为 `http2`、`http3` 或 `wireguard`，固定所选配置 ID、内容修订和本机会话，注册期间不持有配置或桥接操作锁；完成后复核目标并调用既有 `Libbox.addUIConfigNodes` 和 `ProfileContent.replaceLocked`。MASQUE 保存为当前配置 `outbounds` 中的 WARP `masque` 出站；WireGuard 保存为同一配置 `endpoints` 中的 `wireguard` 端点，保存结果按协议所在数组核对实际节点名称。完整 `Libbox.checkConfig`、本地节点标记、原子写入、运行中服务确认及失败恢复沿用节点保存流程，保留 DNS、路由、入站、分组和订阅来源。远程会话及服务启停期间拒绝注册和写入；停服保存不自动启动 VPN。协议字段、注册绑定、网络路径与示例由 [核心文档](libbox.md#cloudflare-warp-masque) 维护。
 
-注册成功但配置冲突或服务应用失败时，宿主仅在进程内存保留一个待保存节点；`warp.snapshot` 和失败结果只向 Flutter 返回目标、名称和待保存 ID，不返回私钥或注册 token。`warp.retry` 使用新修订重试保存同一账号，须先选择原目标配置；`warp.discard` 清除待保存项，`warp.cancel` 取消在途注册。进程退出后未保存账号不保留，已写入的节点随原配置导出、分享及备份保存。重复注册请求拒绝，不自动创建第二个设备账号。
+注册成功但配置冲突或服务应用失败时，宿主仅在进程内存保留一个待保存节点；`warp.snapshot` 和失败结果只向 Flutter 返回目标、名称、传输和待保存 ID，不返回私钥或注册 token。`warp.retry` 使用新修订重试保存同一账号，保留其 MASQUE/WireGuard 协议，须先选择原目标配置；`warp.discard` 清除待保存项，`warp.cancel` 取消在途注册。进程退出后未保存账号不保留，已写入的节点随原配置导出、分享及备份保存。重复注册请求拒绝，不自动创建第二个设备账号。
 
 XHTTP 与 VLESS Encryption 通过同一 JSON、节点导入和订阅更新入口使用。Android 继续调用既有 `Libbox.checkConfig`、格式化及节点绑定，无新增 Binder 方法或数据库字段；协议字段、移植来源及构建要求见 [核心文档](libbox.md#xhttp-与-vless-encryption)。
 
@@ -231,7 +231,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 - **日志与可见性轮询：** [LogStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/LogStreamTest.kt) 覆盖日志快照、增量、淘汰边界、等级更新、清空、重新订阅和缓冲重置，并检查 3000 条缓冲新增一条时只编码一条；[VisiblePollingTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/VisiblePollingTest.kt) 用虚拟时间检查不可见/后台/熄屏时零采样、恢复立即采样及取消在途任务。
 - **连接与网络刷新：** [ConnectionStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ConnectionStreamTest.kt) 检查增量计数、最终关闭计数、历史淘汰、DNS 过滤、快照隔离及 3000 条记录经过状态合并和恢复订阅后的消息内容；[NetworkRefreshTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/NetworkRefreshTest.kt) 用虚拟时间覆盖网络通知、十秒/六十秒补查、前后台/熄屏取消和突发通知合并。
 - **默认接口与开机恢复：** [DefaultInterfaceMonitorTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/DefaultInterfaceMonitorTest.kt) 覆盖网络先于核心监听器到达、开机无网及接口编号超过一秒才就绪、同网络刷新、断网恢复、切网或监听器替换后的迟到结果、异常重试及停止/取消期间的等待与结果丢弃。纯 Kotlin 调度回归不代替 Android 网络回调、系统重启或实际代理连通验收。
-- **WARP 注册：** [BoxWarpTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxWarpTest.kt) 检查注册等待时配置/会话冲突、重复提交、取消及时关闭 JNI 请求、已返回凭据在取消后留待保存、失败重试复用账号及错误消敏。
+- **WARP 注册：** [BoxWarpTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxWarpTest.kt) 检查注册等待时配置/会话冲突、重复提交、取消及时关闭 JNI 请求、已返回凭据在取消后留待保存、失败重试复用账号及错误消敏；WireGuard 另核对所选目标、协议传递和失败重试的协议保留，并检查非法协议在准备配置及注册之前拒绝。
 
 ### Android 仪器测试
 
@@ -248,7 +248,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 - **路由 MITM：** `routedMITMUsesKeystoreAndTheOriginalOutbound` 将实际 Android TLS 客户端经 mixed CONNECT 入口送入本地服务，使用 Keystore CA 解密、原 selector/direct 出站与独立证书库验证测试服务器。覆盖普通 HTTPS、开启 TCP 解密但无 ALPN 的 HTTP/1.1，以及服务器先发数据的二进制 TLS/TCP；核对 URL、原路由及 TLS 元数据，HTTP 检查重复 Cookie/cURL，TCP 检查双向字节、完整性与 cURL 拒绝，并验证重载停抓。测试服务器证书由 smoke 脚本提供，见 [模拟器 smoke 矩阵](#模拟器-smoke-矩阵)；自有 CA 客户端测试不等于第三方信任库、CT/ECH 或 Root 模块的兼容性验收。
 - **HTTP 改写、资源导入与 Cron：** `profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 使用实际 gomobile、Keystore、mixed CONNECT 和 HTTP 服务器，覆盖平级 MITM/脚本与改写、HTTPS 离线 Mock、跨域映射重新匹配路由、响应改写、停记录后继续处理及应用失败恢复；资源用例先通过实际 `content://` 文档流完成本地文件和脚本导入，再检查 999 状态、MIME、后查找/内部反向引用 → jq → 脚本的顺序及本地文件更新。`localResourceImportsKeepRevisionsRecoverFailuresAndCleanCancelledCopies` 覆盖重名资源、修订冲突、应用失败恢复、文档读取失败和阻塞读取期间取消后的清理。`independentCronUsesRoutingAndStopsWithTheService` 覆盖定时路由请求、抓包启停、非法 Cron 保存拒绝及移除配置后不再请求。本地订阅/定时请求服务器按连接处理对端断开，允许服务重载或停止时取消在途 Cron 请求后继续接受新请求；监听失败及其他异常仍使测试失败，响应内容、请求次数、配置恢复和停止后的不再调度继续由原有断言检查。
 - **脚本：** `httpScriptsUseRoutedClientTimersAndPersistentNamespaces` 使用仅当前路由可解析、也匹配脚本范围的 HTTP 目标，检查异步回调及防递归、定时器、磁盘快照、规则改名/重载/清空记录后保留值、命名空间隔离、默认联网及显式空允许列表禁止联网。
-- **WARP MASQUE：** [WarpMasqueConfigTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpMasqueConfigTest.kt) 使用临时 ECDSA 密钥，检查实际 libbox AAR 的 HTTP/2、HTTP/3、新旧字段兼容、凭据/地址格式化及非法账号拒绝。[WarpRegistrationTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpRegistrationTest.kt) 以注册替身及实际 Room/libbox 验证节点持久化、重名、订阅保留、本机会话/配置修订/选择/过渡状态冲突；`ProfileRecoveryTest.registeredWarpAccountsSurviveFailedApplicationsAndRetryWithoutRegisteringAgain` 验证运行中保存失败后恢复文件、时间与服务，以及同账号重试。上述用例不调用 Cloudflare API，核心注册和传输回归见 [libbox.md](libbox.md#cloudflare-warp-masque)。
+- **WARP MASQUE / WireGuard：** [WarpMasqueConfigTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpMasqueConfigTest.kt) 使用临时 ECDSA 密钥，检查实际 libbox AAR 的 HTTP/2、HTTP/3、新旧字段兼容、凭据/地址格式化及非法账号拒绝。[WarpWireGuardConfigTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpWireGuardConfigTest.kt) 检查原生 WireGuard 端点、原始密钥、地址和 reserved 字节的格式化，以及非法字段和旧出站结构拒绝。[WarpRegistrationTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpRegistrationTest.kt) 以注册替身及实际 Room/libbox 验证两个协议的所选配置持久化、跨出站/端点重名、分组成员、本地标记、订阅保留、本机会话/配置修订/选择/过渡状态冲突及同账号重试；`ProfileRecoveryTest.registeredWarpAccountsSurviveFailedApplicationsAndRetryWithoutRegisteringAgain` 验证运行中 MASQUE 保存失败后恢复文件、时间与服务，以及同账号重试。上述用例不调用 Cloudflare API，核心注册和传输回归见 [libbox.md](libbox.md#cloudflare-warp-masque)。
 - **XHTTP 与 VLESS Encryption：** [XHttpVlessConfigTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/XHttpVlessConfigTest.kt) 使用临时参数检查实际 libbox AAR 的 XHTTP 模式、HTTP 版本及上下行分离配置、VLESS 加密/解密与 Vision 字段格式化、非法配置拒绝；来源测试另验证加密分享链接导入、更新及失败后内容/归属保留。模拟器配置检查不连接外部协议服务器，核心真实传输回归见 [libbox.md](libbox.md#xhttp-与-vless-encryption)。
 
 ### 模拟器 smoke 矩阵
@@ -269,9 +269,11 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-开机恢复修复以 `42edec52a035fd339d34b43156867cf1121038ac` 为基线。本机执行 `git diff --check`、`python3 tools/verify_newui.py` 及改动文档的本地链接/旧引用静态检查，没有执行编译或运行测试。新增 12 项默认接口调度回归纳入统一工作流的 JVM 入口，随代码推送自动验证；本轮完整 Actions 验证尚未完成，也未构建签名 APK。现有 smoke 矩阵没有 API 35 或系统重启用例，Android 15 开机、晚到网络及实际代理连通尚待实机验证。
+WARP WireGuard 与注册界面调整以 `9b83f764455cadba3342b763ffcf12ac67c270ae` 为源码基线，验证对象为该基线之上的本轮源码增量。本机执行 `git diff --check`、`python3 tools/verify_newui.py`、注册 Go 文件的 `gofmt -d` 及修改文档的本地链接/旧引用静态检查；未执行 Go、Flutter 或 Android 编译/运行测试。新增回归已纳入统一工作流的 Go/JVM/Flutter/Android smoke 入口，WARP race 步骤增加 `with_wireguard` 以实际构造并校验端点；本轮 Actions 运行结果待记录，尚未构建签名 APK。Cloudflare 真实注册/连通、两种协议及调整后的中文/注册中/待保存界面与 ARM64 实机仍未验收。
 
-最近一次已记录的完整 Actions 验证源码为 `5017c42c890fa3cdaebd5edfa7323c7473107005`。[统一工作流 44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 的 8 个作业全部通过，以下结果不代表本次开机恢复修复已通过：
+上述源码基线还包含以 `42edec52a035fd339d34b43156867cf1121038ac` 为比较起点的开机恢复修复，此前同样仅做本机静态检查。其新增 12 项默认接口调度回归纳入统一工作流的 JVM 入口，随代码推送自动验证，当前源码尚无完整 Actions 验证。现有 smoke 矩阵没有 API 35 或系统重启用例，Android 15 开机、晚到网络及实际代理连通尚待实机验证。
+
+最近一次已记录的完整 Actions 验证源码为 `5017c42c890fa3cdaebd5edfa7323c7473107005`。[统一工作流 44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 的 8 个作业全部通过，以下结果不代表当前开机恢复及 WARP WireGuard 增量已通过：
 
 - [核心作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229545) 通过基础 `TestUI`、发货协议节点、Vision/XHTTP/VLESS、WARP HTTP/2/3 与注册、路由生命周期及 HTTP 调试/处理回归；要求 race 的步骤均通过，Go `checkptr` 检查保留。新建模板的 Mozilla 可信库、初始及节点导入后的完整配置校验和证书策略保留断言均已运行。
 - [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229762) 通过分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建；测试数量与截图核对范围见 [Flutter 记录](flclash.md#当前验证记录)。

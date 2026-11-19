@@ -18,18 +18,20 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 )
 
 const (
-	uiWARPAPI         = "https://api.cloudflareclient.com/v0a4471"
-	uiWARPTimeout     = 45 * time.Second
-	uiWARPMaxResponse = 1 << 20
+	uiWARPAPI               = "https://api.cloudflareclient.com/v0a4471"
+	uiWARPWireGuardEndpoint = "engage.cloudflareclient.com:2408"
+	uiWARPTimeout           = 45 * time.Second
+	uiWARPMaxResponse       = 1 << 20
 )
 
-// UIWARPRegistrationTask registers one MASQUE device and returns only the
+// UIWARPRegistrationTask registers one WARP device and returns only the
 // sing-box proxy node. Device ID, API token and license never cross the binding.
 // The Android caller admits this direct variant only while its service is stopped.
 type UIWARPRegistrationTask struct {
@@ -58,6 +60,16 @@ func newUIWARPRegistrationTask(probe *UIEgressProbe) *UIWARPRegistrationTask {
 }
 func (t *UIWARPRegistrationTask) Close() { t.probe.Close() }
 func (t *UIWARPRegistrationTask) Register(name string, httpVersion int32) (string, error) {
+	return t.register(name, httpVersion, false)
+}
+
+// RegisterWireGuard returns a native sing-box WireGuard endpoint without
+// replacing its Curve25519 registration key with a MASQUE key.
+func (t *UIWARPRegistrationTask) RegisterWireGuard(name string) (string, error) {
+	return t.register(name, 0, true)
+}
+
+func (t *UIWARPRegistrationTask) register(name string, httpVersion int32, wireGuard bool) (string, error) {
 	if !t.used.CompareAndSwap(false, true) {
 		return "", fmt.Errorf("WARP registration task was already used")
 	}
@@ -71,6 +83,9 @@ func (t *UIWARPRegistrationTask) Register(name string, httpVersion int32) (strin
 	}
 	ctx, cancel := context.WithTimeout(t.probe.ctx, uiWARPTimeout)
 	defer cancel()
+	if wireGuard {
+		return uiWARPRegisterWireGuard(ctx, t.probe, uiWARPAPI, name)
+	}
 	return uiWARPRegister(ctx, t.probe, uiWARPAPI, name, httpVersion)
 }
 
@@ -78,6 +93,7 @@ type uiWARPDevice struct {
 	ID     string `json:"id"`
 	Token  string `json:"token"`
 	Config struct {
+		ClientID  string `json:"client_id"`
 		Interface struct {
 			Addresses struct {
 				V4 string `json:"v4"`
@@ -86,21 +102,36 @@ type uiWARPDevice struct {
 		} `json:"interface"`
 		Peers []struct {
 			PublicKey string `json:"public_key"`
+			Endpoint  struct {
+				Host string `json:"host"`
+				V4   string `json:"v4"`
+				V6   string `json:"v6"`
+			} `json:"endpoint"`
 		} `json:"peers"`
 	} `json:"config"`
 }
 
-// Behavior reference: Throne 48273be2 core/internal/warp. First acquire a normal
-// device identity, then enroll its P-256 MASQUE key. These are separate API calls;
-// retrying POST after an ambiguous failure would create another device.
-func uiWARPRegister(ctx context.Context, probe *UIEgressProbe, api, name string, httpVersion int32) (string, error) {
+// Behavior reference: Throne 48273be2 core/internal/warp. Both tunnels first
+// acquire a Curve25519 device identity. Retrying POST after an ambiguous
+// failure would create another device.
+func uiWARPRegisterDevice(ctx context.Context, probe *UIEgressProbe, api string) (*uiWARPDevice, *ecdh.PrivateKey, error) {
 	wgKey, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
-		return "", fmt.Errorf("WARP: could not generate registration key")
+		return nil, nil, fmt.Errorf("WARP: could not generate registration key")
+	}
+	// crypto/ecdh clamps only while multiplying; store the same clamped
+	// Curve25519 scalar that WireGuard's key generator exports.
+	privateKey := wgKey.Bytes()
+	privateKey[0] &= 248
+	privateKey[31] &= 127
+	privateKey[31] |= 64
+	wgKey, err = ecdh.X25519().NewPrivateKey(privateKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("WARP: could not generate registration key")
 	}
 	serial := make([]byte, 8)
 	if _, err = rand.Read(serial); err != nil {
-		return "", fmt.Errorf("WARP: could not generate device identity")
+		return nil, nil, fmt.Errorf("WARP: could not generate device identity")
 	}
 	registered, err := uiWARPCall(ctx, probe, api+"/reg", http.MethodPost, "", map[string]string{
 		"key": base64.StdEncoding.EncodeToString(wgKey.PublicKey().Bytes()), "install_id": "", "fcm_token": "",
@@ -108,10 +139,20 @@ func uiWARPRegister(ctx context.Context, probe *UIEgressProbe, api, name string,
 		"key_type": "curve25519", "tunnel_type": "wireguard", "locale": "en_US",
 	}, "register device")
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
 	if !uiWARPDeviceID(registered.ID) || registered.Token == "" || strings.ContainsAny(registered.Token, "\x00\r\n") {
-		return "", fmt.Errorf("WARP register device: invalid device credentials in response")
+		return nil, nil, fmt.Errorf("WARP register device: invalid device credentials in response")
+	}
+	return registered, wgKey, nil
+}
+
+// MASQUE enrolls a P-256 key on the device acquired by the first API call.
+// RegisterWireGuard keeps that device's original Curve25519 key instead.
+func uiWARPRegister(ctx context.Context, probe *UIEgressProbe, api, name string, httpVersion int32) (string, error) {
+	registered, _, err := uiWARPRegisterDevice(ctx, probe, api)
+	if err != nil {
+		return "", err
 	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -157,6 +198,95 @@ func uiWARPRegister(ctx context.Context, probe *UIEgressProbe, api, name string,
 	}
 	return string(content), nil
 }
+
+func uiWARPRegisterWireGuard(ctx context.Context, probe *UIEgressProbe, api, name string) (string, error) {
+	registered, key, err := uiWARPRegisterDevice(ctx, probe, api)
+	if err != nil {
+		return "", err
+	}
+	addresses, err := uiWARPAddresses(registered)
+	if err != nil {
+		return "", err
+	}
+	if len(registered.Config.Peers) == 0 {
+		return "", fmt.Errorf("WARP registration response: missing WireGuard peer")
+	}
+	peer := registered.Config.Peers[0]
+	publicKey, err := base64.StdEncoding.Strict().DecodeString(peer.PublicKey)
+	if err != nil || len(publicKey) != 32 || bytes.Equal(publicKey, make([]byte, 32)) || strings.ContainsAny(peer.PublicKey, "\x00\r\n") {
+		return "", fmt.Errorf("WARP registration response: invalid WireGuard peer public key")
+	}
+	reserved, err := base64.StdEncoding.Strict().DecodeString(registered.Config.ClientID)
+	if err != nil || len(reserved) != 3 || strings.ContainsAny(registered.Config.ClientID, "\x00\r\n") {
+		return "", fmt.Errorf("WARP registration response: invalid WireGuard client_id")
+	}
+	endpoint, family := peer.Endpoint.Host, 0
+	if endpoint == "" {
+		endpoint, family = peer.Endpoint.V4, 4
+	}
+	if endpoint == "" {
+		endpoint, family = peer.Endpoint.V6, 6
+	}
+	if endpoint == "" {
+		endpoint, family = uiWARPWireGuardEndpoint, 0
+	}
+	host, port, err := uiWARPParseWireGuardEndpoint(endpoint, family)
+	if err != nil {
+		return "", err
+	}
+	// []byte is encoded as a Base64 string by encoding/json. The endpoint
+	// schema expects the three reserved bytes as a JSON array of integers.
+	reservedValues := []int{int(reserved[0]), int(reserved[1]), int(reserved[2])}
+	// Keep a completed registration at the same cancellation boundary as
+	// MASQUE, so Android can retain its node without committing a cancelled save.
+	node := map[string]any{
+		"type": "wireguard", "tag": name, "address": addresses,
+		"private_key": base64.StdEncoding.EncodeToString(key.Bytes()), "mtu": 1280,
+		"peers": []any{map[string]any{
+			"address": host, "port": port, "public_key": base64.StdEncoding.EncodeToString(publicKey),
+			"allowed_ips": []string{"0.0.0.0/0", "::/0"}, "reserved": reservedValues,
+		}},
+	}
+	content, err := json.Marshal(node)
+	if err != nil {
+		return "", fmt.Errorf("WARP: could not serialize node")
+	}
+	return string(content), nil
+}
+
+func uiWARPParseWireGuardEndpoint(endpoint string, family int) (string, uint16, error) {
+	invalid := fmt.Errorf("WARP registration response: invalid WireGuard endpoint")
+	host, portText, err := net.SplitHostPort(endpoint)
+	if err != nil || host == "" || portText == "" || strings.IndexFunc(portText, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+		return "", 0, invalid
+	}
+	port, err := strconv.ParseUint(portText, 10, 16)
+	if err != nil || port == 0 {
+		return "", 0, invalid
+	}
+	if address, err := netip.ParseAddr(host); err == nil {
+		if address.IsUnspecified() || address.IsMulticast() || address.Is4In6() || address.Zone() != "" ||
+			family == 4 && !address.Is4() || family == 6 && !address.Is6() {
+			return "", 0, invalid
+		}
+		return address.String(), uint16(port), nil
+	}
+	if family != 0 || len(host) > 253 {
+		return "", 0, invalid
+	}
+	for _, label := range strings.Split(strings.TrimSuffix(host, "."), ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return "", 0, invalid
+		}
+		for _, r := range label {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-') {
+				return "", 0, invalid
+			}
+		}
+	}
+	return strings.ToLower(host), uint16(port), nil
+}
+
 func uiWARPDeviceID(value string) bool {
 	if value == "" {
 		return false
@@ -235,12 +365,12 @@ func uiWARPAddresses(device *uiWARPDevice) ([]string, error) {
 		}
 		address, err := netip.ParseAddr(text)
 		if err != nil || address.Is4In6() || address.IsUnspecified() || address.IsMulticast() || address.Zone() != "" || address.Is4() != (index == 0) {
-			return nil, fmt.Errorf("WARP enrollment response: invalid interface address")
+			return nil, fmt.Errorf("WARP response: invalid interface address")
 		}
 		addresses = append(addresses, netip.PrefixFrom(address, address.BitLen()).String())
 	}
 	if len(addresses) == 0 {
-		return nil, fmt.Errorf("WARP enrollment response: missing interface addresses")
+		return nil, fmt.Errorf("WARP response: missing interface addresses")
 	}
 	return addresses, nil
 }

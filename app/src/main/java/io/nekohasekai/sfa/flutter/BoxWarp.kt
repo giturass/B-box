@@ -35,7 +35,7 @@ internal data class WarpProfileSnapshot(val profileId: Long, val revision: Strin
 internal class BoxWarp(
     private val prepare: suspend (Long, String, Long) -> WarpProfileSnapshot,
     private val commit: suspend (WarpProfileSnapshot, String) -> Map<String, Any?>,
-    private val registerNode: suspend (WarpProfileSnapshot, String, Int, (String) -> Unit) -> Unit = ::registerWarpNode,
+    private val registerNode: suspend (WarpProfileSnapshot, String, String, (String) -> Unit) -> Unit = ::registerWarpNode,
     private val localSession: () -> Long = CommandTarget::localSession,
 ) : Closeable {
     private class Pending(val id: String, val profileId: Long, val path: String, val name: String, val transport: String, val node: String) {
@@ -69,17 +69,15 @@ internal class BoxWarp(
         if (requestId.isBlank() || requestId.length > 128) throw BoxWarpException("warp_error", "Invalid WARP request")
         val label = name.trim()
         if (label.isEmpty() || label.length > 128 || label.any { it.isISOControl() }) throw BoxWarpException("warp_error", "Invalid WARP node name")
-        val version = when (transport) {
-            "http2" -> 2
-            "http3" -> 3
-            else -> throw BoxWarpException("warp_error", "Select HTTP/2 or HTTP/3 for WARP")
+        if (transport !in setOf("wireguard", "http2", "http3")) {
+            throw BoxWarpException("warp_error", "Select WireGuard, HTTP/2 or HTTP/3 for WARP")
         }
         val operation = begin(requestId, coroutineContext.job)
         try {
             val target = prepare(profileId, revision, localSession())
             var registeredRecord: Pending? = null
             try {
-                registerNode(target, label, version) { node ->
+                registerNode(target, label, transport) { node ->
                     val record = Pending(UUID.randomUUID().toString(), target.profileId, target.path, label, transport, node)
                     synchronized(access) {
                         if (!closed) { pending = record; registeredRecord = record }
@@ -152,7 +150,7 @@ internal class BoxWarp(
 }
 
 /** The JNI request receives cancellation immediately, while its IO coroutine is blocked. */
-private suspend fun registerWarpNode(target: WarpProfileSnapshot, name: String, version: Int, registered: (String) -> Unit): Unit = coroutineScope {
+private suspend fun registerWarpNode(target: WarpProfileSnapshot, name: String, transport: String, registered: (String) -> Unit): Unit = coroutineScope {
     val owner = coroutineContext
     var task: UIWARPRegistrationTask? = null
     try {
@@ -171,7 +169,14 @@ private suspend fun registerWarpNode(target: WarpProfileSnapshot, name: String, 
             owner.ensureActive()
         }
         val request = checkNotNull(task)
-        withWarpRegistrationTask(request::close, registered) { request.register(name, version) }
+        withWarpRegistrationTask(request::close, registered) {
+            when (transport) {
+                "wireguard" -> request.registerWireGuard(name)
+                "http2" -> request.register(name, 2)
+                "http3" -> request.register(name, 3)
+                else -> error("Invalid WARP transport")
+            }
+        }
     } finally {
         task?.close()
     }
@@ -242,9 +247,15 @@ internal class BoxWarpProfiles(
         val (profile, content) = selected(target.profileId, target.revision, target.path)
         val registered = JSONObject(node)
         val update = Libbox.addUIConfigNodes(content, JSONArray().put(registered).toString(), profile.typed.isDefault)
-        val outbounds = JSONObject(Libbox.formatConfig(update.config).value).optJSONArray("outbounds") ?: JSONArray()
-        val tag = (0 until outbounds.length()).asSequence().map { outbounds.getJSONObject(it) }.firstOrNull {
-            it.optString("type") == "masque" && it.optString("private_key") == registered.getString("private_key")
+        val type = registered.getString("type")
+        val section = when (type) {
+            "wireguard" -> "endpoints"
+            "masque" -> "outbounds"
+            else -> error("Unsupported registered WARP node")
+        }
+        val nodes = JSONObject(Libbox.formatConfig(update.config).value).optJSONArray(section) ?: JSONArray()
+        val tag = (0 until nodes.length()).asSequence().map { nodes.getJSONObject(it) }.firstOrNull {
+            it.optString("type") == type && it.optString("private_key") == registered.getString("private_key")
         }?.getString("tag") ?: error("Registered WARP node was not added")
         ProfileContent.replaceLocked(profile, update.config, expectedRevision = target.revision,
             beforeCommit = {

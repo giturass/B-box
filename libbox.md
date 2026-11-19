@@ -14,7 +14,7 @@
 | Android 自动重定向兼容 | [sing-tun-android-ingress.patch](libbox/sing-tun-android-ingress.patch) | 兼容 ingress discard BPF map 的 4/8 字节 value，保留接口归属检查和原值恢复 |
 | XHTTP 与 VLESS Encryption | [xhttp-vless.patch](libbox/xhttp-vless.patch)、[xhttp/](libbox/xhttp/) | 在当前核心基线上移植固定来源的 XHTTP 传输与 VLESS 加密，标准 AAR 启用 `with_xhttp` |
 | Vision 指针兼容 | [sing-vmess-vision-pointer.patch](libbox/sing-vmess-vision-pointer.patch) | 固定 sing-vmess 副本的 TLS/Encryption 注册保留 Go 指针来源，缓冲字段经布局核对后用 `unsafe.Add` 访问，兼容 race/checkptr |
-| Cloudflare WARP MASQUE | [warp-masque.patch](libbox/warp-masque.patch)、[masque/](libbox/masque/)、[ui_warp.go](libbox/ui_warp.go) | `masque` 出站、设备注册、ECDSA 认证、公钥固定、HTTP/3 datagram 与 HTTP/2 capsule 及传输回退 |
+| Cloudflare WARP 注册与 MASQUE | [warp-masque.patch](libbox/warp-masque.patch)、[masque/](libbox/masque/)、[ui_warp.go](libbox/ui_warp.go) | MASQUE/WireGuard 设备注册、原生 WireGuard 端点、`masque` 出站、ECDSA 认证、公钥固定、HTTP/3 datagram 与 HTTP/2 capsule 及传输回退 |
 | 运行时内存绑定 | [ui_dashboard.go](libbox/ui_dashboard.go) | 读取 Go 运行时内存和 goroutine 数，提供释放内存操作 |
 | HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码与完整响应，通过 `UIHTTPTask` 传播 Android 取消，供备份及 Release 元数据使用 |
 | 订阅下载绑定 | [ui_profile.go](libbox/ui_profile.go) | 可取消的完整订阅下载，失败响应不读取正文 |
@@ -110,11 +110,30 @@ VLESS 出站新增 `encryption`，入站新增 `decryption`，空值或 `none` �
 
 ### Cloudflare WARP MASQUE
 
-B-box 新增 `outbounds` 中的 `type: "masque"`，复用当前上游 MASQUE 的 IP 栈、TCP/UDP/ICMP、路由、代理组和网络切换生命周期。上游 `endpoints` 中的 `masque-client` / `masque-server` 继续使用标准 CONNECT-IP。WARP 使用自己的 `cf-connect-ip` 握手和注册时分配的地址；只将普通 MASQUE 端点改为 WARP 服务器并不能完成认证。
+B-box 的 WARP 注册支持选择 MASQUE 或 WireGuard：MASQUE 保存为 `outbounds` 中的 `type: "masque"`，WireGuard 使用上游原生 `endpoints` 中的 `type: "wireguard"`。新增 MASQUE 出站复用当前上游 MASQUE 的 IP 栈、TCP/UDP/ICMP、路由、代理组和网络切换生命周期。上游 `masque-client` / `masque-server` 继续使用标准 CONNECT-IP。WARP MASQUE 使用自己的 `cf-connect-ip` 握手和注册时分配的地址；只将普通 MASQUE 端点改为 WARP 服务器并不能完成认证。
 
-本次注册与传输重写核对 Throne 固定提交 [`48273be2870fd2c81059628ff2cc439ac711808e`](https://github.com/throneproj/Throne/tree/48273be2870fd2c81059628ff2cc439ac711808e) 的 [注册流程](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/core/internal/warp/register.go)、[API 请求](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/core/internal/warp/api.go)、[MASQUE 配置](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/src/configs/outbounds/masque.cpp)，以及其 `core/go.mod` 固定的 [throneproj/sing-box `183cf759ed909d9200d2baccab233f3221d034b1`](https://github.com/throneproj/sing-box/tree/183cf759ed909d9200d2baccab233f3221d034b1/transport/warpmasque)。传输范围同时参考 [Cloudflare 官方网络要求](https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/deployment/firewall/#masque)。B-box 独立实现所需行为，继续使用官方核心及其已有 TLS、QUIC、HTTP/2 和 IP 栈，不替换整个核心或引入 Throne 的运行时依赖；为兼容既有文件，WARP 仍保存在 `outbounds`。
+注册与传输核对 Throne 固定提交 [`48273be2870fd2c81059628ff2cc439ac711808e`](https://github.com/throneproj/Throne/tree/48273be2870fd2c81059628ff2cc439ac711808e) 的 [注册流程](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/core/internal/warp/register.go)、[API 请求](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/core/internal/warp/api.go)、[WireGuard 配置](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/src/configs/outbounds/wireguard.cpp)、[MASQUE 配置](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/src/configs/outbounds/masque.cpp)，以及其 `core/go.mod` 固定的 [throneproj/sing-box `183cf759ed909d9200d2baccab233f3221d034b1`](https://github.com/throneproj/sing-box/tree/183cf759ed909d9200d2baccab233f3221d034b1/transport/warpmasque)。传输范围同时参考 [Cloudflare 官方网络要求](https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/deployment/firewall/#masque)。B-box 独立实现所需行为，继续使用官方核心及其已有 TLS、QUIC、HTTP/2、WireGuard 和 IP 栈，不替换整个核心或引入 Throne 的运行时依赖；既有 MASQUE 节点仍保存在 `outbounds`。
 
-[ui_warp.go](libbox/ui_warp.go) 的 `NewUIWARPRegistrationTask` 用于本机停服时的设备网络；运行中的 `CommandServer.NewUIWARPRegistrationTask` 使用当前服务路由及既有取消/退出等待边界，不在路由失败后回退直连。`Register(name, httpVersion)` 先向 `https://api.cloudflareclient.com/v0a4471/reg` POST Curve25519/WireGuard 注册，再以返回的 Bearer token PATCH 同一设备为 P-256/secp256r1 MASQUE；最终只返回可追加的单节点 JSON，不返回 token、设备 ID 或许可证。任务总时限为 45 秒，响应上限各为 1 MiB，`Close` 取消在途请求，禁止重定向及自动重试非幂等注册。API 错误不包含响应正文或凭据。
+[ui_warp.go](libbox/ui_warp.go) 的 `NewUIWARPRegistrationTask` 用于本机停服时的设备网络；运行中的 `CommandServer.NewUIWARPRegistrationTask` 使用当前服务路由及既有取消/退出等待边界，不在路由失败后回退直连。两个注册绑定只返回可追加的单节点 JSON，不返回 token、设备 ID 或许可证；同一任务只能调用其中一个绑定一次。任务总时限为 45 秒，响应上限各为 1 MiB，`Close` 取消在途请求，禁止重定向及自动重试非幂等注册。API 错误不包含响应正文或凭据。完整成功响应在取消边界仍返回节点，供 Android 保留待保存项；配置提交继续由调用方复核取消、会话、所选配置与修订。
+
+`Register(name, httpVersion)` 保留 MASQUE 兼容绑定：先向 `https://api.cloudflareclient.com/v0a4471/reg` POST Curve25519/WireGuard 注册，再以返回的 Bearer token PATCH 同一设备为 P-256/secp256r1 MASQUE。`RegisterWireGuard(name)` 只执行初始 POST，直接保留同次注册的 Curve25519 私钥和 WireGuard 响应，不再 PATCH 为 MASQUE。
+
+#### WireGuard 注册端点
+
+WireGuard 输出结构核对当前核心 [`v1.15.0-alpha.13` 的选项](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/option/wireguard.go)及[端点文档](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/docs/configuration/endpoint/wireguard.md)。`AddUIConfigNodes` 将注册结果追加到当前所选配置的 `endpoints`，标记为本地节点，并加入可用的 selector/urltest；配置的 DNS、路由、入站、既有端点及分组选择保持原值。接口地址至少一种地址族有效，peer 公钥必须是 Base64 编码的非零 32 字节公钥，`client_id` 必须解码为三个字节；无效响应拒绝生成节点。
+
+| 字段 | 注册结果 |
+| --- | --- |
+| `type` / `tag` | `wireguard` 与用户输入的节点名称 |
+| `address` | 注册接口分配的 IPv4 `/32`、IPv6 `/128` 地址 |
+| `private_key` | 同次 POST 使用的 Curve25519 私钥，按 WireGuard 规则 clamp 后保存为 Base64 原始 32 字节 |
+| `peers[0].address` / `port` | 注册响应首个 peer 的 `endpoint.host`；缺失时依次使用 `endpoint.v4`、`endpoint.v6`，全部缺失时沿用 Throne 的 `engage.cloudflareclient.com:2408`。拆分主机和端口，IPv6 不保存方括号；已提供但无效的地址或端口拒绝保存 |
+| `peers[0].public_key` | 同次注册返回的 WireGuard peer 公钥 |
+| `peers[0].allowed_ips` | `0.0.0.0/0` 和 `::/0`，允许被路由至该节点的流量通过隧道 |
+| `peers[0].reserved` | 注册节点将 `config.client_id` Base64 解码为三个 JSON 整数字节，保留 `0`–`255` 的值；标准核心格式化可将字节序列规范化为 Base64 字符串，两种表示均按同一字节值解码 |
+| `mtu` | `1280`，不申请系统 WireGuard 接口 |
+
+#### MASQUE 出站
 
 注册节点使用 Throne 的 `162.159.198.2:443`：注册接口返回的 `.1` 在 TCP 上是普通 CDN 边缘，不能用于 HTTP/2 MASQUE。注册后的地址、客户端私钥和对端公钥来自同一次账号注册；写入目标与修订、服务应用和失败重试由 [Android 注册流程](app.md#配置服务应用与备份) 维护。
 
@@ -140,7 +159,7 @@ B-box 新增 `outbounds` 中的 `type: "masque"`，复用当前上游 MASQUE 的
 
 [patch_warp_masque.py](tools/patch_warp_masque.py) 对干净的匹配核心检查补丁并安装选项、出站和传输，重复安装失败。注册扩展与其他 `ui_*.go` 由共享 [setup-core](.github/actions/setup-core/action.yml) 安装，使统一测试、Android smoke 和 ARM64 Release 使用同一实现；正式 libbox 构建已有 `with_quic`。
 
-[注册回归](libbox/ui_warp_test.go) 使用本地 API 替身检查两阶段注册、密钥/地址和输出节点、错误状态/非法响应、响应上限、重定向拒绝及取消；[传输回归](libbox/masque/warp_test.go) 与 [HTTP/3 回归](libbox/masque/warp_http3_test.go) 检查握手、公钥固定、空 ALPN、传输回退、报文、失败/取消与重连，以及网络重置后拨号等待替换隧道；[ui_masque_test.go](libbox/ui_masque_test.go) 检查配置/格式化及真实 IP 栈经 selector 传输 UDP 和网络重置。Android 配置绑定与节点持久化回归由 [应用文档](app.md#android-仪器测试) 维护。实际运行记录维护在 [app.md](app.md#当前验证记录)；本地模拟服务不代表 Cloudflare 真实网络或注册流程已经验收。
+[注册回归](libbox/ui_warp_test.go) 使用本地 API 替身检查 MASQUE 两阶段与 WireGuard 单阶段注册、已注册私钥对应关系、地址和 reserved 字节、API peer 地址及缺省地址、WireGuard 端点追加/代理组/本地标记/重复保存、完整配置校验、错误状态/非法响应、响应上限、重定向拒绝、关闭取消及完整响应在取消边界的保留；[传输回归](libbox/masque/warp_test.go) 与 [HTTP/3 回归](libbox/masque/warp_http3_test.go) 检查握手、公钥固定、空 ALPN、传输回退、报文、失败/取消与重连，以及网络重置后拨号等待替换隧道；[ui_masque_test.go](libbox/ui_masque_test.go) 检查配置/格式化及真实 IP 栈经 selector 传输 UDP 和网络重置。Android 配置绑定与节点持久化回归由 [应用文档](app.md#android-仪器测试) 维护。实际运行记录维护在 [app.md](app.md#当前验证记录)；本地模拟服务不代表 Cloudflare 真实网络或注册流程已经验收。
 
 ### 运行时内存
 
@@ -447,7 +466,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 - 同一工作流的 core job 使用共享准备 Action 把扩展、补丁和回归文件安装到上游检出目录，不构建核心 AAR。所有生产扩展均参与编译，测试按名称前缀或目录自动纳入，不维护具体扩展名的筛选清单。该 job 依次运行：
   1. `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1`：Android ingress-discard map 布局兼容。
   2. `go test -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`：全部 `TestUI` 扩展回归；随后以 `-tags=with_xhttp,with_quic,with_wireguard,with_utls,with_clash_api` 单独运行 `^TestUINode`，核对随发布核心包含的节点协议。
-  3. `go test -race -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m`，再以 `-tags=with_quic` 运行同一命令；随后执行 `go test -tags=with_xhttp,with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIMASQUE' -count=1` 及 `go test -race -tags=with_xhttp,with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIWARP' -count=1 -timeout=3m`：WARP 配置、注册、认证及 HTTP/2、HTTP/3 隧道。HTTP/3 用例只在 `with_quic` 构建中编译。
+  3. `go test -race -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m`，再以 `-tags=with_quic` 运行同一命令；随后执行 `go test -tags=with_xhttp,with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIMASQUE' -count=1` 及 `go test -race -tags=with_xhttp,with_quic,with_wireguard -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIWARP' -count=1 -timeout=3m`：WARP MASQUE/WireGuard 注册与配置、认证及 HTTP/2、HTTP/3 隧道。HTTP/3 用例只在 `with_quic` 构建中编译。
   4. `go test -race -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(Egress|Route|HTTP|Profile)' -count=1`：路由、出口探测、HTTP 任务和订阅的数据竞争。
   5. `go test -race ./experimental/httpdebug -count=1 -timeout=5m` 与 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m`：HTTP/MITM 抓取与处理引擎的全部用例及数据竞争，以及原出站和嗅探字节保留。
 - 获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py) 以受限并发运行独立的抓取引擎测试，它不构建 Android 绑定。
@@ -465,7 +484,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 - [ui_route_test.go](libbox/ui_route_test.go)：停服等待路由和指定出站的拨号退出，以及准入与关闭的竞争。
 - [ui_lan_test.go](libbox/ui_lan_test.go)：监听地址、开关保留原生配置、创建/停用 mixed 入站、新监听冲突与校验。
 - [ui_masque_test.go](libbox/ui_masque_test.go)：WARP 配置校验/格式化、非法账号拒绝、VPN 示例，以及真实 IP 栈经 HTTP/2 出站传输 UDP 和网络重置；步骤 3 另在 `with_quic` 构建中运行。
-- [ui_warp_test.go](libbox/ui_warp_test.go)：注册 POST/PATCH、DER 密钥及分配地址、节点追加与完整配置校验、非法响应和错误状态、响应上限、拒绝重定向和关闭取消；步骤 3 另以 `with_quic` 和 race 运行。
+- [ui_warp_test.go](libbox/ui_warp_test.go)：MASQUE POST/PATCH 与 WireGuard 单 POST、P-256 DER/Curve25519 私钥和分配地址、peer 地址选择及 client_id reserved 数值、原生端点追加/代理组/本地标记/重复保存、完整配置校验、非法响应和错误状态、响应上限、拒绝重定向、任务单次调用及关闭/完成边界取消；步骤 3 另以 `with_quic,with_wireguard` 和 race 运行。无 `with_wireguard` 的基础检查仍验证注册请求及端点选项解码，追加/完整配置子测试在包含 WireGuard 的核心中运行。
 - [ui_capture_test.go](libbox/ui_capture_test.go) 与 [ui_capture_signer_test.go](libbox/ui_capture_signer_test.go)：本地抓包设置、schema 和退役字段迁移；平台签名接口的摘要、算法及返回签名校验。
 - [ui_processing_test.go](libbox/ui_processing_test.go)：改写 schema 校验与格式化、退役选项不激活新规则、一元 gRPC 与 reject 动作往返、迁移保留范围和端口缺省、脚本能力 schema，以及 Surge 字段格式化时不加载资源。
 
