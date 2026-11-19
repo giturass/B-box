@@ -179,7 +179,8 @@
       "source": "transport/v2rayxhttp/errors.go",
       "target": "transport/v2rayxhttp/errors.go",
       "sha256": "892e3b8b4b9fe5687ae91412beb30edf36f9fc562ef0bb86bd442b2e1de70aa8",
-      "overlay_sha256": "892e3b8b4b9fe5687ae91412beb30edf36f9fc562ef0bb86bd442b2e1de70aa8"
+      "overlay_sha256": "494db17e889affbac45214245425a1ce8453a42c281ca339b82104b5e3600e37",
+      "adaptation": "Classify the standard http.ErrBodyReadAfterClose sentinel and wrappers as normal HTTP/1 tunnel closure using errors.Is; preserve the original error and message."
     },
     {
       "source": "transport/v2rayxhttp/errors_quic_test.go",
@@ -191,7 +192,8 @@
       "source": "transport/v2rayxhttp/errors_test.go",
       "target": "transport/v2rayxhttp/errors_test.go",
       "sha256": "dc616936b312ef53964595c2cfef272d29ac6466f3fe416b8f04b5d2e343cae2",
-      "overlay_sha256": "dc616936b312ef53964595c2cfef272d29ac6466f3fe416b8f04b5d2e343cae2"
+      "overlay_sha256": "508326fdfc159c050317f275496ff454351486ef8b117544877097b627dc2dee",
+      "adaptation": "Add B-box regressions for direct/wrapped http.ErrBodyReadAfterClose and a same-message unrelated error that must remain a failure."
     },
     {
       "source": "transport/v2rayxhttp/h1_upload.go",

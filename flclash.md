@@ -235,7 +235,9 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 节点分享展示的验证源码为 `41834548e78196aec04f597995c6a7b724bf1809`，[统一工作流 44460811251 的 Flutter 作业](https://github.com/giturass/B-box/actions/runs/44460811251/job/135346847819) 已通过：分析为 93 项 info、无 warning/error，306 项交互/布局测试及 ARM64 Debug/Release AAR 构建通过。整套运行因 Android 新增异常传播回归断言失败，smoke 未运行，修正见 [应用验证记录](app.md#当前验证记录)。本机 `git diff --check`、`python3 tools/verify_newui.py` 及文档本地链接静态检查通过；未执行本机编译或测试，分享页视觉或实机尚未验收。
 
-上次验证源码为 `bd720bcdf5742e6cc3f8697b16ab12e6569350a1`，[统一工作流 44455949442 的 Flutter 作业](https://github.com/giturass/B-box/actions/runs/44455949442/job/135330865429) 已通过：分析为 93 项 info、无 warning/error，306 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过。该运行早于本轮分享页展示调整；整套工作流的 smoke 失败及本轮修正见 [应用验证记录](app.md#当前验证记录)。
+后续 `3d175de0dae76909a2a136ad5a40ae143628f6b2` 的 [44462310150](https://github.com/giturass/B-box/actions/runs/44462310150) 中，Flutter 分析和 306 项测试通过，ARM64 AAR 因插件仓库未解析到 Kotlin 2.2.21 依赖而失败；同运行的 x64 Flutter Debug AAR 已通过。后续结果按实际运行更新，不能将测试通过当作 AAR 构建通过。
+
+此前验证源码为 `bd720bcdf5742e6cc3f8697b16ab12e6569350a1`，[统一工作流 44455949442 的 Flutter 作业](https://github.com/giturass/B-box/actions/runs/44455949442/job/135330865429) 已通过：分析为 93 项 info、无 warning/error，306 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过。该运行早于本轮分享页展示调整；整套工作流的 smoke 失败及本轮修正见 [应用验证记录](app.md#当前验证记录)。
 
 较早源码 `5017c42c890fa3cdaebd5edfa7323c7473107005` 的 [44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 曾通过 302 项 Flutter 测试；其三张英文 WARP 初始页截图的核对细节保留在 Git 历史。旧截图不作为本轮分享页的视觉验收，新运行结果及未覆盖范围按实际产物记录。
 

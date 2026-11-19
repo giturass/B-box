@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
 	"testing"
 
 	E "github.com/sagernet/sing/common/exceptions"
@@ -92,6 +93,12 @@ func TestWrapErrorPassthrough(t *testing.T) {
 func TestWrapErrorUnexpectedEOF(t *testing.T) {
 	requireClosed(t, io.ErrUnexpectedEOF)
 	requireClosed(t, E.Cause(io.ErrUnexpectedEOF, "read chunked body"))
+}
+
+func TestWrapErrorHTTP1ClosedBody(t *testing.T) {
+	requireClosed(t, http.ErrBodyReadAfterClose)
+	requireClosed(t, E.Cause(http.ErrBodyReadAfterClose, "read stream-up body"))
+	requireNotClosed(t, errors.New(http.ErrBodyReadAfterClose.Error()))
 }
 
 // packet-up 上行失败时错误被 E.Cause 包了一层再从 Write 返回。

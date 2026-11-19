@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
 	"strings"
 
 	"github.com/sagernet/sing/common/baderror"
@@ -42,8 +43,9 @@ func wrapError(err error) error {
 }
 
 func isTunnelClosed(err error) bool {
-	// HTTP/1.1 chunked body 在对端断开时以 unexpected EOF 结束。
-	if errors.Is(err, io.ErrUnexpectedEOF) || isH3Closed(err) {
+	// HTTP/1.1 请求结束时，隧道读取可能晚于 net/http 关闭请求体。
+	// chunked body 在对端断开时以 unexpected EOF 结束。
+	if errors.Is(err, http.ErrBodyReadAfterClose) || errors.Is(err, io.ErrUnexpectedEOF) || isH3Closed(err) {
 		return true
 	}
 	// net/http 用自己内部的一份 http2 收发 HTTP/2，错误类型无法引用，只能按消息匹配。

@@ -4,7 +4,7 @@
 
 MiChongs/sing-box 沿用 sing-box 的 GPL-3.0-or-later 许可，许可原文保存在 [michongs-sing-box-LICENSE](../../flutter/assets/licenses/michongs-sing-box-LICENSE)。XHTTP 和 Encryption 的协议代码参考 XTLS/Xray-core `v26.9.30`（`b26a91de4f3294e26a0ad0a970b81a386a41f789`），相应 MPL-2.0 许可原文保存在 [xray-core-LICENSE](../../flutter/assets/licenses/xray-core-LICENSE)。保留 MiChongs 文件中的协议及参考版本注释；未复制 ref1nd/sing-box 的额外源码。
 
-直接安装 `transport/v2rayxhttp/`、`protocol/vless/encryption/` 的生产代码及全部目录测试，以及选项和插件注册文件。B-box 的改动在清单中逐项注明：插件和 range schema 与稳定排序、错误信息去除凭据、下行端口独立覆写、服务端握手随调用取消及服务 scope 关闭退出、针对当前 SagerNet TLS 字段的 HTTP/3 转换，以及去除 reference 中当前核心没有的 `certificate_server_name` 测试。集成补丁只增加 XHTTP 注册、VLESS `encryption` / `decryption`、加密连接握手、共享 ECH 查询和 `with_xhttp` 发货标签；不变更核心上游基线或依赖来源。
+直接安装 `transport/v2rayxhttp/`、`protocol/vless/encryption/` 的生产代码及全部目录测试，以及选项和插件注册文件。B-box 的改动在清单中逐项注明：插件和 range schema 与稳定排序、错误信息去除凭据、下行端口独立覆写、[HTTP/1.1 标准请求体关闭错误归类及回归](../../libbox.md#xhttp-与-vless-encryption)、服务端握手随调用取消及服务 scope 关闭退出、针对当前 SagerNet TLS 字段的 HTTP/3 转换，以及去除 reference 中当前核心没有的 `certificate_server_name` 测试。集成补丁只增加 XHTTP 注册、VLESS `encryption` / `decryption`、加密连接握手、共享 ECH 查询和 `with_xhttp` 发货标签；不变更核心上游基线或依赖来源。
 
 HTTP/3 沿用当前核心的 quic-go/sing-quic 与 BBR/Brutal API。uTLS 指纹只用于 TCP，HTTP/3 使用等价标准 TLS 配置，保留证书校验、SNI、客户端证书、证书 pin 和 ECH。VLESS Vision 的 `CommonConn` 适配使用当前固定 sing-vmess 的 `input` / `rawInput` 布局，构建仍使用项目原有 `-checklinkname=0`。未增加 libbox 的导出绑定。
 

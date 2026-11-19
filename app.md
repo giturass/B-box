@@ -271,11 +271,13 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-分享页展示、默认接口首次通知确认及 WireGuard 回归断言修正已推送为 `41834548e78196aec04f597995c6a7b724bf1809`。本轮修正其上的异常传播回归断言；本机验证限于源码约束、`git diff --check` 及文档本地链接静态检查，Go、Flutter 和 Android 编译/运行测试继续通过统一 Actions 执行，修正后的运行结果待记录。
+分享页展示、默认接口首次通知确认及 WireGuard 回归断言修正已推送，最新提交为 `3d175de0dae76909a2a136ad5a40ae143628f6b2`。本轮继续修正其上的 XHTTP HTTP/1.1 正常关闭错误分类；本机验证限于源码约束、`git diff --check`、Go 格式及文档本地链接静态检查，Go、Flutter 和 Android 编译/运行测试继续通过统一 Actions 执行，完整运行结果待记录。
+
+[统一工作流 44462310150](https://github.com/giturass/B-box/actions/runs/44462310150) 验证 `3d175de0`，Android 的 15 份 JVM 报告共 80 项全部通过，默认接口调度 16 项全部通过，`play` 编译及模拟器 APK 构建完成。核心的 XHTTP 带 QUIC/uTLS race 组在 HTTP/1.1 `stream-up` 同步 handler 关闭后把 `http.ErrBodyReadAfterClose` 当作连接错误；本轮按标准 sentinel 补上正常关闭分类，并保留原始错误及 E2E 严格断言。Flutter 分析和 306 项测试通过，ARM64 AAR 因插件仓库未解析到 Kotlin 2.2.21 依赖而失败；随后同运行的 x64 Flutter Debug AAR 已通过，相关依赖 URL 也已返回 200，后续运行继续核对。四组 smoke 已开始，该运行尚不能作为完整通过记录。
 
 [统一工作流 44460811251](https://github.com/giturass/B-box/actions/runs/44460811251) 验证 `41834548`：核心、Root CA、Flutter 分析/306 项测试/ARM64 AAR 通过；15 份 JVM 报告共 80 项，79 项通过，唯一失败为新增首次异常传播断言用 `assertSame` 比较协程恢复堆栈后的异常副本。调整为核对异常类型、消息及原因链中的原异常，保留后续重试断言。`play` Kotlin 编译已执行，模拟器 APK 构建未完成，四组 smoke 未运行，不能据此判断上次 API 24 系统崩溃或 API 36 启动竞态的修复结果。
 
-上次 [统一工作流 44455949442](https://github.com/giturass/B-box/actions/runs/44455949442) 验证上述基线，核心、Root CA、Flutter 分析/306 项测试/ARM64 AAR，以及 Android 76 项 JVM/`play` 编译/模拟器 APK 构建通过，整套因 smoke 失败未通过。API 31 与两组 API 36 原生各执行 68 项，唯一失败为 WireGuard `allowed_ips` 断言把 Android JSON 的合法斜杠转义差异当作内容变化；本轮改为比较解析后的完整地址列表。API 24 界面通过，原生前 54 项通过后在第 55 项期间发生模拟器 `system_server/android.display` SIGSEGV，测试中断。API 36 / 4 KiB 界面另在首次网络通知完成前开始下载规则集，报 `no available network interface`；API 31 和 API 36 / 16 KiB 界面通过。本轮补上首次接口发布完成后才继续核心启动的确认流程，保留后续异步更新和取消；模拟器系统崩溃仍按新运行的实际结果核对。
+此前 [统一工作流 44455949442](https://github.com/giturass/B-box/actions/runs/44455949442) 验证 `bd720bcdf5742e6cc3f8697b16ab12e6569350a1`，核心、Root CA、Flutter 分析/306 项测试/ARM64 AAR，以及 Android 76 项 JVM/`play` 编译/模拟器 APK 构建通过，整套因 smoke 失败未通过。API 31 与两组 API 36 原生各执行 68 项，唯一失败为 WireGuard `allowed_ips` 断言把 Android JSON 的合法斜杠转义差异当作内容变化；本轮改为比较解析后的完整地址列表。API 24 界面通过，原生前 54 项通过后在第 55 项期间发生模拟器 `system_server/android.display` SIGSEGV，测试中断。API 36 / 4 KiB 界面另在首次网络通知完成前开始下载规则集，报 `no available network interface`；API 31 和 API 36 / 16 KiB 界面通过。本轮补上首次接口发布完成后才继续核心启动的确认流程，保留后续异步更新和取消；模拟器系统崩溃仍按新运行的实际结果核对。
 
 以下为较早源码 `5017c42c890fa3cdaebd5edfa7323c7473107005` 的历史完整验证：[统一工作流 44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 的 8 个作业全部通过，不代表当前分享页及网络初始化修复已通过：
 

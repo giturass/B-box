@@ -106,6 +106,8 @@ VLESS 出站新增 `encryption`，入站新增 `decryption`，空值或 `none` �
 
 [XHTTP 传输测试](libbox/xhttp/transport/v2rayxhttp) 覆盖各模式、真实 HTTP/1.1/2/3 传输、上下行分离、连接复用、取消/关闭/期限、混淆及证书拒绝；[加密测试](libbox/xhttp/protocol/vless/encryption/encryption_test.go) 覆盖认证/握手、0-RTT、票据过期、重放和 Vision。节点解析、实际 Android AAR 的配置及来源回归由统一测试工作流运行。这些回归及源码来源不代替与外部 Xray 服务的互通或 ARM64 实机验收，实际运行结果见 [应用验证记录](app.md#当前验证记录)。
 
+HTTP/1.1 stream-up 的 POST 结束后，隧道读取可能遇到 Go 的 [http.ErrBodyReadAfterClose](https://github.com/golang/go/blob/go1.26.10/src/net/http/transfer.go#L825)。XHTTP 用 `errors.Is` 将该标准错误及其包装链归类为正常关闭，保留原始错误与消息；同文案普通错误不匹配。分类回归覆盖直接/包装值和同文案反例，现有各 HTTP 版本的 E2E 关闭断言保持原语义。
+
 移植保留 MiChongs/sing-box 的 GPL-3.0-or-later 许可及 Xray-core 的 MPL-2.0 来源；原始许可随应用打包并通过许可证页展示：[MiChongs/sing-box](flutter/assets/licenses/michongs-sing-box-LICENSE)、[Xray-core](flutter/assets/licenses/xray-core-LICENSE)。
 
 ### Cloudflare WARP MASQUE
