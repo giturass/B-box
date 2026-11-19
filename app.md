@@ -102,7 +102,7 @@ XHTTP 与 VLESS Encryption 通过同一 JSON、节点导入和订阅更新入口
 
 [ConnectionStore.kt](app/src/main/java/io/nekohasekai/sfa/backend/connections/ConnectionStore.kt) 按 ID 应用当前内核的新增、计数更新和关闭事件，复用未变化的记录及不可变快照。事件语义对应核心 [command_types.go](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/experimental/libbox/command_types.go)：更新累加总量，关闭使用最终计数并归零速率，已关闭记录保留五分钟；DNS 出站继续过滤。[ConnectionStream.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ConnectionStream.kt) 在前台连接页/详情请求数据时与上次实际发送的快照比较，发送变更记录和删除 ID；首次及恢复可见时完整同步，StateFlow 合并中间状态不会漏掉变更。
 
-界面网络信息通过 [BoxDashboard.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxDashboard.kt) 的 `ConnectivityManager.registerNetworkCallback` 被动监听网络、能力和地址变化，配置、服务、运行快照及远程会话变化也触发刷新。[NetworkRefresh.kt](app/src/main/java/io/nekohasekai/sfa/flutter/NetworkRefresh.kt) 合并突发通知并串行刷新；前台且亮屏时，内网 IP 卡片/详情可见每十秒、隐藏每六十秒补查接口，覆盖缺少回调的热点变化，后台或熄屏停止监听与补查。手动刷新立即检查并允许缓存错误重试。此监听只读取界面数据，不调用网络请求、VPN 重建或服务重连；服务侧 `DefaultNetworkListener` 保持原实现。
+界面网络信息通过 [BoxDashboard.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxDashboard.kt) 的 `ConnectivityManager.registerNetworkCallback` 被动监听网络、能力和地址变化，配置、服务、运行快照及远程会话变化也触发刷新。[NetworkRefresh.kt](app/src/main/java/io/nekohasekai/sfa/flutter/NetworkRefresh.kt) 合并突发通知并串行刷新；前台且亮屏时，内网 IP 卡片/详情可见每十秒、隐藏每六十秒补查接口，覆盖缺少回调的热点变化，后台或熄屏停止监听与补查。手动刷新立即检查并允许缓存错误重试。此监听只读取界面数据，不调用网络请求、VPN 重建或服务重连；服务侧监听见 [开机恢复与默认网络](#开机恢复与默认网络)。
 
 监听请求在 API 30+ 使用公开的 [clearCapabilities()](https://developer.android.com/reference/android/net/NetworkRequest.Builder#clearCapabilities())；API 24–29 通过 `removeCapability()` 移除 `NOT_RESTRICTED`、`TRUSTED` 和 `NOT_VPN` 三项默认能力，继续覆盖 VPN 和无互联网能力的网络变化。旧版本默认值依据 [Android 10 NetworkCapabilities 源码](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-10.0.0_r1/core/java/android/net/NetworkCapabilities.java)，不调用旧系统的隐藏接口。
 
@@ -111,6 +111,14 @@ XHTTP 与 VLESS Encryption 通过同一 JSON、节点导入和订阅更新入口
 应用列表通过 [AppListCache.kt](app/src/main/java/io/nekohasekai/sfa/flutter/AppListCache.kt) 复用一份包查询快照，参考上游基线的 `PackageCache`，先按系统应用/联网权限过滤，再按需读取并缓存应用名称。进入页面和手动刷新重新查询，切换显示范围复用快照；查询策略或语言改变后的查询不复用旧快照，查询失败/取消允许重试。排除应用自身及无 `ApplicationInfo` 的条目。Flutter 的排序和图标使用方式见 [flclash.md](flclash.md#导航与交互约定)。
 
 托管应用模式仍在激活前完成扫描，安装/卸载广播沿用自动更新；列表查询完成后同步最新的已保存设置，包含后台更新的托管结果，打开页面不触发 APK/DEX 扫描。手动重新扫描通过既有桥接更新设置。查询策略继续持久化；Android 12 精确定位同时申请 fine/coarse 权限；远程配置卡不使用本地配置名。
+
+### 开机恢复与默认网络
+
+[BootReceiver.kt](app/src/main/java/io/nekohasekai/sfa/bg/BootReceiver.kt) 在开机及应用替换广播后读取已保存的启动状态，沿用配置模式探测、VPN 授权和前台服务启动流程。[DefaultNetworkListener.kt](app/src/main/java/io/nekohasekai/sfa/bg/DefaultNetworkListener.kt) 缓存非 VPN 默认网络及回调提供的 `LinkProperties`、`NetworkCapabilities`；[DefaultNetworkMonitor.kt](app/src/main/java/io/nekohasekai/sfa/bg/DefaultNetworkMonitor.kt) 以该快照驱动内核默认接口，不再用应用的 `activeNetwork` 覆盖它。注册代次隔离注销后迟到的网络回调，启动与停止串行处理，停服清空快照。
+
+[DefaultInterfaceMonitor.kt](app/src/main/java/io/nekohasekai/sfa/bg/DefaultInterfaceMonitor.kt) 在独立 IO 协程串行解析接口并通知 libbox，网络或核心监听器变化取消旧结果。API 26+ 等待完整回调参数；已有接口名但系统接口编号尚未出现时，每 100 毫秒可取消地重试，直到就绪或网络、监听器、服务变化。没有网络或尚缺回调参数时发布空接口并等待事件。API 24–25 首次可只收到 `onAvailable`，因此在 worker 补查属性与能力，再发布完整快照。[PlatformInterfaceWrapper.kt](app/src/main/java/io/nekohasekai/sfa/bg/PlatformInterfaceWrapper.kt) 枚举默认网络时使用同一快照，确保内核能找到通知中的接口。
+
+回调时序与参数使用依据 [Android 15 ConnectivityManager 源码](https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/tags/android-15.0.0_r1/framework/src/android/net/ConnectivityManager.java)；旧系统的首次通知依据 [Android 7 ConnectivityService 源码](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-7.0.0_r1/services/core/java/com/android/server/ConnectivityService.java)。`Started` 表示核心生命周期启动成功；当前核心在默认接口缺失时 [暂停网络](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/route/network.go#L533)，有效接口更新后唤醒。因此开机网络晚到须由默认接口通知恢复，服务状态本身不证明代理连通。
 
 ## 请求抓取与 MITM
 
@@ -222,6 +230,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 - **仪表盘与应用列表缓存：** [DashboardConfigCacheTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/DashboardConfigCacheTest.kt) 通过调用计数覆盖重复刷新不再读取/哈希/解析、地址变化、配置切换、写入/回滚、运行快照更新及错误/取消重试；[AppListCacheTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/AppListCacheTest.kt) 通过查询/名称读取计数覆盖隐藏应用不读取名称、筛选切换复用、刷新及查询策略/语言失效、失败/取消重试和并发查询合并。
 - **日志与可见性轮询：** [LogStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/LogStreamTest.kt) 覆盖日志快照、增量、淘汰边界、等级更新、清空、重新订阅和缓冲重置，并检查 3000 条缓冲新增一条时只编码一条；[VisiblePollingTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/VisiblePollingTest.kt) 用虚拟时间检查不可见/后台/熄屏时零采样、恢复立即采样及取消在途任务。
 - **连接与网络刷新：** [ConnectionStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ConnectionStreamTest.kt) 检查增量计数、最终关闭计数、历史淘汰、DNS 过滤、快照隔离及 3000 条记录经过状态合并和恢复订阅后的消息内容；[NetworkRefreshTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/NetworkRefreshTest.kt) 用虚拟时间覆盖网络通知、十秒/六十秒补查、前后台/熄屏取消和突发通知合并。
+- **默认接口与开机恢复：** [DefaultInterfaceMonitorTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/DefaultInterfaceMonitorTest.kt) 覆盖网络先于核心监听器到达、开机无网及接口编号超过一秒才就绪、同网络刷新、断网恢复、切网或监听器替换后的迟到结果、异常重试及停止/取消期间的等待与结果丢弃。纯 Kotlin 调度回归不代替 Android 网络回调、系统重启或实际代理连通验收。
 - **WARP 注册：** [BoxWarpTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxWarpTest.kt) 检查注册等待时配置/会话冲突、重复提交、取消及时关闭 JNI 请求、已返回凭据在取消后留待保存、失败重试复用账号及错误消敏。
 
 ### Android 仪器测试
@@ -260,7 +269,9 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-本轮验证源码为 `5017c42c890fa3cdaebd5edfa7323c7473107005`。[统一工作流 44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 的 8 个作业全部通过：
+开机恢复修复以 `42edec52a035fd339d34b43156867cf1121038ac` 为基线。本机执行 `git diff --check`、`python3 tools/verify_newui.py` 及改动文档的本地链接/旧引用静态检查，没有执行编译或运行测试。新增 12 项默认接口调度回归纳入统一工作流的 JVM 入口，随代码推送自动验证；本轮完整 Actions 验证尚未完成，也未构建签名 APK。现有 smoke 矩阵没有 API 35 或系统重启用例，Android 15 开机、晚到网络及实际代理连通尚待实机验证。
+
+最近一次已记录的完整 Actions 验证源码为 `5017c42c890fa3cdaebd5edfa7323c7473107005`。[统一工作流 44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 的 8 个作业全部通过，以下结果不代表本次开机恢复修复已通过：
 
 - [核心作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229545) 通过基础 `TestUI`、发货协议节点、Vision/XHTTP/VLESS、WARP HTTP/2/3 与注册、路由生命周期及 HTTP 调试/处理回归；要求 race 的步骤均通过，Go `checkptr` 检查保留。新建模板的 Mozilla 可信库、初始及节点导入后的完整配置校验和证书策略保留断言均已运行。
 - [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229762) 通过分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建；测试数量与截图核对范围见 [Flutter 记录](flclash.md#当前验证记录)。

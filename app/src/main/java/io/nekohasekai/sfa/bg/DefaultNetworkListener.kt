@@ -39,39 +39,62 @@ import kotlinx.coroutines.channels.actor
 import kotlinx.coroutines.runBlocking
 
 object DefaultNetworkListener {
+    internal data class NetworkState(
+        val network: Network,
+        val linkProperties: LinkProperties? = null,
+        val capabilities: NetworkCapabilities? = null,
+    )
+
     private sealed class NetworkMessage {
-        class Start(val key: Any, val listener: (Network?) -> Unit) : NetworkMessage()
+        class Start(val key: Any, val listener: (NetworkState?) -> Unit) : NetworkMessage() {
+            val response = CompletableDeferred<Unit>()
+        }
 
         class Get : NetworkMessage() {
             val response = CompletableDeferred<Network>()
         }
 
-        class Stop(val key: Any) : NetworkMessage()
+        class Stop(val key: Any) : NetworkMessage() {
+            val response = CompletableDeferred<Unit>()
+        }
 
-        class Put(val network: Network) : NetworkMessage()
+        sealed class Event(val generation: Long) : NetworkMessage()
 
-        class Update(val network: Network) : NetworkMessage()
+        class Put(generation: Long, val network: Network) : Event(generation)
 
-        class Lost(val network: Network) : NetworkMessage()
+        class Properties(generation: Long, val network: Network, val properties: LinkProperties) : Event(generation)
+
+        class Capabilities(generation: Long, val network: Network, val capabilities: NetworkCapabilities) : Event(generation)
+
+        class Lost(generation: Long, val network: Network) : Event(generation)
     }
 
     @OptIn(DelicateCoroutinesApi::class, ObsoleteCoroutinesApi::class)
     private val networkActor =
         GlobalScope.actor<NetworkMessage>(Dispatchers.Unconfined) {
-            val listeners = mutableMapOf<Any, (Network?) -> Unit>()
-            var network: Network? = null
+            val listeners = mutableMapOf<Any, (NetworkState?) -> Unit>()
+            var state: NetworkState? = null
+            var generation = 0L
+            var callback: ConnectivityManager.NetworkCallback? = null
             val pendingRequests = arrayListOf<NetworkMessage.Get>()
             for (message in channel) {
                 when (message) {
                     is NetworkMessage.Start -> {
-                        if (listeners.isEmpty()) register()
-                        listeners[message.key] = message.listener
-                        if (network != null) message.listener(network)
+                        try {
+                            if (listeners.isEmpty()) callback = register(++generation)
+                            listeners[message.key] = message.listener
+                            message.listener(state)
+                            message.response.complete(Unit)
+                        } catch (error: Exception) {
+                            message.response.completeExceptionally(error)
+                        }
                     }
 
                     is NetworkMessage.Get -> {
-                        check(listeners.isNotEmpty()) { "Getting network without any listeners is not supported" }
-                        if (network == null) {
+                        val network = state?.network
+                        if (listeners.isEmpty()) {
+                            message.response.completeExceptionally(IllegalStateException("Default network monitor stopped"))
+                        } else if (network == null) {
                             pendingRequests += message
                         } else {
                             message.response.complete(
@@ -80,79 +103,96 @@ object DefaultNetworkListener {
                         }
                     }
 
-                    is NetworkMessage.Stop ->
+                    is NetworkMessage.Stop -> {
                         if (listeners.isNotEmpty() &&
                             // was not empty
                             listeners.remove(message.key) != null &&
                             listeners.isEmpty()
                         ) {
-                            network = null
-                            unregister()
+                            state = null
+                            ++generation
+                            callback?.let(::unregister)
+                            callback = null
+                            pendingRequests.forEach {
+                                it.response.completeExceptionally(IllegalStateException("Default network monitor stopped"))
+                            }
+                            pendingRequests.clear()
                         }
-
-                    is NetworkMessage.Put -> {
-                        network = message.network
-                        pendingRequests.forEach { it.response.complete(message.network) }
-                        pendingRequests.clear()
-                        listeners.values.forEach { it(network) }
+                        message.response.complete(Unit)
                     }
 
-                    is NetworkMessage.Update ->
-                        if (network == message.network) {
-                            listeners.values.forEach {
-                                it(
-                                    network,
-                                )
+                    is NetworkMessage.Event -> {
+                        // A callback can already be queued when unregister returns. It must
+                        // not seed a later service with the preceding registration's network.
+                        if (message.generation != generation || listeners.isEmpty()) continue
+                        when (message) {
+                            is NetworkMessage.Put -> {
+                                state = NetworkState(message.network)
+                                pendingRequests.forEach { it.response.complete(message.network) }
+                                pendingRequests.clear()
+                            }
+
+                            is NetworkMessage.Properties -> {
+                                val current = state?.takeIf { it.network == message.network } ?: continue
+                                state = current.copy(linkProperties = message.properties)
+                            }
+
+                            is NetworkMessage.Capabilities -> {
+                                val current = state?.takeIf { it.network == message.network } ?: continue
+                                state = current.copy(capabilities = message.capabilities)
+                            }
+
+                            is NetworkMessage.Lost -> {
+                                if (state?.network != message.network) continue
+                                state = null
                             }
                         }
-
-                    is NetworkMessage.Lost ->
-                        if (network == message.network) {
-                            network = null
-                            listeners.values.forEach { it(null) }
-                        }
+                        listeners.values.forEach { it(state) }
+                    }
                 }
             }
         }
 
-    suspend fun start(key: Any, listener: (Network?) -> Unit) = networkActor.send(
-        NetworkMessage.Start(
-            key,
-            listener,
-        ),
-    )
+    internal suspend fun start(key: Any, listener: (NetworkState?) -> Unit) = NetworkMessage.Start(key, listener).run {
+        networkActor.send(this)
+        response.await()
+    }
 
     suspend fun get(): Network = NetworkMessage.Get().run {
         networkActor.send(this)
         response.await()
     }
 
-    suspend fun stop(key: Any) = networkActor.send(NetworkMessage.Stop(key))
+    suspend fun stop(key: Any) = NetworkMessage.Stop(key).run {
+        networkActor.send(this)
+        response.await()
+    }
 
     // NB: this runs on callbackHandler's thread, or in ConnectivityThread below API 26 where
-    // no handler can be passed. The actor is unconfined, so its listeners run here too: they
-    // probe the new interface with retries and must never reach the main thread.
-    private object Callback : ConnectivityManager.NetworkCallback() {
+    // no handler can be passed. Listeners only publish snapshots here; interface probes
+    // and JNI updates run in the monitor worker, so they cannot delay the next callback.
+    private class Callback(private val generation: Long) : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = runBlocking {
             networkActor.send(
                 NetworkMessage.Put(
+                    generation,
                     network,
                 ),
             )
         }
 
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-            // it's a good idea to refresh capabilities
-            runBlocking { networkActor.send(NetworkMessage.Update(network)) }
+            runBlocking { networkActor.send(NetworkMessage.Capabilities(generation, network, networkCapabilities)) }
         }
 
         override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
-            runBlocking { networkActor.send(NetworkMessage.Update(network)) }
+            runBlocking { networkActor.send(NetworkMessage.Properties(generation, network, linkProperties)) }
         }
 
         override fun onLost(network: Network) = runBlocking {
             networkActor.send(
                 NetworkMessage.Lost(
+                    generation,
                     network,
                 ),
             )
@@ -162,6 +202,7 @@ object DefaultNetworkListener {
     private val request =
         NetworkRequest.Builder().apply {
             addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
         }.build()
     private val callbackHandler by lazy {
@@ -178,14 +219,15 @@ object DefaultNetworkListener {
      *
      * Source: https://android.googlesource.com/platform/frameworks/base/+/2df4c7d/services/core/java/com/android/server/ConnectivityService.java#887
      */
-    private fun register() {
+    private fun register(generation: Long): ConnectivityManager.NetworkCallback {
+        val callback = Callback(generation)
         when (Build.VERSION.SDK_INT) {
             in 31..Int.MAX_VALUE ->
                 @TargetApi(31)
                 {
                     Application.connectivity.registerBestMatchingNetworkCallback(
                         request,
-                        Callback,
+                        callback,
                         callbackHandler,
                     )
                 }
@@ -193,22 +235,23 @@ object DefaultNetworkListener {
             in 28 until 31 ->
                 @TargetApi(28)
                 { // we want REQUEST here instead of LISTEN
-                    Application.connectivity.requestNetwork(request, Callback, callbackHandler)
+                    Application.connectivity.requestNetwork(request, callback, callbackHandler)
                 }
 
             in 26 until 28 ->
                 @TargetApi(26)
                 {
-                    Application.connectivity.registerDefaultNetworkCallback(Callback, callbackHandler)
+                    Application.connectivity.registerDefaultNetworkCallback(callback, callbackHandler)
                 }
 
-            else -> Application.connectivity.registerDefaultNetworkCallback(Callback)
+            else -> Application.connectivity.registerDefaultNetworkCallback(callback)
         }
+        return callback
     }
 
-    private fun unregister() {
+    private fun unregister(callback: ConnectivityManager.NetworkCallback) {
         runCatching {
-            Application.connectivity.unregisterNetworkCallback(Callback)
+            Application.connectivity.unregisterNetworkCallback(callback)
         }
     }
 }

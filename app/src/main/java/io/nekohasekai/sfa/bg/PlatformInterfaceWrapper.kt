@@ -98,14 +98,19 @@ interface PlatformInterfaceWrapper : PlatformInterface {
     }
 
     override fun getInterfaces(): NetworkInterfaceIterator {
-        val networks = Application.connectivity.allNetworks
+        // The default-interface update is based on callback parameters. Use the same
+        // snapshot here so the core can find its index even before synchronous Android
+        // queries expose this newly available network's properties/capabilities.
+        val defaultState = DefaultNetworkMonitor.networkState
+        val networks = (Application.connectivity.allNetworks.toList() + listOfNotNull(defaultState?.network)).distinct()
         val networkInterfaces = NetworkInterface.getNetworkInterfaces().toList()
         val interfaces = mutableListOf<LibboxNetworkInterface>()
         for (network in networks) {
             val boxInterface = LibboxNetworkInterface()
-            val linkProperties = Application.connectivity.getLinkProperties(network) ?: continue
+            val callbackState = defaultState?.takeIf { it.network == network }
+            val linkProperties = callbackState?.linkProperties ?: Application.connectivity.getLinkProperties(network) ?: continue
             val networkCapabilities =
-                Application.connectivity.getNetworkCapabilities(network) ?: continue
+                callbackState?.capabilities ?: Application.connectivity.getNetworkCapabilities(network) ?: continue
             boxInterface.name = linkProperties.interfaceName
             val networkInterface =
                 networkInterfaces.find { it.name == boxInterface.name } ?: continue
