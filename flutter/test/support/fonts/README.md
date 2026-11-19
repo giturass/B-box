@@ -16,7 +16,9 @@ The returned TrueType font contains 225 glyphs and is 48,748 bytes.
 
 SHA256: `03f81880f4f8f414d4bdd998296f587cce769bfae0ebba574c1eb6bcfbc69946`.
 The same [SIL Open Font License](OFL.txt) covers this resource.
-[about_test.dart](../../about_test.dart) registers it as `Noto Sans SC`,
-alongside the SDK's Roboto, for readable Chinese in Linux screenshot cases.
+[about_test.dart](../../about_test.dart) registers this Noto Sans SC subset under
+the `Ubuntu` alias used by the Linux theme's first fallback, alongside the SDK's
+Roboto. This resolves all requested Chinese glyphs before Ahem's sparse Han
+coverage in screenshot cases; the original font file is unchanged.
 Separate Android-platform narrow-phone cases retain the original interaction
 and layout assertions. These fonts are test resources and are not app assets.

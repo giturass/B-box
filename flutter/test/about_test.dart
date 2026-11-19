@@ -11,6 +11,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/errors.dart';
 
+// The first Linux fallback must resolve before Ahem's sparse Han coverage.
+const _screenshotFallback = 'Ubuntu';
+
 const _release = <String, dynamic>{
   'available': true, 'complete': true, 'hasMetadata': true, 'canDownload': true,
   'version': '1.0.2', 'versionCode': 10102, 'notes': 'Release notes',
@@ -122,6 +125,9 @@ Future<void> _narrowStates(WidgetTester tester, Locale locale, {bool screenshots
     await _openUpdate(tester);
     final dialogContext = tester.element(find.byType(AppUpdateDialog));
     expect(Theme.of(dialogContext).platform, screenshots ? TargetPlatform.linux : TargetPlatform.android);
+    if (screenshots) {
+      expect(Theme.of(dialogContext).bodyTextStyle.fontFamilyFallback?.first, _screenshotFallback);
+    }
     await _action(tester, dialogContext.tr('Download'));
     for (final (status, labels) in [
       ('downloading', ['Close', 'Cancel download']),
@@ -155,7 +161,7 @@ Future<void> _narrowStates(WidgetTester tester, Locale locale, {bool screenshots
 void main() {
   setUpAll(() async {
     final cjk = await File('test/support/fonts/NotoSansSC-updates.ttf').readAsBytes();
-    await (FontLoader('Noto Sans SC')..addFont(Future.value(ByteData.sublistView(cjk)))).load();
+    await (FontLoader(_screenshotFallback)..addFont(Future.value(ByteData.sublistView(cjk)))).load();
     final root = Platform.environment['FLUTTER_ROOT'];
     if (root == null) return;
     final font = File('$root/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf');
