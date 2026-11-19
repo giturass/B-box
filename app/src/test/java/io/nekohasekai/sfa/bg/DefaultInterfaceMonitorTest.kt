@@ -1,9 +1,13 @@
 package io.nekohasekai.sfa.bg
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -13,6 +17,42 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DefaultInterfaceMonitorTest {
+    @Test fun coreStartupWaitsForTheInitialPublicationIncludingAnEmptyInterface() = runTest {
+        val wifi = DefaultInterface("wlan0", 7)
+        for (network in listOf(null, "wifi")) {
+            val publicationStarted = CompletableDeferred<Unit>()
+            val releasePublication = CompletableDeferred<Unit>()
+            val updates = mutableListOf<DefaultInterface?>()
+            var coreContinued = false
+            val monitor = DefaultInterfaceMonitor<String>(backgroundScope, resolve = { wifi })
+            try {
+                monitor.updateNetwork(network)
+                val initialPublication = checkNotNull(monitor.setListener {
+                    publicationStarted.complete(Unit)
+                    releasePublication.await()
+                    updates.add(it)
+                })
+                val startup = async {
+                    initialPublication.await()
+                    coreContinued = true
+                }
+                runCurrent()
+                assertTrue(publicationStarted.isCompleted)
+                assertFalse("Scheduling the callback must not confirm initialization", initialPublication.isCompleted)
+                assertFalse("Core startup must wait until its interface update returns", coreContinued)
+
+                releasePublication.complete(Unit)
+                runCurrent()
+                startup.await()
+                assertTrue(coreContinued)
+                assertEquals(listOf(if (network == null) null else wifi), updates)
+            } finally {
+                releasePublication.complete(Unit)
+                monitor.close()
+            }
+        }
+    }
+
     @Test fun lateBootNetworkKeepsRetryingUntilItsInterfaceIsReady() = runTest {
         val wifi = DefaultInterface("wlan0", 7)
         val updates = mutableListOf<DefaultInterface?>()
@@ -97,14 +137,16 @@ class DefaultInterfaceMonitorTest {
             } else current
         })
         try {
-            monitor.setListener { updates.add(it) }
+            val initialPublication = checkNotNull(monitor.setListener { updates.add(it) })
             monitor.updateNetwork("wifi")
             runCurrent()
             assertTrue(resolverStarted.isCompleted)
             monitor.updateNetwork("cellular")
             runCurrent()
+            assertFalse("A network refresh must preserve its listener's pending initialization", initialPublication.isCompleted)
             releaseOldResolver.complete(Unit)
             runCurrent()
+            initialPublication.await()
             assertFalse("A superseded network must not be published", updates.contains(old))
             assertEquals(current, updates.last())
             assertEquals(1, updates.count { it == current })
@@ -130,19 +172,49 @@ class DefaultInterfaceMonitorTest {
             } else current
         })
         try {
-            monitor.setListener { previousUpdates.add(it) }
+            val previousPublication = checkNotNull(monitor.setListener { previousUpdates.add(it) })
+            val previousStartup = async { previousPublication.await() }
             monitor.updateNetwork("wifi")
             runCurrent()
             assertTrue(resolverStarted.isCompleted)
-            monitor.setListener { currentUpdates.add(it) }
+            val currentPublication = checkNotNull(monitor.setListener { currentUpdates.add(it) })
             runCurrent()
+            assertTrue("Replacing the listener must cancel its pending startup", previousStartup.isCancelled)
+            assertTrue("The previous startup must end before the old platform call returns", previousStartup.isCompleted)
+            assertFalse(currentPublication.isCompleted)
             releaseOldResolver.complete(Unit)
             runCurrent()
+            currentPublication.await()
             assertTrue("The previous core must not receive a late interface", previousUpdates.filterNotNull().isEmpty())
             assertFalse("The replacement core must not receive a stale result", currentUpdates.contains(stale))
             assertEquals(listOf(current), currentUpdates.filterNotNull())
         } finally {
             releaseOldResolver.complete(Unit)
+            monitor.close()
+        }
+    }
+
+    @Test fun removingTheListenerCancelsItsPendingInitialization() = runTest {
+        val publicationStarted = CompletableDeferred<Unit>()
+        val releasePublication = CompletableDeferred<Unit>()
+        val monitor = DefaultInterfaceMonitor<String>(backgroundScope, resolve = { DefaultInterface("wlan0", 7) })
+        try {
+            val initialPublication = checkNotNull(monitor.setListener {
+                publicationStarted.complete(Unit)
+                withContext(NonCancellable) { releasePublication.await() }
+            })
+            val startup = async { initialPublication.await() }
+            runCurrent()
+            assertTrue(publicationStarted.isCompleted)
+            monitor.setListener(null)
+            runCurrent()
+            assertTrue(startup.isCancelled)
+            assertTrue("Removing the listener must release the waiter before its native call returns", startup.isCompleted)
+            releasePublication.complete(Unit)
+            runCurrent()
+            assertTrue("A late return must not confirm the removed listener", initialPublication.isCancelled)
+        } finally {
+            releasePublication.complete(Unit)
             monitor.close()
         }
     }
@@ -238,13 +310,16 @@ class DefaultInterfaceMonitorTest {
             DefaultInterface("wlan0", 7)
         }, onFailure = { failures.add(it) })
         try {
-            monitor.setListener { updates.add(it) }
+            val initialPublication = checkNotNull(monitor.setListener { updates.add(it) })
+            val startup = async { initialPublication.await() }
             monitor.updateNetwork("wifi")
             runCurrent()
             assertTrue(resolverStarted.isCompleted)
             val closing = async { monitor.close() }
             runCurrent()
             assertFalse("close must wait for an in-flight platform call", closing.isCompleted)
+            assertTrue(startup.isCancelled)
+            assertTrue("Monitor shutdown must release pending initialization before joining its worker", startup.isCompleted)
             releaseResolver.complete(Unit)
             runCurrent()
             closing.await()
@@ -253,6 +328,65 @@ class DefaultInterfaceMonitorTest {
         } finally {
             releaseResolver.complete(Unit)
             monitor.close()
+        }
+    }
+
+    @Test fun workerCancellationCancelsPendingAndLaterInitializations() = runTest {
+        val workerScope = CoroutineScope(backgroundScope.coroutineContext + Job())
+        val publicationStarted = CompletableDeferred<Unit>()
+        val releasePublication = CompletableDeferred<Unit>()
+        val monitor = DefaultInterfaceMonitor<String>(workerScope, resolve = { DefaultInterface("wlan0", 7) })
+        try {
+            val initialPublication = checkNotNull(monitor.setListener {
+                publicationStarted.complete(Unit)
+                releasePublication.await()
+            })
+            val startup = async { initialPublication.await() }
+            runCurrent()
+            assertTrue(publicationStarted.isCompleted)
+            workerScope.cancel()
+            runCurrent()
+            assertTrue(startup.isCancelled)
+            assertTrue(startup.isCompleted)
+            val laterPublication = checkNotNull(monitor.setListener { })
+            assertTrue("A stopped worker must not leave a later caller waiting", laterPublication.isCancelled)
+        } finally {
+            workerScope.cancel()
+            monitor.close()
+        }
+    }
+
+    @Test fun resolverOrListenerCancellationEndsInitializationWithoutStoppingLaterUpdates() = runTest {
+        val wifi = DefaultInterface("wlan0", 7)
+        for (cancelResolution in listOf(true, false)) {
+            val expected = CancellationException("Initial interface update cancelled")
+            val failures = mutableListOf<Exception>()
+            val updates = mutableListOf<DefaultInterface?>()
+            var cancelInitial = true
+            val monitor = DefaultInterfaceMonitor<String>(backgroundScope, resolve = {
+                if (cancelResolution && cancelInitial) throw expected
+                wifi
+            }, onFailure = { failures.add(it) })
+            try {
+                val initialPublication = checkNotNull(monitor.setListener {
+                    if (!cancelResolution && cancelInitial) throw expected
+                    updates.add(it)
+                })
+                val startup = async { initialPublication.await() }
+                monitor.updateNetwork("wifi")
+                runCurrent()
+                assertTrue("An independently cancelled update must release its startup caller", startup.isCancelled)
+                assertTrue(startup.isCompleted)
+                assertTrue(failures.isEmpty())
+
+                cancelInitial = false
+                val recoveredPublication = checkNotNull(monitor.setListener { updates.add(it) })
+                runCurrent()
+                recoveredPublication.await()
+                assertEquals(listOf(wifi), updates)
+            } finally {
+                monitor.close()
+            }
         }
     }
 
@@ -334,13 +468,15 @@ class DefaultInterfaceMonitorTest {
         val monitor = DefaultInterfaceMonitor<String>(backgroundScope, resolve = { wifi },
             onFailure = { failures.add(it) })
         try {
-            monitor.setListener {
+            val initialPublication = checkNotNull(monitor.setListener {
                 if (++publications == 1) throw expected
                 updates.add(it)
-            }
+            })
+            val startup = async { runCatching { initialPublication.await() } }
             monitor.updateNetwork("wifi")
             runCurrent()
             assertEquals(listOf(expected), failures)
+            assertSame("Initial publication failure must reach the startup caller", expected, startup.await().exceptionOrNull())
             advanceTimeBy(100)
             runCurrent()
             assertEquals(listOf(wifi), updates)

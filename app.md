@@ -118,6 +118,8 @@ XHTTP 与 VLESS Encryption 通过同一 JSON、节点导入和订阅更新入口
 
 [DefaultInterfaceMonitor.kt](app/src/main/java/io/nekohasekai/sfa/bg/DefaultInterfaceMonitor.kt) 在独立 IO 协程串行解析接口并通知 libbox，网络或核心监听器变化取消旧结果。API 26+ 等待完整回调参数；已有接口名但系统接口编号尚未出现时，每 100 毫秒可取消地重试，直到就绪或网络、监听器、服务变化。没有网络或尚缺回调参数时发布空接口并等待事件。API 24–25 首次可只收到 `onAvailable`，因此在 worker 补查属性与能力，再发布完整快照。[PlatformInterfaceWrapper.kt](app/src/main/java/io/nekohasekai/sfa/bg/PlatformInterfaceWrapper.kt) 枚举默认网络时使用同一快照，确保内核能找到通知中的接口。
 
+核心安装监听器时，桥接在状态锁外等待首次通知完成，包括空接口通知，随后才继续核心启动和规则集下载；顺序依据当前 libbox 的 [默认接口监控实现](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/experimental/libbox/monitor.go)。后续网络变化仍异步更新，切网沿用尚未完成的首次确认；更换、移除监听器或停止 worker 取消等待，首次通知异常反馈启动调用者。默认接口调度的 16 项 [JVM 回归](app/src/test/java/io/nekohasekai/sfa/bg/DefaultInterfaceMonitorTest.kt) 覆盖首次通知返回顺序、晚到网络、切网、监听器替换、停止及异常/取消恢复。
+
 回调时序与参数使用依据 [Android 15 ConnectivityManager 源码](https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/tags/android-15.0.0_r1/framework/src/android/net/ConnectivityManager.java)；旧系统的首次通知依据 [Android 7 ConnectivityService 源码](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-7.0.0_r1/services/core/java/com/android/server/ConnectivityService.java)。`Started` 表示核心生命周期启动成功；当前核心在默认接口缺失时 [暂停网络](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/route/network.go#L533)，有效接口更新后唤醒。因此开机网络晚到须由默认接口通知恢复，服务状态本身不证明代理连通。
 
 ## 请求抓取与 MITM
@@ -269,11 +271,11 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-WARP WireGuard 与注册界面调整以 `9b83f764455cadba3342b763ffcf12ac67c270ae` 为源码基线，验证对象为该基线之上的本轮源码增量。本机执行 `git diff --check`、`python3 tools/verify_newui.py`、注册 Go 文件的 `gofmt -d` 及修改文档的本地链接/旧引用静态检查；未执行 Go、Flutter 或 Android 编译/运行测试。新增回归已纳入统一工作流的 Go/JVM/Flutter/Android smoke 入口，WARP race 步骤增加 `with_wireguard` 以实际构造并校验端点；本轮 Actions 运行结果待记录，尚未构建签名 APK。Cloudflare 真实注册/连通、两种协议及调整后的中文/注册中/待保存界面与 ARM64 实机仍未验收。
+本轮分享页展示、默认接口首次通知确认及 WireGuard 回归断言修正以 `bd720bcdf5742e6cc3f8697b16ab12e6569350a1` 为源码基线，验证对象为其上的工作树增量。本机验证限于源码约束、`git diff --check` 及文档本地链接静态检查；Go、Flutter 和 Android 编译/运行测试继续通过统一 Actions 执行，本轮运行结果待记录。
 
-上述源码基线还包含以 `42edec52a035fd339d34b43156867cf1121038ac` 为比较起点的开机恢复修复，此前同样仅做本机静态检查。其新增 12 项默认接口调度回归纳入统一工作流的 JVM 入口，随代码推送自动验证，当前源码尚无完整 Actions 验证。现有 smoke 矩阵没有 API 35 或系统重启用例，Android 15 开机、晚到网络及实际代理连通尚待实机验证。
+上次 [统一工作流 44455949442](https://github.com/giturass/B-box/actions/runs/44455949442) 验证上述基线，核心、Root CA、Flutter 分析/306 项测试/ARM64 AAR，以及 Android 76 项 JVM/`play` 编译/模拟器 APK 构建通过，整套因 smoke 失败未通过。API 31 与两组 API 36 原生各执行 68 项，唯一失败为 WireGuard `allowed_ips` 断言把 Android JSON 的合法斜杠转义差异当作内容变化；本轮改为比较解析后的完整地址列表。API 24 界面通过，原生前 54 项通过后在第 55 项期间发生模拟器 `system_server/android.display` SIGSEGV，测试中断。API 36 / 4 KiB 界面另在首次网络通知完成前开始下载规则集，报 `no available network interface`；API 31 和 API 36 / 16 KiB 界面通过。本轮补上首次接口发布完成后才继续核心启动的确认流程，保留后续异步更新和取消；模拟器系统崩溃仍按新运行的实际结果核对。
 
-最近一次已记录的完整 Actions 验证源码为 `5017c42c890fa3cdaebd5edfa7323c7473107005`。[统一工作流 44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 的 8 个作业全部通过，以下结果不代表当前开机恢复及 WARP WireGuard 增量已通过：
+以下为较早源码 `5017c42c890fa3cdaebd5edfa7323c7473107005` 的历史完整验证：[统一工作流 44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 的 8 个作业全部通过，不代表当前分享页及网络初始化修复已通过：
 
 - [核心作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229545) 通过基础 `TestUI`、发货协议节点、Vision/XHTTP/VLESS、WARP HTTP/2/3 与注册、路由生命周期及 HTTP 调试/处理回归；要求 race 的步骤均通过，Go `checkptr` 检查保留。新建模板的 Mozilla 可信库、初始及节点导入后的完整配置校验和证书策略保留断言均已运行。
 - [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229762) 通过分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建；测试数量与截图核对范围见 [Flutter 记录](flclash.md#当前验证记录)。
@@ -288,9 +290,9 @@ WARP WireGuard 与注册界面调整以 `9b83f764455cadba3342b763ffcf12ac67c270a
 | [API 36 / Google APIs](https://github.com/giturass/B-box/actions/runs/44123007908/job/134185800725) | 4096 | 64 项通过 | 通过 |
 | [API 36 / Google APIs 16 KiB](https://github.com/giturass/B-box/actions/runs/44123007908/job/134185800956) | 16384 | 64 项通过 | 通过 |
 
-API 24 本轮默认配置已进入绿色 Running，导入的 SOCKS 节点和原 proxy/auto 分组已核对，UI 的服务异常日志为空；没有触发 Messenger 弹窗专例。此前实际记录的 GitHub 规则集证书链错误，现由 [新建模板的可信库](libbox.md#节点导入与配置合并) 修正后通过该界面路径；已有文件不自动迁移，证书校验及自定义策略保持原生语义。
+API 24 该历史运行的默认配置已进入绿色 Running，导入的 SOCKS 节点和原 proxy/auto 分组已核对，UI 的服务异常日志为空；没有触发 Messenger 弹窗专例。此前实际记录的 GitHub 规则集证书链错误，现由 [新建模板的可信库](libbox.md#节点导入与配置合并) 修正后通过该界面路径；已有文件不自动迁移，证书校验及自定义策略保持原生语义。
 
-本轮构建了 ARM64 Flutter AAR 和 x86_64 模拟器 APK，未触发签名 ARM64 Release APK 构建。Cloudflare 真实注册/连通及网络切换、外部 Xray 互通和 CDN/REALITY/ECH 真实网络、ARM64 实机及 WARP 中文/注册中/待保存视觉仍未验收；模拟服务回归和上述产物不代替这些检查。本机仅执行 `git diff --check`、`python3 tools/verify_newui.py` 及 Markdown 链接/旧引用静态检查，没有执行 Go、Flutter 或 Android 构建/测试。
+该历史运行构建了 ARM64 Flutter AAR 和 x86_64 模拟器 APK，未触发签名 ARM64 Release APK 构建。Cloudflare 真实注册/连通及网络切换、外部 Xray 互通和 CDN/REALITY/ECH 真实网络、ARM64 实机及分享页/WARP 中文/注册中/待保存视觉仍未验收；模拟服务回归和上述产物不代替这些检查。现有 smoke 矩阵没有 API 35 或系统重启用例，Android 15 开机与晚到网络恢复仍需实机验证。本机没有执行 Go、Flutter 或 Android 构建/测试。
 
 ### 历史验证记录
 

@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -89,13 +90,18 @@ object DefaultNetworkMonitor {
     }
 
     fun setListener(listener: InterfaceUpdateListener?) {
-        synchronized(access) {
+        val initialPublication = synchronized(access) {
+            check(monitor != null || listener == null) { "Default network monitor stopped" }
             monitor?.setListener(listener?.let { target ->
                 { networkInterface ->
                     target.updateDefaultInterface(networkInterface?.name.orEmpty(), networkInterface?.index ?: -1, false, false)
                 }
             })
         }
+        // libbox starts router downloads after this synchronous bridge returns.
+        // Even the initial empty update must finish populating its interfaces.
+        // The worker can acquire access, so never await while holding that lock.
+        initialPublication?.let { publication -> runBlocking { publication.await() } }
     }
 
     private fun findDefaultInterface(state: DefaultNetworkListener.NetworkState): DefaultInterface? {

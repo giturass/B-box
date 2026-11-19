@@ -44,7 +44,8 @@ class WarpWireGuardConfigTest {
             else -> error("Unexpected WireGuard reserved representation")
         }
         assertEquals(listOf(1, 2, 3), reservedBytes)
-        assertEquals("[\"0.0.0.0/0\",\"::/0\"]", peer.getJSONArray("allowed_ips").toString())
+        val allowedIps = peer.getJSONArray("allowed_ips")
+        assertEquals(listOf("0.0.0.0/0", "::/0"), (0 until allowedIps.length()).map { allowedIps.getString(it) })
         assertFalse(endpoint.optBoolean("system"))
         assertFalse(endpoint.has("server"))
         assertFalse(endpoint.has("tls"))

@@ -146,9 +146,11 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 #### 节点分享
 
-配置页的卡片和列表共用节点菜单。长按本机配置中的节点，选“分享”可查看二维码、复制链接或打开 Android 系统分享。长按选“多选”后，可从工具栏分享已选节点，标准链接每行一条。多选使用文本分享。部分节点只能用 sing-box JSON 表达时，默认以 JSON 分享全部所选节点，也可切换查看可用标准链接与数量。单个节点超过二维码容量时，仍可复制或分享文本。切换会话、配置或更新其内容后，请重新打开分享。核心格式及范围见 [libbox 节点分享](libbox.md#节点分享)。交互参考 [Throne 的链接复制和二维码入口](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/src/ui/mainWindow/mainwindow_profiles.cpp#L198-L359)。
+配置页的卡片和列表共用节点菜单。长按本机配置中的节点，选“分享”可查看二维码、复制链接或打开 Android 系统分享。长按选“多选”后，可从工具栏分享已选节点，多选使用文本分享。部分节点只能用 sing-box JSON 表达时，默认以 JSON 分享全部所选节点，也可切换查看可用标准链接与数量。单个节点超过二维码容量时，仍可复制或分享文本。切换会话、配置或更新其内容后，请重新打开分享。核心格式及范围见 [libbox 节点分享](libbox.md#节点分享)。交互参考 [Throne 的链接复制和二维码入口](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/src/ui/mainWindow/mainwindow_profiles.cpp#L198-L359)。
 
-单选二维码、多选换行文本及配置修订变化后的预览失效由 Flutter 回归覆盖。[profiles_test.dart](flutter/test/profiles_test.dart)
+[nodes.dart](flutter/lib/pages/nodes.dart) 保留现有格式切换，标准链接与 JSON 均以单块 Prism 圆角主题卡片展示，使用 16 dp 内边距、JetBrainsMono 字体和 1.5 倍行高，可选中正文并自然折行。JSON 缓存 [formatCapturedJson](flutter/lib/common/http_message.dart) 生成的缩进预览，仅调整字符串外空白；无法格式化时显示原文。顶栏复制、系统分享和二维码保留核心原始内容，多选标准链接按换行拼接。长内容在工具栏下方滚动。
+
+单选二维码、多选换行文本及配置修订变化后的预览失效已有 [Flutter 回归覆盖](flutter/test/profiles_test.dart)。
 
 ### 状态卡片与出口查询
 
@@ -231,11 +233,11 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-WARP 注册入口与停服代理组选择的验证源码为 `5017c42c890fa3cdaebd5edfa7323c7473107005`。[统一工作流 44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229762) 已通过：分析为 92 项 info、无 warning/error，302 项交互/布局测试全部通过，ARM64 Debug/Release Flutter AAR 构建成功。列表用例的偏好替身返回完整设置；放弃确认使用有限帧等待，窄屏按钮先滚动构建，保留连接关闭与可点击断言。新增页面未修改 FlClash/Prism 直接导入文件。
+节点分享展示为 `bd720bcdf5742e6cc3f8697b16ab12e6569350a1` 的工作树增量，本机 `git diff --check`、`python3 tools/verify_newui.py` 及文档本地链接静态检查通过；未执行本机编译或测试，尚无对应 Actions、视觉或实机验收。
 
-`newui-validation` 内三张初始页面截图为 `360-light-1.0-WARP-registration.png`、`360-dark-1.4-WARP-registration.png` 和 `800-light-1.0-WARP-registration.png`；分别为 360×800、360×800 和 800×1000，与源码 `7e1ca0d0bc476fc3642f4daa58a2d52a284dfe9c` 当时实际查看的产物 SHA256 逐张相同。标题/返回/刷新、所选配置、名称输入、HTTP/3、注册按钮与条款无可见横向溢出或遮挡，深色大字号下传输标签与条款自然换行。截图仅覆盖英文初始页面及替身配置，不覆盖注册中、待保存、取消、中文或 ARM64 实机；320 宽/1.4 倍字号通过几何交互测试，没有单独截图。Android 和核心的实际结果见 [应用记录](app.md#当前验证记录)。
+上次验证源码为 `bd720bcdf5742e6cc3f8697b16ab12e6569350a1`，[统一工作流 44455949442 的 Flutter 作业](https://github.com/giturass/B-box/actions/runs/44455949442/job/135330865429) 已通过：分析为 93 项 info、无 warning/error，306 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过。该运行早于本轮分享页展示调整；整套工作流的 smoke 失败及本轮修正见 [应用验证记录](app.md#当前验证记录)。
 
-上述运行和截图早于 WireGuard 选项及注册说明调整，本轮协议选择、待保存展示、按钮说明和底部条款变更尚无新的 Actions 或实机验证结果。
+较早源码 `5017c42c890fa3cdaebd5edfa7323c7473107005` 的 [44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 曾通过 302 项 Flutter 测试；其三张英文 WARP 初始页截图的核对细节保留在 Git 历史。旧截图不作为本轮分享页的视觉验收，新运行结果及未覆盖范围按实际产物记录。
 
 ### 历史验证记录
 

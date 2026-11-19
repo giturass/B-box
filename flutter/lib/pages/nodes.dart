@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import '../widgets.dart';
+import '../common/http_message.dart' show formatCapturedJson;
 import '../components/form.dart';
 import '../components/profile_card.dart';
 import 'configuration.dart';
@@ -43,6 +44,7 @@ class NodeSharePage extends StatefulWidget {
 class _NodeSharePageState extends State<NodeSharePage> {
   Future<Json>? _request;
   bool? _standard;
+  String? _jsonPreview;
   String? _qrContent;
   bool _qrFits = false;
 
@@ -57,7 +59,9 @@ class _NodeSharePageState extends State<NodeSharePage> {
       'profileId': widget.profileId,
       'profileRevision': widget.profileRevision,
     }) as String;
-    return json(jsonDecode(result));
+    final data = json(jsonDecode(result));
+    if (mounted) _jsonPreview = formatCapturedJson(data['json'] as String);
+    return data;
   }
 
   bool _current(BoxController box) => !box.remote && box.sessionRevision == widget.session &&
@@ -106,38 +110,51 @@ class _NodeSharePageState extends State<NodeSharePage> {
       final links = entries.map((node) => node['link']).whereType<String>().toList();
       final standard = _standard ?? (links.length == entries.length);
       final content = standard ? links.join('\n') : result['json'] as String;
-      return BoxPage(
-        title: title,
-        actions: [
+      final children = <Widget>[
+        if (widget.showQr) ...[
+          Text(widget.tags.single, textAlign: TextAlign.center, style: context.listSubtitleStyle),
+          const SizedBox(height: 12),
+        ],
+        if (links.isNotEmpty)
+          SegmentedControl<bool>(
+            segments: [(true, context.tr('Standard links')), (false, context.tr('sing-box JSON'))],
+            value: standard,
+            onChanged: (value) => setState(() => _standard = value),
+          )
+        else
+          Text(context.tr('These nodes are available as sing-box JSON.'), style: context.listSubtitleStyle),
+        if (standard && links.length < entries.length)
+          Padding(padding: const EdgeInsets.only(top: 12), child: Text(
+            context.tr('Standard links available for {available} of {total} nodes.')
+              .replaceFirst('{available}', '${links.length}').replaceFirst('{total}', '${entries.length}'),
+            style: context.listSubtitleStyle,
+          )),
+        if (widget.showQr) _qr(content),
+        const SizedBox(height: 16),
+        Card(shape: AppShape.xl, inert: true, padding: const EdgeInsets.all(16),
+          child: Directionality(textDirection: TextDirection.ltr, child: SelectableText(
+            standard ? content : _jsonPreview ?? content,
+            style: AppTextStyle.footnote.of(context).toJetBrainsMono.copyWith(
+              height: 1.5, color: context.colorScheme.onSurface),
+          )),
+        ),
+      ];
+      return Scaffold(
+        title: context.tr(title),
+        iconActions: [
           IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr(standard
               ? (links.length == 1 ? 'Copy link' : 'Copy links') : 'Copy JSON'), onPressed: () => _copy(content)),
           IconButtonData(glyph: AppGlyphs.upload, tooltip: context.tr('Share'), onPressed: () async {
             if (_current(box)) await box.act('share.text', {'content': content});
           }),
         ],
-        children: [
-          if (widget.showQr) ...[
-            Text(widget.tags.single, textAlign: TextAlign.center, style: context.listSubtitleStyle),
-            const SizedBox(height: 12),
-          ],
-          if (links.isNotEmpty)
-            SegmentedControl<bool>(
-              segments: [(true, context.tr('Standard links')), (false, context.tr('sing-box JSON'))],
-              value: standard,
-              onChanged: (value) => setState(() => _standard = value),
-            )
-          else
-            Text(context.tr('These nodes are available as sing-box JSON.'), style: context.listSubtitleStyle),
-          if (standard && links.length < entries.length)
-            Padding(padding: const EdgeInsets.only(top: 12), child: Text(
-              context.tr('Standard links available for {available} of {total} nodes.')
-                .replaceFirst('{available}', '${links.length}').replaceFirst('{total}', '${entries.length}'),
-              style: context.listSubtitleStyle,
-            )),
-          if (widget.showQr) _qr(content),
-          const SizedBox(height: 16),
-          SelectableText(content),
-        ],
+        body: Builder(builder: (context) {
+          final inset = context.appBarInset, gap = context.contentTopPadding - inset;
+          return Padding(padding: EdgeInsets.only(top: inset), child: ListView(
+            padding: EdgeInsets.fromLTRB(16, gap > 0 ? gap : 0, 16, 24 + context.bottomInset),
+            children: children,
+          ));
+        }),
       );
     });
   }
