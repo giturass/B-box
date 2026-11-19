@@ -50,12 +50,6 @@ Future<_AboutFixture> _mount(WidgetTester tester, {Json initialUpdate = const {'
   tester.platformDispatcher.textScaleFactorTestValue = scale;
   addTearDown(tester.view.reset);
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-  if (boundaryKey != null) {
-    // Linux's registered CJK fallback makes CI images readable. B-box still
-    // selects its Android phone layout from this test's narrow viewport.
-    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-  }
   const channel = MethodChannel('test.about');
   final events = StreamController<dynamic>.broadcast();
   final fixture = _AboutFixture(BoxController(channel: channel, events: events.stream), events, initialUpdate);
@@ -118,35 +112,44 @@ Future<void> _capture(WidgetTester tester, GlobalKey key, String label) async {
 }
 
 Future<void> _narrowStates(WidgetTester tester, Locale locale, {bool screenshots = false}) async {
-  final boundaryKey = screenshots ? GlobalKey() : null;
-  final fixture = await _mount(tester, size: const Size(320, 568), scale: 1.4, locale: locale, boundaryKey: boundaryKey);
-  await _openUpdate(tester);
-  final dialogContext = tester.element(find.byType(AppUpdateDialog));
-  expect(Theme.of(dialogContext).platform, screenshots ? TargetPlatform.linux : TargetPlatform.android);
-  await _action(tester, dialogContext.tr('Download'));
-  for (final (status, labels) in [
-    ('downloading', ['Close', 'Cancel download']),
-    ('permissionRequired', ['Close', 'Discard update', 'Retry install']),
-    ('error', ['Close', 'Discard update', 'Retry download']),
-  ]) {
-    fixture.emit(_snapshot(status, downloaded: 2048,
-      error: status == 'error' ? 'APK signing identity does not match this installation' : null));
-    await tester.pumpAndSettle();
-    for (final label in labels) {
-      final action = find.widgetWithText(TextButton, dialogContext.tr(label));
-      expect(action.hitTestable(), findsOneWidget);
-      final rect = tester.getRect(action);
-      expect(rect.left, greaterThanOrEqualTo(0));
-      expect(rect.right, lessThanOrEqualTo(320));
-      expect(rect.bottom, lessThanOrEqualTo(568));
+  final previousPlatform = debugDefaultTargetPlatformOverride;
+  // Linux's registered CJK fallback makes CI images readable. B-box still
+  // selects its phone layout from the same narrow viewport as the Android cases.
+  debugDefaultTargetPlatformOverride = screenshots ? TargetPlatform.linux : TargetPlatform.android;
+  try {
+    final boundaryKey = screenshots ? GlobalKey() : null;
+    final fixture = await _mount(tester, size: const Size(320, 568), scale: 1.4, locale: locale, boundaryKey: boundaryKey);
+    await _openUpdate(tester);
+    final dialogContext = tester.element(find.byType(AppUpdateDialog));
+    expect(Theme.of(dialogContext).platform, screenshots ? TargetPlatform.linux : TargetPlatform.android);
+    await _action(tester, dialogContext.tr('Download'));
+    for (final (status, labels) in [
+      ('downloading', ['Close', 'Cancel download']),
+      ('permissionRequired', ['Close', 'Discard update', 'Retry install']),
+      ('error', ['Close', 'Discard update', 'Retry download']),
+    ]) {
+      fixture.emit(_snapshot(status, downloaded: 2048,
+        error: status == 'error' ? 'APK signing identity does not match this installation' : null));
+      await tester.pumpAndSettle();
+      for (final label in labels) {
+        final action = find.widgetWithText(TextButton, dialogContext.tr(label));
+        expect(action.hitTestable(), findsOneWidget);
+        final rect = tester.getRect(action);
+        expect(rect.left, greaterThanOrEqualTo(0));
+        expect(rect.right, lessThanOrEqualTo(320));
+        expect(rect.bottom, lessThanOrEqualTo(568));
+      }
+      if (boundaryKey != null) {
+        await _capture(tester, boundaryKey, '${locale.languageCode}-${status == 'error' ? 'signature-error' : status}');
+      }
     }
-    if (boundaryKey != null) {
-      await _capture(tester, boundaryKey, '${locale.languageCode}-${status == 'error' ? 'signature-error' : status}');
-    }
+    expect(find.text(locale.languageCode == 'zh' ? '安装包签名与当前应用不一致'
+        : 'APK signing identity does not match this installation'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  } finally {
+    // The framework checks debug globals before registered teardown callbacks.
+    debugDefaultTargetPlatformOverride = previousPlatform;
   }
-  expect(find.text(locale.languageCode == 'zh' ? '安装包签名与当前应用不一致'
-      : 'APK signing identity does not match this installation'), findsOneWidget);
-  expect(tester.takeException(), isNull);
 }
 
 void main() {
@@ -360,8 +363,6 @@ void main() {
 
   for (final locale in [const Locale('en'), const Locale('zh', 'CN')]) {
     testWidgets('update dialog keeps progress and controls reachable on a narrow phone in $locale', (tester) async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.android;
-      addTearDown(() => debugDefaultTargetPlatformOverride = null);
       await _narrowStates(tester, locale);
     });
     testWidgets('update dialog screenshots use readable CI fonts in $locale', (tester) async {
