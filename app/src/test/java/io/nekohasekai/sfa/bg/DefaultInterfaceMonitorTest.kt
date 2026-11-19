@@ -476,7 +476,11 @@ class DefaultInterfaceMonitorTest {
             monitor.updateNetwork("wifi")
             runCurrent()
             assertEquals(listOf(expected), failures)
-            assertSame("Initial publication failure must reach the startup caller", expected, startup.await().exceptionOrNull())
+            val actualFailure = checkNotNull(startup.await().exceptionOrNull())
+            assertEquals(expected.javaClass, actualFailure.javaClass)
+            assertEquals(expected.message, actualFailure.message)
+            assertTrue("Initial publication failure must preserve the original cause",
+                generateSequence(actualFailure) { it.cause }.any { it === expected })
             advanceTimeBy(100)
             runCurrent()
             assertEquals(listOf(wifi), updates)

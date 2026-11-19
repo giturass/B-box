@@ -233,7 +233,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-节点分享展示为 `bd720bcdf5742e6cc3f8697b16ab12e6569350a1` 的工作树增量，本机 `git diff --check`、`python3 tools/verify_newui.py` 及文档本地链接静态检查通过；未执行本机编译或测试，尚无对应 Actions、视觉或实机验收。
+节点分享展示的验证源码为 `41834548e78196aec04f597995c6a7b724bf1809`，[统一工作流 44460811251 的 Flutter 作业](https://github.com/giturass/B-box/actions/runs/44460811251/job/135346847819) 已通过：分析为 93 项 info、无 warning/error，306 项交互/布局测试及 ARM64 Debug/Release AAR 构建通过。整套运行因 Android 新增异常传播回归断言失败，smoke 未运行，修正见 [应用验证记录](app.md#当前验证记录)。本机 `git diff --check`、`python3 tools/verify_newui.py` 及文档本地链接静态检查通过；未执行本机编译或测试，分享页视觉或实机尚未验收。
 
 上次验证源码为 `bd720bcdf5742e6cc3f8697b16ab12e6569350a1`，[统一工作流 44455949442 的 Flutter 作业](https://github.com/giturass/B-box/actions/runs/44455949442/job/135330865429) 已通过：分析为 93 项 info、无 warning/error，306 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过。该运行早于本轮分享页展示调整；整套工作流的 smoke 失败及本轮修正见 [应用验证记录](app.md#当前验证记录)。
 

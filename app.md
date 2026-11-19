@@ -271,7 +271,9 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-本轮分享页展示、默认接口首次通知确认及 WireGuard 回归断言修正以 `bd720bcdf5742e6cc3f8697b16ab12e6569350a1` 为源码基线，验证对象为其上的工作树增量。本机验证限于源码约束、`git diff --check` 及文档本地链接静态检查；Go、Flutter 和 Android 编译/运行测试继续通过统一 Actions 执行，本轮运行结果待记录。
+分享页展示、默认接口首次通知确认及 WireGuard 回归断言修正已推送为 `41834548e78196aec04f597995c6a7b724bf1809`。本轮修正其上的异常传播回归断言；本机验证限于源码约束、`git diff --check` 及文档本地链接静态检查，Go、Flutter 和 Android 编译/运行测试继续通过统一 Actions 执行，修正后的运行结果待记录。
+
+[统一工作流 44460811251](https://github.com/giturass/B-box/actions/runs/44460811251) 验证 `41834548`：核心、Root CA、Flutter 分析/306 项测试/ARM64 AAR 通过；15 份 JVM 报告共 80 项，79 项通过，唯一失败为新增首次异常传播断言用 `assertSame` 比较协程恢复堆栈后的异常副本。调整为核对异常类型、消息及原因链中的原异常，保留后续重试断言。`play` Kotlin 编译已执行，模拟器 APK 构建未完成，四组 smoke 未运行，不能据此判断上次 API 24 系统崩溃或 API 36 启动竞态的修复结果。
 
 上次 [统一工作流 44455949442](https://github.com/giturass/B-box/actions/runs/44455949442) 验证上述基线，核心、Root CA、Flutter 分析/306 项测试/ARM64 AAR，以及 Android 76 项 JVM/`play` 编译/模拟器 APK 构建通过，整套因 smoke 失败未通过。API 31 与两组 API 36 原生各执行 68 项，唯一失败为 WireGuard `allowed_ips` 断言把 Android JSON 的合法斜杠转义差异当作内容变化；本轮改为比较解析后的完整地址列表。API 24 界面通过，原生前 54 项通过后在第 55 项期间发生模拟器 `system_server/android.display` SIGSEGV，测试中断。API 36 / 4 KiB 界面另在首次网络通知完成前开始下载规则集，报 `no available network interface`；API 31 和 API 36 / 16 KiB 界面通过。本轮补上首次接口发布完成后才继续核心启动的确认流程，保留后续异步更新和取消；模拟器系统崩溃仍按新运行的实际结果核对。
 
