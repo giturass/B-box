@@ -286,7 +286,11 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 四组 UI 服务均正常启动，默认规则集下载通过，UI 服务异常记录为空。API 31 与两组 API 36 的首次可用接口更新均早于规则集下载，未再出现 `no available network interface`；API 24 上次的 `system_server` SIGSEGV 未重现。API 24 原生日志中的端口占用异常来自已通过的失败恢复用例。
 
-本机仅执行 `git diff --check`、`python3 tools/verify_newui.py`、Go 格式、46 个 XHTTP 文件的清单覆盖及本地哈希检查和文档本地链接静态检查，未执行 Go、Flutter 或 Android 构建/测试。本轮产物为 ARM64 Flutter AAR 与 x86_64 模拟器 APK，未触发签名 ARM64 Release。现有矩阵不包含 API 35 或系统重启，Android 15 开机及晚到网络恢复、ARM64 实机、节点分享页与 WARP 中文/注册中/待保存视觉尚未验收；Cloudflare 真实注册/连通及网络切换、外部 Xray 互通与 CDN/REALITY/ECH 真实网络也未覆盖。
+[签名 ARM64 Release 44473957788 第三次尝试](https://github.com/giturass/B-box/actions/runs/44473957788/attempts/3) 对应源码 `27487bc54930d1217421684a817334e7ae5d21fb`，与上述统一测试源码仅有两份 Markdown 验证记录的差异。核心、Flutter Release AAR 和应用三个作业全部通过，APK 身份、ARM64 架构、最低 API 24、模块 assets 与 v2 签名校验通过，生成 `B-box-1.15.0-alpha.13-arm64-v8a.apk`（versionCode `748`）。[APK Artifact](https://github.com/giturass/B-box/actions/runs/44473957788/artifacts/14506121883) 保留 30 天；发布步骤跳过，未发布 GitHub Release。
+
+本次 Release 前两次 APK 作业失败在 Maven 依赖解析，第二次日志明确记录 Maven Central 返回 HTTP 429。清理相关 Gradle home 缓存、保留已下载依赖并恢复上述成功 Android 作业的完整缓存后，第三次构建通过。
+
+本机仅执行 `git diff --check`、`python3 tools/verify_newui.py`、Go 格式、46 个 XHTTP 文件的清单覆盖及本地哈希检查和文档本地链接静态检查，未执行 Go、Flutter 或 Android 构建/测试。统一测试产物为 ARM64 Flutter AAR 与 x86_64 模拟器 APK。现有矩阵不包含 API 35 或系统重启，Android 15 开机及晚到网络恢复、ARM64 实机、节点分享页与 WARP 中文/注册中/待保存视觉尚未验收；Cloudflare 真实注册/连通及网络切换、外部 Xray 互通与 CDN/REALITY/ECH 真实网络也未覆盖。
 
 ### 历史验证记录
 
