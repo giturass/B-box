@@ -163,7 +163,7 @@
     "lib/pages/about.dart": {
       "source": "lib/views/about.dart",
       "sourceSHA256": "a6c3de2a21cc8baa6be882a049d5ba16f88342e94d0c405de3d3346c920552ab",
-      "changes": "Hero geometry, version and license pills, update control and link badges retained with B-box branding and B-box release metadata. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Hero geometry, version and license pills, update control and link badges retained with B-box branding and B-box release metadata. Application and sing-box core versions are displayed independently. The update control reopens Android-owned download progress and the prepared installer state; the B-box update dialog provides download, cancellation, verification, retry and Android installer permission guidance using versionCode-only bridge commands. Incomplete release checks remain explicit and unverified or incompatible artifacts use the release page. Migrated to the v0.9.3 prism_ui types and presentation."
     },
     "lib/components/proxy_list.dart": {
       "source": "lib/views/proxies/list.dart",

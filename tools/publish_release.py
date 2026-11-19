@@ -5,25 +5,25 @@ Invoked only by the release workflow when publish_release is enabled.
 
 import json
 import os
-import re
 import subprocess
-from pathlib import Path
 from urllib.parse import quote
+
+from verify_release import METADATA_NAME, read_release_metadata, read_version_properties, release_apks
 
 
 def main():
     repository = os.environ['GITHUB_REPOSITORY']
     commit = os.environ['GITHUB_SHA']
-    version = os.environ['VERSION_NAME']
-    properties = dict(
-        line.strip().split('=', 1)
-        for line in Path('version.properties').read_text().splitlines()
-        if line.strip() and not line.lstrip().startswith('#') and '=' in line
-    )
-    if version != properties['VERSION_NAME']:
-        raise SystemExit('Release tag must exactly match VERSION_NAME in version.properties')
-    ref = f'refs/tags/{version}'
-    encoded_version = quote(version, safe='')
+    properties = read_version_properties()
+    version = properties['VERSION_NAME']
+    apks = release_apks(properties)
+    metadata = apks[0].parent / METADATA_NAME
+    # The verifier already checked APK identity and signature. Matching its
+    # manifest rechecks those exact bytes before creating a tag or release.
+    read_release_metadata(properties, apks, metadata)
+    version_tag = f'v{version}'
+    ref = f'refs/tags/{version_tag}'
+    encoded_version = quote(version_tag, safe='')
 
     def api(path, *arguments):
         return json.loads(subprocess.check_output(
@@ -54,14 +54,7 @@ def main():
             'Existing release tags are never moved.'
         )
 
-    apk = Path('app/build/outputs/apk/other/release') / f'B-box-{version}-arm64-v8a.apk'
-    metadata = apk.parent / 'B-box-version-metadata.json'
-    metadata.write_text(json.dumps({
-        'version_code': int(properties['VERSION_CODE']),
-        'version_name': version,
-        'application_id': 'io.ericlee.bfa',
-    }, indent=2) + '\n')
-    prerelease = bool(re.search(r'(alpha|beta|rc)', version, re.IGNORECASE))
+    prerelease = '-' in version
     release_options = [
         '--repo', repository,
         '--title', f'B-box {version}',
@@ -69,26 +62,26 @@ def main():
         f'--latest={str(not prerelease).lower()}',
     ]
     existing = subprocess.run(
-        ['gh', 'release', 'view', version, '--repo', repository, '--json', 'tagName'],
+        ['gh', 'release', 'view', version_tag, '--repo', repository, '--json', 'tagName'],
         capture_output=True, text=True
     )
     if existing.returncode == 0:
         subprocess.run(
-            ['gh', 'release', 'upload', version, str(apk), str(metadata),
+            ['gh', 'release', 'upload', version_tag, *(str(apk) for apk in apks), str(metadata),
              '--repo', repository, '--clobber'],
             check=True
         )
         subprocess.run(
-            ['gh', 'release', 'edit', version, '--draft=false', *release_options], check=True
+            ['gh', 'release', 'edit', version_tag, '--draft=false', *release_options], check=True
         )
     else:
         subprocess.run(
-            ['gh', 'release', 'create', version, str(apk), str(metadata),
+            ['gh', 'release', 'create', version_tag, *(str(apk) for apk in apks), str(metadata),
              '--verify-tag', '--target', commit,
              '--notes', f'Signed ARM64 APK built from {commit}.', *release_options],
             check=True
         )
-    print(f'Published {version} from {commit}: {apk.name}')
+    print(f'Published {version_tag} from {commit}: {", ".join(apk.name for apk in apks)}')
 
 
 if __name__ == "__main__":

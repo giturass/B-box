@@ -185,6 +185,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                             launch { dashboardDetails.synchronizeNetwork() }
                             launch { dashboard.uiState.collect { emit("dashboard", it.toWire()) } }
                             launch { groups.uiState.collect { emit("groups", it.groups.map { group -> group.toWire() }) } }
+                            launch { BoxUpdates.state.collect { emit("updates", BoxUpdates.snapshot()) } }
                             launch {
                                 val stream = ConnectionStream()
                                 combine(connections.uiState, connectionsVisible, AppLifecycleObserver.isForeground) { state, visible, foreground ->
@@ -261,8 +262,18 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             "remote" -> invokeRemote(method, args)
             "backup", "webdav" -> invokeBackup(method, args)
             "reports" -> reports.invoke(method, args)
+            "updates" -> invokeUpdates(method, args)
             else -> invokeGeneral(method, args)
         }
+    }
+
+    private suspend fun invokeUpdates(method: String, args: Map<String, Any?>): Any? = when (method) {
+        "updates.check" -> withContext(Dispatchers.IO) { BoxUpdates.check() }
+        "updates.snapshot" -> BoxUpdates.snapshot()
+        "updates.download" -> BoxUpdates.download(args.long("versionCode"))
+        "updates.cancel" -> BoxUpdates.cancel()
+        "updates.install" -> BoxUpdates.install(args.long("versionCode"), activity::installUpdate)
+        else -> error("Unknown update operation")
     }
 
     private suspend fun invokeWarp(method: String, args: Map<String, Any?>): Any? = try {
@@ -302,7 +313,6 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private suspend fun invokeGeneral(method: String, args: Map<String, Any?>): Any? {
         when (method) {
             "ready" -> return ready()
-            "updates.check" -> return withContext(Dispatchers.IO) { BoxUpdates.check() }
             "intent.take" -> return activity.takeIntent()
             "config.check" -> return withContext(Dispatchers.IO) {
                 BoxProfiles.validate(args.string("content"))
@@ -344,6 +354,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         mapOf(
             "version" to BuildConfig.VERSION_NAME,
             "coreVersion" to Libbox.version(),
+            "updates" to BoxUpdates.snapshot(),
             "systemAccentColor" to systemAccentColor(),
             "dashboard" to dashboard.uiState.value.toWire(),
             "profiles" to profileList,

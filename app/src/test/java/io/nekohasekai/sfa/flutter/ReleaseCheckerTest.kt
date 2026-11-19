@@ -109,4 +109,91 @@ class ReleaseCheckerTest {
         runCurrent()
         assertTrue(checker.check().complete)
     }
+
+    @Test fun applicationVersionResetIsOrderedByAndroidVersionCode() = runTest {
+        val checker = ReleaseChecker("B-box", { listOf(release(1), release(2)) }, { asset, _ ->
+            if (asset.url.endsWith("/1")) ReleaseChecker.Metadata("B-box", 748, "1.15.0-alpha.13")
+            else ReleaseChecker.Metadata("B-box", 749, "1.0.1")
+        }, clock = { testScheduler.currentTime })
+        val result = checker.check()
+        assertTrue(result.complete)
+        assertEquals("1.0.1", result.candidate?.metadata?.version)
+        assertEquals(749L, result.candidate?.metadata?.versionCode)
+    }
+
+    @Test fun releasesWithoutMetadataCannotProduceAnUpToDateClaim() = runTest {
+        val checker = ReleaseChecker("B-box", { listOf(ReleaseChecker.Release("https://example.test/latest", "", emptyList())) },
+            { _, _ -> error("No metadata should be requested") }, clock = { testScheduler.currentTime })
+        val result = checker.check()
+        assertFalse(result.complete)
+        assertNull(result.candidate)
+    }
+
+    @Test fun aPublicReleaseMissingMetadataKeepsAnOlderConfirmedCandidateIncomplete() = runTest {
+        val missing = ReleaseChecker.Release("https://example.test/new-release", "New release", emptyList())
+        var requests = 0
+        val checker = ReleaseChecker("B-box", { listOf(missing, release(1)) }, { _, _ -> requests++; metadata(748) },
+            clock = { testScheduler.currentTime })
+        val result = checker.check()
+        assertEquals(1, requests)
+        assertEquals(748L, result.candidate?.metadata?.versionCode)
+        assertFalse(result.complete)
+        assertFalse(checker.check().complete) // Cached old metadata cannot hide the unchecked release.
+    }
+
+    @Test fun anotherApplicationMetadataDoesNotCompleteABboxReleaseLookup() = runTest {
+        val checker = ReleaseChecker("B-box", { listOf(release(2), release(1)) }, { asset, _ ->
+            if (asset.url.endsWith("/2")) metadata(999, "another.application") else metadata(749)
+        }, clock = { testScheduler.currentTime })
+        val result = checker.check()
+        assertEquals(749L, result.candidate?.metadata?.versionCode)
+        assertFalse(result.complete)
+        assertFalse(checker.check().complete)
+    }
+
+    @Test fun duplicatedMetadataAssetsCannotAuthorizeACompleteLookup() = runTest {
+        val base = release(1)
+        val checker = ReleaseChecker("B-box", { listOf(base.copy(assets = base.assets + base.assets)) },
+            { _, _ -> error("Ambiguous metadata must not be requested") }, clock = { testScheduler.currentTime })
+        val result = checker.check()
+        assertFalse(result.complete)
+        assertNull(result.candidate)
+    }
+
+    @Test fun aConfirmedPartialCandidateSurvivesAListFailure() = runTest {
+        var offline = false
+        val checker = ReleaseChecker("B-box", {
+            if (offline) throw IOException("Offline")
+            listOf(release(1), release(2))
+        }, { asset, _ ->
+            if (asset.url.endsWith("/2")) throw IOException("Metadata unavailable")
+            metadata(750)
+        }, clock = { testScheduler.currentTime })
+        assertFalse(checker.check().complete)
+        offline = true
+        val fallback = checker.check()
+        assertFalse(fallback.complete)
+        assertEquals(750L, fallback.candidate?.metadata?.versionCode)
+    }
+
+    @Test fun downloadSelectionRequiresOneCompatibleAssetAndMatchingIntegrityMetadata() {
+        val digest = "a".repeat(64)
+        fun candidate(assets: List<ReleaseChecker.Asset>, artifacts: List<ReleaseChecker.Artifact>) = ReleaseChecker.Candidate(
+            ReleaseChecker.Release("https://example.test/release", "", assets),
+            ReleaseChecker.Metadata("B-box", 750, "1.0.2", artifacts),
+        )
+        val armName = "B-box-1.0.2-arm64-v8a.apk"
+        val x64Name = "B-box-1.0.2-x86_64.apk"
+        val arm = ReleaseChecker.Asset(armName, "https://example.test/arm", size = 42)
+        val x64 = ReleaseChecker.Asset(x64Name, "https://example.test/x64", size = 43)
+        val armHash = ReleaseChecker.Artifact(armName, digest, 42)
+        val x64Hash = ReleaseChecker.Artifact(x64Name, digest, 43)
+        assertEquals(arm, ReleaseChecker.artifact(candidate(listOf(x64, arm), listOf(x64Hash, armHash)), listOf("arm64-v8a", "x86_64"))?.first)
+        assertNull(ReleaseChecker.artifact(candidate(listOf(arm), emptyList()), listOf("arm64-v8a")))
+        assertNull(ReleaseChecker.artifact(candidate(listOf(arm), listOf(armHash.copy(size = 41))), listOf("arm64-v8a")))
+        assertNull(ReleaseChecker.artifact(candidate(listOf(arm), listOf(armHash.copy(sha256 = "invalid"))), listOf("arm64-v8a")))
+        assertNull(ReleaseChecker.artifact(candidate(listOf(arm, arm), listOf(armHash)), listOf("arm64-v8a")))
+        assertNull(ReleaseChecker.artifact(candidate(listOf(arm), listOf(armHash, armHash)), listOf("arm64-v8a")))
+        assertNull(ReleaseChecker.artifact(candidate(listOf(arm), listOf(armHash)), listOf("x86_64")))
+    }
 }

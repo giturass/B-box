@@ -52,7 +52,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 
 ### 导航与交互约定
 
-关于页区分完整与未完成的版本检查。部分发布暂时不可访问时显示重试提示，保留已验证候选的下载入口；没有完整结果时不显示“已是最新版本”，也不把旧候选的 APK 作为升级下载。检查范围及缓存策略见 [应用版本检查](app.md#已移除能力与兼容入口)。
+关于页单独显示 B-box 应用版本与实际内核版本，“检查更新”打开独立的 [更新弹窗](flutter/lib/components/app_update_dialog.dart)。弹窗区分完整检查、未完成检查和缺少元数据；部分发布暂时不可访问时保留确认过的候选，没有完整结果或元数据时不显示“已是最新版本”。有可用安装包时在应用内显示下载进度、取消及失败重试；关闭弹窗或离开页面后，关于页的“查看更新”可再次进入当前下载或已验证 APK 的状态。安装由系统确认，需要未知来源授权时给出说明，返回后由用户再次点击安装；启动请求不会改写当前应用版本或显示安装成功。未提供完整性元数据或设备匹配 APK 的发布仍可打开发布页面。检查、版本和安装边界见 [应用版本与应用内更新](app.md#应用版本与应用内更新)。
 
 - 首次启动直接进入仪表盘，没有免责声明接受门槛。Android 默认显示状态、网络速度、出站模式、配置和代理组五张卡；内存与内网 IP 可选。连接从工具页进入，不提供首页连接卡，旧布局/备份忽略该卡，下一次布局保存清理其键。
 - 手机底栏依次为仪表盘、配置、工具、设置，可选固定或悬浮样式；宽屏侧栏及外观页预览使用相同顺序。固定样式由 [main.dart](flutter/lib/main.dart) 在页面下方承载 [BoxNavigationBar](flutter/lib/components/navigation_bar.dart)，保留 Prism 的目的地、选中指示和按压反馈；栏体高度为 64 dp，仅追加系统底部安全区。栏体及底部安全区使用主界面背景色，无阴影和表面叠色，随浅色、深色及纯黑主题同步。悬浮样式使用 `NavigationDock`，宽屏使用 `NavigationSidebar`；外观页预览使用相同底色和紧凑比例。
@@ -190,7 +190,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 - [navigation_test.dart](flutter/test/navigation_test.dart)：固定导航在 320 宽、底部安全区、浅色/深色/纯黑及大字号下的高度、底色、页面边界、四个目的地顺序、标签切换和选中语义，并输出固定栏截图。窄屏实际横向滑动配置文件并核对底栏及选择不变，输出合并页的滑动前后截图。设置从底栏进入，二级页面返回设置；宽屏通过侧栏实际按钮切页，并在截图前核对当前页。外观与 MITM 页直接检查工具栏操作区域像素，防止隐藏首页的按钮残留；复制反馈和保存失败回归另检查顶部按钮仍可点击。另输出配置编辑与排序弹层在窄屏、大字号和宽屏下的截图，这些是布局回归产物，配置页尚未声明与上游逐像素一致。
 - [appearance_test.dart](flutter/test/appearance_test.dart)：主题选择与重开页面后的偏好，旧字体偏好不覆盖默认字体，系统字号运行时变化和既有缩放上下限。导航、状态、内网 IP、出站模式及请求页面的字号场景通过系统缩放模拟，不依赖已退役的应用偏好。
 - [licenses_test.dart](flutter/test/licenses_test.dart)：异步加载、共享许可按包分组、搜索及完整可选中正文。
-- [about_test.dart](flutter/test/about_test.dart)：版本检查完整/未完成与可升级/不可升级的四种组合，等待时禁止重复请求、未完成提示、APK 下载条件和发布页面入口。
+- [about_test.dart](flutter/test/about_test.dart)：应用与核心版本分别展示，版本检查完整/未完成/无元数据、等待时禁止重复请求、下载条件及发布页面入口；应用内进度、取消/重新下载、未知来源授权返回后的明确安装点击、保留 APK 的安装错误重试，以及中英文窄屏/大字体布局。
 - [warp_test.dart](flutter/test/warp_test.dart)：工具入口顺序、HTTP/2 与 WireGuard 注册保存、默认 HTTP/3 和协议切换时的传输保留、重复提交/返回保护与取消、读取修订时目标/会话变化、MASQUE / WireGuard 待保存协议重进与原配置重试、放弃确认，以及远程/启停/无配置禁用和中文 320 宽/1.4 倍字号下两种协议、按钮说明及底部条款的几何布局。导航测试另生成 WARP 页布局截图；桥接替身不验证真实注册网络及内核节点写入。
 - [dashboard_editor_test.dart](flutter/test/dashboard_editor_test.dart)、[outbound_mode_test.dart](flutter/test/outbound_mode_test.dart) 和 [terminal_settings_test.dart](flutter/test/terminal_settings_test.dart)：铅笔点击及卡片长按进入首页原位编辑，保留卡片状态并检查排序、移除、添加及保存失败；出站模式图形与 Android 一致并保留内核顺序和当前选择；停服时从终端页打开 Ghostty 设置并保存原生配置。
 
@@ -218,7 +218,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 **数据订阅、刷新与缓存**
 
-- [state_updates_test.dart](flutter/test/state_updates_test.dart)：高频数据只重建对应订阅者、服务状态仍通知、应用根部不随遥测/工具进度变化重建且外观设置继续生效，并覆盖日志增量淘汰、暂停快照、连接增量对象复用/重置及启动响应不覆盖早到事件。
+- [state_updates_test.dart](flutter/test/state_updates_test.dart)：高频数据只重建对应订阅者、服务状态仍通知、应用根部不随遥测/工具进度变化重建且外观设置继续生效，并覆盖日志增量淘汰、暂停快照、连接增量对象复用/重置、启动响应不覆盖早到事件，以及更新状态的独立通知和迟到的命令响应不覆盖进度事件。
 - [data_subscription_test.dart](flutter/test/data_subscription_test.dart)：各类数据的卡片/详情共享订阅，以及隐藏页面、TickerMode、前后台和销毁时的订阅切换。
 - [connection_list_test.dart](flutter/test/connection_list_test.dart) 与 [network_activity_test.dart](flutter/test/network_activity_test.dart)：搜索、过滤、排序、增量复用、一对多关联、无关联/淘汰历史、分页前去重及连接与请求计量隔离。
 - [connections_test.dart](flutter/test/connections_test.dart)、[capture_poll_test.dart](flutter/test/capture_poll_test.dart) 和 [capture_page_test.dart](flutter/test/capture_page_test.dart)：统一请求页关闭后释放连接订阅并停止抓取轮询；完成详情停轮询、手动刷新、前台恢复和同帧会话切换；查询增量复用已保留的摘要并释放窗口外记录，畸形增量页被拒绝且不产生空历史。
@@ -233,9 +233,9 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-节点分享展示的验证源码为 `a667cf0a3f71e04cc9802ecdcfb1d2f435c63a6a`，[统一工作流 44464053505 的 Flutter 作业](https://github.com/giturass/B-box/actions/runs/44464053505/job/135357467545) 通过：分析为 93 项 info、无 warning/error，306 项交互/布局测试及 ARM64 Debug/Release AAR 构建通过。本轮未修改 FlClash/Prism 直接导入文件。
+本轮工作树以 `9ee82eb71796bcdfa27d55575e37ece5bef1faf8` 为起点，关于页与新增更新弹窗支持应用独立版本、下载/校验进度、取消/重试及明确的系统安装点击，新图标也已同步到 Flutter。没有改动 FlClash/Prism 直接导入文件；关于页的适配清单已更新。本机 `git diff --check`、`python3 tools/verify_newui.py` 及文档链接静态检查通过，未在本机执行 Flutter 分析、测试或 AAR 构建。
 
-本机 `git diff --check`、`python3 tools/verify_newui.py` 和文档本地链接静态检查通过，未执行本机编译或测试。节点分享页视觉和 ARM64 实机尚未验收，整套 Actions 结果及其余未覆盖范围见 [应用验证记录](app.md#当前验证记录)。
+新增中英文窄屏、大字体及更新交互/状态回归待对应源码的统一 Actions 运行。图标组合预览已查看；更新页面的设备截图、覆盖安装与 ARM64 实机尚未验收。实际源码 SHA、整套运行及其他未覆盖范围见 [应用验证记录](app.md#当前验证记录)。
 
 ### 历史验证记录
 

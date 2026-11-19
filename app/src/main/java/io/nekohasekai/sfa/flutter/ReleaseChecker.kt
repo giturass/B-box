@@ -23,24 +23,26 @@ internal class ReleaseChecker(
     private val resultCacheMillis: Long = 60_000,
     private val metadataCacheMillis: Long = 15 * 60_000,
 ) {
-    data class Asset(val name: String, val url: String, val cacheKey: String = url)
-    data class Release(val url: String, val notes: String, val assets: List<Asset>)
-    data class Metadata(val applicationId: String, val versionCode: Long, val version: String)
+    data class Asset(val name: String, val url: String, val cacheKey: String = url, val size: Long? = null)
+    data class Release(val url: String, val notes: String, val assets: List<Asset>, val tag: String? = null)
+    data class Artifact(val name: String, val sha256: String, val size: Long)
+    data class Metadata(val applicationId: String, val versionCode: Long, val version: String, val artifacts: List<Artifact> = emptyList())
     data class Candidate(val release: Release, val metadata: Metadata)
     data class Result(val candidate: Candidate?, val complete: Boolean)
     private data class Cached<T>(val at: Long, val value: T)
     private val mutex = Mutex()
     private val metadataCache = ConcurrentHashMap<String, Cached<Metadata>>()
     private var resultCache: Cached<Result>? = null
+    private var confirmedCandidate: Candidate? = null
 
     suspend fun check(): Result = mutex.withLock {
         resultCache?.takeIf { clock() - it.at < resultCacheMillis }?.let { return@withLock it.value }
         val deadline = clock() + totalTimeoutMillis
         fun remaining() = (deadline - clock()).coerceAtMost(requestTimeoutMillis)
         val releases = attempt(remaining(), loadReleases)?.take(20)
-            ?: return@withLock Result(resultCache?.value?.candidate, complete = false)
+            ?: return@withLock Result(confirmedCandidate, complete = false)
         val inputs = releases.mapNotNull { release ->
-            release.assets.firstOrNull { it.name == "B-box-version-metadata.json" }?.let { release to it }
+            release.assets.singleOrNull { it.name == "B-box-version-metadata.json" }?.let { release to it }
         }
         metadataCache.keys.retainAll(inputs.map { it.second.cacheKey }.toSet())
         val semaphore = Semaphore(parallelism)
@@ -54,11 +56,28 @@ internal class ReleaseChecker(
                 }
             } }.awaitAll()
         }
-        val candidate = outcomes.filterNotNull().filter { it.metadata.applicationId == applicationId }
+        val found = outcomes.filterNotNull().filter { it.metadata.applicationId == applicationId }
             .maxByOrNull { it.metadata.versionCode }
-        val result = Result(candidate, complete = outcomes.all { it != null })
+        val complete = inputs.isNotEmpty() && inputs.size == releases.size && outcomes.all { it?.metadata?.applicationId == applicationId }
+        val candidate = if (complete) found else listOfNotNull(found, confirmedCandidate).maxByOrNull { it.metadata.versionCode }
+        confirmedCandidate = candidate
+        val result = Result(candidate, complete = complete)
         if (result.complete) resultCache = Cached(clock(), result)
         result
+    }
+
+    companion object {
+        /** Metadata from older releases can be shown, but cannot authorize an unverified download. */
+        fun artifact(candidate: Candidate, supportedAbis: List<String>): Pair<Asset, Artifact>? = supportedAbis.firstNotNullOfOrNull { abi ->
+            val name = "B-box-${candidate.metadata.version}-$abi.apk"
+            val assets = candidate.release.assets.filter { it.name == name }
+            val artifacts = candidate.metadata.artifacts.filter { it.name == name }
+            val asset = assets.singleOrNull() ?: return@firstNotNullOfOrNull null
+            val artifact = artifacts.singleOrNull() ?: return@firstNotNullOfOrNull null
+            if (artifact.size <= 0L || artifact.size == Long.MAX_VALUE || asset.size != artifact.size ||
+                !artifact.sha256.matches(Regex("[0-9a-fA-F]{64}"))) return@firstNotNullOfOrNull null
+            asset to artifact
+        }
     }
 
     private suspend fun <T> attempt(timeout: Long, load: suspend (Long) -> T): T? {

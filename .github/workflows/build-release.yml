@@ -19,8 +19,6 @@ jobs:
   core:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    outputs:
-      version: ${{ steps.core.outputs.version }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -142,13 +140,16 @@ jobs:
             -Pkotlin.compiler.execution.strategy=in-process
 
       - name: Verify APK identity, architecture and signature
+        id: verify
         run: python3 tools/verify_release.py
 
-      - name: Upload Release APK
+      - name: Upload Release APK and update metadata
         uses: actions/upload-artifact@v4
         with:
-          name: B-box-${{ needs.core.outputs.version }}-arm64-v8a-release
-          path: app/build/outputs/apk/other/release/*-arm64-v8a.apk
+          name: B-box-${{ steps.verify.outputs.version }}-arm64-v8a-release
+          path: |
+            app/build/outputs/apk/other/release/*-arm64-v8a.apk
+            app/build/outputs/apk/other/release/B-box-version-metadata.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
@@ -157,7 +158,6 @@ jobs:
         if: ${{ inputs.publish_release }}
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION_NAME: ${{ needs.core.outputs.version }}
         run: python3 tools/publish_release.py
 
       - name: Remove signing key

@@ -52,11 +52,17 @@ func UIHTTPGet(link string) (*UIHTTPResponse, error) {
 
 // UIHTTPGetWithTimeout lets a multi-request lookup share one overall deadline.
 func UIHTTPGetWithTimeout(link string, timeoutMillis int64) (*UIHTTPResponse, error) {
+	task := NewUIHTTPTask()
+	defer task.Close()
+	return task.GetWithTimeout(link, timeoutMillis)
+}
+
+// GetWithTimeout keeps the lookup deadline and Android cancellation on the same request.
+func (t *UIHTTPTask) GetWithTimeout(link string, timeoutMillis int64) (*UIHTTPResponse, error) {
 	if timeoutMillis != -1 && (timeoutMillis <= 0 || timeoutMillis > math.MaxInt64/int64(time.Millisecond)) {
 		return nil, fmt.Errorf("metadata timeout must be positive and representable as a duration, or -1 for unlimited")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.ctx
 	if timeoutMillis > 0 {
 		var cancelTimeout context.CancelFunc
 		ctx, cancelTimeout = context.WithTimeout(ctx, time.Duration(timeoutMillis)*time.Millisecond)

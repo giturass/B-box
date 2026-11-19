@@ -4,7 +4,7 @@
 
 ## 基线与集成方式
 
-上游为 [SagerNet/sing-box](https://github.com/SagerNet/sing-box)，绑定位于 `experimental/libbox`。当前基线是 [`v1.15.0-alpha.13`](https://github.com/SagerNet/sing-box/tree/v1.15.0-alpha.13/experimental/libbox)，Go 为 `go1.26.10`；实际版本由 [version.properties](version.properties) 的 `VERSION_NAME` 和 `GO_VERSION` 决定，工作流检出 `v${VERSION_NAME}`。
+上游为 [SagerNet/sing-box](https://github.com/SagerNet/sing-box)，绑定位于 `experimental/libbox`。当前基线是 [`v1.15.0-alpha.13`](https://github.com/SagerNet/sing-box/tree/v1.15.0-alpha.13/experimental/libbox)，Go 为 `go1.26.10`；实际版本由 [version.properties](version.properties) 的 `CORE_VERSION_NAME` 和 `GO_VERSION` 决定，工作流检出 `v${CORE_VERSION_NAME}`。应用版本独立维护，见 [app.md](app.md#应用版本与应用内更新)。
 
 本仓库不存储完整核心或 AAR，构建补丁与扩展源码统一保存在 [libbox/](libbox/)。CI 通过 [setup-core](.github/actions/setup-core/action.yml) 检出上游至 `.core/`，先准备版本文件指定的 Go，再应用构建补丁、sing-tun 兼容补丁、XHTTP/VLESS Encryption 补丁、WARP MASQUE 补丁和 HTTP 调试补丁。抓取引擎、路由适配及所有 `ui_*.go`及相应测试使用同一安装入口；Android 构建由 [build-libbox](.github/actions/build-libbox/action.yml) 生成标准 `libbox.aar`。仅有上游原版 AAR 不足以编译当前 B-box，因为它没有下面的 UI 扩展绑定，也不包含本仓库的路由和自动重定向兼容补丁。
 
@@ -16,7 +16,7 @@
 | Vision 指针兼容 | [sing-vmess-vision-pointer.patch](libbox/sing-vmess-vision-pointer.patch) | 固定 sing-vmess 副本的 TLS/Encryption 注册保留 Go 指针来源，缓冲字段经布局核对后用 `unsafe.Add` 访问，兼容 race/checkptr |
 | Cloudflare WARP 注册与 MASQUE | [warp-masque.patch](libbox/warp-masque.patch)、[masque/](libbox/masque/)、[ui_warp.go](libbox/ui_warp.go) | MASQUE/WireGuard 设备注册、原生 WireGuard 端点、`masque` 出站、ECDSA 认证、公钥固定、HTTP/3 datagram 与 HTTP/2 capsule 及传输回退 |
 | 运行时内存绑定 | [ui_dashboard.go](libbox/ui_dashboard.go) | 读取 Go 运行时内存和 goroutine 数，提供释放内存操作 |
-| HTTP/WebDAV 绑定 | [ui_http.go](libbox/ui_http.go) | 返回 HTTP 状态码与完整响应，通过 `UIHTTPTask` 传播 Android 取消，供备份及 Release 元数据使用 |
+| HTTP/WebDAV 与下载绑定 | [ui_http.go](libbox/ui_http.go)、[ui_download.go](libbox/ui_download.go) | 返回 HTTP 状态码与完整响应，通过 `UIHTTPTask` 传播 Android 取消；APK 直接流式写入私有暂存文件并返回大小/摘要与进度 |
 | 订阅下载绑定 | [ui_profile.go](libbox/ui_profile.go) | 可取消的完整订阅下载，失败响应不读取正文 |
 | 节点导入与订阅更新 | [ui_nodes.go](libbox/ui_nodes.go)、[ui_nodes_profile.go](libbox/ui_nodes_profile.go)、[ui_nodes_subscription.go](libbox/ui_nodes_subscription.go)、[node-profile.patch](libbox/node-profile.patch) | 节点直接写入所选配置，远端订阅只更新代理节点并保留本地配置和追加节点，格式化保留配置内的本地节点注释 |
 | VMess 外部节点加密选择 | [ui_nodes_scheme.go](libbox/ui_nodes_scheme.go) | Clash 和 VMess 分享链接的 `auto` 在导入时解析为明确 AEAD，避免 TLS 下被核心改为 `zero` |
@@ -173,11 +173,12 @@ WireGuard 输出结构核对当前核心 [`v1.15.0-alpha.13` 的选项](https://
 
 - `UIWebDAVRequest` 支持 GET、PUT、OPTIONS、MKCOL，使用上游 HTTP 客户端的证书库和 Modern TLS，完整读取请求/响应，不设固定容量或下载时限。
 - WebDAV 不跨源转发凭据和正文，不接受 HTTPS 降级；会改变请求方法的重定向交回调用方判断，防止把失败写入报告为成功。
-- `UIHTTPGet` 用于匿名 Release 元数据 GET；`UIHTTPGetWithTimeout` 接受可表示为 Go duration 的正整数毫秒，`-1` 不增加期限，响应不设固定容量上限。调用方可传入剩余时限，让一轮查询共享期限。两者允许访问重定向后的资产地址，剥离凭据头且禁止 HTTPS 降级；取消关闭在途请求及响应正文。Android 使用生成绑定 `Libbox.uihttpGetWithTimeout`，版本查询调度与缓存见 [app.md](app.md#已移除能力与兼容入口)。
+- `UIHTTPGet` 用于匿名 Release 元数据 GET；`UIHTTPGetWithTimeout` 接受可表示为 Go duration 的正整数毫秒，`-1` 不增加期限，响应不设固定容量上限。调用方可传入剩余时限，让一轮查询共享期限。Android 使用同一任务的 `UIHTTPTask.GetWithTimeout`（绑定 `task.getWithTimeout`），使协程取消立即关闭正在等待的请求；静态绑定保留兼容。元数据允许访问重定向后的资产地址，剥离凭据头且禁止 HTTPS 降级。版本查询调度与缓存见 [app.md](app.md#应用版本与应用内更新)。
+- `UIHTTPTask.DownloadFile`（绑定 `task.downloadFile`）使用相同 HTTP 客户端和 Modern TLS，以匿名 HTTPS 下载 APK；跨源重定向继续要求 HTTPS，不携带认证或 Cookie。调用方给出已确认大小和私有绝对路径，文件以独占方式创建为 `0600`，不覆盖已存在的文件。64 KiB 缓冲流式写入并报告实际存储进度，最多读取预期大小加一字节以拒绝超长响应；声明大小、实际大小、响应状态或写入失败均删除暂存文件，`Close` 同时中止等待响应头和正文。完成同步写入后返回 `UIHTTPDownloadResult` 的 `Status`、`Size`、`Digest`（SHA-256），不将完整 APK 经绑定或 Dart 传递；Android 的 APK 身份/签名验证由 [应用内更新](app.md#应用版本与应用内更新) 维护。
 - `UIProfileGet` 下载订阅原始文本，完整读取实际响应及 gzip 解压后的内容，不设固定容量或总时限；节点解析及按来源配置合并由上述 `ApplyUISubscriptionNodes` 完成。保留 SFA User-Agent、URL 认证、证书库及 Modern TLS；非 HTTP 200 只报告状态并关闭正文。重定向检测重复的 URL 与方法，不按固定次数拒绝。
 - Android 订阅/WebDAV 使用 `NewUIHTTPTask` 的 `ProfileGet` / `WebDAVRequest`；协程取消立即调用 `Close`，使正在等待响应头、正文或 TLS 握手的阻塞绑定退出。原静态绑定保留兼容。没有 B-box 的固定 TLS 握手期限；调用方期限与取消继续生效。
 
-[ui_profile_test.go](libbox/ui_profile_test.go) 和 [ui_http_test.go](libbox/ui_http_test.go) 覆盖订阅认证/重定向、超过原容量的声明长度/分块/gzip 正文、WebDAV 大文件、等待响应头/正文时的取消、调用方期限、错误响应不读正文，以及非法地址和重定向循环；通过统一测试工作流的 `TestUI` 入口运行。
+[ui_profile_test.go](libbox/ui_profile_test.go)、[ui_http_test.go](libbox/ui_http_test.go) 和 [ui_download_test.go](libbox/ui_download_test.go) 覆盖订阅认证/重定向、超过原容量的声明长度/分块/gzip 正文、WebDAV 大文件、等待响应头/正文时的取消、调用方期限、错误响应不读正文、APK 流式摘要/进度、大小不匹配和失败清理、独占文件创建，以及非法地址和重定向循环；通过统一测试工作流的 `TestUI` 入口运行。
 
 这些接口不使用下述 `UIEgressProbe` 路由注入。需要查询当前 sing-box 出口时必须走探测接口，不能用一般 HTTP 请求替代。
 

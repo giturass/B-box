@@ -42,7 +42,7 @@ for path in (ROOT / "app/build.gradle.kts", ROOT / "build.gradle.kts", ROOT / "s
     if re.search(r"xposed", path.read_text(), re.I):
         errors.append(f"{path.name}: retired Xposed build dependency")
 for path in (ROOT / "app/src").rglob("AndroidManifest.xml"):
-    if re.search(r"REQUEST_INSTALL_PACKAGES|UPDATE_PACKAGES_WITHOUT_USER_ACTION|InstallResultReceiver|WRITE_EXTERNAL_STORAGE", path.read_text()):
+    if re.search(r"UPDATE_PACKAGES_WITHOUT_USER_ACTION|InstallResultReceiver|WRITE_EXTERNAL_STORAGE", path.read_text()):
         errors.append(f"{path.relative_to(ROOT)}: retired installer/QR export permission")
     if re.search(r"xposed", path.read_text(), re.I):
         errors.append(f"{path.relative_to(ROOT)}: retired Xposed component or metadata")

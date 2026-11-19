@@ -14,10 +14,10 @@ Json json(Object? value) => value is Map
     : <String, dynamic>{};
 List<Json> rows(Object? value) => value is List ? value.map(json).toList() : [];
 
-enum BoxAspect { state, appearance, groups, traffic, memory, connections, logs, tools, diagnostics, transfers, terminal }
+enum BoxAspect { state, appearance, groups, traffic, memory, connections, logs, tools, diagnostics, transfers, terminal, updates }
 enum BoxData { memory, logs, connections, tools, outbounds, lan }
 
-class BoxController extends ChangeNotifier {
+class BoxController extends ChangeNotifier with WidgetsBindingObserver {
   BoxController({MethodChannel? channel, Stream<dynamic>? events})
       : _channel = channel ?? const MethodChannel('io.ericlee.bfa/box'),
         _events = events ?? const EventChannel('io.ericlee.bfa/events').receiveBroadcastStream();
@@ -36,6 +36,7 @@ class BoxController extends ChangeNotifier {
   Json dashboard = {}, settings = {}, preferences = {}, rates = {};
   Json toolState = {}, stun = {}, quality = {}, inbox = {}, ping = {};
   Json terminal = {};
+  Json appUpdate = {'status': 'idle'};
   Json memory = {}, lan = {};
   /// The selected profile's nodes, stopped groups and revision, without credentials.
   Json _selectedProfileNodes = {};
@@ -58,6 +59,7 @@ class BoxController extends ChangeNotifier {
   int profilesRevision = 0;
   int sessionRevision = 0;
   bool _disposed = false;
+  bool _observingLifecycle = false;
   bool ready = false;
   bool lanChanging = false;
   bool serviceSettingsChanging = false;
@@ -223,6 +225,10 @@ class BoxController extends ChangeNotifier {
   Future<void> initialize() async {
     startupError = null;
     notifyListeners();
+    if (!_observingLifecycle) {
+      WidgetsBinding.instance.addObserver(this);
+      _observingLifecycle = true;
+    }
     await _subscription?.cancel();
     _subscription = _events.listen(_onEvent, onError: report);
     try {
@@ -239,6 +245,7 @@ class BoxController extends ChangeNotifier {
       if (unchanged('preferences')) preferences = json(result['preferences']);
       if (unchanged('lan') && result['lan'] is Map) lan = json(result['lan']);
       if (unchanged('tools') && result['tools'] is Map) toolState = json(result['tools']);
+      if (unchanged('updates') && result['updates'] is Map) appUpdate = json(result['updates']);
       final diagnostics = json(result['diagnostics']);
       if (unchanged('stun') && diagnostics['stun'] is Map) stun = json(diagnostics['stun']);
       if (unchanged('quality') && diagnostics['quality'] is Map) quality = json(diagnostics['quality']);
@@ -253,6 +260,34 @@ class BoxController extends ChangeNotifier {
   }
 
   Future<dynamic> call(String method, [Json? args]) => _channel.invokeMethod<dynamic>(method, args);
+
+  /// A late method response must not replace newer download/installer events.
+  Future<void> _requestAppUpdate(String method, [Json? args]) async {
+    final before = _eventRevisions['updates'];
+    final value = await call(method, args);
+    if (_disposed || value is! Map || _eventRevisions['updates'] != before) return;
+    final aspects = _setAppUpdate(json(value));
+    if (aspects.isNotEmpty) _notify(aspects);
+  }
+
+  Future<void> downloadUpdate(int versionCode) =>
+      _requestAppUpdate('updates.download', {'versionCode': versionCode});
+  Future<void> cancelUpdate() => _requestAppUpdate('updates.cancel');
+  Future<void> installUpdate(int versionCode) =>
+      _requestAppUpdate('updates.install', {'versionCode': versionCode});
+
+  Future<void> refreshUpdates() async {
+    try { await _requestAppUpdate('updates.snapshot'); }
+    catch (error) { report(error); }
+  }
+
+  @override void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && ready && appUpdate['status'] != 'idle') {
+      // Android permission and installer screens only report their confirmed
+      // state. Returning to the app never automatically installs an APK.
+      unawaited(refreshUpdates());
+    }
+  }
 
   void clearApplyRequired() { applyRequired = null; _notify([BoxAspect.state]); }
 
@@ -385,6 +420,8 @@ class BoxController extends ChangeNotifier {
       case 'terminal':
         terminal = json(value);
         return const [BoxAspect.terminal];
+      case 'updates':
+        return _setAppUpdate(json(value));
       case 'outbounds':
         outbounds = rows(value);
         return const [BoxAspect.diagnostics];
@@ -426,6 +463,12 @@ class BoxController extends ChangeNotifier {
     final stateChanged = !equality.equals(state(dashboard), state(next));
     if (_setDashboard(next)) return const [BoxAspect.state, BoxAspect.traffic, BoxAspect.connections];
     return stateChanged ? const [BoxAspect.state, BoxAspect.traffic] : const [BoxAspect.traffic];
+  }
+
+  List<BoxAspect> _setAppUpdate(Json next) {
+    if (const DeepCollectionEquality().equals(appUpdate, next)) return const [];
+    appUpdate = next;
+    return const [BoxAspect.updates];
   }
 
   void _addRateSample(Json sample) {
@@ -482,6 +525,7 @@ class BoxController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    if (_observingLifecycle) WidgetsBinding.instance.removeObserver(this);
     _subscription?.cancel();
     appIcons.clear();
     messages.close();

@@ -39,15 +39,23 @@ class GenerateLauncherIcons {
             for (int x = 0; x < original.getWidth(); x++) {
                 int pixel = original.getRGB(x, y);
                 int red = (pixel >> 16) & 255;
-                // Keep the blue artwork; white and pale globe lines become cutouts.
-                int alpha = Math.min(255, Math.max(0, (200 - red) * 255 / 48));
+                int green = (pixel >> 8) & 255;
+                int blue = pixel & 255;
+                int minimum = Math.min(red, Math.min(green, blue));
+                int chroma = Math.max(red, Math.max(green, blue)) - minimum;
+                // Keep colored faces and their neutral gradient blends; white B/background stay cutouts.
+                int colorAlpha = (chroma - 16) * 255 / 48;
+                int neutralAlpha = (224 - minimum) * 255 / 24;
+                int alpha = Math.min(255, Math.max(0, Math.max(colorAlpha, neutralAlpha)));
                 alpha = alpha * ((pixel >>> 24) & 255) / 255;
                 monochrome.setRGB(x, y, (alpha << 24) | 0xffffff);
             }
         }
         save(fit(monochrome, 432, 288, false), res.resolve("drawable-nodpi/ic_launcher_monochrome.png"));
         save(fit(monochrome, 96, 96, false), res.resolve("drawable/ic_menu.png"));
-        System.out.println("Generated launcher, round, adaptive, themed and notification icons from " + source);
+        Path flutterIcon = Path.of("flutter/assets/images/icon.png");
+        save(fit(original, 256, 256, true), flutterIcon);
+        System.out.println("Generated launcher, round, adaptive, themed, notification and Flutter icons from " + source);
     }
 
     private static BufferedImage fit(BufferedImage source, int size, int contentSize, boolean white) {

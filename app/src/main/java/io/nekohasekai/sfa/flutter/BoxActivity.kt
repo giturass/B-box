@@ -2,6 +2,7 @@ package io.nekohasekai.sfa.flutter
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.net.VpnService
@@ -10,6 +11,7 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.content.IntentCompat
 import androidx.lifecycle.lifecycleScope
 import io.flutter.embedding.android.FlutterFragmentActivity
@@ -34,6 +36,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import java.io.File
 
 open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
     val serviceStatus = MutableStateFlow(Status.Stopped)
@@ -43,6 +46,7 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
     private var localNetworkPermissionRequested = false
     private var startPending = false
     private var documentRequest: CompletableDeferred<Uri?>? = null
+    private var updateInstallRequest: CompletableDeferred<Int>? = null
     private val pendingIntents = ArrayDeque<String>()
     private val shares = java.util.concurrent.ConcurrentHashMap<String, Intent>()
     private var launching = false
@@ -91,6 +95,13 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
     private val createDocument = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         documentRequest?.complete(if (result.resultCode == RESULT_OK) result.data?.data else null)
         documentRequest = null
+    }
+    private val updatePermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        refreshUpdateInstallPermission()
+    }
+    private val updateInstallerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        updateInstallRequest?.complete(result.resultCode)
+        updateInstallRequest = null
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -144,6 +155,45 @@ open class BoxActivity : FlutterFragmentActivity(), ServiceConnection.Callback {
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         bridge?.refreshSystemAppearance()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshUpdateInstallPermission()
+    }
+
+    private fun refreshUpdateInstallPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()) {
+            BoxUpdates.permissionGranted()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    internal suspend fun installUpdate(file: File): String {
+        check(updateInstallRequest == null) { "The Android installer is already open" }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            updatePermissionLauncher.launch(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:$packageName")))
+            return "permissionRequired"
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.cache", file)
+        val request = CompletableDeferred<Int>()
+        updateInstallRequest = request
+        try {
+            updateInstallerLauncher.launch(Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                clipData = ClipData.newRawUri("B-box update", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                putExtra(Intent.EXTRA_RETURN_RESULT, true)
+            })
+            val result = request.await()
+            check(result == RESULT_OK || result == RESULT_CANCELED) { "Android could not install the update" }
+            // Successful self replacement may kill this process. A returned result
+            // leaves the verified file available and never claims installation success.
+            return "ready"
+        } finally {
+            if (updateInstallRequest === request) updateInstallRequest = null
+        }
     }
 
     private fun handleIntent(intent: Intent?) {

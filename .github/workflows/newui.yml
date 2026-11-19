@@ -22,6 +22,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+      - name: Application version and release metadata regressions
+        run: python3 -m unittest discover -s tools -p 'test_release.py'
       - name: Prepare isolated module regression
         run: |
           sudo apt-get update

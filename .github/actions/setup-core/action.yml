@@ -3,7 +3,7 @@ description: Check out the matching sing-box version and install all B-box patch
 
 outputs:
   version:
-    description: Core and application version from version.properties.
+    description: Core version from CORE_VERSION_NAME in version.properties.
     value: ${{ steps.versions.outputs.version }}
 
 runs:
@@ -13,7 +13,7 @@ runs:
       id: versions
       shell: bash
       run: |
-        version=$(sed -n 's/^VERSION_NAME=//p' version.properties | tr -d '\r')
+        version=$(sed -n 's/^CORE_VERSION_NAME=//p' version.properties | tr -d '\r')
         go_version=$(sed -n 's/^GO_VERSION=go//p' version.properties | tr -d '\r')
         [[ "$version" =~ ^[0-9][0-9A-Za-z.+-]*$ ]]
         [[ "$go_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]

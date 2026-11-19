@@ -51,6 +51,7 @@ void main() {
       ('inbox', {'receiving': []}, BoxAspect.transfers),
       ('usbDevices', [], BoxAspect.tools),
       ('terminal', {'sessions': []}, BoxAspect.terminal),
+      ('updates', {'status': 'downloading', 'downloaded': 2048, 'total': 4096}, BoxAspect.updates),
     ]) {
       final before = Map.of(builds);
       events.add({'type': type, 'value': value});
@@ -86,6 +87,7 @@ void main() {
       ('transfers', [{'id': 1, 'finished': false}]),
       ('quality', {'phase': 1}),
       ('terminal', {'sessions': []}),
+      ('updates', {'status': 'downloading', 'downloaded': 2048, 'total': 4096}),
       ('dashboard', {...box.dashboard, 'uploadTotal': '2 MB', 'memory': '20 MB'}),
       ('settings', {'allowBypass': true}),
     ]) {
@@ -192,14 +194,42 @@ void main() {
     events.add({'type': 'quality', 'value': {'phase': 3}});
     events.add({'type': 'dashboard', 'value': {'status': 'Started'}});
     events.add({'type': 'lan', 'value': {'addresses': ['192.168.1.10']}});
+    events.add({'type': 'updates', 'value': {'status': 'ready', 'versionCode': 10102, 'canInstall': true}});
     await Future<void>.delayed(Duration.zero);
-    ready.complete({'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'}});
+    ready.complete({'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'}, 'updates': {'status': 'idle'}});
     await initialized;
     expect(box.ready, isTrue);
     expect(box.running, isTrue);
     expect(rows(box.toolState['tailscale']).single['authURL'], 'https://login.test');
     expect(box.quality['phase'], 3);
     expect(box.lanAddresses, ['192.168.1.10']);
+    expect(box.appUpdate['status'], 'ready');
+    expect(box.appUpdate['canInstall'], isTrue);
+    box.dispose();
+  });
+
+  test('late updater replies preserve newer progress and installer events', () async {
+    await box.initialize();
+    final download = Completer<Json>(), snapshot = Completer<Json>();
+    messenger.setMockMethodCallHandler(channel, (call) async => switch (call.method) {
+      'updates.download' => download.future,
+      'updates.snapshot' => snapshot.future,
+      _ => null,
+    });
+    final downloading = box.downloadUpdate(10102);
+    await Future<void>.delayed(Duration.zero);
+    events.add({'type': 'updates', 'value': {'status': 'ready', 'versionCode': 10102, 'canInstall': true}});
+    await Future<void>.delayed(Duration.zero);
+    download.complete({'status': 'downloading', 'versionCode': 10102, 'downloaded': 0, 'total': 4096});
+    await downloading;
+    expect(box.appUpdate['status'], 'ready');
+    final refreshing = box.refreshUpdates();
+    await Future<void>.delayed(Duration.zero);
+    events.add({'type': 'updates', 'value': {'status': 'installing', 'versionCode': 10102, 'canInstall': true}});
+    await Future<void>.delayed(Duration.zero);
+    snapshot.complete({'status': 'ready', 'versionCode': 10102, 'canInstall': true});
+    await refreshing;
+    expect(box.appUpdate['status'], 'installing');
     box.dispose();
   });
 

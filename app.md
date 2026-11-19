@@ -9,17 +9,17 @@
 | 仓库 | [giturass/B-box](https://github.com/giturass/B-box) |
 | Android 上游 | [SagerNet/sing-box-for-android](https://github.com/SagerNet/sing-box-for-android)，`dev` 分支 |
 | 已合并的比较基线 | [`a548a7903e96266a0046018562c73b192edbfc18`](https://github.com/SagerNet/sing-box-for-android/commit/a548a7903e96266a0046018562c73b192edbfc18)，`1.15.0-alpha.13` |
-| B-box 版本 / versionCode | `1.15.0-alpha.13` / `748`，以 [version.properties](version.properties) 为准 |
+| B-box 版本 / versionCode | `1.0.1` / `749`，以 [version.properties](version.properties) 的 `VERSION_NAME` / `VERSION_CODE` 为准 |
 | 应用名 / Gradle 根项目名 / APK 前缀 | `B-box` |
 | 安装包名 / applicationId | `io.ericlee.bfa` |
 | 源码 namespace / 包路径 | `io.nekohasekai.sfa` |
 | Android / flavor | API 24（Android 7.0）起，`play` / `other` |
 
-应用基线与核心标签、FlClash 参考提交分别维护；B-box 的 versionCode 不必等于上游基线的值。以上描述当前源码，不表示已有 Release 包含全部改动。
+应用版本独立于 Android 上游基线、核心标签与 FlClash 参考提交；版本和更新规则见 [应用版本与应用内更新](#应用版本与应用内更新)。以上描述当前源码，不表示已有 Release 包含全部改动。
 
 品牌、安装身份及组件约定：
 
-- 应用标签、Gradle 根项目名和 APK 前缀统一使用 B-box。图标原图为 [artwork/bbox.png](artwork/bbox.png)，[GenerateLauncherIcons.java](tools/GenerateLauncherIcons.java) 生成普通/圆形、自适应、主题单色及通知图标。保留上游许可和非官方分支说明，不改写真实来源名称。
+- 应用标签、Gradle 根项目名和 APK 前缀统一使用 B-box。用户提供的应用图标保存在 [artwork/bbox.png](artwork/bbox.png)，[GenerateLauncherIcons.java](tools/GenerateLauncherIcons.java) 生成普通/圆形、自适应、主题单色、通知及 Flutter 关于页图标；单色轮廓按颜色饱和度及暗部提取，保留彩色立方体各面和白色留空。保留上游许可和非官方分支说明，不改写真实来源名称。
 - namespace、Kotlin/Java 类路径、AIDL 描述符及 RootServer 反射类名继续使用 `io.nekohasekai.sfa`。Provider authorities 使用 `${applicationId}`，服务控制和 USB/Taildrop 等广播使用 `BuildConfig.APPLICATION_ID` 或运行时包名。
 - 可与原版 SFA 并行安装，私有配置和数据相互独立；原版数据需导出/导入。Flutter 迁移沿用 B-box 既有安装身份、数据库及配置，不以换 UI 为由清空数据。
 
@@ -176,17 +176,27 @@ CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期�
 
 这些流程的 Android 仪器测试范围见 [验证与历史记录](#android-仪器测试)，核心回归文件见 [libbox.md](libbox.md#回归文件覆盖)。
 
+## 应用版本与应用内更新
+
+应用从 `v1.0.1` 开始独立编号。[version.properties](version.properties) 的 `VERSION_NAME` / `VERSION_CODE` 仅用于 Android 应用、APK 名称和发布元数据；`CORE_VERSION_NAME` / `GO_VERSION` 仅用于核心准备。应用升级依据递增的 versionCode，`v1.0.1` 使用 `749`，可覆盖此前 `748` 的 B-box 安装；版本名称不与内核进行大小比较。Flutter 模块版本与应用一致，关于页仍单独显示实际 `Libbox.version()`。
+
+[BoxUpdates.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxUpdates.kt) 读取 B-box 最近 20 条 Releases（含预发布），以 `B-box-version-metadata.json` 的 `application_id`、`version_code`、`version_name` 核对安装身份和版本。新的发布 tag 为 `v<应用版本>`，APK 为 `B-box-<应用版本>-<ABI>.apk`。元数据的 `artifacts` 数组为每个 APK 提供 `name`、`size` 和 `sha256`；只有设备 ABI 对应的唯一 APK、资产列表大小和完整性元数据一致时才启用应用内下载。旧元数据仍可用于版本展示，未提供完整性信息或匹配 APK 时进入发布页面。
+
+[ReleaseChecker.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ReleaseChecker.kt) 限制最多 3 个并发元数据请求、每次最多 8 秒、整轮最多 20 秒，并将剩余时限和取消传入核心 HTTP 请求。完整结果缓存 1 分钟；成功元数据按资产 URL、ID、更新时间和大小缓存 15 分钟，资产变化后重新读取。单项或列表失败保留已确认的最高版本候选并明确标记检查未完成；缺少可核对的元数据也不显示“已是最新版本”。
+
+[UpdateDownloadSession.kt](app/src/main/java/io/nekohasekai/sfa/flutter/UpdateDownloadSession.kt) 在进程内维护下载状态，APK 流式写入私有缓存 `app-updates`；界面只传确认过的 versionCode，不传下载 URL 或文件路径。取消关闭正在执行的核心 HTTP 请求并删除暂存文件；下载失败可重试，离开页面不取消下载，同一进程内重新进入或重建 Flutter 宿主可以恢复进度。进程退出后不自动恢复下载或安装，下一次下载清理遗留缓存。
+
+[UpdateApkVerifier.kt](app/src/main/java/io/nekohasekai/sfa/flutter/UpdateApkVerifier.kt) 在下载完成和安装前分别检查实际文件大小、SHA-256、APK 包名/版本及与本机安装相同的当前签名证书集合。随后由 [BoxActivity.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxActivity.kt) 通过现有 FileProvider 的只读 URI 交给 Android 安装器，系统继续验证并要求用户确认。API 26+ 缺少“安装未知应用”授权时打开本应用的系统授权页面；返回后须再次点击安装。依据 Android 的 [ACTION_INSTALL_PACKAGE](https://developer.android.com/reference/android/content/Intent#ACTION_INSTALL_PACKAGE) 与 [ACTION_MANAGE_UNKNOWN_APP_SOURCES](https://developer.android.com/reference/android/provider/Settings#ACTION_MANAGE_UNKNOWN_APP_SOURCES)，Manifest 保留 `REQUEST_INSTALL_PACKAGES`。启动安装 Intent 不表示安装完成；取消安装或启动失败可继续使用已验证 APK 重试。
+
+此流程使用独立 `updates.*` 桥接及 `updates` 状态事件，不新增后台更新任务、Root/Shizuku 安装方法或静默安装。界面入口、进度和错误交互见 [关于页更新](flclash.md#导航与交互约定)。
+
 ## 已移除能力与兼容入口
 
 - **Xposed/LSPosed 特权增强：** 删除系统模块、VPN/HTTP 代理信息与 VPN 应用列表隐藏、接口重命名、Flutter 设置及自检/Hook 日志、Root 诊断导出，以及对应模块注册、Provider、API 依赖、许可资源和专用测试。应用查询恢复各 flavor 的普通路径：`other` 使用 PackageManager，`play` 使用保存的 Root/Shizuku 选择。普通 VPN、Root/Shizuku 查询、终端和 MITM CA 模块继续保留。从含模块的版本升级时，已注入系统进程的旧 Hook 需要在 LSPosed 中禁用 B-box 并重启 Android 后退出。
 - **Android 5/6：** 删除 `otherLegacy`、`src/minApi21`、`src/otherLegacy`、legacy 核心依赖及 API 21 专用依赖版本。`play` 和 `other` 均使用 API 24+ 实现；网络监听、通知、WebView、托管扫描和 Termux 环境也已清理低于 API 24 的分支。Android 7/8 的网络回调选择及现有 Go 栈兼容处理继续保留。Gradle 的 `useLegacyPackaging` 是原生库压缩方式，不代表仍支持旧 Android 分支。
-- **旧更新下载/静默安装：** 删除 GitHub/F-Droid/Play 旧更新器、APK 下载和安装工具、对应 Root/Shizuku Binder 方法、Manifest 权限、设置及资源。设置/启动器不再显示旧自动更新询问、弹窗和徽标。
+- **旧更新下载/静默安装：** 删除 GitHub/F-Droid/Play 旧更新器、其 APK 下载和安装工具、对应 Root/Shizuku Binder 方法及专用权限、设置和资源。设置/启动器不再显示旧自动更新询问、弹窗和徽标；当前更新由 [独立应用内更新流程](#应用版本与应用内更新) 提供。
 - **旧任务兼容：** 启动取消 WorkManager 的 `AutoUpdate`；[UpdateWorker.kt](app/src/main/java/io/nekohasekai/sfa/vendor/UpdateWorker.kt) 保留类名并直接成功返回，不下载或安装。配置订阅的 `UpdateProfileWork` 仍正常工作。
 - **Binder/设置兼容：** Root/Shizuku 已退役的安装事务编号 2 不复用；Root 的模块专用编号 3、采集器编号 10 与模块诊断导出编号 11 也保持空缺，其余编号不重排。删除功能的历史设置（包括 `hide_settings_*`）不再读取，不清空无关设置和数据库。
-
-关于页仍提供独立 [BoxUpdates.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxUpdates.kt) 检查：读取 B-box Releases（含预发布），以 `B-box-version-metadata.json` 的 `application_id`、`version_code`、`version_name` 核对安装身份和版本，再匹配设备 ABI 的 `B-box-<版本>-<ABI>.apk`。没有匹配 APK 时不提供下载资产。它不恢复原更新器的后台下载/静默安装链路。
-
-[ReleaseChecker.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ReleaseChecker.kt) 将最近 20 条发布的元数据检查限制为最多 3 个并发请求、每次请求最多 8 秒、整轮最多 20 秒，并将剩余时限传入核心 HTTP 请求。完整结果缓存 1 分钟；成功元数据按资产 URL、ID、更新时间和大小缓存 15 分钟，资产变化后重新读取。单项失败保留已确认的最高版本候选，列表失败可返回先前确认的候选，但明确标记检查未完成；没有完整检查结果时不显示“已是最新版本”。界面行为见 [flclash.md](flclash.md#导航与交互约定)。
 
 ## 构建与发布
 
@@ -207,9 +217,9 @@ CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期�
 
 工作流将已有密钥解码至 `app/release.keystore`，结束时清理，不上传密钥。Gradle 属性优先读取直接环境变量，再回退 `LOCAL_PROPERTIES` 和 `local.properties`。本地签名文件不入库，不重新生成发布密钥。
 
-Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用 `--no-debug --no-profile`，只生成打包所需的 Release 库。应用构建从**同一次运行**下载两个 AAR 产物，再准备既有签名密钥并执行保留 R8 的 `assembleOtherRelease`。它不调用或等待测试工作流，也不执行 Go、Flutter 或 JVM 测试；验证统一由 [newui.yml](.github/workflows/newui.yml) 在代码推送时运行。中间 AAR Artifact 保留一天。[verify_release.py](tools/verify_release.py) 在 APK 上传前校验唯一 APK、最低 API 24、ARM64、应用包名/版本/标签、启动 Activity、MITM 模块 assets、退役采集器及 Xposed 模块元数据未打包、签名。APK Artifact 名为 `B-box-<版本>-arm64-v8a-release`，保留 30 天。
+Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用 `--no-debug --no-profile`，只生成打包所需的 Release 库。应用构建从**同一次运行**下载两个 AAR 产物，再准备既有签名密钥并执行保留 R8 的 `assembleOtherRelease`。它不调用或等待测试工作流，也不执行 Go、Flutter 或 JVM 测试；验证统一由 [newui.yml](.github/workflows/newui.yml) 在代码推送时运行。中间 AAR Artifact 保留一天。[verify_release.py](tools/verify_release.py) 在 APK 上传前校验唯一 APK、最低 API 24、ARM64、应用包名/版本/标签、启动 Activity、MITM 模块 assets、退役采集器及 Xposed 模块元数据未打包、签名，再从已验证 APK 生成带文件大小和 SHA-256 的更新元数据。APK 和元数据共同上传至 `B-box-<应用版本>-arm64-v8a-release` Artifact，保留 30 天。
 
-`publish_release` 默认开启；设为 `false` 时仍构建、校验并上传 Actions Artifact，仅跳过发布。[publish_release.py](tools/publish_release.py) 要求 Release tag 严格等于 `VERSION_NAME`（不加 `v`）且指向本次源码 SHA；已有 tag 指向其他提交时失败，不移动版本标签。同一提交重跑可重传资产。发布 APK 及 `B-box-version-metadata.json`，alpha/beta/rc 标为预发布。
+`publish_release` 默认开启；设为 `false` 时仍构建、校验并上传包含更新元数据的 Actions Artifact，仅跳过发布。[publish_release.py](tools/publish_release.py) 在任何远端写入前复核元数据身份及 APK 大小/SHA-256，要求 Release tag 严格等于 `v${VERSION_NAME}` 且指向本次源码 SHA；已有 tag 指向其他提交时失败，不移动版本标签。同一提交重跑可重传 APK 和 `B-box-version-metadata.json`。带预发布后缀的应用版本标为预发布；Release 不使用核心版本命名。
 
 ## 验证与历史记录
 
@@ -228,7 +238,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 以下用例由统一工作流 Android job 的 `:app:testOtherDebugUnitTest` 运行。调用计数和虚拟时间断言不代表设备上的实测耗时、内存或帧率，也不代替真实 Wi-Fi/蜂窝切换、热点及性能验收。
 
 - **服务与配置应用：** [ServiceStartResultTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ServiceStartResultTest.kt)、[BoxSettingsTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxSettingsTest.kt)、[LogBufferTest.kt](app/src/test/java/io/nekohasekai/sfa/backend/log/LogBufferTest.kt) 和 [BoxQrScannerTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxQrScannerTest.kt) 覆盖服务启动确认/失败/超时、设置、日志等级/边界和 QRS；[ServiceSettingsChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ServiceSettingsChangeTest.kt) 覆盖服务开关保存后的启动确认、失败/超时/取消恢复及恢复错误保留；[ProfileChangeTest.kt](app/src/test/java/io/nekohasekai/sfa/database/ProfileChangeTest.kt) 覆盖配置持久化失败、应用超时/取消、恢复确认及恢复错误保留。
-- **版本检查：** [ReleaseCheckerTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ReleaseCheckerTest.kt) 用虚拟时间检查总时限、并发上限、失败候选保留、缓存失效及取消后重试。
+- **版本与应用内更新：** [ReleaseCheckerTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ReleaseCheckerTest.kt) 用虚拟时间检查总时限、并发上限、失败候选保留、缓存失效、缺少元数据、ABI/完整性匹配及取消后重试；下载会话与 APK 验证的回归覆盖进度、取消/清理、重复请求、重新校验及安装失败后的重试。发布工具回归 [test_release.py](tools/test_release.py) 在统一工作流检查应用/核心版本独立、v 标签、签名前身份验证及发布前大小/SHA-256 核对。
 - **仪表盘与应用列表缓存：** [DashboardConfigCacheTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/DashboardConfigCacheTest.kt) 通过调用计数覆盖重复刷新不再读取/哈希/解析、地址变化、配置切换、写入/回滚、运行快照更新及错误/取消重试；[AppListCacheTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/AppListCacheTest.kt) 通过查询/名称读取计数覆盖隐藏应用不读取名称、筛选切换复用、刷新及查询策略/语言失效、失败/取消重试和并发查询合并。
 - **日志与可见性轮询：** [LogStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/LogStreamTest.kt) 覆盖日志快照、增量、淘汰边界、等级更新、清空、重新订阅和缓冲重置，并检查 3000 条缓冲新增一条时只编码一条；[VisiblePollingTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/VisiblePollingTest.kt) 用虚拟时间检查不可见/后台/熄屏时零采样、恢复立即采样及取消在途任务。
 - **连接与网络刷新：** [ConnectionStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ConnectionStreamTest.kt) 检查增量计数、最终关闭计数、历史淘汰、DNS 过滤、快照隔离及 3000 条记录经过状态合并和恢复订阅后的消息内容；[NetworkRefreshTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/NetworkRefreshTest.kt) 用虚拟时间覆盖网络通知、十秒/六十秒补查、前后台/熄屏取消和突发通知合并。
@@ -271,26 +281,9 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-验证源码为 `a667cf0a3f71e04cc9802ecdcfb1d2f435c63a6a`，[统一工作流 44464053505](https://github.com/giturass/B-box/actions/runs/44464053505) 的 8 个作业全部通过。本轮包含节点分享页展示简化、默认接口首次通知确认、WireGuard 地址列表断言及 XHTTP HTTP/1.1 正常关闭错误分类修正。
+本轮工作树以 `9ee82eb71796bcdfa27d55575e37ece5bef1faf8` 为起点，包含应用独立版本 `1.0.1` / `749`、发布完整性元数据、应用内下载/系统确认安装和新应用图标。当前已运行 `git diff --check`、`python3 tools/verify_newui.py`、修改过的 Python/XML 语法及 Go 格式静态检查，图标生成后查看了普通、圆形、自适应、单色和通知图标的组合预览。本机未执行 Go、Flutter 或 Android 构建/测试。
 
-[核心作业](https://github.com/giturass/B-box/actions/runs/44464053505/job/135357467322) 通过全部 Go 扩展、Vision/XHTTP/VLESS、WARP、路由生命周期及 HTTP/MITM 回归，要求 race 的步骤通过，保留 `checkptr` 检查；[Root CA 作业](https://github.com/giturass/B-box/actions/runs/44464053505/job/135357467525) 的隔离挂载与启动重试回归通过。[Android 作业](https://github.com/giturass/B-box/actions/runs/44464053505/job/135357467118) 的 15 份 JVM 报告共 80 项，无失败、错误或跳过，其中默认接口调度 16 项；`play` 编译及模拟器应用/仪器测试 APK 构建通过。Flutter 分析、交互/布局与 ARM64 AAR 结果见 [Flutter 验证记录](flclash.md#当前验证记录)。
-
-四组产物的 `results.json` 均对应上述源码 SHA、实际 SDK 和页大小；各组原生 68 项完整通过，包含两项 WireGuard 配置回读回归。
-
-| 模拟器 | 实际页大小（字节） | 原生测试 | 界面 smoke |
-| --- | --- | --- | --- |
-| [API 24 / Google APIs](https://github.com/giturass/B-box/actions/runs/44464053505/job/135360235294) | 4096 | 68 项通过 | 通过 |
-| [API 31 / Google APIs](https://github.com/giturass/B-box/actions/runs/44464053505/job/135360235086) | 4096 | 68 项通过 | 通过 |
-| [API 36 / Google APIs](https://github.com/giturass/B-box/actions/runs/44464053505/job/135360235412) | 4096 | 68 项通过 | 通过 |
-| [API 36 / Google APIs 16 KiB](https://github.com/giturass/B-box/actions/runs/44464053505/job/135360235024) | 16384 | 68 项通过 | 通过 |
-
-四组 UI 服务均正常启动，默认规则集下载通过，UI 服务异常记录为空。API 31 与两组 API 36 的首次可用接口更新均早于规则集下载，未再出现 `no available network interface`；API 24 上次的 `system_server` SIGSEGV 未重现。API 24 原生日志中的端口占用异常来自已通过的失败恢复用例。
-
-[签名 ARM64 Release 44473957788 第三次尝试](https://github.com/giturass/B-box/actions/runs/44473957788/attempts/3) 对应源码 `27487bc54930d1217421684a817334e7ae5d21fb`，与上述统一测试源码仅有两份 Markdown 验证记录的差异。核心、Flutter Release AAR 和应用三个作业全部通过，APK 身份、ARM64 架构、最低 API 24、模块 assets 与 v2 签名校验通过，生成 `B-box-1.15.0-alpha.13-arm64-v8a.apk`（versionCode `748`）。[APK Artifact](https://github.com/giturass/B-box/actions/runs/44473957788/artifacts/14506121883) 保留 30 天；发布步骤跳过，未发布 GitHub Release。
-
-本次 Release 前两次 APK 作业失败在 Maven 依赖解析，第二次日志明确记录 Maven Central 返回 HTTP 429。清理相关 Gradle home 缓存、保留已下载依赖并恢复上述成功 Android 作业的完整缓存后，第三次构建通过。
-
-本机仅执行 `git diff --check`、`python3 tools/verify_newui.py`、Go 格式、46 个 XHTTP 文件的清单覆盖及本地哈希检查和文档本地链接静态检查，未执行 Go、Flutter 或 Android 构建/测试。统一测试产物为 ARM64 Flutter AAR 与 x86_64 模拟器 APK。现有矩阵不包含 API 35 或系统重启，Android 15 开机及晚到网络恢复、ARM64 实机、节点分享页与 WARP 中文/注册中/待保存视觉尚未验收；Cloudflare 真实注册/连通及网络切换、外部 Xray 互通与 CDN/REALITY/ECH 真实网络也未覆盖。
+本轮新增的 Go、JVM、Android 及 Flutter 回归待对应源码的统一 Actions 运行。签名 ARM64 构建、真实 GitHub 更新网络、跨版本覆盖安装及实机视觉尚未验证；此前其他提交的成功运行不能作为本轮通过结果。后续运行在此记录实际源码 SHA、Actions 链接与未覆盖范围。
 
 ### 历史验证记录
 
@@ -298,6 +291,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 | 日期 | 主题 | 验证源码 | Actions | 范围与备注 |
 | --- | --- | --- | --- | --- |
+| 2026-11-19 | 节点分享、首次接口通知与 XHTTP 关闭修正 | `a667cf0a3f71e04cc9802ecdcfb1d2f435c63a6a` | [44464053505](https://github.com/giturass/B-box/actions/runs/44464053505) | 8 个作业通过，306 项 Flutter、80 项 JVM，四组各 68 项原生及 UI smoke 通过；API 24/31/36 与 16 KiB；签名 ARM64 [44473957788/attempts/3](https://github.com/giturass/B-box/actions/runs/44473957788/attempts/3) 的源码为仅文档不同的 `27487bc54930d1217421684a817334e7ae5d21fb`，生成旧应用版本 `1.15.0-alpha.13` / `748`，该次未发布；不包含本轮独立版本及应用内更新 |
 | 2026-11-19 | 首次通知回归断言修正与 XHTTP 关闭分类诊断 | `3d175de0dae76909a2a136ad5a40ae143628f6b2` | [44462310150](https://github.com/giturass/B-box/actions/runs/44462310150) | Android 80 项 JVM、`play`/APK 构建及 Root CA 通过；核心 XHTTP HTTP/1.1 关闭后的 `http.ErrBodyReadAfterClose` 未归类为正常关闭，回归失败；Flutter 分析/测试通过，ARM64 AAR 的 Kotlin 2.2.21 仓库依赖解析失败，x64 Debug AAR 已通过；新推送取消四组 smoke，整套为 cancelled |
 | 2026-11-19 | 分享页简化与首次接口通知确认首轮 | `41834548e78196aec04f597995c6a7b724bf1809` | [44460811251](https://github.com/giturass/B-box/actions/runs/44460811251) | 核心、Root CA 与 Flutter 通过；80 项 JVM 中 79 项通过，唯一失败为异常传播回归用 `assertSame` 比较协程恢复堆栈后的异常副本；模拟器 APK 未完成，smoke skipped，整套失败 |
 | 2026-11-19 | WARP WireGuard 与默认接口初始化诊断 | `bd720bcdf5742e6cc3f8697b16ab12e6569350a1` | [44455949442](https://github.com/giturass/B-box/actions/runs/44455949442) | 核心、Root CA、Flutter、76 项 JVM 与 `play`/APK 构建通过；API 31 和两组 API 36 原生各 67/68，WireGuard 地址列表的合法 JSON 斜杠转义被字符串断言误判；API 24 UI 通过，原生 54 项完成后第 55 项期间 `system_server/android.display` SIGSEGV 中断；API 36 / 4 KiB UI 在首次接口通知完成前开始下载规则集而失败，另两组 UI 通过；整套失败 |
