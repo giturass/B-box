@@ -271,32 +271,22 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-分享页展示、默认接口首次通知确认及 WireGuard 回归断言修正已推送，最新提交为 `3d175de0dae76909a2a136ad5a40ae143628f6b2`。本轮继续修正其上的 XHTTP HTTP/1.1 正常关闭错误分类；本机验证限于源码约束、`git diff --check`、Go 格式及文档本地链接静态检查，Go、Flutter 和 Android 编译/运行测试继续通过统一 Actions 执行，完整运行结果待记录。
+验证源码为 `a667cf0a3f71e04cc9802ecdcfb1d2f435c63a6a`，[统一工作流 44464053505](https://github.com/giturass/B-box/actions/runs/44464053505) 的 8 个作业全部通过。本轮包含节点分享页展示简化、默认接口首次通知确认、WireGuard 地址列表断言及 XHTTP HTTP/1.1 正常关闭错误分类修正。
 
-[统一工作流 44462310150](https://github.com/giturass/B-box/actions/runs/44462310150) 验证 `3d175de0`，Android 的 15 份 JVM 报告共 80 项全部通过，默认接口调度 16 项全部通过，`play` 编译及模拟器 APK 构建完成。核心的 XHTTP 带 QUIC/uTLS race 组在 HTTP/1.1 `stream-up` 同步 handler 关闭后把 `http.ErrBodyReadAfterClose` 当作连接错误；本轮按标准 sentinel 补上正常关闭分类，并保留原始错误及 E2E 严格断言。Flutter 分析和 306 项测试通过，ARM64 AAR 因插件仓库未解析到 Kotlin 2.2.21 依赖而失败；随后同运行的 x64 Flutter Debug AAR 已通过，相关依赖 URL 也已返回 200，后续运行继续核对。四组 smoke 已开始，该运行尚不能作为完整通过记录。
+[核心作业](https://github.com/giturass/B-box/actions/runs/44464053505/job/135357467322) 通过全部 Go 扩展、Vision/XHTTP/VLESS、WARP、路由生命周期及 HTTP/MITM 回归，要求 race 的步骤通过，保留 `checkptr` 检查；[Root CA 作业](https://github.com/giturass/B-box/actions/runs/44464053505/job/135357467525) 的隔离挂载与启动重试回归通过。[Android 作业](https://github.com/giturass/B-box/actions/runs/44464053505/job/135357467118) 的 15 份 JVM 报告共 80 项，无失败、错误或跳过，其中默认接口调度 16 项；`play` 编译及模拟器应用/仪器测试 APK 构建通过。Flutter 分析、交互/布局与 ARM64 AAR 结果见 [Flutter 验证记录](flclash.md#当前验证记录)。
 
-[统一工作流 44460811251](https://github.com/giturass/B-box/actions/runs/44460811251) 验证 `41834548`：核心、Root CA、Flutter 分析/306 项测试/ARM64 AAR 通过；15 份 JVM 报告共 80 项，79 项通过，唯一失败为新增首次异常传播断言用 `assertSame` 比较协程恢复堆栈后的异常副本。调整为核对异常类型、消息及原因链中的原异常，保留后续重试断言。`play` Kotlin 编译已执行，模拟器 APK 构建未完成，四组 smoke 未运行，不能据此判断上次 API 24 系统崩溃或 API 36 启动竞态的修复结果。
-
-此前 [统一工作流 44455949442](https://github.com/giturass/B-box/actions/runs/44455949442) 验证 `bd720bcdf5742e6cc3f8697b16ab12e6569350a1`，核心、Root CA、Flutter 分析/306 项测试/ARM64 AAR，以及 Android 76 项 JVM/`play` 编译/模拟器 APK 构建通过，整套因 smoke 失败未通过。API 31 与两组 API 36 原生各执行 68 项，唯一失败为 WireGuard `allowed_ips` 断言把 Android JSON 的合法斜杠转义差异当作内容变化；本轮改为比较解析后的完整地址列表。API 24 界面通过，原生前 54 项通过后在第 55 项期间发生模拟器 `system_server/android.display` SIGSEGV，测试中断。API 36 / 4 KiB 界面另在首次网络通知完成前开始下载规则集，报 `no available network interface`；API 31 和 API 36 / 16 KiB 界面通过。本轮补上首次接口发布完成后才继续核心启动的确认流程，保留后续异步更新和取消；模拟器系统崩溃仍按新运行的实际结果核对。
-
-以下为较早源码 `5017c42c890fa3cdaebd5edfa7323c7473107005` 的历史完整验证：[统一工作流 44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 的 8 个作业全部通过，不代表当前分享页及网络初始化修复已通过：
-
-- [核心作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229545) 通过基础 `TestUI`、发货协议节点、Vision/XHTTP/VLESS、WARP HTTP/2/3 与注册、路由生命周期及 HTTP 调试/处理回归；要求 race 的步骤均通过，Go `checkptr` 检查保留。新建模板的 Mozilla 可信库、初始及节点导入后的完整配置校验和证书策略保留断言均已运行。
-- [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229762) 通过分析、交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建；测试数量与截图核对范围见 [Flutter 记录](flclash.md#当前验证记录)。
-- [Android 作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179229129) 的 14 份 JVM 报告合计 62 项测试，无失败、错误或跳过；`play` Kotlin 编译、x86_64 libbox/Flutter Debug 库及模拟器应用/仪器测试 APK 构建通过。[Root CA 作业](https://github.com/giturass/B-box/actions/runs/44123007908/job/134179230229) 的隔离挂载与启动重试回归也通过。
-
-四组 smoke 的实际结果如下；各组产物的 `results.json` 均记录上述源码 SHA、实际 SDK 与页大小。原生回归包含 WARP 配置/注册持久化、停服代理组选择、新建模板与来源证书策略保留。
+四组产物的 `results.json` 均对应上述源码 SHA、实际 SDK 和页大小；各组原生 68 项完整通过，包含两项 WireGuard 配置回读回归。
 
 | 模拟器 | 实际页大小（字节） | 原生测试 | 界面 smoke |
 | --- | --- | --- | --- |
-| [API 24 / Google APIs](https://github.com/giturass/B-box/actions/runs/44123007908/job/134185800849) | 4096 | 64 项通过 | 通过 |
-| [API 31 / Google APIs](https://github.com/giturass/B-box/actions/runs/44123007908/job/134185801522) | 4096 | 64 项通过 | 通过 |
-| [API 36 / Google APIs](https://github.com/giturass/B-box/actions/runs/44123007908/job/134185800725) | 4096 | 64 项通过 | 通过 |
-| [API 36 / Google APIs 16 KiB](https://github.com/giturass/B-box/actions/runs/44123007908/job/134185800956) | 16384 | 64 项通过 | 通过 |
+| [API 24 / Google APIs](https://github.com/giturass/B-box/actions/runs/44464053505/job/135360235294) | 4096 | 68 项通过 | 通过 |
+| [API 31 / Google APIs](https://github.com/giturass/B-box/actions/runs/44464053505/job/135360235086) | 4096 | 68 项通过 | 通过 |
+| [API 36 / Google APIs](https://github.com/giturass/B-box/actions/runs/44464053505/job/135360235412) | 4096 | 68 项通过 | 通过 |
+| [API 36 / Google APIs 16 KiB](https://github.com/giturass/B-box/actions/runs/44464053505/job/135360235024) | 16384 | 68 项通过 | 通过 |
 
-API 24 该历史运行的默认配置已进入绿色 Running，导入的 SOCKS 节点和原 proxy/auto 分组已核对，UI 的服务异常日志为空；没有触发 Messenger 弹窗专例。此前实际记录的 GitHub 规则集证书链错误，现由 [新建模板的可信库](libbox.md#节点导入与配置合并) 修正后通过该界面路径；已有文件不自动迁移，证书校验及自定义策略保持原生语义。
+四组 UI 服务均正常启动，默认规则集下载通过，UI 服务异常记录为空。API 31 与两组 API 36 的首次可用接口更新均早于规则集下载，未再出现 `no available network interface`；API 24 上次的 `system_server` SIGSEGV 未重现。API 24 原生日志中的端口占用异常来自已通过的失败恢复用例。
 
-该历史运行构建了 ARM64 Flutter AAR 和 x86_64 模拟器 APK，未触发签名 ARM64 Release APK 构建。Cloudflare 真实注册/连通及网络切换、外部 Xray 互通和 CDN/REALITY/ECH 真实网络、ARM64 实机及分享页/WARP 中文/注册中/待保存视觉仍未验收；模拟服务回归和上述产物不代替这些检查。现有 smoke 矩阵没有 API 35 或系统重启用例，Android 15 开机与晚到网络恢复仍需实机验证。本机没有执行 Go、Flutter 或 Android 构建/测试。
+本机仅执行 `git diff --check`、`python3 tools/verify_newui.py`、Go 格式、46 个 XHTTP 文件的清单覆盖及本地哈希检查和文档本地链接静态检查，未执行 Go、Flutter 或 Android 构建/测试。本轮产物为 ARM64 Flutter AAR 与 x86_64 模拟器 APK，未触发签名 ARM64 Release。现有矩阵不包含 API 35 或系统重启，Android 15 开机及晚到网络恢复、ARM64 实机、节点分享页与 WARP 中文/注册中/待保存视觉尚未验收；Cloudflare 真实注册/连通及网络切换、外部 Xray 互通与 CDN/REALITY/ECH 真实网络也未覆盖。
 
 ### 历史验证记录
 
@@ -304,6 +294,10 @@ API 24 该历史运行的默认配置已进入绿色 Running，导入的 SOCKS �
 
 | 日期 | 主题 | 验证源码 | Actions | 范围与备注 |
 | --- | --- | --- | --- | --- |
+| 2026-11-19 | 首次通知回归断言修正与 XHTTP 关闭分类诊断 | `3d175de0dae76909a2a136ad5a40ae143628f6b2` | [44462310150](https://github.com/giturass/B-box/actions/runs/44462310150) | Android 80 项 JVM、`play`/APK 构建及 Root CA 通过；核心 XHTTP HTTP/1.1 关闭后的 `http.ErrBodyReadAfterClose` 未归类为正常关闭，回归失败；Flutter 分析/测试通过，ARM64 AAR 的 Kotlin 2.2.21 仓库依赖解析失败，x64 Debug AAR 已通过；新推送取消四组 smoke，整套为 cancelled |
+| 2026-11-19 | 分享页简化与首次接口通知确认首轮 | `41834548e78196aec04f597995c6a7b724bf1809` | [44460811251](https://github.com/giturass/B-box/actions/runs/44460811251) | 核心、Root CA 与 Flutter 通过；80 项 JVM 中 79 项通过，唯一失败为异常传播回归用 `assertSame` 比较协程恢复堆栈后的异常副本；模拟器 APK 未完成，smoke skipped，整套失败 |
+| 2026-11-19 | WARP WireGuard 与默认接口初始化诊断 | `bd720bcdf5742e6cc3f8697b16ab12e6569350a1` | [44455949442](https://github.com/giturass/B-box/actions/runs/44455949442) | 核心、Root CA、Flutter、76 项 JVM 与 `play`/APK 构建通过；API 31 和两组 API 36 原生各 67/68，WireGuard 地址列表的合法 JSON 斜杠转义被字符串断言误判；API 24 UI 通过，原生 54 项完成后第 55 项期间 `system_server/android.display` SIGSEGV 中断；API 36 / 4 KiB UI 在首次接口通知完成前开始下载规则集而失败，另两组 UI 通过；整套失败 |
+| 2026-11-18 | 新建模板 Mozilla 可信库与 WARP 注册回归 | `5017c42c890fa3cdaebd5edfa7323c7473107005` | [44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) | 8 个作业通过，62 项 JVM；API 24/31/36 与 16 KiB 四组各 64 项原生及 UI smoke 通过，实际页大小为 4096/4096/4096/16384 字节；API 24 默认配置进入 Running，历史证书链问题通过该路径；未触发签名 ARM64 Release |
 | 2026-11-17 | WARP HTTP/3 回归导入修正与 API 24 诊断 | `9ab9f8a76d144f34680fa0d95ce63f63bdf95c78` | [44118343551](https://github.com/giturass/B-box/actions/runs/44118343551) | 核心与构建通过，API 31/36/16 KiB smoke 通过；API 24 原生 64 项通过，UI 等待 Running 失败，服务日志明确记录 GitHub 规则集 HTTPS 的证书链不受信任，整套未通过 |
 | 2026-11-17 | WARP/停服选择夹具与服务异常日志 | `7e1ca0d0bc476fc3642f4daa58a2d52a284dfe9c` | [44116805564](https://github.com/giturass/B-box/actions/runs/44116805564) | Flutter 302 项与 ARM64 AAR、Android 62 项 JVM 及模拟器构建通过；核心因 HTTP/3 用例缺少导入失败；API 24 原生 64 项通过，UI 被预装 Messenger 系统崩溃弹窗阻挡；运行被后续推送取消，不计为整套通过 |
 | 2026-11-17 | WARP 注册与传输重写首轮 | `d825ccfc59e8a79568a8b78457e425503cd631d0` | [44113437340](https://github.com/giturass/B-box/actions/runs/44113437340) | 核心与 Flutter 夹具失败后被后续推送取消，不计为通过 |

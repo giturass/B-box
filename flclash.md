@@ -233,13 +233,9 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-节点分享展示的验证源码为 `41834548e78196aec04f597995c6a7b724bf1809`，[统一工作流 44460811251 的 Flutter 作业](https://github.com/giturass/B-box/actions/runs/44460811251/job/135346847819) 已通过：分析为 93 项 info、无 warning/error，306 项交互/布局测试及 ARM64 Debug/Release AAR 构建通过。整套运行因 Android 新增异常传播回归断言失败，smoke 未运行，修正见 [应用验证记录](app.md#当前验证记录)。本机 `git diff --check`、`python3 tools/verify_newui.py` 及文档本地链接静态检查通过；未执行本机编译或测试，分享页视觉或实机尚未验收。
+节点分享展示的验证源码为 `a667cf0a3f71e04cc9802ecdcfb1d2f435c63a6a`，[统一工作流 44464053505 的 Flutter 作业](https://github.com/giturass/B-box/actions/runs/44464053505/job/135357467545) 通过：分析为 93 项 info、无 warning/error，306 项交互/布局测试及 ARM64 Debug/Release AAR 构建通过。本轮未修改 FlClash/Prism 直接导入文件。
 
-后续 `3d175de0dae76909a2a136ad5a40ae143628f6b2` 的 [44462310150](https://github.com/giturass/B-box/actions/runs/44462310150) 中，Flutter 分析和 306 项测试通过，ARM64 AAR 因插件仓库未解析到 Kotlin 2.2.21 依赖而失败；同运行的 x64 Flutter Debug AAR 已通过。后续结果按实际运行更新，不能将测试通过当作 AAR 构建通过。
-
-此前验证源码为 `bd720bcdf5742e6cc3f8697b16ab12e6569350a1`，[统一工作流 44455949442 的 Flutter 作业](https://github.com/giturass/B-box/actions/runs/44455949442/job/135330865429) 已通过：分析为 93 项 info、无 warning/error，306 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 构建通过。该运行早于本轮分享页展示调整；整套工作流的 smoke 失败及本轮修正见 [应用验证记录](app.md#当前验证记录)。
-
-较早源码 `5017c42c890fa3cdaebd5edfa7323c7473107005` 的 [44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) 曾通过 302 项 Flutter 测试；其三张英文 WARP 初始页截图的核对细节保留在 Git 历史。旧截图不作为本轮分享页的视觉验收，新运行结果及未覆盖范围按实际产物记录。
+本机 `git diff --check`、`python3 tools/verify_newui.py` 和文档本地链接静态检查通过，未执行本机编译或测试。节点分享页视觉和 ARM64 实机尚未验收，整套 Actions 结果及其余未覆盖范围见 [应用验证记录](app.md#当前验证记录)。
 
 ### 历史验证记录
 
@@ -247,6 +243,10 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 | 日期 | 主题 | 验证源码 | Actions | 测试 / info | 当时实际查看的截图 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-11-19 | 首次通知回归断言修正 | `3d175de0dae76909a2a136ad5a40ae143628f6b2` | [44462310150](https://github.com/giturass/B-box/actions/runs/44462310150) | 306 / 93 | 分析/测试通过，ARM64 AAR 仓库依赖解析失败；x64 Debug AAR 已通过。无本轮分享页视觉验收；整套结果见 [应用历史](app.md#历史验证记录) |
+| 2026-11-19 | 节点分享页标准链接与 JSON 简化 | `41834548e78196aec04f597995c6a7b724bf1809` | [44460811251](https://github.com/giturass/B-box/actions/runs/44460811251) | 306 / 93 | Flutter 分析/测试及 ARM64 AAR 通过，分享页视觉未验收；整套结果见 [应用历史](app.md#历史验证记录) |
+| 2026-11-19 | WARP WireGuard 选项与注册说明 | `bd720bcdf5742e6cc3f8697b16ab12e6569350a1` | [44455949442](https://github.com/giturass/B-box/actions/runs/44455949442) | 306 / 93 | Flutter 分析/测试及 ARM64 AAR 通过，早于分享页展示调整；无本轮分享页视觉验收，整套结果见 [应用历史](app.md#历史验证记录) |
+| 2026-11-18 | WARP 注册与停服代理组选择 | `5017c42c890fa3cdaebd5edfa7323c7473107005` | [44123007908](https://github.com/giturass/B-box/actions/runs/44123007908) | 302 / 92 | 三张英文初始页：`360-light-1.0-WARP-registration.png`、`360-dark-1.4-WARP-registration.png`、`800-light-1.0-WARP-registration.png`；当时核对无溢出/遮挡，不含 WireGuard、本轮分享页、中文、注册中、待保存或 ARM64 实机；逐张哈希与原核对结论见 Git `bd720bc:flclash.md` |
 | 2026-11-17 | XHTTP/VLESS Encryption 支持及许可登记 | `8c56b623b46c7ab4c5c4632b1db428ebc49dcb25` | [44086051274](https://github.com/giturass/B-box/actions/runs/44086051274) | 287 / 84 | 无新增界面几何变更或实机视觉记录 |
 | 2026-11-17 | 配置内订阅来源及跳过报告 | `5937367671729a0c726182500288732851aa969a` | [44070105954](https://github.com/giturass/B-box/actions/runs/44070105954) | 287 / 84 | 旧核心的 API 24/31/36 及 16 KiB 来源卡片、SOCKS 节点与原分组；当时 XHTTP 为跳过项，不包含本轮协议支持；API 24 默认联网启动失败，未做 ARM64 实机验收 |
 | 2026-11-17 | 默认名称、选中对号及弃用警告默认值 | `a4607728af065cb46a8b0c021480988bd9531442` | [43917329871](https://github.com/giturass/B-box/actions/runs/43917329871)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/43917329871/job/133474906780)） | 271 / 84 | 配置卡片与代理区域等宽，选中对号、大字号和宽屏文字无重叠；查看 360 浅色、360 深色 1.4 倍、横向滚动、800 浅色配置页及内核设置截图，未覆盖本轮订阅来源 |
