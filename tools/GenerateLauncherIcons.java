@@ -7,14 +7,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import javax.imageio.ImageIO;
 
-/** Run from the repository root: java tools/GenerateLauncherIcons.java [source.png] */
+/** Run from the repository root: java tools/GenerateLauncherIcons.java [source.png|source.jpg] */
 class GenerateLauncherIcons {
     public static void main(String[] args) throws Exception {
         Path source = Path.of(args.length > 0 ? args[0] : "artwork/bbox.png");
         BufferedImage original = ImageIO.read(source.toFile());
         if (original == null || original.getWidth() != original.getHeight()) {
-            throw new IllegalArgumentException("Expected a square PNG: " + source);
+            throw new IllegalArgumentException("Expected a square PNG or JPEG: " + source);
         }
+        save(original, Path.of("artwork/bbox.png"));
+        save(fit(original, 512, 512, true), Path.of("app/src/main/ic_launcher-playstore.png"));
         Path res = Path.of("app/src/main/res");
         String[] densities = {"mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"};
         int[] sizes = {48, 72, 96, 144, 192};
@@ -43,7 +45,7 @@ class GenerateLauncherIcons {
                 int blue = pixel & 255;
                 int minimum = Math.min(red, Math.min(green, blue));
                 int chroma = Math.max(red, Math.max(green, blue)) - minimum;
-                // Keep colored faces and their neutral gradient blends; white B/background stay cutouts.
+                // Keep colored or dark strokes; near-white pixels stay cutouts.
                 int colorAlpha = (chroma - 16) * 255 / 48;
                 int neutralAlpha = (224 - minimum) * 255 / 24;
                 int alpha = Math.min(255, Math.max(0, Math.max(colorAlpha, neutralAlpha)));
@@ -55,7 +57,7 @@ class GenerateLauncherIcons {
         save(fit(monochrome, 96, 96, false), res.resolve("drawable/ic_menu.png"));
         Path flutterIcon = Path.of("flutter/assets/images/icon.png");
         save(fit(original, 256, 256, true), flutterIcon);
-        System.out.println("Generated launcher, round, adaptive, themed, notification and Flutter icons from " + source);
+        System.out.println("Generated source PNG, store, launcher, round, adaptive, themed, notification and Flutter icons from " + source);
     }
 
     private static BufferedImage fit(BufferedImage source, int size, int contentSize, boolean white) {

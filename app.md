@@ -19,7 +19,7 @@
 
 品牌、安装身份及组件约定：
 
-- 应用标签、Gradle 根项目名和 APK 前缀统一使用 B-box。用户提供的应用图标保存在 [artwork/bbox.png](artwork/bbox.png)，[GenerateLauncherIcons.java](tools/GenerateLauncherIcons.java) 生成普通/圆形、自适应、主题单色、通知及 Flutter 关于页图标；单色轮廓按颜色饱和度及暗部提取，保留彩色立方体各面和白色留空。保留上游许可和非官方分支说明，不改写真实来源名称。
+- 应用标签、Gradle 根项目名和 APK 前缀统一使用 B-box。用户提供的黑白 B 字与开箱图形保存在 [artwork/bbox.png](artwork/bbox.png)，[GenerateLauncherIcons.java](tools/GenerateLauncherIcons.java) 支持方形 PNG/JPEG，统一保存 PNG 源图并生成普通/圆形、自适应、主题单色、通知、[商店](app/src/main/ic_launcher-playstore.png)及 Flutter 关于页图标；单色轮廓按颜色饱和度及暗部提取，白色背景和图案留空保持透明。保留上游许可和非官方分支说明，不改写真实来源名称。
 - namespace、Kotlin/Java 类路径、AIDL 描述符及 RootServer 反射类名继续使用 `io.nekohasekai.sfa`。Provider authorities 使用 `${applicationId}`，服务控制和 USB/Taildrop 等广播使用 `BuildConfig.APPLICATION_ID` 或运行时包名。
 - 可与原版 SFA 并行安装，私有配置和数据相互独立；原版数据需导出/导入。Flutter 迁移沿用 B-box 既有安装身份、数据库及配置，不以换 UI 为由清空数据。
 
@@ -284,7 +284,11 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-2026-11-19 验证的功能与测试源码为 `556a8716e0f7152ae2c3b012145127bcd1fea6d2`，以 `9ee82eb71796bcdfa27d55575e37ece5bef1faf8` 为起点，包含应用独立版本 `1.0.1` / `749`、发布完整性元数据、应用内下载/系统确认安装和新应用图标。后续验证记录仅修改文档。
+2026-11-20 本轮图标与关于页提交前的静态检查在基于 `25ade4ce16a1366dd4f8bfd540b6048ef4bef3d6` 的工作树进行。用户提供的 `/sdcard/icon.jpg` 为 1024×1024，SHA-256 为 `1579390600db49fb1f1bd23227c489bc3e8143214959cf6458ef1fa9c5e88123`；转换后的 `artwork/bbox.png` 与 JPEG 解码像素完全一致。
+
+本机通过 `git diff --check`、`python3 tools/verify_newui.py` 和领域文档本地文件/标题链接检查，核对了 14 张 Android 图标及 Flutter 图标的尺寸和透明度，普通圆形及自适应圆形/圆角方形裁切均保留完整黑色笔画。图标资源组合预览已查看，B 字、箱体、圆环及单色留空完整。截至提交前检查，尚未执行本轮应用构建、Actions、关于页运行截图或设备验收；下述最近一次完整 Actions/APK 验证对应替换前的图标，不覆盖本轮改动。
+
+2026-11-19 验证的功能与测试源码为 `556a8716e0f7152ae2c3b012145127bcd1fea6d2`，以 `9ee82eb71796bcdfa27d55575e37ece5bef1faf8` 为起点，包含应用独立版本 `1.0.1` / `749`、发布完整性元数据、应用内下载/系统确认安装和当时的应用图标。该次后续验证记录仅修改文档。
 
 统一运行 [44489197911](https://github.com/giturass/B-box/actions/runs/44489197911) 的 8 个作业全部通过：核心扩展及路由生命周期 race 回归（含新增 APK 流式下载、摘要、进度和取消）、Root CA namespace 回归、15 项应用版本/发布工具回归、Flutter 分析/交互/布局及 ARM64 AAR、Android 编译和四组 smoke。Android 构建包含 `play` Kotlin 编译与 `other` 模拟器/仪器测试 APK；JVM 为 18 个 suite、100 项测试，失败、错误和跳过均为 0，其中更新相关 25 项。Flutter 计数、六张中英文更新弹窗截图及核对范围由 [界面验证记录](flclash.md#当前验证记录) 维护。
 

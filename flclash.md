@@ -43,7 +43,7 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 | 首页编辑 | [dashboard_editor.dart](flutter/lib/components/dashboard_editor.dart) | 右上角 FlClash 铅笔按钮或长按卡片进入原地编辑，保留摇摆、长按排序、移除徽章及添加列表 |
 | 内存与局域网 | [memory_panel.dart](flutter/lib/components/memory_panel.dart)、[intranet_panel.dart](flutter/lib/components/intranet_panel.dart) | 分别使用 Go/进程内存和 sing-box 监听配置，不虚构 Mihomo 内存或全局代理端口 |
 | 系统 HTTP 代理 | [system_proxy_panel.dart](flutter/lib/components/system_proxy_panel.dart) | 采用参考版 VPN 卡片的布局、状态徽章和紧凑开关，使用 B-box 自有的大陆轮廓地球字形；开关接入内核上报状态及既有 Android 桥接 |
-| 外观与关于 | [appearance.dart](flutter/lib/pages/appearance.dart)、[about.dart](flutter/lib/pages/about.dart) | 复用主题预览、调色和版本/许可布局，保持 B-box 品牌及其 Release 来源 |
+| 外观与关于 | [appearance.dart](flutter/lib/pages/appearance.dart)、[about.dart](flutter/lib/pages/about.dart) | 复用主题预览、调色和版本/许可布局，保持 B-box 品牌及其 Release 来源；关于页使用与 Android 启动器同源的[品牌图标](app.md#比较基线与应用身份) |
 | 备份 | [backup.dart](flutter/lib/pages/backup.dart)、[form.dart](flutter/lib/components/form.dart) | 复用本地/远程分区、WebDAV 表单、连通状态、恢复范围及策略，后端使用 `bbox-1` 格式 |
 | 连接与请求 | [requests.dart](flutter/lib/pages/requests.dart)、[connection_record.dart](flutter/lib/components/connection_record.dart)、[request_settings.dart](flutter/lib/pages/request_settings.dart)、[mitm_certificate.dart](flutter/lib/pages/mitm_certificate.dart)、[capture_domains.dart](flutter/lib/pages/capture_domains.dart) | 统一网络活动列表与详情、连接管理、本机录制、独立 MITM 与证书、TCP 流、域名选择及 HAR/cURL 导出；复用共享列表、表单和导航 |
 | WARP 注册 | [warp.dart](flutter/lib/pages/warp.dart)、[tools.dart](flutter/lib/pages/tools.dart) | 复用列表、表单、按钮和返回保护，可选 MASQUE / WireGuard，分别追加到所选配置的 `outbounds` / `endpoints`；页面为 B-box 业务代码 |
@@ -53,6 +53,8 @@ v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹�
 ### 导航与交互约定
 
 关于页单独显示 B-box 应用版本与实际内核版本，“检查更新”打开独立的 [更新弹窗](flutter/lib/components/app_update_dialog.dart)。弹窗区分完整检查、未完成检查和缺少元数据；部分发布暂时不可访问时保留确认过的候选，没有完整结果或元数据时不显示“已是最新版本”。有可用安装包时在应用内显示下载进度、取消及失败重试；关闭弹窗或离开页面后，关于页的“查看更新”可再次进入当前下载或已验证 APK 的状态。安装由系统确认，需要未知来源授权时给出说明，返回后由用户再次点击安装；启动请求不会改写当前应用版本或显示安装成功。未提供完整性元数据或设备匹配 APK 的发布仍可打开发布页面。检查、版本和安装边界见 [应用版本与应用内更新](app.md#应用版本与应用内更新)。
+
+关于页品牌图标为 96×96 dp，图片铺满单层 `AppShape` 圆角裁切区域，沿用整体占位与标题间距；图标外围的额外表面和内边距已移除。
 
 - 首次启动直接进入仪表盘，没有免责声明接受门槛。Android 默认显示状态、网络速度、出站模式、配置和代理组五张卡；内存与内网 IP 可选。连接从工具页进入，不提供首页连接卡，旧布局/备份忽略该卡，下一次布局保存清理其键。
 - 手机底栏依次为仪表盘、配置、工具、设置，可选固定或悬浮样式；宽屏侧栏及外观页预览使用相同顺序。固定样式由 [main.dart](flutter/lib/main.dart) 在页面下方承载 [BoxNavigationBar](flutter/lib/components/navigation_bar.dart)，保留 Prism 的目的地、选中指示和按压反馈；栏体高度为 64 dp，仅追加系统底部安全区。栏体及底部安全区使用主界面背景色，无阴影和表面叠色，随浅色、深色及纯黑主题同步。悬浮样式使用 `NavigationDock`，宽屏使用 `NavigationSidebar`；外观页预览使用相同底色和紧凑比例。
@@ -232,6 +234,8 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 - [http_message_test.dart](flutter/test/http_message_test.dart)：JSON 数值/重复键/转义保真、无效内容回退、正文页缩进输出过大时回退原文，以及重复 Cookie、空值、等号和 Expires 逗号。请求正文不完整或截断时不提供 cURL 导出。
 
 ### 当前验证记录
+
+2026-11-20 更换关于页品牌图标并改为单层圆角裁切，业务适配说明已同步到来源清单。图标来源与本轮源码标识、静态检查由[应用验证记录](app.md#当前验证记录)维护；截至提交前检查，尚无本轮 Flutter 运行截图或设备视觉验收，下述 2026-11-19 记录对应替换前的图标及布局。
 
 2026-11-19 验证源码为 `556a8716e0f7152ae2c3b012145127bcd1fea6d2`。关于页与新增更新弹窗支持应用独立版本、下载/校验进度、取消/重试及明确的系统安装点击，新图标已同步到 Flutter；FlClash/Prism 直接导入文件未改动，关于页适配清单已更新。
 

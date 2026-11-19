@@ -41,8 +41,8 @@ class _AboutPageState extends State<AboutPage> {
     return Scaffold(title: context.tr('About'), isLoading: _checking,
       body: ListView(padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 32 + context.bottomInset), children: [
         Padding(padding: const EdgeInsets.fromLTRB(24, 16, 24, 0), child: Column(children: [
-          DecoratedBox(decoration: ShapeDecoration(color: context.raisedSurfaceLevel.colorOf(colors), shape: AppShape.all(AppCorner.fit(96))),
-            child: Padding(padding: const EdgeInsets.all(14), child: Image.asset('assets/images/icon.png', width: 68, height: 68))),
+          ClipPath(clipper: ShapeBorderClipper(shape: AppShape.all(AppCorner.fit(96)), textDirection: Directionality.of(context)),
+            child: Image.asset('assets/images/icon.png', width: 96, height: 96, fit: BoxFit.cover)),
           const SizedBox(height: 20),
           Text('B-box', style: AppTextStyle.title2.of(context, emphasized: true)),
           const SizedBox(height: 10),
