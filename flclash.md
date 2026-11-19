@@ -233,9 +233,22 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-本轮工作树以 `9ee82eb71796bcdfa27d55575e37ece5bef1faf8` 为起点，关于页与新增更新弹窗支持应用独立版本、下载/校验进度、取消/重试及明确的系统安装点击，新图标也已同步到 Flutter。没有改动 FlClash/Prism 直接导入文件；关于页的适配清单已更新。本机 `git diff --check`、`python3 tools/verify_newui.py` 及文档链接静态检查通过，未在本机执行 Flutter 分析、测试或 AAR 构建。
+2026-11-19 验证源码为 `556a8716e0f7152ae2c3b012145127bcd1fea6d2`。关于页与新增更新弹窗支持应用独立版本、下载/校验进度、取消/重试及明确的系统安装点击，新图标已同步到 Flutter；FlClash/Prism 直接导入文件未改动，关于页适配清单已更新。
 
-新增中英文窄屏、大字体及更新交互/状态回归待对应源码的统一 Actions 运行。图标组合预览已查看；更新页面的设备截图、覆盖安装与 ARM64 实机尚未验收。实际源码 SHA、整套运行及其他未覆盖范围见 [应用验证记录](app.md#当前验证记录)。
+统一运行 [44489197911](https://github.com/giturass/B-box/actions/runs/44489197911) 的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44489197911/job/135440254902)通过：分析为 95 条 info、0 warning/error，320 项交互/布局测试全部通过，ARM64 Debug/Release Flutter AAR 构建成功，产物为 [flutter-aar-arm64](https://github.com/giturass/B-box/actions/runs/44489197911/artifacts/14511903339)。中英文 Android 平台的 320×568、1.4 倍字号更新弹窗测试也通过，覆盖下载、未知来源授权提示及签名错误状态下的按钮可点击性和视口边界。本机未执行 Flutter 分析、测试或 AAR 构建。
+
+实际逐张查看了 [newui-validation](https://github.com/giturass/B-box/actions/runs/44489197911/artifacts/14511394634) 中 `build/screenshots/about-updates/` 的六张 320×568、1.4 倍字号截图：中英文下载进度、未知来源授权提示及签名不一致状态的文字与按钮均未见重叠、遮挡或溢出，中文“正、中、一、试”完整显示。截图来自独立的 Linux 平台捕获用例，使用 Android 桥接替身、SDK Roboto 与以 `Ubuntu` 测试别名注册的 [Noto Sans SC 子集](flutter/test/support/fonts/README.md)，不使用设备字体。下表路径相对该截图目录。
+
+| 截图 | SHA-256 |
+| --- | --- |
+| `en-downloading.png` | `07f3cb5aab37d701c6db01891ab14732b71c0ef6198b358ffcb044896fefc679` |
+| `en-permissionRequired.png` | `6c0e7e769c7369b4d578f984324716c3fb71fd273cee38bde479e1a00074a876` |
+| `en-signature-error.png` | `3ad2f129a11e5fd00964291b2f1e24bbfc328076b6c153b18601eee3b60d12d2` |
+| `zh-downloading.png` | `42d0837b68ecc982b3d2fbe7bc9f463f43a9f6ba0a52832666d33e2a3a7116b6` |
+| `zh-permissionRequired.png` | `06fbd16e8842ed99a9e1727b25f434825d321a257ac61067b7c7697df7e3e645` |
+| `zh-signature-error.png` | `927f29655ccca415afc717bf1905c82fd5aabed91a782eea54dc18d3e077b70b` |
+
+设备上的更新下载、未知来源授权与跨版本覆盖安装，以及 ARM64 实机视觉仍未验收。核心、Android、签名构建结果与其他未覆盖范围由 [应用验证记录](app.md#当前验证记录) 维护。
 
 ### 历史验证记录
 

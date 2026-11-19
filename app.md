@@ -284,9 +284,26 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-本轮工作树以 `9ee82eb71796bcdfa27d55575e37ece5bef1faf8` 为起点，包含应用独立版本 `1.0.1` / `749`、发布完整性元数据、应用内下载/系统确认安装和新应用图标。当前已运行 `git diff --check`、`python3 tools/verify_newui.py`、修改过的 Python/XML 语法及 Go 格式静态检查，图标生成后查看了普通、圆形、自适应、单色和通知图标的组合预览。本机未执行 Go、Flutter 或 Android 构建/测试。
+2026-11-19 验证的功能与测试源码为 `556a8716e0f7152ae2c3b012145127bcd1fea6d2`，以 `9ee82eb71796bcdfa27d55575e37ece5bef1faf8` 为起点，包含应用独立版本 `1.0.1` / `749`、发布完整性元数据、应用内下载/系统确认安装和新应用图标。后续验证记录仅修改文档。
 
-本轮新增的 Go、JVM、Android 及 Flutter 回归待对应源码的统一 Actions 运行。签名 ARM64 构建、真实 GitHub 更新网络、跨版本覆盖安装及实机视觉尚未验证；此前其他提交的成功运行不能作为本轮通过结果。后续运行在此记录实际源码 SHA、Actions 链接与未覆盖范围。
+统一运行 [44489197911](https://github.com/giturass/B-box/actions/runs/44489197911) 的 8 个作业全部通过：核心扩展及路由生命周期 race 回归（含新增 APK 流式下载、摘要、进度和取消）、Root CA namespace 回归、15 项应用版本/发布工具回归、Flutter 分析/交互/布局及 ARM64 AAR、Android 编译和四组 smoke。Android 构建包含 `play` Kotlin 编译与 `other` 模拟器/仪器测试 APK；JVM 为 18 个 suite、100 项测试，失败、错误和跳过均为 0，其中更新相关 25 项。Flutter 计数、六张中英文更新弹窗截图及核对范围由 [界面验证记录](flclash.md#当前验证记录) 维护。
+
+四组 `results.json` 的源码 SHA 均匹配上述提交，UI 与原生检查均通过；每组原生实际运行 74 项测试，包含 6 项更新绑定/APK 身份用例。设备信息按实际报告记录：
+
+| 环境 | 实际页大小 | 页大小来源 | Actions 作业 |
+| --- | --- | --- | --- |
+| API 24 / Android 7.0，`google_apis` | 4096 字节 | `/proc/self/smaps` | [135444383363](https://github.com/giturass/B-box/actions/runs/44489197911/job/135444383363) |
+| API 31 / Android 12，`google_apis` | 4096 字节 | `getconf` | [135444383328](https://github.com/giturass/B-box/actions/runs/44489197911/job/135444383328) |
+| API 36 / Android 16，`google_apis` | 4096 字节 | `getconf` | [135444383331](https://github.com/giturass/B-box/actions/runs/44489197911/job/135444383331) |
+| API 36 / Android 16，`google_apis_ps16k` | 16384 字节 | `getconf` | [135444383312](https://github.com/giturass/B-box/actions/runs/44489197911/job/135444383312) |
+
+同一源码的签名 ARM64 [44489951496 / attempt 3](https://github.com/giturass/B-box/actions/runs/44489951496/attempts/3) 全部通过，APK 与 `B-box-version-metadata.json` 已共同上传至 [Release Artifact](https://github.com/giturass/B-box/actions/runs/44489951496/artifacts/14514371535)。从最终运行独立下载核对的 `B-box-1.0.1-arm64-v8a.apk` 为 49,019,419 字节，SHA-256 为 `335a64dc44c45da095bfbf395e4a51c3e82a06037416ef0764d0a9fc32f35064`；元数据中的文件名、大小、摘要及应用身份/版本均与实际 APK 一致。APK 实际为 `io.ericlee.bfa` / `1.0.1` / `749`、最低 API 24、仅 ARM64；工作流的 `apksigner` 完整验签通过（v2、单签名者）。本轮当前签名证书 SHA-256 为 `5a387ff8eec022569f40c043c4e603fcf841d0063e157863f52480be96968d90`，与旧公开 `748` APK 提取的证书一致；未进行设备覆盖安装。
+
+该签名运行的前两次尝试停在 Flutter 的 Kotlin 构建依赖解析；只清理本次命中的两条 Gradle Actions 缓存后，同一源码重跑通过，未调整依赖或 SDK 版本。此次 `publish_release=false`，发布步骤明确跳过。
+
+本机已通过 `git diff --check`、`python3 tools/verify_newui.py`、修改过的 Python/XML 语法、Go 格式及 594 处本地文件/标题链接静态检查（含 148 处标题片段）；未执行 Go、Flutter、JVM 或 Android 构建/测试。`artwork/bbox.png` 与用户提供的 `/sdcard/icon.png` 的 SHA-256 相同，普通、圆形、自适应、单色和通知图标的组合预览已查看。最终 APK 的 Flutter 图标与仓库文件逐字节一致；资源表映射确认普通/圆形启动器引用和两个自适应 XML，13 张原生 PNG 解码后的显示像素均与源码一致。
+
+真实 GitHub 检查/下载至系统安装器完成自更新的流程、跨版本设备覆盖安装与 ARM64 实机视觉尚未验收。上述模拟器和桥接替身测试、APK 归档身份核对及构建成功不能替代这些验收。
 
 ### 历史验证记录
 
