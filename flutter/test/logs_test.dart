@@ -138,14 +138,17 @@ void main() {
     final scroll = tester.widget<PrismListView>(list).controller!;
     expect(scroll.position.maxScrollExtent, greaterThan(scroll.position.viewportDimension));
     expect(scroll.offset, closeTo(scroll.position.maxScrollExtent, .1));
-    expect(find.descendant(of: list, matching: find.byKey(const ValueKey(80))).hitTestable(), findsOneWidget);
+    final initialNewest = find.descendant(of: list, matching: find.byKey(const ValueKey<dynamic>(80)));
+    expect(initialNewest, findsOneWidget);
+    expect(initialNewest.hitTestable(), findsOneWidget);
 
     final latest = {'id': 81, 'level': 'Info', 'message': 'newest log ${List.filled(12, 'long wrapped details').join(' ')}'};
     events.add({'type': 'logs', 'value': {
       'reset': false, 'firstId': 1, 'defaultLogLevel': 'Info', 'entries': [latest],
     }});
     await tester.pumpAndSettle();
-    final newest = find.descendant(of: list, matching: find.byKey(const ValueKey(81)));
+    final newest = find.descendant(of: list, matching: find.byKey(const ValueKey<dynamic>(81)));
+    expect(newest, findsOneWidget);
     expect(newest.hitTestable(), findsOneWidget);
     expect(scroll.offset, closeTo(scroll.position.maxScrollExtent, .1));
     final previousHeight = tester.getSize(newest).height;

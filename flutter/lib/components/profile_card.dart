@@ -39,12 +39,14 @@ class ProfileCard extends StatelessWidget {
               style: AppTextStyle.footnote.of(context).toLighter, maxLines: 1, overflow: TextOverflow.ellipsis),
           ]),
           trailing: Row(mainAxisSize: MainAxisSize.min, spacing: 8, children: [
-            AnimatedSwitcher(
-              duration: context.motionDuration(commonDuration),
-              layoutBuilder: (currentChild, previousChildren) => Stack(
-                alignment: AlignmentDirectional.centerEnd, children: [...previousChildren, ?currentChild]),
-              child: updating ? const ActivityIndicator(key: ValueKey('updating'), size: 24)
-                : ProfileUpdateTime(key: const ValueKey('lastUpdate'), milliseconds: (profile['updatedAt'] as num?)?.toInt()),
+            Flexible(
+              child: AnimatedSwitcher(
+                duration: context.motionDuration(commonDuration),
+                layoutBuilder: (currentChild, previousChildren) => Stack(
+                  alignment: AlignmentDirectional.centerEnd, children: [...previousChildren, ?currentChild]),
+                child: updating ? const ActivityIndicator(key: ValueKey('updating'), size: 24)
+                  : ProfileUpdateTime(key: const ValueKey('lastUpdate'), milliseconds: (profile['updatedAt'] as num?)?.toInt()),
+              ),
             ),
             if (selected) const SelectionBadge(size: 24),
           ]),
