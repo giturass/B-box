@@ -242,7 +242,7 @@ func uiNodeAppendGroups(root *uiNodeObject, tags []string, defaultProfile bool) 
 			eligible = append(eligible, tag)
 		}
 	}
-	if len(eligible) == 0 {
+	if len(eligible) == 0 && !defaultProfile {
 		return
 	}
 	for _, item := range root.list("outbounds") {
@@ -250,26 +250,46 @@ func uiNodeAppendGroups(root *uiNodeObject, tags []string, defaultProfile bool) 
 		if !uiNodeIsGroup(group) {
 			continue
 		}
-		members := slices.Clone(group.list("outbounds"))
-		// A direct-only automatic group is the empty default's fallback.
-		// Once nodes exist it must test them rather than select direct access.
-		if defaultProfile && group.text("tag") == "auto" && group.text("type") == C.TypeURLTest && len(members) == 1 {
-			if tag, text := members[0].(string); text {
-				key, index := uiNodeFind(root, tag)
-				if index >= 0 {
-					node, _ := root.list(key)[index].(*uiNodeObject)
-					if node.text("type") == C.TypeDirect {
-						members = nil
-					}
-				}
-			}
-		}
+		previous := group.list("outbounds")
+		members := slices.Clone(previous)
 		for _, tag := range eligible {
 			if !slices.Contains(members, tag) {
 				members = append(members, tag)
 			}
 		}
-		group.set("outbounds", members)
+		// Direct is only the empty default automatic group's fallback.
+		// Repair mixed members from earlier imports, including duplicates
+		// that do not append any new nodes, once a usable proxy exists.
+		if defaultProfile && group.text("tag") == "auto" && group.text("type") == C.TypeURLTest {
+			ctx := baseContext(nil)
+			direct := make(map[string]bool)
+			hasProxy := false
+			for _, member := range members {
+				tag, isText := member.(string)
+				if !isText {
+					continue
+				}
+				key, index := uiNodeFind(root, tag)
+				if index < 0 {
+					continue
+				}
+				node, _ := root.list(key)[index].(*uiNodeObject)
+				if node.text("type") == C.TypeDirect {
+					direct[tag] = true
+				} else if isNode, _ := uiNodeKind(ctx, node.text("type")); isNode && !uiSubscriptionGroupMemberCycle(root, tag, group.text("tag")) {
+					hasProxy = true
+				}
+			}
+			if hasProxy {
+				members = slices.DeleteFunc(members, func(member any) bool {
+					tag, _ := member.(string)
+					return direct[tag]
+				})
+			}
+		}
+		if !uiNodeEqual(members, previous) {
+			group.set("outbounds", members)
+		}
 	}
 }
 
