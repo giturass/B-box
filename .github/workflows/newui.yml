@@ -90,7 +90,7 @@ jobs:
         run: flutter analyze --no-fatal-infos
       - name: Flutter interaction and layout tests
         working-directory: flutter
-        run: flutter test --reporter expanded
+        run: flutter test --reporter expanded test packages/prism_ui/test
       - name: Build Flutter Android libraries
         working-directory: flutter
         run: flutter build aar --no-profile --target-platform android-arm64

@@ -81,6 +81,7 @@ class _LogsPageState extends State<LogsPage> {
               onCancelToEnd: _pause, onResumeToEnd: _resume,
               child: PrismListView(
                 controller: _scroll, physics: _physics, reverse: true, shrinkWrap: true,
+                anchorAtEnd: true,
                 padding: EdgeInsets.only(top: context.contentTopPadding, bottom: 16 + context.bottomInset),
                 estimatedItemExtent: 100,
                 gap: recordListGap,

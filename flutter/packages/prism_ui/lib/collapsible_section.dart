@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:prism_ui/builder.dart';
 import 'package:prism_ui/context.dart';
@@ -53,6 +54,9 @@ class CollapsibleGroup {
   final Object key;
   final String label;
   final int itemCount;
+
+  /// Takes the gap before the label only while it lays out wider than
+  /// nothing, so it can load what it shows on its own.
   final Widget? leading;
   final Widget? trailing;
 
@@ -277,6 +281,7 @@ class CollapsibleHeader extends StatefulWidget {
 }
 
 class _CollapsibleHeaderState extends State<CollapsibleHeader> {
+  static const _spacing = 8.0;
   static final _turns = Tween<double>(begin: -0.25, end: 0);
 
   late final _actions = <Type, Action<Intent>>{
@@ -293,6 +298,23 @@ class _CollapsibleHeaderState extends State<CollapsibleHeader> {
     final focused = collapsible && _focused;
     final leading = widget.leading;
     final trailing = widget.trailing;
+    final label = Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(text: widget.label),
+          TextSpan(
+            text: ' (${widget.count})',
+            style: TextStyle(
+              color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.normal,
+            ),
+          ),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: AppTextStyle.headline.of(context),
+    );
     return FocusableActionDetector(
       enabled: collapsible,
       actions: _actions,
@@ -315,27 +337,17 @@ class _CollapsibleHeaderState extends State<CollapsibleHeader> {
               child: Padding(
                 padding: const EdgeInsets.all(8),
                 child: Row(
-                  spacing: 8,
+                  spacing: _spacing,
                   children: [
-                    ?leading,
                     Expanded(
-                      child: Text.rich(
-                        TextSpan(
-                          children: [
-                            TextSpan(text: widget.label),
-                            TextSpan(
-                              text: ' (${widget.count})',
-                              style: TextStyle(
-                                color: colorScheme.onSurfaceVariant,
-                                fontWeight: FontWeight.normal,
-                              ),
+                      child: leading == null
+                          ? label
+                          : Row(
+                              children: [
+                                _LeadingGap(gap: _spacing, child: leading),
+                                Expanded(child: label),
+                              ],
                             ),
-                          ],
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTextStyle.headline.of(context),
-                      ),
                     ),
                     if (trailing != null)
                       DefaultTextStyle.merge(
@@ -361,6 +373,94 @@ class _CollapsibleHeaderState extends State<CollapsibleHeader> {
         ),
       ),
     );
+  }
+}
+
+class _LeadingGap extends SingleChildRenderObjectWidget {
+  final double gap;
+
+  const _LeadingGap({required this.gap, required super.child});
+
+  @override
+  _RenderLeadingGap createRenderObject(BuildContext context) =>
+      _RenderLeadingGap(gap, Directionality.of(context));
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderLeadingGap renderObject,
+  ) {
+    renderObject
+      ..gap = gap
+      ..textDirection = Directionality.of(context);
+  }
+}
+
+/// Lays its child out with [gap] after it in reading order, or as nothing
+/// while the child is zero wide.
+class _RenderLeadingGap extends RenderShiftedBox {
+  _RenderLeadingGap(this._gap, this._textDirection) : super(null);
+
+  double _gap;
+  TextDirection _textDirection;
+
+  set gap(double value) {
+    if (_gap == value) {
+      return;
+    }
+    _gap = value;
+    markNeedsLayout();
+  }
+
+  set textDirection(TextDirection value) {
+    if (_textDirection == value) {
+      return;
+    }
+    _textDirection = value;
+    markNeedsLayout();
+  }
+
+  double _withGap(double width) => width > 0 ? width + _gap : 0;
+
+  BoxConstraints _childConstraints(BoxConstraints constraints) =>
+      constraints.loosen().deflate(EdgeInsets.only(right: _gap));
+
+  Size _sizeFor(BoxConstraints constraints, Size child) =>
+      constraints.constrain(Size(_withGap(child.width), child.height));
+
+  @override
+  double computeMinIntrinsicWidth(double height) =>
+      _withGap(child?.getMinIntrinsicWidth(height) ?? 0);
+
+  @override
+  double computeMaxIntrinsicWidth(double height) =>
+      _withGap(child?.getMaxIntrinsicWidth(height) ?? 0);
+
+  @override
+  Size computeDryLayout(covariant BoxConstraints constraints) {
+    final child = this.child;
+    if (child == null) {
+      return constraints.smallest;
+    }
+    return _sizeFor(
+      constraints,
+      child.getDryLayout(_childConstraints(constraints)),
+    );
+  }
+
+  @override
+  void performLayout() {
+    final child = this.child;
+    if (child == null) {
+      size = constraints.smallest;
+      return;
+    }
+    child.layout(_childConstraints(constraints), parentUsesSize: true);
+    size = _sizeFor(constraints, child.size);
+    final start = _textDirection == TextDirection.rtl
+        ? size.width - child.size.width
+        : 0.0;
+    (child.parentData! as BoxParentData).offset = Offset(start, 0);
   }
 }
 

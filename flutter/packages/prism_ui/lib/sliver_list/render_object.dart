@@ -63,13 +63,24 @@ class RenderSuperSliverList extends RenderSliverMultiBoxAdaptor {
   RenderSuperSliverList({
     required super.childManager,
     required this.estimateExtent,
-  });
+    bool anchorAtEnd = false,
+  }) : _anchorAtEnd = anchorAtEnd;
 
   @override
   SuperSliverMultiBoxAdaptorElement get childManager =>
       super.childManager as SuperSliverMultiBoxAdaptorElement;
 
   ExtentEstimationProvider estimateExtent;
+
+  bool get anchorAtEnd => _anchorAtEnd;
+  bool _anchorAtEnd;
+  set anchorAtEnd(bool value) {
+    if (_anchorAtEnd == value) {
+      return;
+    }
+    _anchorAtEnd = value;
+    markNeedsLayout();
+  }
 
   ExtentManager get _extentManager => childManager.extentManager;
   SliverConstraints? previousConstraints;
@@ -284,13 +295,19 @@ class RenderSuperSliverList extends RenderSliverMultiBoxAdaptor {
 
     final initialExtent = _totalExtent();
 
+    // Fractional padding before this sliver leaves its paint and scroll
+    // extents a rounding error apart, which must not count as scrolled.
+    final precedingPaintExtent =
+        constraints.viewportMainAxisExtent - constraints.remainingPaintExtent;
+    final isFirstPaintedSliver =
+        precedingPaintExtent.abs() < precisionErrorTolerance;
     final viewportIsScrolled =
-        (constraints.viewportMainAxisExtent -
-                constraints.remainingPaintExtent) <
-            constraints.precedingScrollExtent ||
-        constraints.scrollOffset > 0;
+        constraints.precedingScrollExtent - precedingPaintExtent >
+            precisionErrorTolerance ||
+        constraints.scrollOffset > precisionErrorTolerance;
 
     final anchoredAtEnd =
+        _anchorAtEnd &&
         viewportIsScrolled &&
         (constraints.scrollOffset + constraints.remainingPaintExtent) +
                 precisionErrorTolerance >=
@@ -435,8 +452,7 @@ class RenderSuperSliverList extends RenderSliverMultiBoxAdaptor {
       final correction = paintExtentOf(box) - previousExtent;
       _shiftLayoutOffsets(childAfter(box), correction);
       if ((!anchoredAtEnd || !layoutState.didAddInitialChild) &&
-          constraints.remainingPaintExtent ==
-              constraints.viewportMainAxisExtent) {
+          isFirstPaintedSliver) {
         scrollCorrection += correction;
       }
 
@@ -607,7 +623,8 @@ class RenderSuperSliverList extends RenderSliverMultiBoxAdaptor {
     RenderBox? child = firstChild;
     while (child != null) {
       final data = child.parentData! as SliverMultiBoxAdaptorParentData;
-      if ((data.layoutOffset ?? double.negativeInfinity) >=
+      if ((data.layoutOffset ?? double.negativeInfinity) +
+              precisionErrorTolerance >=
           constraints.scrollOffset) {
         return child;
       }

@@ -78,9 +78,14 @@ class SuperSliverList extends SliverMultiBoxAdaptorWidget {
     required super.delegate,
     this.listController,
     required this.extentEstimation,
+    this.anchorAtEnd = false,
   });
 
   final ListController? listController;
+
+  /// Whether a viewport scrolled to this list's end keeps the end in place
+  /// while row extents settle, as a feed that follows its newest row needs.
+  final bool anchorAtEnd;
 
   /// A nonzero extent for a null index is taken as every row's.
   final ExtentEstimationProvider extentEstimation;
@@ -95,6 +100,7 @@ class SuperSliverList extends SliverMultiBoxAdaptorWidget {
     return RenderSuperSliverList(
       childManager: element,
       estimateExtent: extentEstimation,
+      anchorAtEnd: anchorAtEnd,
     );
   }
 
@@ -104,6 +110,8 @@ class SuperSliverList extends SliverMultiBoxAdaptorWidget {
     covariant RenderObject renderObject,
   ) {
     super.updateRenderObject(context, renderObject);
-    (renderObject as RenderSuperSliverList).estimateExtent = extentEstimation;
+    (renderObject as RenderSuperSliverList)
+      ..estimateExtent = extentEstimation
+      ..anchorAtEnd = anchorAtEnd;
   }
 }

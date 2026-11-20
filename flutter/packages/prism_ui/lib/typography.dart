@@ -39,6 +39,10 @@ enum AppTextStyle {
     );
   }
 
+  /// For a span inside text already set in a body-sized style: keeps that
+  /// style's size and color and takes its emphasized weight.
+  static const TextStyle emphasis = TextStyle(fontWeight: FontWeight.w600);
+
   /// For text sized to the shape it marks, such as a letter in an icon.
   static TextStyle custom(
     BuildContext context, {

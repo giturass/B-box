@@ -146,6 +146,10 @@ const _maxTintChroma = 10.0;
 
 const _primaryContainerChroma = 48.0;
 
+// Green holds a chroma of about 60 at tone 90, which filled a container with
+// a vivid slab; error and warning containers sit near 13 to 16 there.
+const _statusContainerChroma = 16.0;
+
 const _darkOnSurfaceTone = 97;
 
 const _darkCardTone = 15.0;
@@ -227,6 +231,13 @@ DynamicScheme _dynamicScheme(Hct source, bool dark, ColorStyle style) {
 final _successPalette = TonalPalette.fromHct(Hct.fromInt(0xFF4CAF50));
 
 final _warningPalette = TonalPalette.fromHct(Hct.fromInt(0xFFFF9800));
+
+TonalPalette _containerOf(TonalPalette palette) =>
+    TonalPalette.of(palette.hue, min(palette.chroma, _statusContainerChroma));
+
+final _successContainerPalette = _containerOf(_successPalette);
+
+final _warningContainerPalette = _containerOf(_warningPalette);
 
 extension ColorExtension on Color {
   Color get opacity80 {
@@ -326,13 +337,19 @@ extension ColorSchemeExtension on ColorScheme {
 
   Color get success => _toneOf(_successPalette, 40, 80);
 
-  Color get successContainer => _toneOf(_successPalette, 90, 30);
+  /// Content on a [success] fill.
+  Color get onSuccess => _toneOf(_successPalette, 100, 20);
+
+  Color get successContainer => _toneOf(_successContainerPalette, 90, 30);
 
   Color get onSuccessContainer => _toneOf(_successPalette, 30, 90);
 
   Color get warning => _toneOf(_warningPalette, 40, 80);
 
-  Color get warningContainer => _toneOf(_warningPalette, 90, 30);
+  /// Content on a [warning] fill.
+  Color get onWarning => _toneOf(_warningPalette, 100, 20);
+
+  Color get warningContainer => _toneOf(_warningContainerPalette, 90, 30);
 
   Color get onWarningContainer => _toneOf(_warningPalette, 30, 90);
 }

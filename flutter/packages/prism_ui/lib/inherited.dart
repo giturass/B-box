@@ -270,7 +270,7 @@ class _PageScrollController extends ScrollController {
     return _PageScrollPosition(
       physics: physics,
       context: context,
-      initialPixels: initialScrollOffset,
+      initialPixels: initialPixelsFromTop(context, initialScrollOffset),
       keepScrollOffset: keepScrollOffset,
       oldPosition: oldPosition,
       debugLabel: debugLabel,

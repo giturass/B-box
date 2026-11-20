@@ -405,11 +405,13 @@ class _OptionsValueButton extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         spacing: 4,
         children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: _optionsValueMaxWidth),
-            child: PopupValueText(
-              label,
-              alignment: AlignmentDirectional.centerEnd,
+          Flexible(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: _optionsValueMaxWidth),
+              child: PopupValueText(
+                label,
+                alignment: AlignmentDirectional.centerEnd,
+              ),
             ),
           ),
           const GlyphIcon(Glyphs.picker),

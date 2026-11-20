@@ -1,6 +1,6 @@
 # B-box
 
-基于 [SagerNet/sing-box-for-android](https://github.com/SagerNet/sing-box-for-android) 的非官方 Android 客户端，使用 [FlClash v0.9.3](https://github.com/chen08209/FlClash/tree/be84736605527034689c95bf27828ff27d912c5e) 及其 [prism_ui](https://github.com/chen08209/prism_ui/tree/63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185) 的 Flutter 界面组件，后端保持 sing-box。项目独立维护，不代表上游的官方发布。
+基于 [SagerNet/sing-box-for-android](https://github.com/SagerNet/sing-box-for-android) 的非官方 Android 客户端，使用 [FlClash v0.9.3](https://github.com/chen08209/FlClash/tree/be84736605527034689c95bf27828ff27d912c5e) 与 [prism_ui 0.1.3](https://github.com/chen08209/prism_ui/tree/7831ade349ede896aedb8a5757dc9c3fe88081d5) 的 Flutter 界面组件，后端保持 sing-box。项目独立维护，不代表上游的官方发布。
 
 下载 APK：[GitHub Releases](https://github.com/giturass/B-box/releases)（Android 7.0+，ARM64）。`newui` 的新界面与功能仍按提交验证；已有 Release 不等同于当前源码。
 

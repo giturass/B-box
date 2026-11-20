@@ -15,7 +15,7 @@ Start with one color. Choose a style. Every component follows, in light and dark
 
 ```yaml
 dependencies:
-  prism_ui: ^0.1.2
+  prism_ui: ^0.1.3
 ```
 
 ## Quick start

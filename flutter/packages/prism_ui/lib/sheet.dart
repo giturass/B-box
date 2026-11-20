@@ -177,16 +177,14 @@ Future<T?> showExtend<T>(
 }
 
 /// Opens a sheet the reader can drag between [snapSheetDetents], starting at
-/// the shortest. Where a sheet cannot have detents the
-/// content keeps its own scroll controller and [initialScrollOffset] is the
-/// caller's own business.
+/// the shortest. Where a sheet cannot have detents the content keeps its own
+/// scroll controller.
 ///
 /// The sheet follows the view across the mobile breakpoint: it reopens in the
 /// other form, and the result is whichever form the reader closes.
 Future<T?> showSnapSheet<T>(
   BuildContext context, {
   required SnapSheetBuilder builder,
-  double initialScrollOffset = 0,
 }) {
   final completer = Completer<T?>();
 
@@ -235,7 +233,6 @@ Future<T?> showSnapSheet<T>(
       closed = navigator.push(
         SnapSheetRoute<T>(
           builder: home,
-          initialScrollOffset: initialScrollOffset,
           sheetBarrierColor: barrierColor,
           barrierLabel: UiLocalizations.of(context).close,
         ),

@@ -60,7 +60,7 @@ class _AboutPageState extends State<AboutPage> {
         generateSection(title: context.tr('More'), items: [
           _link(AppGlyphs.code, 'Source code', 'github.com/giturass/B-box', 'https://github.com/giturass/B-box'),
           _link(AppGlyphs.cpu, 'Core', 'sing-box ${box.coreVersion}', 'https://github.com/SagerNet/sing-box'),
-          _link(AppGlyphs.paintbrush, 'FlClash interface', 'FlClash v0.9.3 · prism_ui 0.1.2 · GPL-3.0', 'https://github.com/chen08209/FlClash/tree/be84736605527034689c95bf27828ff27d912c5e'),
+          _link(AppGlyphs.paintbrush, 'FlClash interface', 'FlClash v0.9.3 · prism_ui 0.1.3 · GPL-3.0', 'https://github.com/chen08209/FlClash/tree/be84736605527034689c95bf27828ff27d912c5e'),
           ListItem(leading: const _LinkBadge(glyph: AppGlyphs.info), title: Text(context.tr('Open-source licenses')),
             onTap: () => openPage(context, const LicensesPage())),
         ]),

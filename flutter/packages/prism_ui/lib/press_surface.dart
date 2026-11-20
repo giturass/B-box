@@ -95,6 +95,7 @@ class _PressSurfaceState extends State<PressSurface>
   late final _tap = _PressTapRecognizer(debugOwner: this)
     ..onTapDown = _handleTapDown
     ..onTap = _handleTap
+    ..onTapCancel = _cancelPress
     ..onRejected = _cancelPress;
   late final _actions = <Type, Action<Intent>>{
     ActivateIntent: CallbackAction<ActivateIntent>(
@@ -165,6 +166,7 @@ class _PressSurfaceState extends State<PressSurface>
     _stopWatchingKeys();
     _tickerMode?.removeListener(_dropSparklesWhenHidden);
     _tap
+      ..onTapCancel = null
       ..onRejected = null
       ..dispose();
     _sparkles.dispose();

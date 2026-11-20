@@ -85,6 +85,76 @@ void main() {
       });
     });
   }
+  testWidgets('diagnostics keeps a long outbound selectable beside its title on a narrow phone with large text', (tester) async {
+    tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];
+    tester.platformDispatcher.textScaleFactorTestValue = 1.4;
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    addTearDown(tester.view.reset);
+    const channel = MethodChannel('test.navigation.long-outbound');
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final events = StreamController<dynamic>.broadcast();
+    final calls = <MethodCall>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      return call.method == 'ready' ? {
+        'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Started'},
+        'preferences': {'theme': 'light'},
+        'diagnostics': {'quality': {'configURL': 'https://quality.example.test/config.json'}},
+      } : null;
+    });
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      await events.close();
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+    final boundary = GlobalKey();
+    await tester.pumpWidget(RepaintBoundary(key: boundary,
+      child: BoxApp(controller: BoxController(channel: channel, events: events.stream))));
+    await tester.pumpAndSettle();
+    final tag = 'outbound-${List.filled(12, 'very-long-node-name').join('-')}';
+    events.add({'type': 'outbounds', 'value': [{'tag': tag}]});
+    openPage(tester.element(find.byType(HomePage)), const DiagnosticsPage(quality: true));
+    await tester.pumpAndSettle();
+    final page = find.byType(DiagnosticsPage);
+    final title = find.descendant(of: page, matching: find.text('Outbound'));
+    final row = find.ancestor(of: title, matching: find.byType(ListRow)).first;
+    final value = find.descendant(of: row, matching: find.byType(PopupValueText));
+    await tester.tap(value);
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(of: find.byType(PopupMenu), matching: find.text(tag)));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: value, matching: find.text(tag)), findsOneWidget);
+    final picker = find.descendant(of: row, matching: find.byWidgetPredicate(
+      (widget) => widget is GlyphIcon && widget.glyph == Glyphs.picker));
+    final titleRect = tester.getRect(title), valueRect = tester.getRect(value), pickerRect = tester.getRect(picker);
+    expect(titleRect.width, greaterThan(0));
+    expect(valueRect.width, greaterThan(0));
+    expect(valueRect.left, greaterThan(titleRect.right));
+    expect(valueRect.right, lessThanOrEqualTo(pickerRect.left));
+    expect(pickerRect.right, lessThanOrEqualTo(tester.getRect(row).right));
+    expect(tester.getRect(row).right, lessThanOrEqualTo(320));
+    final paragraph = tester.renderObject<RenderParagraph>(find.descendant(of: value, matching: find.byType(RichText)));
+    expect(paragraph.didExceedMaxLines, isTrue);
+    expect(tester.takeException(), isNull);
+    await tester.runAsync(() async {
+      final bitmap = await (boundary.currentContext!.findRenderObject()! as RenderRepaintBoundary).toImage();
+      final data = await bitmap.toByteData(format: ui.ImageByteFormat.png);
+      final file = File('build/screenshots/navigation/diagnostics-long-outbound-320-light-1.4.png');
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(data!.buffer.asUint8List());
+      bitmap.dispose();
+    });
+    final start = find.descendant(of: page, matching: find.text('Start'));
+    await Scrollable.ensureVisible(tester.element(start), alignment: .5);
+    await tester.pumpAndSettle();
+    await tester.tap(start);
+    await tester.pumpAndSettle();
+    expect(json(calls.singleWhere((call) => call.method == 'quality.start').arguments)['outbound'], tag);
+    expect(tester.takeException(), isNull);
+  });
   for (final (size, dark, fontScale) in [(const Size(360, 800), false, 1.0), (const Size(360, 800), true, 1.4), (const Size(800, 1000), false, 1.0)]) {
     testWidgets('all primary routes render at $size dark=$dark scale=$fontScale', (tester) async {
       tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];

@@ -102,17 +102,20 @@ check_commit(manifest["commit"], "FlClash")
 for local, expected in manifest["files"].items():
     check_hash(flutter / local, expected)
 for path in (frontend / "ui").rglob("*"):
-    if path.is_file() and path.relative_to(flutter).as_posix() not in manifest["files"]:
+    if (path.is_file()
+            and path.relative_to(flutter).as_posix() not in manifest["files"]
+            and path.relative_to(flutter).as_posix() not in manifest["adaptedFiles"]):
         errors.append(f"Untracked FlClash import: {path.relative_to(ROOT)}")
 check_adaptations(manifest["adaptedFiles"], flutter)
 check_adaptations(manifest["adaptedNativeFiles"], ROOT)
 
 prism = manifest["prismUi"]
 check_commit(prism["commit"], "prism_ui")
+check_commit(prism["flclashSubmoduleCommit"], "FlClash prism_ui submodule reference")
 prism_root = flutter / prism["localPath"]
 for local, expected in prism["files"].items():
     check_hash(prism_root / local, expected)
-for directory in (prism_root / "lib", prism_root / "shaders"):
+for directory in (prism_root / "lib", prism_root / "shaders", prism_root / "test"):
     for path in directory.rglob("*"):
         if path.is_file() and path.relative_to(prism_root).as_posix() not in prism["files"]:
             errors.append(f"Untracked prism_ui import: {path.relative_to(ROOT)}")

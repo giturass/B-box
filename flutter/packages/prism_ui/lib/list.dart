@@ -33,6 +33,9 @@ class ListHeader extends StatelessWidget {
   static const _actionsGap = 6.0;
 
   final String title;
+
+  /// Sits under [title], and the actions center against the two together.
+  final String? caption;
   final List<IconButtonData> actions;
   final Widget? trailing;
   final EdgeInsets? padding;
@@ -40,6 +43,7 @@ class ListHeader extends StatelessWidget {
   const ListHeader({
     super.key,
     required this.title,
+    this.caption,
     this.padding,
     this.actions = const [],
     this.trailing,
@@ -76,7 +80,18 @@ class ListHeader extends StatelessWidget {
     final lineHeight = MeasureScope.of(
       context,
     ).textHeight(AppTextStyle.headline);
-    final overhang = (_actionSize.button - lineHeight) / 2;
+    final caption = this.caption;
+    final overhang = caption == null
+        ? (_actionSize.button - lineHeight) / 2
+        : 0.0;
+    final titleText = Text(
+      title,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: AppTextStyle.headline
+          .of(context)
+          .copyWith(color: context.colorScheme.onSurfaceVariant),
+    );
     return Padding(
       padding: EdgeInsets.fromLTRB(
         padding.left,
@@ -90,14 +105,16 @@ class ListHeader extends StatelessWidget {
           spacing: 12,
           children: [
             Expanded(
-              child: Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: AppTextStyle.headline
-                    .of(context)
-                    .copyWith(color: context.colorScheme.onSurfaceVariant),
-              ),
+              child: caption == null
+                  ? titleText
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      spacing: 2,
+                      children: [
+                        titleText,
+                        Text(caption, style: context.listCaptionStyle),
+                      ],
+                    ),
             ),
             ?trailing,
             if (actions.isNotEmpty) _buildActions(),

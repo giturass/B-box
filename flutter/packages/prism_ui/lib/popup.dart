@@ -20,6 +20,7 @@ import 'package:prism_ui/motion.dart';
 import 'package:prism_ui/press_region.dart';
 import 'package:prism_ui/press_surface.dart';
 import 'package:prism_ui/shape.dart';
+import 'package:prism_ui/sheet_navigator.dart';
 import 'package:prism_ui/surface.dart';
 import 'package:prism_ui/theme_data.dart';
 import 'package:prism_ui/typography.dart';
@@ -1434,7 +1435,7 @@ class _PopupAnchorState extends State<PopupAnchor> {
       return null;
     }
     final navigatorBox =
-        Navigator.maybeOf(context)?.context.findRenderObject() as RenderBox?;
+        sheetNavigatorOf(context).context.findRenderObject() as RenderBox?;
     final origin = renderBox.localToGlobal(Offset.zero, ancestor: navigatorBox);
     return origin & renderBox.size;
   }
@@ -1582,7 +1583,7 @@ class _PopupAnchorState extends State<PopupAnchor> {
       sourceImage: snapshot,
       bareSource: widget.bare,
     );
-    Navigator.of(context).push(route);
+    sheetNavigatorOf(context).push(route);
     void reveal() {
       if (mounted) {
         _sourceHidden.value = false;
@@ -1859,6 +1860,9 @@ const _defaultMaxVisibleItems = 7;
 
 class PopupMenu extends StatefulWidget {
   const PopupMenu({super.key, required this.items, this.maxVisibleItems});
+
+  static final double labelMaxWidth =
+      _menuMaxWidth - 2 * _cardInset - _itemPadding.horizontal;
 
   final List<PopupMenuItem> items;
 

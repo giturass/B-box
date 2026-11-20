@@ -92,7 +92,12 @@ class ListRow extends StatelessWidget {
               : DefaultTextStyle(style: subtitleStyle, child: subtitle),
           trailing: trailing == null
               ? null
-              : DefaultTextStyle(style: sideStyle, child: trailing),
+              : DefaultTextStyle(
+                  style: sideStyle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  child: trailing,
+                ),
         ),
       ),
     );
@@ -200,6 +205,7 @@ class _RenderListRow extends RenderBox
   static const _minLeadingWidth = 24.0;
   static const _minTrailingWidth = 32.0;
   static const _maxSideHeight = 56.0;
+  static const _titleMaxWidthFactor = 0.5;
   static const _titleBaselineY = 32.0;
   static const _subtitleBaselineY = 52.0;
 
@@ -369,6 +375,26 @@ class _RenderListRow extends RenderBox
         .offset;
   }
 
+  // The title is laid out, not measured: a LayoutBuilder has no intrinsics.
+  Size _layoutTrailing(
+    RenderBox trailing,
+    ChildLayouter layoutChild,
+    BoxConstraints loose,
+    BoxConstraints sideConstraints,
+    double available,
+  ) {
+    final share = math.max(0.0, available - _titleGap);
+    final half = share * _titleMaxWidthFactor;
+    if (trailing.getMaxIntrinsicWidth(sideConstraints.maxHeight) <= half) {
+      return layoutChild(trailing, sideConstraints);
+    }
+    final title = layoutChild(_title, loose.copyWith(maxWidth: share));
+    return layoutChild(
+      trailing,
+      sideConstraints.copyWith(maxWidth: math.max(share - title.width, half)),
+    );
+  }
+
   _Sizes _computeSizes(
     ChildBaselineGetter getBaseline,
     ChildLayouter layoutChild,
@@ -388,12 +414,18 @@ class _RenderListRow extends RenderBox
     final leadingSize = leading == null
         ? null
         : layoutChild(leading, sideConstraints);
-    final trailingSize = trailing == null
-        ? null
-        : layoutChild(trailing, sideConstraints);
     final titleStart = leadingSize == null
         ? 0.0
         : math.max(_minLeadingWidth, leadingSize.width) + _titleGap;
+    final trailingSize = trailing == null
+        ? null
+        : _layoutTrailing(
+            trailing,
+            layoutChild,
+            loose,
+            sideConstraints,
+            width - titleStart,
+          );
     final trailingWidth = trailingSize == null
         ? 0.0
         : math.max(trailingSize.width + _titleGap, _minTrailingWidth);

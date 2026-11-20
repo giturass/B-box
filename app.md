@@ -202,7 +202,7 @@ CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期�
 
 ## 构建与发布
 
-[app/build.gradle.kts](app/build.gradle.kts) 从本地 `app/libs/libbox.aar` 和 Flutter 生成的 Maven 仓库消费依赖。核心必须包含 [libbox.md](libbox.md) 的当前扩展。[setup-flutter](.github/actions/setup-flutter/action.yml) 统一固定 Flutter 3.47.6，并以 `--enforce-lockfile` 读取已提交的依赖锁文件；该 SDK 满足 prism_ui 0.1.2 的 Flutter 3.47 最低要求，界面来源和本地依赖见 [flclash.md](flclash.md#参考版本与来源清单)。Flutter 验证在 Gradle 启动前显式安装该 SDK 使用的 NDK 28.2.13676358，避免 AAR 配置阶段触发隐式安装；它与 libbox 使用的 NDK 独立。CI 先构建 AAR 到 `flutter/build/host/outputs/repo`，再构建 Android；应用使用 AAR 时不需要再安装 Flutter SDK。
+[app/build.gradle.kts](app/build.gradle.kts) 从本地 `app/libs/libbox.aar` 和 Flutter 生成的 Maven 仓库消费依赖。核心必须包含 [libbox.md](libbox.md) 的当前扩展。[setup-flutter](.github/actions/setup-flutter/action.yml) 统一固定 Flutter 3.47.6，并以 `--enforce-lockfile` 读取已提交的依赖锁文件；当前组件的 SDK 要求、界面来源和本地依赖见 [flclash.md](flclash.md#参考版本与来源清单)。Flutter 验证在 Gradle 启动前显式安装该 SDK 使用的 NDK 28.2.13676358，避免 AAR 配置阶段触发隐式安装；它与 libbox 使用的 NDK 独立。CI 先构建 AAR 到 `flutter/build/host/outputs/repo`，再构建 Android；应用使用 AAR 时不需要再安装 Flutter SDK。
 
 默认 ABI 为 ARMv7、ARM64、x86_64 并生成 universal；Flutter 不提供 x86 AOT，因此没有 x86。`-Parm64Only=true` 只生成 ARM64，`-PemulatorOnly=true` 只生成 x86_64，二者都关闭 universal；核心及 Flutter AAR 必须包含目标 ABI。
 
@@ -284,30 +284,9 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-2026-11-20 本轮图标与关于页提交前的静态检查在基于 `25ade4ce16a1366dd4f8bfd540b6048ef4bef3d6` 的工作树进行。用户提供的 `/sdcard/icon.jpg` 为 1024×1024，SHA-256 为 `1579390600db49fb1f1bd23227c489bc3e8143214959cf6458ef1fa9c5e88123`；转换后的 `artwork/bbox.png` 与 JPEG 解码像素完全一致。
+2026-11-20 本轮在 `6df59c595fe0ff86ca4c96c884a14070b61620f9` 基础上独立同步 Prism UI 0.1.3，组件比较 SHA、来源清单、SDK 要求及交互覆盖由 [界面说明](flclash.md#参考版本与来源清单) 维护。Android 上游、核心、应用版本和安装身份保持原基线。
 
-本机通过 `git diff --check`、`python3 tools/verify_newui.py` 和领域文档本地文件/标题链接检查，核对了 14 张 Android 图标及 Flutter 图标的尺寸和透明度，普通圆形及自适应圆形/圆角方形裁切均保留完整黑色笔画。图标资源组合预览已查看，B 字、箱体、圆环及单色留空完整。截至提交前检查，尚未执行本轮应用构建、Actions、关于页运行截图或设备验收；下述最近一次完整 Actions/APK 验证对应替换前的图标，不覆盖本轮改动。
-
-2026-11-19 验证的功能与测试源码为 `556a8716e0f7152ae2c3b012145127bcd1fea6d2`，以 `9ee82eb71796bcdfa27d55575e37ece5bef1faf8` 为起点，包含应用独立版本 `1.0.1` / `749`、发布完整性元数据、应用内下载/系统确认安装和当时的应用图标。该次后续验证记录仅修改文档。
-
-统一运行 [44489197911](https://github.com/giturass/B-box/actions/runs/44489197911) 的 8 个作业全部通过：核心扩展及路由生命周期 race 回归（含新增 APK 流式下载、摘要、进度和取消）、Root CA namespace 回归、15 项应用版本/发布工具回归、Flutter 分析/交互/布局及 ARM64 AAR、Android 编译和四组 smoke。Android 构建包含 `play` Kotlin 编译与 `other` 模拟器/仪器测试 APK；JVM 为 18 个 suite、100 项测试，失败、错误和跳过均为 0，其中更新相关 25 项。Flutter 计数、六张中英文更新弹窗截图及核对范围由 [界面验证记录](flclash.md#当前验证记录) 维护。
-
-四组 `results.json` 的源码 SHA 均匹配上述提交，UI 与原生检查均通过；每组原生实际运行 74 项测试，包含 6 项更新绑定/APK 身份用例。设备信息按实际报告记录：
-
-| 环境 | 实际页大小 | 页大小来源 | Actions 作业 |
-| --- | --- | --- | --- |
-| API 24 / Android 7.0，`google_apis` | 4096 字节 | `/proc/self/smaps` | [135444383363](https://github.com/giturass/B-box/actions/runs/44489197911/job/135444383363) |
-| API 31 / Android 12，`google_apis` | 4096 字节 | `getconf` | [135444383328](https://github.com/giturass/B-box/actions/runs/44489197911/job/135444383328) |
-| API 36 / Android 16，`google_apis` | 4096 字节 | `getconf` | [135444383331](https://github.com/giturass/B-box/actions/runs/44489197911/job/135444383331) |
-| API 36 / Android 16，`google_apis_ps16k` | 16384 字节 | `getconf` | [135444383312](https://github.com/giturass/B-box/actions/runs/44489197911/job/135444383312) |
-
-同一源码的签名 ARM64 [44489951496 / attempt 3](https://github.com/giturass/B-box/actions/runs/44489951496/attempts/3) 全部通过，APK 与 `B-box-version-metadata.json` 已共同上传至 [Release Artifact](https://github.com/giturass/B-box/actions/runs/44489951496/artifacts/14514371535)。从最终运行独立下载核对的 `B-box-1.0.1-arm64-v8a.apk` 为 49,019,419 字节，SHA-256 为 `335a64dc44c45da095bfbf395e4a51c3e82a06037416ef0764d0a9fc32f35064`；元数据中的文件名、大小、摘要及应用身份/版本均与实际 APK 一致。APK 实际为 `io.ericlee.bfa` / `1.0.1` / `749`、最低 API 24、仅 ARM64；工作流的 `apksigner` 完整验签通过（v2、单签名者）。本轮当前签名证书 SHA-256 为 `5a387ff8eec022569f40c043c4e603fcf841d0063e157863f52480be96968d90`，与旧公开 `748` APK 提取的证书一致；未进行设备覆盖安装。
-
-该签名运行的前两次尝试停在 Flutter 的 Kotlin 构建依赖解析；只清理本次命中的两条 Gradle Actions 缓存后，同一源码重跑通过，未调整依赖或 SDK 版本。此次 `publish_release=false`，发布步骤明确跳过。
-
-本机已通过 `git diff --check`、`python3 tools/verify_newui.py`、修改过的 Python/XML 语法、Go 格式及 594 处本地文件/标题链接静态检查（含 148 处标题片段）；未执行 Go、Flutter、JVM 或 Android 构建/测试。`artwork/bbox.png` 与用户提供的 `/sdcard/icon.png` 的 SHA-256 相同，普通、圆形、自适应、单色和通知图标的组合预览已查看。最终 APK 的 Flutter 图标与仓库文件逐字节一致；资源表映射确认普通/圆形启动器引用和两个自适应 XML，13 张原生 PNG 解码后的显示像素均与源码一致。
-
-真实 GitHub 检查/下载至系统安装器完成自更新的流程、跨版本设备覆盖安装与 ARM64 实机视觉尚未验收。上述模拟器和桥接替身测试、APK 归档身份核对及构建成功不能替代这些验收。
+本轮运行与源码 SHA 将在 Actions 完成后记录。本机仅执行源码、来源哈希及文档静态检查；尚无当前更新的 Go、Flutter、JVM、Android smoke 或签名 ARM64 构建结果，此前运行仅为下表的历史记录。未进行 ARM64 实机视觉或覆盖安装验收。
 
 ### 历史验证记录
 
@@ -315,6 +294,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 | 日期 | 主题 | 验证源码 | Actions | 范围与备注 |
 | --- | --- | --- | --- | --- |
+| 2026-11-19 | 应用独立版本与更新下载/安装 | `556a8716e0f7152ae2c3b012145127bcd1fea6d2` | [44489197911](https://github.com/giturass/B-box/actions/runs/44489197911)、[ARM64 Release 44489951496/attempts/3](https://github.com/giturass/B-box/actions/runs/44489951496/attempts/3) | 8 个作业通过；100 项 JVM，四组各 74 项原生及 UI smoke 通过；应用 `1.0.1` / `749` 的签名 ARM64 构建、元数据和既有签名证书核对通过，`publish_release=false`；设备覆盖安装与实机视觉未验收，包含替换前的图标 |
 | 2026-11-19 | 节点分享、首次接口通知与 XHTTP 关闭修正 | `a667cf0a3f71e04cc9802ecdcfb1d2f435c63a6a` | [44464053505](https://github.com/giturass/B-box/actions/runs/44464053505) | 8 个作业通过，306 项 Flutter、80 项 JVM，四组各 68 项原生及 UI smoke 通过；API 24/31/36 与 16 KiB；签名 ARM64 [44473957788/attempts/3](https://github.com/giturass/B-box/actions/runs/44473957788/attempts/3) 的源码为仅文档不同的 `27487bc54930d1217421684a817334e7ae5d21fb`，生成旧应用版本 `1.15.0-alpha.13` / `748`，该次未发布；不包含本轮独立版本及应用内更新 |
 | 2026-11-19 | 首次通知回归断言修正与 XHTTP 关闭分类诊断 | `3d175de0dae76909a2a136ad5a40ae143628f6b2` | [44462310150](https://github.com/giturass/B-box/actions/runs/44462310150) | Android 80 项 JVM、`play`/APK 构建及 Root CA 通过；核心 XHTTP HTTP/1.1 关闭后的 `http.ErrBodyReadAfterClose` 未归类为正常关闭，回归失败；Flutter 分析/测试通过，ARM64 AAR 的 Kotlin 2.2.21 仓库依赖解析失败，x64 Debug AAR 已通过；新推送取消四组 smoke，整套为 cancelled |
 | 2026-11-19 | 分享页简化与首次接口通知确认首轮 | `41834548e78196aec04f597995c6a7b724bf1809` | [44460811251](https://github.com/giturass/B-box/actions/runs/44460811251) | 核心、Root CA 与 Flutter 通过；80 项 JVM 中 79 项通过，唯一失败为异常传播回归用 `assertSame` 比较协程恢复堆栈后的异常副本；模拟器 APK 未完成，smoke skipped，整套失败 |

@@ -24,9 +24,23 @@ class PagedSheetRoute<T> extends PageRoute<T>
         ResizableNavigatorRouteMixin<T>,
         DeferredPushRouteMixin<T>,
         CardRouteMixin<T> {
-  PagedSheetRoute({required this.builder});
+  PagedSheetRoute({required this.builder, this.onPopFirst});
 
   final WidgetBuilder builder;
+
+  /// Takes a pop of the sheet's first page, which has no page to go back to;
+  /// given to that page alone, as a popping route no longer reads as first.
+  final ValueChanged<Object?>? onPopFirst;
+
+  @override
+  bool didPop(T? result) {
+    final onPopFirst = this.onPopFirst;
+    if (onPopFirst != null) {
+      onPopFirst(result);
+      return false;
+    }
+    return super.didPop(result);
+  }
 
   ScrollController? _sheetScroll;
 
@@ -220,7 +234,7 @@ class _NestedPagedSheetState extends State<NestedPagedSheet> {
       child: SheetPagesNavigator(
         key: _navigatorKey,
         onGenerateInitialRoutes: (_, _) => [
-          PagedSheetRoute(builder: widget.builder),
+          PagedSheetRoute(builder: widget.builder, onPopFirst: _popSheet),
         ],
       ),
     );

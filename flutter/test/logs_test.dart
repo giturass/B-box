@@ -127,6 +127,77 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('following logs keep the newest row visible when records append and text reflows', (tester) async {
+    await mount(tester);
+    final records = <Json>[
+      for (var id = 1; id <= 80; id++)
+        {'id': id, 'level': 'Info', 'message': 'log $id ${List.filled(id.isEven ? 8 : 1, 'wrapped details').join(' ')}'},
+    ];
+    await emit(tester, 'Info', records);
+    final list = find.descendant(of: find.byType(LogsPage), matching: find.byType(PrismListView));
+    final scroll = tester.widget<PrismListView>(list).controller!;
+    expect(scroll.position.maxScrollExtent, greaterThan(scroll.position.viewportDimension));
+    expect(scroll.offset, closeTo(scroll.position.maxScrollExtent, .1));
+    expect(find.descendant(of: list, matching: find.byKey(const ValueKey(80))).hitTestable(), findsOneWidget);
+
+    final latest = {'id': 81, 'level': 'Info', 'message': 'newest log ${List.filled(12, 'long wrapped details').join(' ')}'};
+    events.add({'type': 'logs', 'value': {
+      'reset': false, 'firstId': 1, 'defaultLogLevel': 'Info', 'entries': [latest],
+    }});
+    await tester.pumpAndSettle();
+    final newest = find.descendant(of: list, matching: find.byKey(const ValueKey(81)));
+    expect(newest.hitTestable(), findsOneWidget);
+    expect(scroll.offset, closeTo(scroll.position.maxScrollExtent, .1));
+    final previousHeight = tester.getSize(newest).height;
+
+    tester.platformDispatcher.textScaleFactorTestValue = 1.4;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await tester.pumpAndSettle();
+    expect(tester.getSize(newest).height, greaterThan(previousHeight));
+    expect(newest.hitTestable(), findsOneWidget);
+    expect(scroll.offset, closeTo(scroll.position.maxScrollExtent, .1));
+    expect(scaffold(tester).menuItems.any((item) => item.label == 'Pause'), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('scrolling away freezes displayed logs and returning to the newest row resumes updates', (tester) async {
+    await mount(tester);
+    final records = <Json>[
+      for (var id = 1; id <= 80; id++) {'id': id, 'level': 'Info', 'message': 'log $id'},
+    ];
+    await emit(tester, 'Info', records);
+    final list = find.descendant(of: find.byType(LogsPage), matching: find.byType(PrismListView));
+    final scroll = tester.widget<PrismListView>(list).controller!;
+    await tester.drag(list, const Offset(0, -350));
+    await tester.pumpAndSettle();
+    expect(scroll.offset, lessThan(scroll.position.maxScrollExtent - 100));
+    expect(scaffold(tester).menuItems.any((item) => item.label == 'Resume'), isTrue);
+    final pausedOffset = scroll.offset;
+
+    events.add({'type': 'logs', 'value': {
+      'reset': false, 'firstId': 1, 'defaultLogLevel': 'Info',
+      'entries': [{'id': 81, 'level': 'Info', 'message': 'record received while paused'}],
+    }});
+    await tester.pumpAndSettle();
+    expect(box.logs.last['message'], 'record received while paused');
+    expect(find.text('record received while paused'), findsNothing);
+    expect(scroll.offset, closeTo(pausedOffset, .1));
+
+    await tester.drag(list, const Offset(0, 600));
+    await tester.pumpAndSettle();
+    expect(scaffold(tester).menuItems.any((item) => item.label == 'Pause'), isTrue);
+    expect(find.text('record received while paused').hitTestable(), findsOneWidget);
+    expect(scroll.offset, closeTo(scroll.position.maxScrollExtent, .1));
+    events.add({'type': 'logs', 'value': {
+      'reset': false, 'firstId': 1, 'defaultLogLevel': 'Info',
+      'entries': [{'id': 82, 'level': 'Info', 'message': 'record received after resuming'}],
+    }});
+    await tester.pumpAndSettle();
+    expect(find.text('record received after resuming').hitTestable(), findsOneWidget);
+    expect(scroll.offset, closeTo(scroll.position.maxScrollExtent, .1));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('unknown defaults, pause, search, export and clear keep records available', (tester) async {
     await mount(tester);
     await emit(tester, null);

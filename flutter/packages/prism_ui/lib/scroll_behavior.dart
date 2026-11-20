@@ -189,6 +189,18 @@ mixin ScrubbableScrollPosition on ScrollPosition {
   bool isScrubbing = false;
 }
 
+/// Where a page or sheet list opens: [initialScrollOffset] down from the top
+/// the reader sees, which a reversed list reaches at its maximum offset. One
+/// controller serves lists that read either way, as a feed and its grouped
+/// form do, so only the list knows which offset is its top.
+double initialPixelsFromTop(ScrollContext context, double initialScrollOffset) {
+  if (context.axisDirection != AxisDirection.up) {
+    return initialScrollOffset;
+  }
+  assert(initialScrollOffset == 0, 'A reversed list opens at its top.');
+  return double.maxFinite;
+}
+
 /// Lays a list out in its first frame at an offset given past its end, as
 /// one opening at its newest item asks with double.maxFinite. Flutter keeps
 /// that offset through the first layout, which builds no item, and springs
