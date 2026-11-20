@@ -1214,6 +1214,246 @@ class ProfileRecoveryTest {
         }
     }
 
+    @Test fun newLocalTemplatesDropDirectForBothNodeAndSubscriptionImportOrders() = withRunningProfile { activity, profiles, id ->
+        withContext(Dispatchers.Main) { activity.stopService() }
+        withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+        val defaultId = profiles.ensureDefault()
+        val defaultContent = profiles.read(defaultId)
+        val fixtureContent = profiles.read(id)
+        val profileIds = ProfileManager.list().map { it.id }.toSet()
+        val subscriptions = nodeSubscriptions(activity)
+        val nodes = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
+            withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
+        }
+        for (subscriptionFirst in listOf(false, true)) {
+            val prepared = profiles.prepareSave(mapOf("name" to "New local template, subscription first: $subscriptionFirst"))
+            assertFalse(prepared.isDefault)
+            val fresh = profiles.savePrepared(prepared)
+            try {
+                val original = configuration(profiles.read(fresh))
+                val originalDirect = configurationNodes(profiles.read(fresh)).single { it.optString("tag") == "direct" }.toString()
+                profiles.select(fresh) { activity.serviceStatus.value }
+                suspend fun assertSaved(autoMembers: List<String>, sourceTags: List<String>?) {
+                    val content = profiles.read(fresh)
+                    Libbox.checkConfig(content)
+                    val saved = configuration(content)
+                    val outbounds = configurationNodes(content)
+                    fun members(tag: String): List<String> {
+                        val values = outbounds.single { it.optString("tag") == tag }.getJSONArray("outbounds")
+                        return (0 until values.length()).map { values.getString(it) }
+                    }
+                    assertEquals(autoMembers, members("auto"))
+                    assertEquals(listOf("auto") + autoMembers.filter { it != "direct" }, members("proxy"))
+                    assertEquals(originalDirect, outbounds.single { it.optString("tag") == "direct" }.toString())
+                    for (key in listOf("dns", "route", "inbounds", "certificate", "log", "experimental")) {
+                        assertEquals("Import changed local $key", original.opt(key)?.toString(), saved.opt(key)?.toString())
+                    }
+                    val profile = profiles.get(fresh)
+                    assertFalse(profile.typed.isDefault)
+                    assertEquals(TypedProfile.Type.Local, profile.typed.type)
+                    assertEquals("", profile.typed.remoteURL)
+                    if (sourceTags == null) assertTrue(profile.typed.subscriptions.isEmpty())
+                    else assertEquals(sourceTags, profile.typed.subscriptions.single().tags)
+                    assertEquals(fresh, Settings.selectedProfile)
+                    assertEquals(Status.Stopped, activity.serviceStatus.value)
+                    assertEquals(profileIds + fresh, ProfileManager.list().map { it.id }.toSet())
+                    assertEquals(fixtureContent, profiles.read(id))
+                    assertEquals(defaultContent, profiles.read(defaultId))
+                    assertEquals(defaultId, profiles.ensureDefault())
+                    assertTrue(profiles.get(defaultId).typed.isDefault)
+                }
+                suspend fun addLocalNode() {
+                    val local = JSONObject(socksSubscription("local-node")).getJSONArray("outbounds").getJSONObject(0)
+                    val revision = BoxProfiles.revision(profiles.read(fresh))
+                    if (subscriptionFirst) {
+                        val added = nodes.add(JSONArray().put(local).toString(), fresh, revision)
+                        assertEquals(1, (added["added"] as Number).toInt())
+                    } else {
+                        nodes.set("", local.toString(), "", fresh, revision)
+                    }
+                }
+                assertSaved(listOf("direct"), null)
+                SubscriptionServer(socksSubscription("subscription-node")).use { server ->
+                    if (subscriptionFirst) {
+                        subscriptions.importSubscription(subscriptionArgs(profiles, fresh, "Template subscription", server.url))
+                        assertSaved(listOf("subscription-node"), listOf("subscription-node"))
+                        addLocalNode()
+                        assertSaved(listOf("subscription-node", "local-node"), listOf("subscription-node"))
+                    } else {
+                        addLocalNode()
+                        assertSaved(listOf("local-node"), null)
+                        subscriptions.importSubscription(subscriptionArgs(profiles, fresh, "Template subscription", server.url))
+                        assertSaved(listOf("local-node", "subscription-node"), listOf("subscription-node"))
+                    }
+                    val source = profiles.get(fresh).typed.subscriptions.single()
+                    server.content = socksSubscription("updated-source-node")
+                    subscriptions.update(fresh, source.id)
+                    assertSaved(listOf("local-node", "updated-source-node"), listOf("updated-source-node"))
+                    assertEquals(source.id, profiles.get(fresh).typed.subscriptions.single().id)
+                    nodes.remove(listOf("local-node", "updated-source-node"), fresh, BoxProfiles.revision(profiles.read(fresh)))
+                    assertSaved(listOf("direct"), emptyList())
+                    assertEquals(2, server.requests.get())
+                }
+            } finally {
+                profiles.select(id) { activity.serviceStatus.value }
+                profiles.delete(fresh)
+            }
+        }
+    }
+
+    @Test fun remoteAndCustomizedLocalTemplatesKeepExplicitDirectMembers() = withRunningProfile { activity, profiles, id ->
+        withContext(Dispatchers.Main) { activity.stopService() }
+        withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+        val fixtureContent = profiles.read(id)
+        val defaultId = profiles.ensureDefault()
+        val defaultContent = profiles.read(defaultId)
+        val profileIds = ProfileManager.list().map { it.id }.toSet()
+        val nodes = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
+            withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
+        }
+        for (remote in listOf(true, false)) {
+            val content = if (remote) Libbox.getUIDefaultConfig().value else configuration(Libbox.getUIDefaultConfig().value).apply {
+                getJSONObject("log").put("level", "warn")
+            }.toString()
+            val url = if (remote) "https://example.test/template.json" else ""
+            val fresh = profiles.save(mapOf("name" to "Direct membership boundary, remote: $remote", "content" to content,
+                "url" to url, "autoUpdate" to false))
+            try {
+                val original = configuration(profiles.read(fresh))
+                val originalDirect = configurationNodes(profiles.read(fresh)).single { it.optString("tag") == "direct" }.toString()
+                profiles.select(fresh) { activity.serviceStatus.value }
+                val added = nodes.add(JSONObject(socksSubscription("boundary-node")).getJSONArray("outbounds").toString(),
+                    fresh, BoxProfiles.revision(profiles.read(fresh)))
+                assertEquals(1, (added["added"] as Number).toInt())
+                val savedContent = profiles.read(fresh)
+                Libbox.checkConfig(savedContent)
+                val saved = configuration(savedContent)
+                val outbounds = configurationNodes(savedContent)
+                val auto = outbounds.single { it.optString("tag") == "auto" }.getJSONArray("outbounds")
+                assertEquals(listOf("direct", "boundary-node"), (0 until auto.length()).map { auto.getString(it) })
+                val proxy = outbounds.single { it.optString("tag") == "proxy" }.getJSONArray("outbounds")
+                assertEquals(listOf("auto", "boundary-node"), (0 until proxy.length()).map { proxy.getString(it) })
+                assertEquals(originalDirect, outbounds.single { it.optString("tag") == "direct" }.toString())
+                for (key in listOf("dns", "route", "inbounds", "certificate", "log", "experimental")) {
+                    assertEquals("Node addition changed $key", original.opt(key)?.toString(), saved.opt(key)?.toString())
+                }
+                val profile = profiles.get(fresh)
+                assertFalse(profile.typed.isDefault)
+                assertEquals(if (remote) TypedProfile.Type.Remote else TypedProfile.Type.Local, profile.typed.type)
+                assertEquals(url, profile.typed.remoteURL)
+                assertFalse(profile.typed.autoUpdate)
+                assertTrue(profile.typed.subscriptions.isEmpty())
+                assertEquals(fresh, Settings.selectedProfile)
+                assertEquals(Status.Stopped, activity.serviceStatus.value)
+                assertEquals(profileIds + fresh, ProfileManager.list().map { it.id }.toSet())
+                assertEquals(fixtureContent, profiles.read(id))
+                assertEquals(defaultContent, profiles.read(defaultId))
+                assertEquals(defaultId, profiles.ensureDefault())
+                assertTrue(profiles.get(defaultId).typed.isDefault)
+            } finally {
+                profiles.select(id) { activity.serviceStatus.value }
+                profiles.delete(fresh)
+            }
+        }
+    }
+
+    @Test fun rawTemplateSavesCleanAutoAndPreserveOwnershipWithoutRepeatedWrites() = withRunningProfile { activity, profiles, id ->
+        withContext(Dispatchers.Main) { activity.stopService() }
+        withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+        val defaultId = profiles.ensureDefault()
+        val defaultContent = profiles.read(defaultId)
+        val fixtureContent = profiles.read(id)
+        val profileIds = ProfileManager.list().map { it.id }.toSet()
+        val prepared = profiles.prepareSave(mapOf("name" to "Raw template save"))
+        assertFalse(prepared.isDefault)
+        val fresh = profiles.savePrepared(prepared)
+        try {
+            val original = configuration(profiles.read(fresh))
+            fun outbound(root: JSONObject, tag: String): JSONObject {
+                val values = root.getJSONArray("outbounds")
+                return (0 until values.length()).map { values.getJSONObject(it) }.single { it.optString("tag") == tag }
+            }
+            fun strings(values: JSONArray): List<String> = (0 until values.length()).map { values.getString(it) }
+            fun localTags(content: String): List<String> {
+                val prefix = "// b-box-local-nodes: "
+                val header = content.trimStart().substringBefore('\n')
+                assertTrue("Raw saving lost local ownership", header.startsWith(prefix))
+                return strings(JSONArray(header.removePrefix(prefix)))
+            }
+            profiles.select(fresh) { activity.serviceStatus.value }
+            val ungrouped = configuration(profiles.read(fresh))
+            ungrouped.getJSONArray("outbounds").put(JSONObject(socksSubscription("ungrouped-node")).getJSONArray("outbounds").getJSONObject(0))
+            profiles.writeContent(fresh, ungrouped.toString(), BoxProfiles.revision(profiles.read(fresh)))
+            val beforeNodes = profiles.read(fresh)
+            assertEquals(listOf("direct"), strings(outbound(configuration(beforeNodes), "auto").getJSONArray("outbounds")))
+            assertEquals(listOf("auto"), strings(outbound(configuration(beforeNodes), "proxy").getJSONArray("outbounds")))
+            assertFalse(beforeNodes.trimStart().startsWith("// b-box-local-nodes: "))
+            val nodes = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) { recover ->
+                withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
+            }
+            nodes.add(JSONObject(socksSubscription("local-node")).getJSONArray("outbounds").toString(),
+                fresh, BoxProfiles.revision(beforeNodes))
+            assertEquals(listOf("local-node"), localTags(profiles.read(fresh)))
+            SubscriptionServer(socksSubscription("source-node")).use { server ->
+                val subscriptions = nodeSubscriptions(activity)
+                subscriptions.importSubscription(subscriptionArgs(profiles, fresh, "Raw save source", server.url))
+                val source = profiles.get(fresh).typed.subscriptions.single()
+                assertEquals(listOf("source-node"), source.tags)
+                val edited = configuration(profiles.read(fresh))
+                edited.getJSONArray("outbounds").put(JSONObject(socksSubscription("raw-node")).getJSONArray("outbounds").getJSONObject(0))
+                outbound(edited, "auto").put("outbounds", JSONArray().put("direct").put("local-node").put("source-node").put("raw-node"))
+                val proxy = outbound(edited, "proxy")
+                proxy.put("outbounds", JSONArray().put("auto").put("direct").put("local-node").put("source-node"))
+                proxy.put("default", "direct")
+                val explicitProxy = outbound(configuration(edited.toString()), "proxy").toString()
+                // JSONObject serialization models Flutter's complete JSON save without comments.
+                val raw = edited.toString()
+                assertFalse(raw.contains("// b-box-local-nodes: "))
+                profiles.writeContent(fresh, raw, BoxProfiles.revision(profiles.read(fresh)))
+                val savedContent = profiles.read(fresh)
+                Libbox.checkConfig(savedContent)
+                val saved = configuration(savedContent)
+                assertEquals(listOf("local-node", "source-node", "raw-node"), strings(outbound(saved, "auto").getJSONArray("outbounds")))
+                assertEquals(explicitProxy, outbound(saved, "proxy").toString())
+                assertEquals(outbound(original, "direct").toString(), outbound(saved, "direct").toString())
+                assertEquals(outbound(ungrouped, "ungrouped-node").toString(), outbound(saved, "ungrouped-node").toString())
+                assertEquals(listOf("local-node"), localTags(savedContent))
+                for (key in listOf("dns", "route", "inbounds", "certificate", "log", "experimental")) {
+                    assertEquals("Raw save changed local $key", original.opt(key)?.toString(), saved.opt(key)?.toString())
+                }
+                val profile = profiles.get(fresh)
+                assertFalse(profile.typed.isDefault)
+                assertEquals(TypedProfile.Type.Local, profile.typed.type)
+                assertEquals("", profile.typed.remoteURL)
+                assertEquals(source, profile.typed.subscriptions.single())
+                val generation = ProfileContent.generation
+                val updatedAt = profile.typed.lastUpdated.time
+                profiles.writeContent(fresh, raw, BoxProfiles.revision(savedContent))
+                assertEquals(savedContent, profiles.read(fresh))
+                assertEquals(generation, ProfileContent.generation)
+                assertEquals(updatedAt, profiles.get(fresh).typed.lastUpdated.time)
+                profiles.save(mapOf("id" to fresh, "name" to profile.name, "content" to raw,
+                    "revision" to BoxProfiles.revision(savedContent)))
+                assertEquals(savedContent, profiles.read(fresh))
+                assertEquals(generation, ProfileContent.generation)
+                assertEquals(updatedAt, profiles.get(fresh).typed.lastUpdated.time)
+                assertEquals(listOf("local-node"), localTags(profiles.read(fresh)))
+                assertEquals(source, profiles.get(fresh).typed.subscriptions.single())
+                assertEquals(fresh, Settings.selectedProfile)
+                assertEquals(Status.Stopped, activity.serviceStatus.value)
+                assertEquals(profileIds + fresh, ProfileManager.list().map { it.id }.toSet())
+                assertEquals(fixtureContent, profiles.read(id))
+                assertEquals(defaultContent, profiles.read(defaultId))
+                assertEquals(defaultId, profiles.ensureDefault())
+                assertTrue(profiles.get(defaultId).typed.isDefault)
+                assertEquals(1, server.requests.get())
+            }
+        } finally {
+            profiles.select(id) { activity.serviceStatus.value }
+            profiles.delete(fresh)
+        }
+    }
+
     @Test fun base64UrlSubscriptionsImportAndUpdateProxyNodes() = withRunningProfile { activity, profiles, id ->
         fun encoded(tag: String): String = android.util.Base64.encodeToString(
             "socks5://127.0.0.1:1080#$tag".toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)

@@ -7,6 +7,7 @@ import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileChange
 import io.nekohasekai.sfa.database.ProfileContent
+import io.nekohasekai.sfa.database.ProfileDefaultTemplate
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.ProfileNodeSubscription
 import io.nekohasekai.sfa.database.ProfileSubscription
@@ -87,7 +88,7 @@ internal class BoxProfiles(
     }
 
     suspend fun writeContent(id: Long, content: String, expectedRevision: String): Map<String, Any?> = mutex.withLock {
-        writeContentLocked(id, content, expectedRevision)
+        writeContentLocked(id, content, expectedRevision, normalizeTemplateAuto = true)
     }
 
     internal data class PreparedResource(
@@ -194,8 +195,10 @@ internal class BoxProfiles(
         saved
     }
 
-    private suspend fun writeContentLocked(id: Long, content: String, expectedRevision: String): Map<String, Any?> {
-        ProfileContent.replaceLocked(get(id), content, expectedRevision = expectedRevision, beforeSave = beforeApply, applySelected = applySelected)
+    private suspend fun writeContentLocked(id: Long, content: String, expectedRevision: String,
+        normalizeTemplateAuto: Boolean = false): Map<String, Any?> {
+        ProfileContent.replaceLocked(get(id), content, expectedRevision = expectedRevision, beforeSave = beforeApply,
+            normalizeTemplateAuto = normalizeTemplateAuto, applySelected = applySelected)
         return configLocked(id)
     }
 
@@ -258,7 +261,12 @@ internal class BoxProfiles(
         val oldContent = if (file.exists()) file.readText() else null
         val supplied = request.content ?: oldContent ?: error("Profile file is missing")
         val cleaned = Libbox.preserveUIConfigNodes(supplied, Libbox.removeUIRetiredCaptureOptions(supplied)).value
-        val content = Libbox.preserveUIConfigNodes(oldContent.orEmpty(), cleaned).value
+        val preserved = Libbox.preserveUIConfigNodes(oldContent.orEmpty(), cleaned).value
+        val profileType = if (request.url.isEmpty()) TypedProfile.Type.Local else TypedProfile.Type.Remote
+        val defaultProfile = previousProfile?.typed?.isDefault ?: request.isDefault
+        val content = if (request.content != null) {
+            ProfileDefaultTemplate.normalizeAutoGroup(preserved, profileType, defaultProfile)
+        } else preserved
         validate(content)
         val changed = content != oldContent
         val previousSubscriptions = previousProfile?.typed?.subscriptions.orEmpty()
@@ -274,11 +282,11 @@ internal class BoxProfiles(
         val profile = Profile(id, previousProfile?.userOrder ?: ProfileManager.nextOrder(), request.name, previousProfile?.icon,
             TypedProfile().apply {
                 path = file.path
-                type = if (request.url.isEmpty()) TypedProfile.Type.Local else TypedProfile.Type.Remote
+                type = profileType
                 remoteURL = request.url
                 autoUpdate = request.autoUpdate
                 autoUpdateInterval = request.interval
-                isDefault = previousProfile?.typed?.isDefault ?: request.isDefault
+                isDefault = defaultProfile
                 subscriptions = previousSubscriptions.map { source -> source.copy(tags = source.tags.filter { it in existingTags }) }
                 lastUpdated = when {
                     id == 0L -> Date(if (request.url.isNotEmpty()) request.updatedAt ?: System.currentTimeMillis() else System.currentTimeMillis())

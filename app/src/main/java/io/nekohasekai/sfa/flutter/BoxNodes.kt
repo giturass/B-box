@@ -6,6 +6,7 @@ import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileContent
+import io.nekohasekai.sfa.database.ProfileDefaultTemplate
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.CommandTarget
@@ -97,7 +98,7 @@ internal class BoxNodes(
 
     suspend fun add(nodes: String, profileId: Long, profileRevision: String): Map<String, Any?> = mutex.withLock {
         val (profile, content) = selected(profileId, profileRevision)
-        val update = Libbox.addUIConfigNodes(content, nodes, profile.typed.isDefault)
+        val update = Libbox.addUIConfigNodes(content, nodes, ProfileDefaultTemplate.usesAutoGroup(profile, content))
         writeProfile(profile, update.config, profileRevision)
         mapOf("added" to update.added, "skipped" to update.skipped)
     }
@@ -121,15 +122,17 @@ internal class BoxNodes(
             val current = JSONObject(Libbox.getUINode(previous, tag).value).getString("content")
             require(expectedRevision != null && ProfileContent.revision(current) == expectedRevision) { "Node changed; reload it before saving" }
         }
-        val edited = if (tag.isEmpty()) Libbox.addUIConfigNodes(previous, "[$content]", profile.typed.isDefault).config
-            else Libbox.setUIConfigNode(previous, tag, content).value
+        val edited = if (tag.isEmpty()) {
+            Libbox.addUIConfigNodes(previous, "[$content]", ProfileDefaultTemplate.usesAutoGroup(profile, previous)).config
+        } else Libbox.setUIConfigNode(previous, tag, content).value
         val renamed = if (tag.isNotEmpty()) tag to JSONObject(content).getString("tag") else null
         writeProfile(profile, edited, profileRevision, renamed)
     }
 
     suspend fun remove(tags: List<String>, profileId: Long, profileRevision: String) = mutex.withLock {
         val (profile, previous) = selected(profileId, profileRevision)
-        val content = Libbox.removeUIConfigNodes(previous, JSONArray(tags.distinct()).toString(), profile.typed.isDefault).value
+        val content = Libbox.removeUIConfigNodes(previous, JSONArray(tags.distinct()).toString(),
+            ProfileDefaultTemplate.usesAutoGroup(profile, previous)).value
         writeProfile(profile, content, profileRevision)
     }
 }

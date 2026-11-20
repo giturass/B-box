@@ -33,7 +33,8 @@ internal data class ProfileSubscription(
         val content = File(path).readText()
         val sourceTags = subscriptions.flatMap { it.tags }.toSet()
         val legacyTags = ProfileNodeSubscription.proxyTags(content).filter { it !in sourceTags }
-        val update = Libbox.applyUISubscriptionNodes(content, incoming, JSONArray(legacyTags).toString(), profile.typed.isDefault)
+        val update = Libbox.applyUISubscriptionNodes(content, incoming, JSONArray(legacyTags).toString(),
+            ProfileDefaultTemplate.usesAutoGroup(profile, content))
         require(update.skipped == 0) { "Subscription contains ${update.skipped} unsupported nodes: ${update.warnings}" }
         return update.config
     }

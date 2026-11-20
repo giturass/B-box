@@ -46,6 +46,7 @@ internal object ProfileContent {
         renamedNode: Pair<String, String>? = null,
         beforeCommit: () -> Unit = {},
         beforeSave: suspend () -> Unit = { requireStableService() },
+        normalizeTemplateAuto: Boolean = false,
         applySelected: suspend (recover: Boolean) -> Unit,
     ) {
         val file = File(profile.typed.path)
@@ -54,7 +55,10 @@ internal object ProfileContent {
             require(previous != null && revision(previous) == expectedRevision) { "Configuration changed; reload it before saving" }
         }
         val removed = Libbox.preserveUIConfigNodes(content, Libbox.removeUIRetiredCaptureOptions(content)).value
-        val cleaned = Libbox.preserveUIConfigNodes(previous.orEmpty(), removed).value
+        val preserved = Libbox.preserveUIConfigNodes(previous.orEmpty(), removed).value
+        val cleaned = if (normalizeTemplateAuto) {
+            ProfileDefaultTemplate.normalizeAutoGroup(preserved, profile.typed.type, profile.typed.isDefault)
+        } else preserved
         validate(cleaned)
         val changed = previous != cleaned
         val previousSubscriptions = profile.typed.subscriptions

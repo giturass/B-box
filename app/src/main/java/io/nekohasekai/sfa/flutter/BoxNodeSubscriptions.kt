@@ -3,6 +3,7 @@ package io.nekohasekai.sfa.flutter
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileContent
+import io.nekohasekai.sfa.database.ProfileDefaultTemplate
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.ProfileNodeSubscription
 import io.nekohasekai.sfa.database.ProfileNodeSubscriptionWarning
@@ -99,7 +100,8 @@ internal class BoxNodeSubscriptions(
         currentCoroutineContext().ensureActive()
         val profile = currentLocked(snapshot)
         val content = File(snapshot.path).readText()
-        val update = Libbox.applyUISubscriptionNodes(content, incoming, JSONArray(snapshot.source.tags).toString(), profile.typed.isDefault)
+        val update = Libbox.applyUISubscriptionNodes(content, incoming, JSONArray(snapshot.source.tags).toString(),
+            ProfileDefaultTemplate.usesAutoGroup(profile, content))
         val tags = JSONArray(update.tags)
         val source = snapshot.source.copy(updatedAt = System.currentTimeMillis(), tags = (0 until tags.length()).map { tags.getString(it) },
             skipped = update.skipped, warnings = ProfileNodeSubscriptionWarning.decode(update.warnings))

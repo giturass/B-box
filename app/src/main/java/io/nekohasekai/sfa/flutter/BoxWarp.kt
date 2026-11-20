@@ -6,6 +6,7 @@ import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileContent
+import io.nekohasekai.sfa.database.ProfileDefaultTemplate
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.CommandTarget
@@ -246,7 +247,8 @@ internal class BoxWarpProfiles(
         stable()
         val (profile, content) = selected(target.profileId, target.revision, target.path)
         val registered = JSONObject(node)
-        val update = Libbox.addUIConfigNodes(content, JSONArray().put(registered).toString(), profile.typed.isDefault)
+        val update = Libbox.addUIConfigNodes(content, JSONArray().put(registered).toString(),
+            ProfileDefaultTemplate.usesAutoGroup(profile, content))
         val type = registered.getString("type")
         val section = when (type) {
             "wireguard" -> "endpoints"
