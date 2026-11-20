@@ -245,7 +245,19 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 2026-11-20 本轮在 `6df59c595fe0ff86ca4c96c884a14070b61620f9` 基础上，将 Prism UI 从 `63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185` 同步至 `7831ade349ede896aedb8a5757dc9c3fe88081d5`。193 个本地包文件中 191 个逐字节对应新提交，两个仅恢复固定 SDK 所需的 rendering 导入；来源清单区分原样导入、兼容补丁与 FlClash 子模块参考。日志流显式启用尾部锚定，上游测试已接入统一工作流。
 
-本轮运行与源码 SHA 将在 Actions 完成后记录。本机仅执行源码、来源哈希及文档静态检查，尚无当前更新的 Flutter 分析、测试、AAR 或运行截图结论；此前运行仅为下表的历史记录。ARM64 实机视觉未验收，核心及 Android 验证由 [应用记录](app.md#当前验证记录) 维护。
+本轮功能源码 `5931339c26bd4e4791b9fec3a68d4713f6780032` 的 [统一测试](https://github.com/giturass/B-box/actions/runs/44692039380)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/44692039380/job/136139917060)）完成源码约束检查、Flutter 分析（95 项 info，0 warning/error）、全部 697 项交互/布局测试（B-box 323 项、Prism 374 项）及 ARM64 Debug/Release Flutter AAR 构建。[AAR 产物](https://github.com/giturass/B-box/actions/runs/44692039380/artifacts/14608958430) 和 [newui-validation 截图](https://github.com/giturass/B-box/actions/runs/44692039380/artifacts/14608874032) 的 `workflow_run.head_sha` 均已核对与该源码一致。
+
+实际查看下列五张本轮截图，文件名相对截图产物的 `build/screenshots/`：
+
+| 截图 | SHA-256 | 可观察结论 |
+| --- | --- | --- |
+| `navigation/diagnostics-long-outbound-320-light-1.4.png` | `fdaed69efa5f274797c55b1e9ba51475366bd22f54e157b2f87dfb9474fe785c` | 320 宽、1.4 倍字号下，Outbound 标题完整，长值省略，选择图标与文字分离；返回、开关及 Start 按钮无可见遮挡或溢出 |
+| `360-dark-1.4-Profiles-populated.png` | `6068b88e70d4eae96a24381b7d410d1a2a69475ee693a6cea488eabe7c54e0bb` | 配置名称、更新时间和选中对号互不遮挡；节点卡片、顶部工具栏及底部导航无可见溢出或重叠 |
+| `800-light-1.0-Profiles-populated.png` | `aa60e4a9cdbd6187eab86fc29261886f75e7e5ceed09955d5e423b75b42e6002` | 宽屏配置标题完整，时间与对号位于右侧；侧栏、工具栏和节点卡片边界清晰 |
+| `360-dark-1.4-Profile-edit.png` | `e7d3db2264941a5e4acab5fda8ceb55fd69b22561d684a441920384313912862` | 弹层关闭、标题和保存按钮分离，可见字段与说明无水平溢出；底部更新间隔行仅露出滚动边界的一部分 |
+| `requests/360-1.4-dark-message-menu.png` | `be3c5cf4451c533f36e88d175ab56bae4fe211e02b87a6cea4191eb5df825632` | 菜单标题、Request/Response/Cookies 和选中对号位于弹层内，菜单行无可见重叠或越出视口 |
+
+这些是 Linux widget 测试截图，采用 SDK Roboto、报文区域的 JetBrainsMono 与 Android 桥接替身；未覆盖中文、键盘弹出、完整表单滚动、加载及弹层动画、真实远程数据或 ARM64 实机视觉。本机仅执行来源哈希、源码约束、`git diff --check` 及文档本地链接/标题片段检查；后续验证记录提交仅补充文档，结论固定于上述功能源码 SHA。核心及 Android 验证由 [应用记录](app.md#当前验证记录) 维护。
 
 ### 历史验证记录
 
@@ -253,6 +265,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 | 日期 | 主题 | 验证源码 | Actions | 测试 / info | 当时实际查看的截图 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-11-20 | Prism UI SDK 导入修复 | `6d9fac605557ff27067b03a01b47a4765954300c` | [44690773881](https://github.com/giturass/B-box/actions/runs/44690773881) | 695 通过、2 失败 / 95 | Prism 374 项全部通过；配置卡更新时间在大字号下溢出约 1.1 px，日志测试 Key 类型与生产组件不匹配；ARM64 AAR 跳过，修正推送取消运行，截图不作为当前通过依据 |
 | 2026-11-20 | Prism UI 0.1.3 首轮同步 | `b5927256036a156b918063adcf873a49122aed2a` | [44689944833](https://github.com/giturass/B-box/actions/runs/44689944833) | 未运行 / 95（4 error） | ScrollCacheExtent 显式导入删除与固定 SDK 导出不兼容；测试和 AAR 跳过，无本轮截图结论；修复原始来源及实际补丁已记录 |
 | 2026-11-19 | 应用独立版本与更新弹窗 | `556a8716e0f7152ae2c3b012145127bcd1fea6d2` | [44489197911](https://github.com/giturass/B-box/actions/runs/44489197911) | 320 / 95 | ARM64 AAR 通过；实际查看中英文 320×568、1.4 倍字号下载、未知来源授权和签名错误六张更新弹窗截图，无重叠/遮挡/溢出；采用测试字体与桥接替身，早于本轮品牌图标及组件更新；设备安装与实机视觉未验收 |
 | 2026-11-19 | 首次通知回归断言修正 | `3d175de0dae76909a2a136ad5a40ae143628f6b2` | [44462310150](https://github.com/giturass/B-box/actions/runs/44462310150) | 306 / 93 | 分析/测试通过，ARM64 AAR 仓库依赖解析失败；x64 Debug AAR 已通过。无本轮分享页视觉验收；整套结果见 [应用历史](app.md#历史验证记录) |
