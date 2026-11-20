@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/widgets.dart';
 import 'package:prism_ui/sliver_list/super_sliver_list.dart';
 

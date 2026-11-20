@@ -119,7 +119,11 @@ for directory in (prism_root / "lib", prism_root / "shaders", prism_root / "test
     for path in directory.rglob("*"):
         if path.is_file() and path.relative_to(prism_root).as_posix() not in prism["files"]:
             errors.append(f"Untracked prism_ui import: {path.relative_to(ROOT)}")
-check_adaptations(prism["adaptedFiles"], flutter, prism["files"])
+prism_sources = dict(prism["files"])
+for local, entry in prism["adaptedFiles"].items():
+    if local.startswith(prism["localPath"] + "/"):
+        prism_sources[entry["source"]] = entry["sourceSHA256"]
+check_adaptations(prism["adaptedFiles"], flutter, prism_sources)
 for local, entry in prism["licenseAssets"].items():
     check_hash(flutter / local, entry["sha256"])
     original = prism_root / entry["source"]

@@ -13,16 +13,18 @@ FlClash 应用层固定参考 [chen08209/FlClash v0.9.3](https://github.com/chen
 | `files` | 直接导入的 14 个 FlClash 应用层 UI 文件及两个字体；哈希对应将 Dart 包引用从 `fl_clash` 机械改名为 `b_box_ui` 后的文件 |
 | `adaptedFiles` | 仪表盘、配置/代理、外观、备份、选项列表行、IP 质量查询及参考测试等适配文件；记录原始来源哈希和实际改动说明 |
 | `adaptedNativeFiles` | `libbox/ui_egress.go` 对 FlClash IP 查询的适配来源；独立保留 v0.9.2 的 `7fd417fb9a9a277c6a9339a8ac87f907df7c25f7` 参考，不随界面升级改写原生查询 |
-| `prismUi` | 独立组件提交与 FlClash 子模块参考、原样导入的 193 个文件、B-box 导航栏与日志流适配及应用内许可资源；包含源码、生成模型、两个 shader、包配置、许可、说明和 39 个上游测试及辅助文件 |
+| `prismUi` | 独立组件提交与 FlClash 子模块参考、191 个原样导入文件、两个 SDK 导入兼容补丁、B-box 导航栏与日志流适配及应用内许可资源；共 193 个本地包文件，包含源码、生成模型、两个 shader、包配置、许可、说明和 39 个上游测试及辅助文件 |
 | `supplementalReferences` | 独立于整体 UI 基线的 MITM dev 补充参考，按原样导入、改写或设计参考记录源文件哈希；本地路径相对仓库根目录 |
 
-清单中 `files` 和 `adaptedFiles` 的本地路径相对 `flutter/`，`adaptedNativeFiles` 的本地路径相对仓库根目录；`source`/`sources` 指向各自固定参考提交内的上游路径。`prismUi.files` 相对其 `localPath`，其中的适配文件和许可资源相对 `flutter/`。清单记录逐文件哈希和改动来源，本文维护使用说明，两者一并保留。
+清单中 `files` 和 `adaptedFiles` 的本地路径相对 `flutter/`，`adaptedNativeFiles` 的本地路径相对仓库根目录；`source`/`sources` 指向各自固定参考提交内的上游路径。`prismUi.files` 相对其 `localPath`，记录实际本地文件哈希；其中的适配文件和许可资源相对 `flutter/`，适配条目单独保留原始上游 `sourceSHA256`。清单记录逐文件哈希和改动来源，本文维护使用说明，两者一并保留。
 
 请求/MITM 功能独立参考 FlClash `dev` 的 [`63aa150e23288558074d877f745a6d3b5f6418f6`](https://github.com/chen08209/FlClash/tree/63aa150e23288558074d877f745a6d3b5f6418f6)，相关提交为 [`f54486102172566e7342d7f5c138663c3c5dec0b`](https://github.com/chen08209/FlClash/commit/f54486102172566e7342d7f5c138663c3c5dec0b) 的 MITM 应用侧设计和 [`1a7556d30a38707f39abfba4b7d6a6b8f57774ed`](https://github.com/chen08209/FlClash/commit/1a7556d30a38707f39abfba4b7d6a6b8f57774ed) 的请求/连接整合。该 dev 源码的 `FEATURE_MITM` 默认关闭，公开 core 不提供完整 MITM 实现；B-box 自行实现 sing-box 路由上的 TLS 接管，不能把上游页面当成可用核心。采用证书信任、报文展示和 CA 模块设计；统一请求查看器的交互参考 Surge [近期请求说明](https://kb.nssurge.com/surge-knowledge-base/zh/guidelines/troubleshooting)及[近期/活动请求 API](https://manual.nssurge.com/tools/http-api.html)，以 B-box 的真实连接和抓取记录实现。该补充参考与 v0.9.3 UI、Android 上游和核心基线分别维护。
 
 FlClash 应用层组件位于 [flutter/lib/ui](flutter/lib/ui)，共享控件以本地包 [flutter/packages/prism_ui](flutter/packages/prism_ui) 使用，保留原始源码与 shader，不再依赖旧 `material_ui`/`cupertino_ui`。原始许可见 [FlClash GPL](flutter/assets/licenses/LICENSE)、[prism_ui LICENSE](flutter/packages/prism_ui/LICENSE) 和 [NOTICE](flutter/packages/prism_ui/NOTICE)。Prism 内置的 shapes、sliver list、resizable navigator 的 MIT 声明另从源文件头提取至 [应用许可资源](flutter/assets/licenses)，与 HCT/Flutter 的 Apache/BSD 及 SDK、插件许可一起在 [许可证页](flutter/lib/pages/licenses.dart) 展示。该页面按包名列出、搜索并打开可选中的完整正文。
 
 [组件 pubspec](flutter/packages/prism_ui/pubspec.yaml) 要求 Dart 3.10+、Flutter 3.47+；0.1.3 的 SDK 要求和依赖与此前固定版本相同。应用继续使用 [setup-flutter](.github/actions/setup-flutter/action.yml) 固定的 Flutter 3.47.6，[锁文件](flutter/pubspec.lock) 仅更新本地 Prism 包的版本。
+
+0.1.3 删除了 `prism_list.dart` 与 `route_motion_hold.dart` 的显式 rendering 导入，但 Flutter 3.47.6 的 [`widgets/viewport.dart`](https://github.com/flutter/flutter/blob/3.47.6/packages/flutter/lib/src/widgets/viewport.dart#L19) 不导出这两个文件使用的 [`ScrollCacheExtent`](https://github.com/flutter/flutter/blob/3.47.6/packages/flutter/lib/src/rendering/viewport.dart#L42)。本地仅恢复 `import 'package:flutter/rendering.dart' show ScrollCacheExtent;`，兼容补丁及原始来源哈希列入 `prismUi.adaptedFiles`，其余 191 个包文件原样保留。
 
 字体归属见 [JetBrainsMono-OFL.txt](flutter/assets/licenses/JetBrainsMono-OFL.txt) 和 [Twemoji-LICENSE.md](flutter/assets/licenses/Twemoji-LICENSE.md)。Twemoji 原始图形来自 Twitter，字体转换由 Mozilla 提供，图形未修改；字体许可同样用于应用内许可证页。
 
@@ -241,7 +243,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-2026-11-20 本轮在 `6df59c595fe0ff86ca4c96c884a14070b61620f9` 基础上，将 Prism UI 从 `63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185` 同步至 `7831ade349ede896aedb8a5757dc9c3fe88081d5`。193 个导入文件逐字节对应新提交，来源清单区分独立组件与 FlClash 子模块参考；日志流显式启用尾部锚定，上游测试已接入统一工作流。
+2026-11-20 本轮在 `6df59c595fe0ff86ca4c96c884a14070b61620f9` 基础上，将 Prism UI 从 `63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185` 同步至 `7831ade349ede896aedb8a5757dc9c3fe88081d5`。193 个本地包文件中 191 个逐字节对应新提交，两个仅恢复固定 SDK 所需的 rendering 导入；来源清单区分原样导入、兼容补丁与 FlClash 子模块参考。日志流显式启用尾部锚定，上游测试已接入统一工作流。
 
 本轮运行与源码 SHA 将在 Actions 完成后记录。本机仅执行源码、来源哈希及文档静态检查，尚无当前更新的 Flutter 分析、测试、AAR 或运行截图结论；此前运行仅为下表的历史记录。ARM64 实机视觉未验收，核心及 Android 验证由 [应用记录](app.md#当前验证记录) 维护。
 
