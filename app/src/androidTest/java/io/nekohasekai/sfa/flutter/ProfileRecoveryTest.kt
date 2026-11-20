@@ -1157,6 +1157,13 @@ class ProfileRecoveryTest {
     }
 
     @Test fun urlSubscriptionsImportOnlyNodesIntoTheSelectedDefaultConfiguration() = withRunningProfile { activity, profiles, id ->
+        fun assertAutomaticGroup(nodes: List<JSONObject>, vararg tags: String) {
+            val auto = nodes.single { it.optString("tag") == "auto" }
+            assertEquals("urltest", auto.getString("type"))
+            val members = auto.getJSONArray("outbounds")
+            assertEquals(tags.toList(), (0 until members.length()).map { members.getString(it) })
+            assertTrue(nodes.any { it.optString("tag") == "direct" && it.optString("type") == "direct" })
+        }
         val upstream = """{
             "log":{"level":"debug"},
             "certificate":{"store":"none"},
@@ -1189,6 +1196,7 @@ class ProfileRecoveryTest {
                     assertEquals("Subscription replaced local $key", defaults.opt(key)?.toString(), saved.opt(key)?.toString())
                 }
                 val outbounds = configurationNodes(profiles.read(defaultId))
+                assertAutomaticGroup(outbounds, "subscription-node")
                 assertEquals(listOf("subscription-node"), outbounds.filter { it.optString("type") == "socks" }.map { it.getString("tag") })
                 assertFalse(outbounds.any { it.optString("tag") in setOf("remote-direct", "remote-group", "remote-auto") })
                 assertFalse(saved.has("proxy-providers"))
@@ -1204,6 +1212,22 @@ class ProfileRecoveryTest {
                 assertTrue(source.updatedAt > 0L)
                 assertEquals(Status.Stopped, activity.serviceStatus.value)
                 assertEquals(1, server.requests.get())
+
+                // A previous import may have left direct beside retained proxy members.
+                val legacyOutbounds = saved.getJSONArray("outbounds")
+                legacyOutbounds.put(JSONObject(socksSubscription("retained-node")).getJSONArray("outbounds").getJSONObject(0))
+                val legacyAuto = (0 until legacyOutbounds.length()).map { legacyOutbounds.getJSONObject(it) }
+                    .single { it.optString("tag") == "auto" }
+                legacyAuto.getJSONArray("outbounds").put("retained-node").put("direct")
+                profiles.writeContent(defaultId, saved.toString(), BoxProfiles.revision(profiles.read(defaultId)))
+
+                server.content = upstream.replace("subscription-node", "updated-subscription-node")
+                subscriptions.update(defaultId, source.id)
+                val updated = configurationNodes(profiles.read(defaultId))
+                assertAutomaticGroup(updated, "retained-node", "updated-subscription-node")
+                assertFalse(updated.any { it.optString("tag") == "subscription-node" })
+                assertEquals(Status.Stopped, activity.serviceStatus.value)
+                assertEquals(2, server.requests.get())
             } finally {
                 ProfileContent.mutex.withLock {
                     ProfileContent.write(File(before.typed.path), original)

@@ -14,7 +14,6 @@ internal object MitmCertificateModule {
     fun write(context: Context, output: OutputStream, certificate: X509Certificate) {
         certificate.checkValidity()
         require(certificate.basicConstraints >= 0 && certificate.keyUsage?.getOrNull(5) == true) { "Expected a CA certificate" }
-        val fingerprint = MitmCertificate.fingerprint(certificate)
         ZipOutputStream(output).use { zip ->
             fun add(name: String, body: () -> Unit) {
                 zip.putNextEntry(ZipEntry(name))
@@ -23,8 +22,8 @@ internal object MitmCertificateModule {
             }
             for (name in assets) add(name) { context.assets.open("mitm-ca/$name").use { it.copyTo(zip) } }
             add("module.prop") { zip.write((
-                "id=bbox_mitm_ca\nname=B-box MITM CA\nversion=3\nversionCode=3\nauthor=B-box / FlClash contributors\n" +
-                "description=Public MITM CA $fingerprint. Reboot after installing, updating or removing.\n"
+                "id=bbox_mitm_ca\nname=B-box Root CA\nversion=3\nversionCode=3\nauthor=Eric Lee\n" +
+                "description=Reboot after installing, updating or removing\n"
             ).toByteArray(Charsets.UTF_8)) }
             add("skip_mount") { }
             add("cacert/${MitmCertificate.systemName(certificate)}") {

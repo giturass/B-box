@@ -115,7 +115,7 @@ class MitmCertificateTest {
             "cacert/${MitmCertificate.systemName(ca)}"), entries.keys)
         assertEquals(pem, entries.getValue("cacert/${MitmCertificate.systemName(ca)}").toString(Charsets.US_ASCII))
         assertTrue(MitmCertificate.systemName(ca).matches(Regex("[0-9a-f]{8}\\.0")))
-        assertTrue(entries.getValue("module.prop").toString(Charsets.UTF_8).contains(MitmCertificate.fingerprint(ca)))
+        assertFalse(entries.getValue("module.prop").toString(Charsets.UTF_8).contains(MitmCertificate.fingerprint(ca)))
         for (content in entries.values) {
             val text = content.toString(Charsets.UTF_8)
             assertFalse(text.contains("-----BEGIN PRIVATE KEY-----"))

@@ -138,7 +138,7 @@ MITM 配置、证书设置及 HTTP 脚本/Cron 的入口见 [配置编辑](flcla
 
 证书快照分别报告有效期、私钥可用性、SHA-256、公钥身份及 AndroidCAStore 中按完整 DER 匹配的用户/系统信任。匹配遍历所有 alias，兼容 subject-hash 冲突；进程内信任库存在该证书不代表任意目标应用会信任。Android 7 起很多应用默认不信任用户 CA，pinning、自有证书库、工作资料和独立 namespace 也会限制抓取。界面安装/刷新流程见 [flclash.md](flclash.md#导航与交互约定)。
 
-CA 导出仅包含公钥 CRT。Android 7–10 使用 KeyChain 安装入口，Android 11 及以后打开安全设置，由用户先导出、再在设置中选择 CA 文件；返回值仅表示设置已打开，不能作为安装成功证明。[MitmCertificateModule.kt](app/src/main/java/io/nekohasekai/sfa/flutter/MitmCertificateModule.kt) 可导出 `bbox_mitm_ca` ZIP，交给 Magisk、KernelSU 或 APatch 管理器安装并重启，应用不执行自动 Root 注入。
+CA 导出仅包含公钥 CRT。Android 7–10 使用 KeyChain 安装入口，Android 11 及以后打开安全设置，由用户先导出、再在设置中选择 CA 文件；返回值仅表示设置已打开，不能作为安装成功证明。[MitmCertificateModule.kt](app/src/main/java/io/nekohasekai/sfa/flutter/MitmCertificateModule.kt) 可导出 `bbox_mitm_ca` ZIP。模块显示名为 `B-box Root CA`，作者为 `Eric Lee`，描述仅为 `Reboot after installing, updating or removing`。ZIP 交给 Magisk、KernelSU 或 APatch 管理器安装并重启，应用不执行自动 Root 注入。
 
 [模块脚本](app/src/main/assets/mitm-ca/inject.sh) 参考当前 FlClash 的 system/Conscrypt APEX namespace 处理，导出模块版本为 3。在各实际 namespace 内复制其原有证书集合到独立 tmpfs，补入公钥 CA、处理 hash.N 冲突并设权限/SELinux 标签，准备成功后才 bind 到目标；不先清空证书目录或写系统分区。进入 namespace 前打开并固定 namespace、进程根目录、解释器、脚本及公钥证书的描述符，在目标 `/dev` 临时暂存，避免目标视图隐藏模块路径后无法读取注入器和证书；切换后沿用目标进程的根目录。挂载后核对证书，准备失败保留原库。
 
@@ -254,7 +254,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 - **应用更新绑定与 APK 身份：** [UpdateHTTPBindingTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/UpdateHTTPBindingTest.kt) 检查下载绑定拒绝明文地址和非法大小且不留缓存，并验证实际 JNI 元数据读取的协程取消及后续重试。[UpdateApkVerifierTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/UpdateApkVerifierTest.kt) 读取实际已安装 APK 与测试 APK 的身份/签名，覆盖相同或错误包名拒绝、摘要匹配但非 APK 的内容拒绝、非法元数据和非本仓库下载地址拒绝；API 36+ 同时经过系统签名验证接口。真实 GitHub 网络与跨版本覆盖安装的实际验收范围见 [当前验证记录](#当前验证记录)。
 - **配置应用与恢复：** [ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/完整备份恢复失败、注入的订阅应用失败恢复，以及停服和未选中配置更新的服务状态；停服 selector 回归核对已保存选择在启动时生效、运行选择在停服后保留、不改配置正文/更新时间或启动服务，并拒绝自动组、失效成员、配置选择/修订及会话冲突；另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。`failedSelectionRestoresThePreviousSelectionAndService` 连续五轮核对选配置失败恢复、停止释放核心及重新启动，防止服务清理竞态污染后续用例。
 - **默认文件：** `defaultProfileStaysAvailableAlongsideExistingProfiles` 检查默认文件与其他配置一同显示、持久身份、实际模板的可信库及删除限制；旧系统名称更新保持内容和更新时间，自定义名称及当前选择保留。
-- **配置内订阅来源：** 覆盖 URL 导入保持所选默认文件的本地身份且不创建文件、来源的证书字段不覆盖本机信任策略、Clash/Base64/WireGuard 端点、空或混合非法来源拒绝、混合 KCP 的跳过报告及更新后报告清除、XHTTP/VLESS Encryption 分享链接导入及更新、多来源及本地节点隔离、改名/删除后的归属、下载期间选择和内容冲突、来源编辑后旧下载拒绝、移除来源保留本地节点、Parcel/备份回读，以及来源和内容的应用失败恢复。本地/默认文件的自动更新成功及失败重试也使用实际绑定验证。直接更新用例调用生产 `UpdateProfileWork.updateProfiles`，以受控 WorkManager 暂停周期执行，避免重复下载干扰请求计数；测试结束取消并等待任务、恢复原调度实例。这些用例验证更新逻辑及真实绑定，不验证系统后台调度的实际时序；运行结果见下文记录。
+- **配置内订阅来源：** 覆盖 URL 导入保持所选默认文件的本地身份且不创建文件、来源的证书字段不覆盖本机信任策略、默认 auto 导入/更新后的 direct 兜底清理及 direct 出站保留、Clash/Base64/WireGuard 端点、空或混合非法来源拒绝、混合 KCP 的跳过报告及更新后报告清除、XHTTP/VLESS Encryption 分享链接导入及更新、多来源及本地节点隔离、改名/删除后的归属、下载期间选择和内容冲突、来源编辑后旧下载拒绝、移除来源保留本地节点、Parcel/备份回读，以及来源和内容的应用失败恢复。本地/默认文件的自动更新成功及失败重试也使用实际绑定验证。直接更新用例调用生产 `UpdateProfileWork.updateProfiles`，以受控 WorkManager 暂停周期执行，避免重复下载干扰请求计数；测试结束取消并等待任务、恢复原调度实例。这些用例验证更新逻辑及真实绑定，不验证系统后台调度的实际时序；运行结果见下文记录。
 - **配置时间与日志级别：** `localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。`logLevelFollowsSuccessfulConfigurationReloads` 覆盖真实内核日志订阅的默认级别、运行中修改 `log.level` 后刷新，以及移除该字段后恢复当前核心的默认值。
 - **订阅下载、备份回滚与删除：** 覆盖超过旧 16 MiB 阈值的订阅完成 URL 导入、手动及自动更新并保留服务状态，以及协程取消阻塞中的原生下载。取消用例分别从 IO/Default 调度器发起，共连续执行 20 次，再验证后续请求仍能成功；取消必须结束 JNI 调用且不能作为普通网络失败取消父任务。其他用例覆盖备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、大正文、取消和重定向循环由 [核心订阅测试](libbox/ui_profile_test.go) 覆盖。
 - **设置持久化：** [PreferencePersistenceTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/database/preference/PreferencePersistenceTest.kt) 使用实际 Room 检查普通设置重新读取、提交失败后的缓存恢复、后续排队值保留、取消与回滚顺序，以及 UTF-8 字符串集合；“关闭弃用警告”显式关闭后重新读取及失败恢复仍为关闭。查询策略回归在每次切换 Root/Shizuku 并刷盘后重新打开 Room 数据库读取持久值，同时核对状态流，不以读取同一内存缓存代替持久化验证。
@@ -284,7 +284,9 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-2026-11-20 本轮在 `6df59c595fe0ff86ca4c96c884a14070b61620f9` 基础上独立同步 Prism UI 0.1.3，组件比较 SHA、来源清单、SDK 要求及交互覆盖由 [界面说明](flclash.md#参考版本与来源清单) 维护。Android 上游、核心、应用版本和安装身份保持原基线。
+2026-11-20 工作树基于 `ad06e8bae0eb02686fe56e354c96cbe127e1c117`，包含默认配置 auto 组的 direct 兜底清理修正及 CA 导出模块展示信息调整。分组行为及新增 Go 回归见 [核心说明](libbox.md#节点导入与配置合并)，Android 来源导入用例补充实际保存后分组与 direct 出站断言；CA 模块展示信息见 [上述导出说明](#请求抓取与-mitm)，原有打包用例同步要求模块元数据不含证书指纹。本机已执行 `python3 tools/verify_newui.py`、`git diff --check` 及文档本地链接/标题片段检查；Go/Android 回归与设备测试尚未运行，无本次修正的 Actions 链接。下列 Prism UI 验证仅对应其中列出的旧源码 SHA。
+
+此前 Prism UI 0.1.3 同步在 `6df59c595fe0ff86ca4c96c884a14070b61620f9` 基础上完成，组件比较 SHA、来源清单、SDK 要求及交互覆盖由 [界面说明](flclash.md#参考版本与来源清单) 维护。Android 上游、核心、应用版本和安装身份保持原基线。
 
 本轮功能源码 `5931339c26bd4e4791b9fec3a68d4713f6780032` 的 [统一工作流](https://github.com/giturass/B-box/actions/runs/44692039380) 已完成，8 个作业全部通过：核心 Go 回归、Root CA、Flutter、Android 与四组 smoke。Flutter 分析、交互/布局测试、ARM64 AAR 及实际截图审阅由 [界面验证记录](flclash.md#当前验证记录) 维护。
 

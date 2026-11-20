@@ -36,7 +36,7 @@ func GenerateCA(signer crypto.Signer) (string, error) {
 	now := time.Now()
 	root := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: "B-box MITM " + hex.EncodeToString(identity[:6])},
+		Subject:      pkix.Name{CommonName: "B-box Root CA " + hex.EncodeToString(identity[:6])},
 		NotBefore:    now.Add(-5 * time.Minute), NotAfter: now.AddDate(3, 0, 0),
 		IsCA: true, BasicConstraintsValid: true, MaxPathLenZero: true,
 		KeyUsage:           x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
