@@ -285,7 +285,9 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-2026-11-21 本次普通本地模板修复基于 `31c65e637f991cca6c14daf0136c018864f705fc`，新增真实新建入口的两种节点/订阅导入顺序、Remote/自定义根字段边界及原始 JSON 保存回归。基线提交的 [统一工作流](https://github.com/giturass/B-box/actions/runs/44816677633) 8 个作业通过，但没有覆盖该新建路径。本次修改的本机验证限于 `python3 tools/verify_newui.py`、`git diff --check` 及文档本地链接/标题片段检查，新的 Android 回归尚待 Actions 运行；下列 Prism UI 验证仅对应其中列出的旧源码 SHA。
+2026-11-21 普通本地模板修复的功能源码 `3798fa0b8334fd9402a032767c955e77db0fd79b` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44826839888) 的全部 8 个作业：核心 Go、Root CA、Flutter 分析/交互/布局及 ARM64 AAR、Android JVM/编译，以及四组模拟器 UI/native 回归。Android 作业构建本次 x86_64 libbox、Flutter Debug AAR、应用和测试 APK，并编译 `play` Kotlin。
+
+[API 24](https://github.com/giturass/B-box/actions/runs/44826839888/job/136605855091)、[API 31](https://github.com/giturass/B-box/actions/runs/44826839888/job/136605856420)、[API 36 / 4 KiB](https://github.com/giturass/B-box/actions/runs/44826839888/job/136605855387) 及 [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/44826839888/job/136605855118) 的原生日志各记录 `OK (77 tests)`。逐份日志确认本次新增的新建模板两种导入顺序、Remote/自定义根字段边界和原始 JSON 保存三项用例均实际执行一次并成功；覆盖停服时的真实新建、节点和回环订阅绑定、来源归属、完整保存及重复保存。本机仅执行 `python3 tools/verify_newui.py`、`git diff --check` 和文档本地链接/标题片段检查；新增代理的外网连通性及 ARM64 实机行为未验收，本次未触发签名 Release 或发布。后续验证记录提交仅补充文档；下列 Prism UI 验证对应其中明确列出的此前源码 SHA。
 
 此前 Prism UI 0.1.3 同步在 `6df59c595fe0ff86ca4c96c884a14070b61620f9` 基础上完成，组件比较 SHA、来源清单、SDK 要求及交互覆盖由 [界面说明](flclash.md#参考版本与来源清单) 维护。Android 上游、核心、应用版本和安装身份保持原基线。
 
@@ -293,14 +295,14 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 [Android 作业](https://github.com/giturass/B-box/actions/runs/44692039380/job/136139916873) 完成 x86_64 核心、Flutter Debug AAR、`play` Kotlin 编译及模拟器应用/测试 APK 构建。[JVM 报告](https://github.com/giturass/B-box/actions/runs/44692039380/artifacts/14608814348) 实际包含 18 个 suite、100 项测试，失败、错误及跳过均为 0。下列 smoke 均使用该次 APK；四组 `results.json.sha` 与上述源码一致，UI/native 检查均为 passed，`native-tests.txt` 各记录 `OK (74 tests)`。
 
-| x86_64 模拟器 | 实际页大小（字节） | 页大小读取来源 | 原生 / UI | 本轮报告产物 |
+| x86_64 模拟器 | 实际页大小（字节） | 页大小读取来源 | 原生 / UI | 该次报告产物 |
 | --- | --- | --- | --- | --- |
 | [API 24 / Android 7.0](https://github.com/giturass/B-box/actions/runs/44692039380/job/136142750584) | 4096 | `/proc/self/smaps` | 74 项通过 / 通过 | [14610010882](https://github.com/giturass/B-box/actions/runs/44692039380/artifacts/14610010882) |
 | [API 31 / Android 12](https://github.com/giturass/B-box/actions/runs/44692039380/job/136142750637) | 4096 | `getconf` | 74 项通过 / 通过 | [14610350884](https://github.com/giturass/B-box/actions/runs/44692039380/artifacts/14610350884) |
 | [API 36 / Android 16](https://github.com/giturass/B-box/actions/runs/44692039380/job/136142750583) | 4096 | `getconf` | 74 项通过 / 通过 | [14610196981](https://github.com/giturass/B-box/actions/runs/44692039380/artifacts/14610196981) |
 | [API 36 / Android 16 / ps16k](https://github.com/giturass/B-box/actions/runs/44692039380/job/136142750538) | 16384 | `getconf` | 74 项通过 / 通过 | [14610186221](https://github.com/giturass/B-box/actions/runs/44692039380/artifacts/14610186221) |
 
-本机仅执行来源哈希、源码约束、`git diff --check` 及文档本地链接/标题片段检查；后续验证记录提交仅补充文档，功能源码与上述 Actions 一致。本轮未触发签名 ARM64 Release 或发布；真实 GitHub 更新下载、跨版本覆盖安装及 ARM64 实机视觉未验收，旧 Release 产物不作为当前源码的通过依据。
+该次本机仅执行来源哈希、源码约束、`git diff --check` 及文档本地链接/标题片段检查；后续验证记录提交仅补充文档，功能源码与该次 Actions 一致。该次未触发签名 ARM64 Release 或发布；真实 GitHub 更新下载、跨版本覆盖安装及 ARM64 实机视觉未验收，旧 Release 产物不作为当前源码的通过依据。
 
 ### 历史验证记录
 
