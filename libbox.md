@@ -42,7 +42,7 @@
 
 订阅只读取上述格式中的实际代理节点，忽略 DNS、路由、入站、代理组、配置处理和本地标记，不读取提供者、覆写或脚本。sing-box JSON 只把 `outbounds` / `endpoints` 交给节点解析，其他根级 `servers`、`proxies` 或提供者元数据不会抢先改变格式判断。WireGuard、原生 `masque-client` 等代理端点按当前注册表保留在 `endpoints`；Tailscale 和服务端等基础设施仍保留原配置能力，不作为订阅代理导入。已识别但当前核心明确不支持的能力（如 KCP 传输或 SSR）只跳过对应节点，并由上述结果返回数量和原因；Android 随来源保存报告，界面在导入、更新及来源列表中明确展示。能力拒绝在对应转换器检查到不支持项时返回，该节点后续字段不再构造或保存。未知链接协议、非法列表或协议字段、受支持节点的非法选项，以及失效或循环 detour 仍拒绝整个更新；detour 指向被跳过节点，或存在未命名的被跳过节点而无法确定依赖时，同样拒绝，不能改绑配置中的同名节点。全部节点被跳过、没有可用节点或仅有提供者时失败，旧内容及来源不变。能力拒绝使用独立错误类型，不能把一般解析或校验错误当作可忽略节点。
 
-订阅更新保留已有节点原名称，订阅节点与已有名称冲突时另取“名称 2”等空闲名称，并同步调整本批 detour。节点可以通过当前配置保留的本地节点、其他来源节点或 direct 拨号；通过本地代理组的节点不自动加入组，避免分组产生循环。更新只清理在具体成员组中形成拨号循环的代理成员，包括经本次更新节点间接形成循环的其他来源和本地节点；通过其他组拨号但不形成循环的合法成员关系及节点内容保留，direct 和嵌套组成员保留，组没有合法成员时更新失败。订阅自行定义但已丢弃的代理组只能报错，不能误绑定当前配置的同名组。每轮先移除本来源旧代理再添加新节点，重复更新不会持续增加重名节点。组成员保留仍有效的原顺序，清理已消失名称后追加新名称；失效的默认选择清理。`defaultProfile` 由当前配置的默认身份决定，默认 auto 组的 direct 兜底处理遵循下述默认模板规则；普通配置明确声明的 direct 成员保留。路由、DNS、本地节点或其他来源仍直接引用已消失节点时整个更新失败，不删除用户规则。订阅节点不获得本地标记，完整 `CheckConfig` 和原子保存由 Android 共用流程完成。
+订阅更新保留已有节点原名称，订阅节点与已有名称冲突时另取“名称 2”等空闲名称，并同步调整本批 detour。节点可以通过当前配置保留的本地节点、其他来源节点或 direct 拨号；通过本地代理组的节点不自动加入组，避免分组产生循环。更新只清理在具体成员组中形成拨号循环的代理成员，包括经本次更新节点间接形成循环的其他来源和本地节点；通过其他组拨号但不形成循环的合法成员关系及节点内容保留，direct 和嵌套组成员保留，组没有合法成员时更新失败。订阅自行定义但已丢弃的代理组只能报错，不能误绑定当前配置的同名组。每轮先移除本来源旧代理再添加新节点，重复更新不会持续增加重名节点。组成员保留仍有效的原顺序，清理已消失名称后追加新名称；失效的默认选择清理，明确声明的 direct 成员保留。`defaultProfile` 由当前配置的默认身份决定，仅默认配置的 auto/direct 单成员 fallback 会改为检测来源节点。路由、DNS、本地节点或其他来源仍直接引用已消失节点时整个更新失败，不删除用户规则。订阅节点不获得本地标记，完整 `CheckConfig` 和原子保存由 Android 共用流程完成。
 
 `RetainUISubscriptionNodes(current, tags)` 在移除来源时把仍存在的代理节点加入本地标记，仅改注释，保留文件正文和节点内容，后续来源或旧远端更新不会删除这些节点。缺失名称和非代理节点不获得本地标记。`UpdateUISubscriptionNodes(current, subscription)` 保留旧单 URL 远端配置的兼容行为：替换全部非本地代理，空 `current` 使用默认配置；该旧 StringBox 绑定没有报告通道，含不支持节点时仍拒绝整个更新，避免静默应用部分来源。多来源应用使用 `ApplyUISubscriptionNodes` 按来源维护所有权。`MergeUIConfigNodes(current, incoming)` 仍保留原兼容绑定，新来源不通过它覆盖整份配置。
 
@@ -52,7 +52,7 @@
 
 `GetUIDefaultConfig` 提供无账号的合法 sing-box 模板：proxy 默认包含 auto，auto 在未添加节点时使用 direct。模板显式使用 `certificate.store: "mozilla"`，以当前固定核心内置的可信 CA 校验 HTTPS，避免旧 Android 系统证书库无法验证当前公共证书链；仍检查链、域名及有效期。机制与可信库范围见同版本的 [官方证书配置](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/docs/configuration/certificate/index.md)。配置可显式选择 `system` / `chrome` / `none` 或增加自有 PEM 证书；没有改变这些原生选项的语义。已有文件的保留规则见 [应用配置流程](app.md#配置服务应用与备份)。
 
-`AddUIConfigNodes` / `ApplyUISubscriptionNodes` 的 `defaultProfile=true` 在默认配置的 auto/urltest 组存在合法代理成员时移除其中所有指向 direct 出站的兜底成员，保留代理成员顺序；已混有 direct 与代理的旧配置、没有新增节点的重复导入同样清理。按实际出站类型识别 direct，出站本身以及 DNS/路由对它的引用保留；仅存在无法自动入组的新节点时保留兜底。既有代理可通过其他合法分组拨号，但不能形成回到 auto 的循环。`RemoveUIConfigNodes` 删除最后一个节点时恢复配置中已有 direct。普通配置及已有远端配置保留明确声明的 direct 成员，缺少合法成员时仍拒绝删除；证书设置和其他根级配置保留。默认配置的显示及配置卡片布局由 [Flutter 配置页](flclash.md#导航与交互约定) 维护。
+`AddUIConfigNodes` / `RemoveUIConfigNodes` 的 `defaultProfile=true` 仅调整该默认模板的 auto 组：追加节点后 direct 单成员改为检测代理节点，删除最后一个节点时恢复配置中已有 direct。普通配置及已有远端配置保留明确声明的 direct 成员，缺少合法成员时仍拒绝删除；证书设置和其他根级配置保留。默认配置的显示及配置卡片布局由 [Flutter 配置页](flclash.md#导航与交互约定) 维护。
 
 ### 节点分享
 
@@ -482,7 +482,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 
 - [ui_http_test.go](libbox/ui_http_test.go)：WebDAV 状态/内容/重定向及超过旧大小上限的传输，HTTP 任务关闭时取消等待中的响应头与正文，Release 元数据的重定向、大响应、重定向循环和共享期限。
 - [ui_profile_test.go](libbox/ui_profile_test.go)：订阅请求头保留、超过旧容量的正文、覆盖响应头与正文的期限、错误状态不读正文、重定向循环和非法地址。
-- [ui_nodes_profile_test.go](libbox/ui_nodes_profile_test.go) 与 [ui_nodes_config_test.go](libbox/ui_nodes_config_test.go)：直接追加、重名及重复导入、端点分类、单节点编辑/删除、默认配置、远端刷新只保留本地节点、冲突节点链改名、消失的上游引用拒绝、标记在标准格式化/平台编辑/删除后保留或清除，以及无本地节点时保持超过 16 MiB 的订阅原文。[ui_nodes_default_test.go](libbox/ui_nodes_default_test.go) 补充默认 auto 遗留混合 direct、重复导入及来源刷新清理、合法分组拨号成员和无可用新成员时的兜底；[ui_nodes_headers_test.go](libbox/ui_nodes_headers_test.go) 验证普通配置及远端声明的 direct 成员保留，节点追加、合并和改名不会改写自由 HTTP 头内容或把头键误判为出站引用。[ui_nodes_parse_test.go](libbox/ui_nodes_parse_test.go)、[ui_nodes_document_test.go](libbox/ui_nodes_document_test.go)、[ui_nodes_link_test.go](libbox/ui_nodes_link_test.go) 与 [ui_nodes_wireguard_test.go](libbox/ui_nodes_wireguard_test.go) 保留 URI、订阅文档和 WireGuard 协议解析覆盖。上述文件描述当前断言范围，实际运行结果以 [应用验证记录](app.md#当前验证记录) 为准。
+- [ui_nodes_profile_test.go](libbox/ui_nodes_profile_test.go) 与 [ui_nodes_config_test.go](libbox/ui_nodes_config_test.go)：直接追加、重名及重复导入、端点分类、单节点编辑/删除、默认配置、远端刷新只保留本地节点、冲突节点链改名、消失的上游引用拒绝、标记在标准格式化/平台编辑/删除后保留或清除，以及无本地节点时保持超过 16 MiB 的订阅原文。[ui_nodes_headers_test.go](libbox/ui_nodes_headers_test.go) 验证普通配置及远端声明的 direct 成员保留，节点追加、合并和改名不会改写自由 HTTP 头内容或把头键误判为出站引用。[ui_nodes_parse_test.go](libbox/ui_nodes_parse_test.go)、[ui_nodes_document_test.go](libbox/ui_nodes_document_test.go)、[ui_nodes_link_test.go](libbox/ui_nodes_link_test.go) 与 [ui_nodes_wireguard_test.go](libbox/ui_nodes_wireguard_test.go) 保留 URI、订阅文档和 WireGuard 协议解析覆盖。上述文件描述当前断言范围，实际运行结果以 [应用验证记录](app.md#当前验证记录) 为准。
 - [ui_egress_test.go](libbox/ui_egress_test.go)：来源解析、公网 IP 校验、竞速并发与取消、失败或解析失败后继续竞速、服务替换、期限和关闭取消路由拨号、停服等待路由退出、不回退直连，以及 IP 胜出后保持质量查询会话。
 - [ui_route_test.go](libbox/ui_route_test.go)：停服等待路由和指定出站的拨号退出，以及准入与关闭的竞争。
 - [ui_lan_test.go](libbox/ui_lan_test.go)：监听地址、开关保留原生配置、创建/停用 mixed 入站、新监听冲突与校验。
