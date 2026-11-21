@@ -70,11 +70,14 @@ class UiProcessIpcTest {
         assertNull(IpcPayload.write(context, null))
         assertNull(IpcPayload.read(null))
         assertArrayEquals(byteArrayOf(), IpcPayload.read(IpcPayload.write(context, byteArrayOf())))
-        val failure = runCatching {
-            codec.decodeEnvelope(IpcPayload.readableBuffer(IpcPayload.errorBytes(
-                FlutterException("revision", "配置已变更", mapOf("revision" to 73)),
+        val originalFailure = assertThrows(FlutterException::class.java) {
+            codec.decodeEnvelope(IpcPayload.readableBuffer(IpcPayload.writtenBytes(
+                codec.encodeErrorEnvelope("revision", "配置已变更", mapOf("revision" to 73)),
             ))!!)
-        }.exceptionOrNull() as FlutterException
+        }
+        val failure = assertThrows(FlutterException::class.java) {
+            codec.decodeEnvelope(IpcPayload.readableBuffer(IpcPayload.errorBytes(originalFailure))!!)
+        }
         assertEquals("revision", failure.code)
         assertEquals("配置已变更", failure.message)
         assertEquals(73, (failure.details as Map<*, *>)["revision"])
