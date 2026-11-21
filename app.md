@@ -307,7 +307,11 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-2026-11-22 UI 进程拆分的功能源码 `6bc12b4ee406edf790aeef486008d648d61f4434` 在 [统一工作流](https://github.com/giturass/B-box/actions/runs/44934874464) 完成核心 Go、Root CA、Flutter 分析与 719 项交互/布局测试、ARM64 AAR、Android 编译及 121 项 JVM 测试。四组模拟器的 UI、导入恢复和 PID 检查通过；原生组尚未全部通过，日志订阅状态转发及 API 24 终端回调夹具修复待下一轮 Actions 验证。该运行的 APK、AAR 与测试报告源码 SHA 已核对；本轮未执行本机编译或设备测试，也未触发签名 Release 或发布。下列记录对应各自列出的此前源码 SHA。
+2026-11-22 UI 进程拆分的功能源码 `b9a6edd109ea955c82f3fa822da87fa2c676db0f` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44937203265) 的全部 8 个作业：核心 Go、Root CA、Flutter 分析/交互/布局与 ARM64 AAR、Android JVM/编译，以及四组模拟器 UI/native 回归。[Flutter 作业](https://github.com/giturass/B-box/actions/runs/44937203265/job/136946338170) 记录 719 项测试全部通过，分析为 97 项 info、0 warning/error，ARM64 Debug/Release AAR 均构建成功；[Android 作业](https://github.com/giturass/B-box/actions/runs/44937203265/job/136946338177) 完成匹配核心与 Flutter Debug AAR、应用和测试 APK、other/play Kotlin 及 AIDL 编译，21 个 JVM 套件的 121 项测试全部通过，失败、错误和跳过均为 0。
+
+[API 24](https://github.com/giturass/B-box/actions/runs/44937203265/job/136948501797)、[API 31](https://github.com/giturass/B-box/actions/runs/44937203265/job/136948501738)、[API 36 / 4 KiB](https://github.com/giturass/B-box/actions/runs/44937203265/job/136948501710) 和 [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/44937203265/job/136948501773) 各记录 `OK (110 tests)`，逐项核对均成功且无跳过，实际页大小为 4096/4096/4096/16384。四组共 12 次后台检查确认 UI PID 消失、重新打开产生新 UI PID，默认进程 PID 持续保留；运行场景的 VPN 服务均保持 `isForeground=true`，未完成导入恢复和完成确认通过。退出/权限、Intent、终端 Binder/PFD、背压/查询回复及日志级别重载的新增或适配用例均实际执行成功。
+
+APK、AAR、JVM 报告和四组 smoke 产物的 `workflow_run.head_sha` 及设备结果源码 SHA 均已核对为上述功能提交。本机仅执行源码约束、Python/Manifest 语法、差异空白及文档链接检查，并读取 Actions 日志和产物；本轮未执行本机编译或设备测试，ARM64 实机、真实 SSH/Tailscale 连接及其他系统授权交互未逐项验收，未触发签名 Release 或发布。后续验证记录提交仅补充文档；下列记录对应各自列出的此前源码 SHA。
 
 2026-11-21 普通本地模板修复的功能源码 `3798fa0b8334fd9402a032767c955e77db0fd79b` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44826839888) 的全部 8 个作业：核心 Go、Root CA、Flutter 分析/交互/布局及 ARM64 AAR、Android JVM/编译，以及四组模拟器 UI/native 回归。Android 作业构建本次 x86_64 libbox、Flutter Debug AAR、应用和测试 APK，并编译 `play` Kotlin。
 
