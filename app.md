@@ -270,7 +270,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 以下用例使用实际 libbox AAR，由 smoke 矩阵的原生组在每个环境运行。模拟器中的自有客户端和本地测试服务器不代表第三方目标应用信任、真实网络或 Root 模块已经实机通过。
 
-- **跨进程状态：** [UiProcessIpcTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ipc/UiProcessIpcTest.kt) 通过本地 Binder 和真实匿名文件描述符检查大消息、双向请求、断开与恢复，以及快速返回前台后的迟到退出请求；[BoxIntentStateTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/BoxIntentStateTest.kt) 检查未完成 Intent 恢复、完成确认、文本/多 URI 分享与 AtomicFile 冷恢复；[TerminalProcessIpcTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/terminal/TerminalProcessIpcTest.kt) 用仅 Debug 的两个服务实际跨默认/`:ui` 进程验证终端快照、ANSI/UTF-8、大文件描述符消息、UI 死亡、输出背压、查询回复超时及初次连接中断恢复。配置恢复测试通过默认进程的真实 `BoxHost` 操作服务，另启动生产 `:ui` Activity 保持前台身份。
+- **跨进程状态：** [UiProcessIpcTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ipc/UiProcessIpcTest.kt) 通过本地 Binder 和真实匿名文件描述符检查大消息、双向请求、断开与恢复，以及快速返回前台后的迟到退出请求；[BoxIntentStateTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/BoxIntentStateTest.kt) 检查未完成 Intent 恢复、完成确认、文本/多 URI 分享与 AtomicFile 冷恢复；[TerminalProcessIpcTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/terminal/TerminalProcessIpcTest.kt) 用仅 Debug 的两个服务实际跨默认/`:ui` 进程验证终端快照、ANSI/UTF-8、大文件描述符消息、UI 死亡、输出背压、查询回复超时及初次连接中断恢复；API 24 检查 `onServiceDisconnected`，API 26+ 另覆盖 `onBindingDied`。配置恢复测试通过默认进程的真实 `BoxHost` 操作服务，另启动生产 `:ui` Activity 保持前台身份。
 - **宿主退出与权限：** [BoxHostExitTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/BoxHostExitTest.kt) 用退出屏障验证关闭或后台准备期间不再请求定位授权，启动失败仍报告，快速返回前台后恢复授权，且旧退出任务完成不会再次阻止前台交互。
 - **Taildrop 文件交接：** [TaildropSendManagerTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/backend/tools/TaildropSendManagerTest.kt) 用真实 Android 文件描述符检查前台服务启动被拒绝和 LAZY 任务开始前取消，要求清理会话与全部文件句柄；成功交接后的发送由默认进程独立管理。
 
@@ -307,7 +307,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-2026-11-22 UI 进程拆分基于 `d16ad92cdbc7872f416da58f5913b33c65441071` 的当前工作树，新增上述退出策略、跨进程 IPC、Intent 和终端回归及 PID smoke。本轮尚未运行 GitHub Actions、编译或设备测试；下列已完成运行对应各自列出的旧源码 SHA。
+2026-11-22 UI 进程拆分的功能源码 `6bc12b4ee406edf790aeef486008d648d61f4434` 在 [统一工作流](https://github.com/giturass/B-box/actions/runs/44934874464) 完成核心 Go、Root CA、Flutter 分析与 719 项交互/布局测试、ARM64 AAR、Android 编译及 121 项 JVM 测试。四组模拟器的 UI、导入恢复和 PID 检查通过；原生组尚未全部通过，日志订阅状态转发及 API 24 终端回调夹具修复待下一轮 Actions 验证。该运行的 APK、AAR 与测试报告源码 SHA 已核对；本轮未执行本机编译或设备测试，也未触发签名 Release 或发布。下列记录对应各自列出的此前源码 SHA。
 
 2026-11-21 普通本地模板修复的功能源码 `3798fa0b8334fd9402a032767c955e77db0fd79b` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44826839888) 的全部 8 个作业：核心 Go、Root CA、Flutter 分析/交互/布局及 ARM64 AAR、Android JVM/编译，以及四组模拟器 UI/native 回归。Android 作业构建本次 x86_64 libbox、Flutter Debug AAR、应用和测试 APK，并编译 `play` Kotlin。
 

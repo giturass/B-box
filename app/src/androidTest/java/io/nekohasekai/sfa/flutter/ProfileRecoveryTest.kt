@@ -6,6 +6,7 @@ import android.os.Build
 import androidx.concurrent.futures.CallbackToFutureAdapter
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -46,6 +47,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -2397,6 +2399,11 @@ class ProfileRecoveryTest {
         lateinit var host: BoxHost
         instrumentation.runOnMainSync {
             host = BoxHost(instrumentation.targetContext) { method, _ -> error("Unexpected UI request in native fixture: $method") }
+            // Mirror BoxBridge's model wiring; host.close() cancels this collector.
+            val logs = ViewModelProvider(host)[LogViewModel::class.java]
+            host.lifecycleScope.launch {
+                host.serviceStatus.collect { logs.updateServiceStatus(it) }
+            }
             host.updateForeground(true)
         }
         try {

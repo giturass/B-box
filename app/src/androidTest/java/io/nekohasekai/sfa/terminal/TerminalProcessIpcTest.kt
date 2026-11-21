@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.os.Build
 import android.os.IBinder
 import android.os.Process
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -126,7 +127,9 @@ class TerminalProcessIpcTest {
         val renderer = bindRenderer()
         try {
             assertNotEquals(Process.myPid(), renderer.service.pid)
-            for (bindingDied in listOf(false, true)) {
+            // Android 7 exposes onServiceDisconnected; onBindingDied was added in API 26.
+            val bindingEvents = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) listOf(false, true) else listOf(false)
+            for (bindingDied in bindingEvents) {
                 renderer.service.attachWithInterruptedConnection(bindingDied)
                 await { renderer.service.transcript() == backend.transcript() }
                 assertTrue(renderer.service.transcript().contains("connection recovered😀"))
