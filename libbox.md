@@ -239,6 +239,8 @@ CA 仍由 Android 主动生成和安装。[外部签发器](core/sing-box/experi
 
 URL 改写到其他主机或端口后，宿主对实际新目标重新执行 sing-box 路由；原连接的应用及入站归属保留。原目标继续使用原选路，不把模块的 Clash policy 当作 sing-box 出站。Map Local 的文本、文件和 URL 内容由共享资源加载器提供，命名资源随配置保存。HTTP 页面直接编辑这些原生列表和完整 JSON，不再用旧 Map Remote 对象伪装 Concord 语法。
 
+Concord 在回应客户端 TLS 握手前，经当前选路连接并校验原服务器；连接或信任验证失败时保留透传行为。HTTPS Map Local 同样先完成该连接和验证，随后在本地生成 HTTP 响应；行为依据固定源码的 [Session.connect](core/concord/crates/mitm/src/session.rs) 和 [offer_tls](core/concord/crates/mitm/src/engine.rs)。
+
 旧 `experimental.http_rewrite` 和 [旧 JSON 示例](examples/http-rewrite.json) 由 [Go 兼容解析器](core/sing-box/experimental/httpdebug/rewrite_config.go) 执行，仅服务于已有配置。它的 Map Remote、独立正文限额和 Go jq 设置不自动转换为新规则。
 
 ### 模块
@@ -325,7 +327,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](core/sing-box/experimental/h
 - [package_processing.py](tools/package_processing.py) 检查 AAR 与 Concord ABI、ELF machine、LOAD 对齐至少 16 KiB、六个 C ABI 导出及无动态 `libc++_shared`，原子写入同 ABI `libconcord_processing.so`，拒绝错架构或导出缺失的库。
 - [Release](.github/workflows/build-release.yml) 仅手动触发，独立构建同一锁定核心/Concord/Flutter 的 ARM64 Release，不调用测试或自动发布本次开发改动。APK 必须同时含 libbox 与处理库，签名和发布规则见 [app.md](app.md#构建与发布)。
 
-[真实 bridge 回归](core/sing-box/experimental/concord/session_test.go) 覆盖 QuickJS、HTTP/2、TLS 信任、FD 与取消/关闭；[加载回归](core/sing-box/experimental/concord/bridge_native_test.go) 在 Linux 子进程中移除库搜索路径后加载相邻的真实处理库；[ui_concord_test.go](core/sing-box/experimental/libbox/ui_concord_test.go) 覆盖保存前校验/兼容排除和运行原文检查；[Concord 定义测试](core/concord/bins/processing/src/definition.rs) 覆盖模块 HTTP scope、要求诊断和结构检查。下面的详细 HTTP/脚本列表主要是旧 Go 兼容处理器的回归，不能当作新 Rust 实现已通过相同行为的证据。
+[真实 bridge 回归](core/sing-box/experimental/concord/session_test.go) 覆盖 QuickJS、HTTP/2、TLS 信任、FD 与取消/关闭；流关闭使用 sing-box 的可空回调约定，回归核对没有回调时仍完成响应和清理、有回调时仅调用一次。[加载回归](core/sing-box/experimental/concord/bridge_native_test.go) 在 Linux 子进程中移除库搜索路径后加载相邻的真实处理库；[ui_concord_test.go](core/sing-box/experimental/libbox/ui_concord_test.go) 覆盖保存前校验/兼容排除和运行原文检查；[Concord 定义测试](core/concord/bins/processing/src/definition.rs) 覆盖模块 HTTP scope、要求诊断和结构检查。下面的详细 HTTP/脚本列表主要是旧 Go 兼容处理器的回归，不能当作新 Rust 实现已通过相同行为的证据。
 
 ### 回归文件覆盖
 

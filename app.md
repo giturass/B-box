@@ -245,7 +245,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### Android 仪器测试
 
-[ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 的 `concordProcessingUsesKeystoreModulesQuickJSAndReloadRecovery` 使用实际 JNI、Android Keystore、Concord 模块/Map Local、URL 改写、QuickJS、脚本运行及 reload 失败恢复，并检查过期修订和旧处理器混用拒绝；它随下列四组 smoke 运行。测试源码不代表已经通过。
+[ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 的 `concordProcessingUsesKeystoreModulesQuickJSAndReloadRecovery` 使用实际 JNI、Android Keystore、Concord 模块/Map Local、URL 改写、QuickJS、脚本运行及 reload 失败恢复，并检查过期修订和旧处理器混用拒绝；HTTPS 模块复用 smoke 的 TLS 原服务器及独立可信 CA，保留 Concord 的握手前上游连接和信任验证。它随下列四组 smoke 运行，测试源码不代表已经通过。
 
 以下用例使用实际 libbox AAR，由 smoke 矩阵的原生组在每个环境运行。模拟器中的自有客户端和本地测试服务器不代表第三方目标应用信任、真实网络或 Root 模块已经实机通过。
 

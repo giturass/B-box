@@ -86,6 +86,9 @@ import kotlin.concurrent.thread
 @RunWith(AndroidJUnit4::class)
 class ProfileRecoveryTest {
     @Test fun concordProcessingUsesKeystoreModulesQuickJSAndReloadRecovery() = withRunningProfile { activity, profiles, id ->
+        val arguments = InstrumentationRegistry.getArguments()
+        val tlsOriginPort = arguments.getString("mitmOriginPort")?.toInt() ?: error("Run with tools/android_smoke.py TLS fixture")
+        val tlsOriginCA = android.util.Base64.decode(arguments.getString("mitmOriginCA"), android.util.Base64.DEFAULT).toString(Charsets.US_ASCII)
         val authority = MitmCertificate(activity)
         val createdCA = authority.snapshot()["exists"] != true
         val generated = if (createdCA) authority.generate(authority.snapshot()["revision"] as String) else authority.snapshot()
@@ -120,9 +123,9 @@ class ProfileRecoveryTest {
             }
             SubscriptionServer("old").use { origin ->
                 val originPort = URI(origin.url).port
-                val module = "[Map Local]\n^https://offline\\.test(:443)?/static$ data=module-response data-type=text status-code=201\n"
-                val mitm = JSONObject().put("hostname", JSONArray().put("offline.test"))
-                    .put("modules", JSONArray().put(JSONObject().put("name", "Offline").put("text", module).put("enabled", true)))
+                val module = "[Map Local]\n^https://origin\\.test(:443)?/static$ data=module-response data-type=text status-code=201\n"
+                val mitm = JSONObject().put("hostname", JSONArray().put("origin.test"))
+                    .put("modules", JSONArray().put(JSONObject().put("name", "Local response").put("text", module).put("enabled", true)))
                     .put("url-rewrite", JSONArray().put("^http://source\\.test(:80)?/start$ http://mapped.test:$originPort/profile.json header"))
                     .put("body-rewrite", JSONArray().put("http-response ^http://mapped\\.test:$originPort/profile\\.json$ \"old\" \"rewritten\""))
                     .put("script", JSONArray()
@@ -135,16 +138,18 @@ class ProfileRecoveryTest {
                     "inbounds":[{"type":"mixed","tag":"concord-in","listen":"127.0.0.1","listen_port":$proxyPort}],
                     "outbounds":[{"type":"direct","tag":"original"},{"type":"direct","tag":"mapped"}],
                     "route":{"rules":[
-                        {"domain":["offline.test","source.test"],"action":"route","outbound":"original","override_address":"127.0.0.1"},
+                        {"domain":["origin.test"],"action":"route","outbound":"original","override_address":"127.0.0.1","override_port":$tlsOriginPort},
+                        {"domain":["source.test"],"action":"route","outbound":"original","override_address":"127.0.0.1"},
                         {"inbound":["concord-in"],"domain":["mapped.test"],"action":"route","outbound":"mapped","override_address":"127.0.0.1"}
                     ]}
                 }""").put("experimental", JSONObject().put("processing", processing))
+                    .put("certificate", JSONObject().put("store", "none").put("certificate", JSONArray().put(tlsOriginCA)))
                 val preview = JSONObject(Libbox.readUIProcessingModule(module, "{}", "{}"))
                 assertEquals(1, preview.getJSONObject("lines").getJSONArray("map-local").length())
                 profiles.writeContent(id, config.toString(), BoxProfiles.revision(profiles.read(id)))
                 assertEquals(Status.Started, activity.serviceStatus.value)
                 assertEquals("Concord", JSONObject(Libbox.readUICaptureStatus()).getString("backend"))
-                val local = request("offline.test", 443, "/static", true)
+                val local = request("origin.test", 443, "/static", true)
                 assertTrue(local.startsWith("HTTP/1.1 201"))
                 assertTrue(local.contains("module-response"))
                 assertTrue(request("source.test", 80, "/start", false).contains("quickjs"))
