@@ -224,4 +224,20 @@ void main() {
     expect(store.value([...processingPath, 'mitm', 'script']), ['# task = type=generic,script-path=task.js']);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('module tasks remain visible when the installed name differs from the declared name', (tester) async {
+    await mount(tester);
+    store.stats = {'processing': {
+      'modules': [{'name': 'stored-name', 'origin': 'Display name (stored-name)'}],
+      'lines': {'script': [
+        {'name': 'Scheduled task', 'kind': 'generic', 'task': true, 'module': 'Display name (stored-name)'},
+        {'name': 'Other module task', 'kind': 'generic', 'task': true, 'module': 'other'},
+      ]},
+    }};
+    openPage(tester.element(find.byType(HomePage)), ConcordModuleScriptsPage(store: store, moduleName: 'stored-name'));
+    await tester.pumpAndSettle();
+    expect(find.text('Scheduled task'), findsOneWidget);
+    expect(find.text('Other module task'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }

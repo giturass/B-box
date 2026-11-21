@@ -284,9 +284,11 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 本次重构以根仓库 `d16ad92cdbc7872f416da58f5913b33c65441071` 为应用基础。sing-box fork 功能源码 `d874e8444173c214fed8bb0e4fa38e1c0c8a6b16` 已通过 [核心集成](https://github.com/giturass/sing-box/actions/runs/44886346551) 与 [eBPF 检查](https://github.com/giturass/sing-box/actions/runs/44886346496)，前者包括 libbox 扩展、旧 HTTP race 和真实 Concord C ABI/QuickJS/HTTP2/信任/取消。该运行使用 workflow 中固定的 Concord 参考提交，不能代替根 gitlink 组合的验证。
 
-当前锁定 sing-box `c787cfc076160de09ebb73d7db90fe9698610fd0` 已通过 [核心集成](https://github.com/giturass/sing-box/actions/runs/44888701960)，其真实 C ABI 步骤固定使用 Concord `c61e0d7bec99f4eb492722f817cc68d07e17d534`。该 Concord 提交已通过 [processing tests](https://github.com/giturass/concord/actions/runs/44888461689) 和 [完整 gate](https://github.com/giturass/concord/actions/runs/44888461797) 全部九个作业，包含 Linux/macOS 测试、Windows/Android 三 ABI lint、Release 及互通。
+sing-box `c787cfc076160de09ebb73d7db90fe9698610fd0` 已通过 [核心集成](https://github.com/giturass/sing-box/actions/runs/44888701960)，其真实 C ABI 步骤固定使用 Concord `c61e0d7bec99f4eb492722f817cc68d07e17d534`。该 Concord 提交已通过 [processing tests](https://github.com/giturass/concord/actions/runs/44888461689) 和 [完整 gate](https://github.com/giturass/concord/actions/runs/44888461797) 全部九个作业，包含 Linux/macOS 测试、Windows/Android 三 ABI lint、Release 及互通。
 
-根仓库的新 Flutter/Kotlin、完整标签 ARM64/x86_64 AAR、16 KiB 包装和 smoke 待统一 Actions 实际运行；完成后以确切根 SHA 和产物更新本节。此前成功运行已移入历史记录，不能作为新架构已通过的结论。未触发签名 Release 或发布，ARM64 实机视觉/网络与性能未验收。
+根仓库 `ba4d361979445baf72681a939ec5d64abdb9918b` 的 [首轮统一验证](https://github.com/giturass/B-box/actions/runs/44889801435) 通过 Root CA、完整标签 ARM64 和 x86_64 的 libbox/Concord AAR 构建与 16 KiB 包装。Linux 完整标签因使用系统 gcc 链接 Cronet 失败，Flutter 分析及 Android 的 Flutter 库因重复翻译键和可空回调失败，JVM 与 smoke 未运行；该轮不计为通过。Linux 已按上游补齐 Chromium 工具链，Flutter 源码及模块任务归属已修正，新的根 gitlink 组合等待统一验证。
+
+完成后以确切根 SHA 和产物更新本节。此前成功运行已移入历史记录，不能作为新架构已通过的结论。未触发签名 Release 或发布，ARM64 实机视觉/网络与性能未验收。
 
 ### 历史验证记录
 

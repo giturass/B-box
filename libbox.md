@@ -320,7 +320,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](core/sing-box/experimental/h
 ### 构建与工作流
 
 - [setup-core](.github/actions/setup-core/action.yml) 使用已锁定 fork 工作树和隔离依赖补丁；[build-libbox](.github/actions/build-libbox/action.yml) 使用 JDK 17、版本文件 Go 和 NDK 28.0 构建标准 API 24 AAR，再以 NDK 28.2 构建相同 ABI 的 Concord Rust 处理库。Android 完整标签由 fork 的 `b-box/buildtags/android.txt` 内嵌，无 `ts_omit_*` 裁剪。
-- [统一测试](.github/workflows/newui.yml) 的 core job 构建真实 Linux Concord 动态库，再运行完整功能标签的 `TestUI`、真实 C ABI/race、sing-tun map、sing-vmess Vision、XHTTP/VLESS Encryption、MASQUE/WireGuard、路由/出口探测及旧 HTTP/Goja 回归。旧处理器测试与新 Concord bridge 测试分别运行，不相互代替。
+- [统一测试](.github/workflows/newui.yml) 的 core job 构建真实 Linux Concord 动态库，再运行完整功能标签的 `TestUI`、真实 C ABI/race、sing-tun map、sing-vmess Vision、XHTTP/VLESS Encryption、MASQUE/WireGuard、路由/出口探测及旧 HTTP/Goja 回归。Linux 完整标签链接使用 [setup-naive](.github/actions/setup-naive/action.yml) 准备的 Chromium 编译器、sysroot 和 lld；Cronet 提交由主内核的 `.github/CRONET_GO_VERSION` 固定并与 replacement 核对，准备方式遵循该版本的 [下游构建说明](https://github.com/MiChongs/cronet-go/blob/d20ca2de32ca9d00a686c03ce7c2ccf28abe8ca8/README.md#linux-build-instructions)。旧处理器测试与新 Concord bridge 测试分别运行，不相互代替。
 - 同一工作流的 native-arm64 job 独立构建完整标签 ARM64 AAR；Android job 构建同来源 x86_64 AAR、Flutter 和 APK，运行 JVM、play 编译及四组 smoke。Flutter job 分析/测试新处理页面和 Prism 子模块，并构建 ARM64 Flutter AAR。
 - [package_processing.py](tools/package_processing.py) 检查 AAR 与 Concord ABI、ELF machine、LOAD 对齐至少 16 KiB、六个 C ABI 导出及无动态 `libc++_shared`，原子写入同 ABI `libconcord_processing.so`，拒绝重复或错架构库。
 - [Release](.github/workflows/build-release.yml) 仅手动触发，独立构建同一锁定核心/Concord/Flutter 的 ARM64 Release，不调用测试或自动发布本次开发改动。APK 必须同时含 libbox 与处理库，签名和发布规则见 [app.md](app.md#构建与发布)。

@@ -1,0 +1,60 @@
+name: Prepare Linux Naive toolchain
+description: Use the pinned MiChongs Cronet Chromium toolchain for native Linux Naive links.
+
+outputs:
+  cc:
+    description: Chromium C compiler and sysroot.
+    value: ${{ steps.environment.outputs.CC }}
+  cxx:
+    description: Chromium C++ compiler and sysroot.
+    value: ${{ steps.environment.outputs.CXX }}
+  ldflags:
+    description: Cronet linker flags.
+    value: ${{ steps.environment.outputs.CGO_LDFLAGS }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check the locked Cronet toolchain version
+      id: version
+      shell: bash
+      run: |
+        cronet_sha=$(tr -d '\r\n' < core/sing-box/.github/CRONET_GO_VERSION)
+        [[ "$cronet_sha" =~ ^[0-9a-f]{40}$ ]]
+        read -r cronet_path cronet_version <<< "$(go -C .core list -m -f '{{with .Replace}}{{.Path}} {{.Version}}{{end}}' github.com/sagernet/cronet-go)"
+        test "$cronet_path" = github.com/MiChongs/cronet-go
+        test "${cronet_version##*-}" = "${cronet_sha:0:12}"
+        echo "sha=$cronet_sha" >> "$GITHUB_OUTPUT"
+    - name: Check out Cronet and its pinned naiveproxy
+      shell: bash
+      run: |
+        cronet_dir="$RUNNER_TEMP/bbox-cronet-go"
+        git init "$cronet_dir"
+        git -C "$cronet_dir" remote add origin https://github.com/MiChongs/cronet-go.git
+        git -C "$cronet_dir" sparse-checkout set --no-cone '/*' '!/lib'
+        git -C "$cronet_dir" fetch --depth=1 --filter=blob:none origin '${{ steps.version.outputs.sha }}'
+        git -C "$cronet_dir" checkout --detach FETCH_HEAD
+        git -C "$cronet_dir" submodule update --init --recursive --depth=1
+    - uses: actions/cache@v4
+      with:
+        path: |
+          ${{ runner.temp }}/bbox-cronet-go/naiveproxy/src/third_party/llvm-build/
+          ${{ runner.temp }}/bbox-cronet-go/naiveproxy/src/gn/out/
+          ${{ runner.temp }}/bbox-cronet-go/naiveproxy/src/chrome/build/pgo_profiles/
+          ${{ runner.temp }}/bbox-cronet-go/naiveproxy/src/out/sysroot-build/
+        key: cronet-toolchain-linux-amd64-${{ steps.version.outputs.sha }}
+    - name: Regenerate the upstream Debian keyring
+      shell: bash
+      working-directory: ${{ runner.temp }}/bbox-cronet-go
+      run: |
+        rm -f naiveproxy/src/build/linux/sysroot_scripts/keyring.gpg
+        GPG_TTY=/dev/null ./naiveproxy/src/build/linux/sysroot_scripts/generate_keyring.sh
+    - name: Download the matching Chromium toolchain
+      shell: bash
+      working-directory: ${{ runner.temp }}/bbox-cronet-go
+      run: go run ./cmd/build-naive --target=linux/amd64 download-toolchain
+    - name: Export compiler settings for the Naive test step
+      id: environment
+      shell: bash
+      working-directory: ${{ runner.temp }}/bbox-cronet-go
+      run: go run ./cmd/build-naive --target=linux/amd64 env >> "$GITHUB_OUTPUT"

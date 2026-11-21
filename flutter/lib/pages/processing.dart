@@ -416,8 +416,11 @@ class _ConcordModuleScriptsPageState extends State<ConcordModuleScriptsPage> {
     finally { if (mounted) setState(() => _running.remove(name)); }
   }
   @override Widget build(BuildContext context) => ListenableBuilder(listenable: widget.store, builder: (context, _) {
-    final scripts = rows(json(json(widget.store.stats['processing'])['lines'])['script']).where((script) =>
-      script['task'] == true && script['module'] != null && (widget.moduleName == null || script['module'] == widget.moduleName)).toList();
+    final processing = json(widget.store.stats['processing']);
+    final module = rows(processing['modules']).where((module) => module['name'] == widget.moduleName).firstOrNull;
+    final origin = module?['origin'] as String? ?? widget.moduleName;
+    final scripts = rows(json(processing['lines'])['script']).where((script) =>
+      script['task'] == true && script['module'] != null && (widget.moduleName == null || script['module'] == origin)).toList();
     return ProcessingConfigScaffold(title: 'Module task scripts', store: widget.store, children: [
       if (scripts.isEmpty) const EmptyState('No results')
       else generateSection(items: [
@@ -560,14 +563,17 @@ class _ConcordModuleEditorState extends State<ConcordModuleEditor> {
   Widget _argument(Json argument) {
     final name = argument['name'] as String, kind = json(argument['kind']), title = argument['label'] as String? ?? name;
     final current = _arguments[name]?.toString() ?? argument['default']?.toString() ?? '';
-    void changed(String value) => setState(() { _arguments[name] = value; _dirty = true; _preview = null; });
-    return switch (kind['type']) {
+    void changed(String value) {
+      if (_busy) return;
+      setState(() { _arguments[name] = value; _dirty = true; _preview = null; });
+    }
+    return AbsorbPointer(absorbing: _busy, child: switch (kind['type']) {
       'switch' => ListItem.toggle(title: Text(title), value: current == 'true', onChanged: _busy ? null : (value) => changed('$value')),
       'select' => ListItem<String>.options(title: Text(title), options: (kind['options'] as List? ?? const []).whereType<String>().toList(),
-        value: current, textBuilder: (value) => value, onChanged: _busy ? null : changed),
+        value: current, textBuilder: (value) => value, onChanged: changed),
       _ => ListItem.input(title: Text(title), dialogTitle: title, value: current,
-        onChanged: _busy ? null : (value) { if (value != null) changed(value); }),
-    };
+        onChanged: (value) { if (value != null) changed(value); }),
+    });
   }
 }
 

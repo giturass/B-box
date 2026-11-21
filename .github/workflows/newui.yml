@@ -46,11 +46,17 @@ jobs:
       - uses: ./.github/actions/build-concord
         with:
           platform: linux/amd64
+      - id: naive
+        uses: ./.github/actions/setup-naive
       - name: Android ingress-discard map compatibility tests
         working-directory: .core
         run: go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1
       - name: Core bindings with all shipped MiChongs features and Concord
         working-directory: .core
+        env:
+          CC: ${{ steps.naive.outputs.cc }}
+          CXX: ${{ steps.naive.outputs.cxx }}
+          CGO_LDFLAGS: ${{ steps.naive.outputs.ldflags }}
         run: go test -tags="$(cat b-box/buildtags/android.txt)" -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1 -timeout=10m
       - name: Real Concord C ABI, routing, QuickJS, HTTP/2, trust and shutdown races
         working-directory: .core

@@ -251,7 +251,7 @@ MITM 页面复用 Prism 列表和证书入口，编辑共享 processing 开关�
 
 本次新增 Concord 处理页面和模块交互、MiChongs 完整配置入口及 Prism fork 子模块，以根仓库 `d16ad92cdbc7872f416da58f5913b33c65441071` 为修改基础。此前 Prism 0.1.3 的成功分析/697 项测试和五张截图仅对应历史源码 `5931339c26bd4e4791b9fec3a68d4713f6780032`，现移入下表。
 
-本次源码来源/许可、gitlink、文档链接和差异执行本机静态检查；Flutter 分析、交互/布局测试、ARM64 AAR 及新处理页截图等待统一 Actions。尚无本次 ARM64 实机视觉、键盘/动画、第三方 TLS 信任或性能验收；实际运行后按确切根 SHA、Actions 和逐张截图更新，不沿用此前结论。核心/Android 当前结果由 [app.md](app.md#当前验证记录) 维护。
+本次源码来源/许可、gitlink、文档链接和差异执行本机静态检查。[首轮统一 Actions](https://github.com/giturass/B-box/actions/runs/44889801435) 的 Flutter 分析因两个重复翻译键和两个必需回调传入 null 失败，测试与截图未生成；相关源码已修正，补充了模块安装名与显示名不一致时的任务归属回归，等待新一轮分析、交互/布局测试及 ARM64 AAR。尚无本次 ARM64 实机视觉、键盘/动画、第三方 TLS 信任或性能验收；实际运行后按确切根 SHA、Actions 和逐张截图更新，不沿用此前结论。核心/Android 当前结果由 [app.md](app.md#当前验证记录) 维护。
 
 ### 历史验证记录
 
