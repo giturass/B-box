@@ -66,6 +66,7 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
+import java.net.URI
 import java.net.URLEncoder
 import java.security.KeyStore
 import java.security.SecureRandom
@@ -84,6 +85,97 @@ import kotlin.concurrent.thread
 
 @RunWith(AndroidJUnit4::class)
 class ProfileRecoveryTest {
+    @Test fun concordProcessingUsesKeystoreModulesQuickJSAndReloadRecovery() = withRunningProfile { activity, profiles, id ->
+        val authority = MitmCertificate(activity)
+        val createdCA = authority.snapshot()["exists"] != true
+        val generated = if (createdCA) authority.generate(authority.snapshot()["revision"] as String) else authority.snapshot()
+        val caFile = File(activity.noBackupFilesDir, "http-debug/mitm-authority.json")
+        val createdAlias = if (createdCA) JSONObject(caFile.readText()).getString("alias") else null
+        try {
+            val certificate = authority.publicCertificate(generated["revision"] as String)
+            val trustStore = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("mitm", certificate) }
+            val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(trustStore) }
+            val ssl = SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, SecureRandom()) }
+            val proxyPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+            fun request(host: String, port: Int, path: String, secure: Boolean): String = Socket("127.0.0.1", proxyPort).use { tunnel ->
+                tunnel.soTimeout = 10_000
+                tunnel.getOutputStream().write("CONNECT $host:$port HTTP/1.1\r\nHost: $host:$port\r\n\r\n".toByteArray())
+                val reply = StringBuilder()
+                while (!reply.endsWith("\r\n\r\n")) {
+                    val value = tunnel.getInputStream().read()
+                    check(value >= 0 && reply.length < 8192) { "Invalid CONNECT response: $reply" }
+                    reply.append(value.toChar())
+                }
+                assertTrue(reply.toString().startsWith("HTTP/1.1 200"))
+                val client = if (secure) (ssl.socketFactory.createSocket(tunnel, host, port, true) as SSLSocket).apply {
+                    soTimeout = 10_000
+                    sslParameters = sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS"; serverNames = listOf(SNIHostName(host)) }
+                    startHandshake()
+                    (session.peerCertificates[0] as X509Certificate).verify(certificate.publicKey)
+                } else tunnel
+                client.use {
+                    it.getOutputStream().write("GET $path HTTP/1.1\r\nHost: $host:$port\r\nConnection: close\r\n\r\n".toByteArray())
+                    it.getInputStream().readBytes().toString(Charsets.UTF_8)
+                }
+            }
+            SubscriptionServer("old").use { origin ->
+                val originPort = URI(origin.url).port
+                val module = "[Map Local]\n^https://offline\\.test(:443)?/static$ data=module-response data-type=text status-code=201\n"
+                val mitm = JSONObject().put("hostname", JSONArray().put("offline.test"))
+                    .put("modules", JSONArray().put(JSONObject().put("name", "Offline").put("text", module).put("enabled", true)))
+                    .put("url-rewrite", JSONArray().put("^http://source\\.test(:80)?/start$ http://mapped.test:$originPort/profile.json header"))
+                    .put("body-rewrite", JSONArray().put("http-response ^http://mapped\\.test:$originPort/profile\\.json$ \"old\" \"rewritten\""))
+                    .put("script", JSONArray()
+                        .put("response = type=http-response,pattern=^http://mapped\\.test:$originPort/,requires-body=true,script-path=response.js")
+                        .put("task = type=generic,script-path=task.js"))
+                val processing = JSONObject().put("enabled", true).put("mitm", mitm).put("resources", JSONObject()
+                    .put("response.js", JSONObject().put("data_type", "text").put("data", "${'$'}done({body:${'$'}response.body.replace('rewritten','quickjs')});"))
+                    .put("task.js", JSONObject().put("data_type", "text").put("data", "${'$'}done('native-task');")))
+                val config = JSONObject("""{
+                    "inbounds":[{"type":"mixed","tag":"concord-in","listen":"127.0.0.1","listen_port":$proxyPort}],
+                    "outbounds":[{"type":"direct","tag":"original"},{"type":"direct","tag":"mapped"}],
+                    "route":{"rules":[
+                        {"domain":["offline.test","source.test"],"action":"route","outbound":"original","override_address":"127.0.0.1"},
+                        {"inbound":["concord-in"],"domain":["mapped.test"],"action":"route","outbound":"mapped","override_address":"127.0.0.1"}
+                    ]}
+                }""").put("experimental", JSONObject().put("processing", processing))
+                val preview = JSONObject(Libbox.readUIProcessingModule(module, "{}", "{}"))
+                assertEquals(1, preview.getJSONObject("lines").getJSONArray("map-local").length())
+                profiles.writeContent(id, config.toString(), BoxProfiles.revision(profiles.read(id)))
+                assertEquals(Status.Started, activity.serviceStatus.value)
+                assertEquals("Concord", JSONObject(Libbox.readUICaptureStatus()).getString("backend"))
+                val local = request("offline.test", 443, "/static", true)
+                assertTrue(local.startsWith("HTTP/1.1 201"))
+                assertTrue(local.contains("module-response"))
+                assertTrue(request("source.test", 80, "/start", false).contains("quickjs"))
+                assertEquals(1, origin.requests.get())
+                val bridge = BoxProcessing(activity)
+                val run = bridge.invoke("processing.run", mapOf("profileId" to id, "revision" to BoxProfiles.revision(profiles.read(id)), "name" to "task"))
+                assertTrue(JSONObject(run as Map<*, *>).getString("result").contains("native-task"))
+                assertTrue(runCatching { bridge.invoke("processing.run", mapOf("profileId" to id, "revision" to "stale", "name" to "task")) }.isFailure)
+
+                val saved = profiles.read(id)
+                val mixed = JSONObject(saved).apply { getJSONObject("experimental").put("scripts", JSONObject().put("enabled", true)) }
+                assertTrue(runCatching { profiles.writeContent(id, mixed.toString(), BoxProfiles.revision(saved)) }.isFailure)
+                assertEquals(saved, profiles.read(id))
+                ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { occupied ->
+                    val invalid = JSONObject(saved).apply {
+                        getJSONArray("inbounds").put(JSONObject().put("type", "mixed").put("listen", "127.0.0.1").put("listen_port", occupied.localPort))
+                    }
+                    assertTrue(runCatching { profiles.writeContent(id, invalid.toString(), BoxProfiles.revision(saved)) }.isFailure)
+                    assertEquals(saved, profiles.read(id))
+                    assertEquals(Status.Started, activity.serviceStatus.value)
+                    assertTrue(request("source.test", 80, "/start", false).contains("quickjs"))
+                }
+                profiles.writeContent(id, "{}", BoxProfiles.revision(profiles.read(id)))
+            }
+        } finally {
+            withContext(Dispatchers.Main) { activity.stopService() }
+            withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+            createdAlias?.let { KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry(it) }; caFile.delete() }
+        }
+    }
+
     @Test fun profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery() {
         withRunningProfile { activity, profiles, id ->
             val authority = MitmCertificate(activity)

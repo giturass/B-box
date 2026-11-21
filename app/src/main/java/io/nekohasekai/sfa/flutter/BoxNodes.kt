@@ -34,8 +34,7 @@ internal class BoxNodes(
         }
         val nodes = entries.filter { node ->
             val type = node.optString("type")
-            node.optString("tag").isNotBlank() && type !in setOf("selector", "urltest", "direct", "block", "dns", "bridge", "tailscale") &&
-                !type.endsWith("-server")
+            node.optString("tag").isNotBlank() && Libbox.isUIProxyNodeType(type)
         }.map { node ->
             val peer = node.optJSONArray("peers")?.optJSONObject(0)
             mapOf("tag" to node.optString("tag"), "type" to node.optString("type"),

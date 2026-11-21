@@ -91,6 +91,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private val profiles = BoxProfiles(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) {
         recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
     }
+    private val processing = BoxProcessing(activity)
     private val nodes = BoxNodes(beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) }) {
         recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
     }
@@ -254,6 +255,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
             "warp" -> invokeWarp(method, args)
             "subscriptions" -> invokeSubscriptions(method, args)
             "capture" -> invokeCapture(method, args)
+            "processing" -> processing.invoke(method, args)
             "groups", "mode", "systemProxy" -> invokeProxy(method, args)
             "connections" -> invokeConnections(method, args)
             "logs" -> invokeLogs(method, args)

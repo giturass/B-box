@@ -1,10 +1,13 @@
 name: Prepare B-box core
-description: Check out the matching sing-box version and install all B-box patches and bindings.
+description: Prepare the pinned MiChongs sing-box fork and its isolated dependency patches.
 
 outputs:
   version:
-    description: Core version from CORE_VERSION_NAME in version.properties.
+    description: Core version from version.properties.
     value: ${{ steps.versions.outputs.version }}
+  sha:
+    description: Exact fork commit used for the build.
+    value: ${{ steps.lock.outputs.sha }}
 
 runs:
   using: composite
@@ -19,32 +22,24 @@ runs:
         [[ "$go_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "go_version=$go_version" >> "$GITHUB_OUTPUT"
-    - uses: actions/checkout@v5
-      with:
-        repository: SagerNet/sing-box
-        ref: v${{ steps.versions.outputs.version }}
-        path: .core
-        persist-credentials: false
+
+    - name: Verify the locked core commit
+      id: lock
+      shell: bash
+      run: |
+        sha=$(git -C core/sing-box rev-parse HEAD)
+        test "$sha" = "$(git ls-tree HEAD core/sing-box | awk '{print $3}')"
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
     - uses: actions/setup-go@v5
       with:
         go-version: ${{ steps.versions.outputs.go_version }}
-        cache-dependency-path: .core/go.sum
-    - name: Apply patches and install bindings
+        cache-dependency-path: core/sing-box/go.sum
+    - name: Prepare an isolated worktree of the locked submodule
       shell: bash
       run: |
-        git -C .core apply --check ../libbox/libbox-no-legacy.patch
-        git -C .core apply ../libbox/libbox-no-legacy.patch
-        git -C .core apply --check ../libbox/node-profile.patch
-        git -C .core apply ../libbox/node-profile.patch
-        python3 tools/patch_sing_tun.py .core
-        python3 tools/patch_xhttp_vless.py .core
-        python3 tools/patch_warp_masque.py .core
-        python3 tools/patch_httpdebug.py .core
-        cp libbox/ui_*.go .core/experimental/libbox/
-    - name: Resolve the pinned JavaScript, jq and cron runtimes
+        git -C core/sing-box worktree add --detach "$GITHUB_WORKSPACE/.core" '${{ steps.lock.outputs.sha }}'
+        python3 .core/b-box/prepare_dependencies.py
+    - name: Resolve dependencies
       shell: bash
       working-directory: .core
-      run: |
-        go mod edit -go=1.26.0 -require=github.com/dop251/goja@v0.0.0-20261102223426-a177d211bf60 -require=github.com/dlclark/regexp2/v2@v2.11.0 -require=github.com/itchyny/gojq@v0.12.17 -require=github.com/robfig/cron/v3@v3.0.1
-        python3 ../tools/patch_processing_runtimes.py .
-        go mod tidy
+      run: go mod tidy

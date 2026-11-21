@@ -1,9 +1,9 @@
 name: Build B-box libbox
-description: Build the patched Android core with the upstream Java and NDK versions.
+description: Build the pinned Android core and embed Concord's processor for the same ABI.
 
 inputs:
   platform:
-    description: Android target platform (android/arm64 or android/amd64).
+    description: Android target platform (android/arm64, android/arm or android/amd64).
     required: true
 
 outputs:
@@ -37,16 +37,27 @@ runs:
       working-directory: .core
       env:
         LIBBOX_PLATFORM: ${{ inputs.platform }}
+        LIBBOX_CORE_VERSION: ${{ steps.core.outputs.version }}
       run: |
         case "$LIBBOX_PLATFORM" in
-          android/arm64|android/amd64) ;;
+          android/arm64|android/arm|android/amd64) ;;
           *) echo "Unsupported Android platform: $LIBBOX_PLATFORM" >&2; exit 1 ;;
         esac
         export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
         make lib_install
         libbox_go_bin="$(go env GOPATH)/bin"
         export PATH="$PATH:$libbox_go_bin"
-        go run ./cmd/internal/build_libbox -target android -platform "$LIBBOX_PLATFORM"
+        go run ./cmd/internal/build_libbox -target android -platform "$LIBBOX_PLATFORM" -version "$LIBBOX_CORE_VERSION"
         test ! -e libbox-legacy.aar
         mkdir -p ../app/libs
         cp libbox.aar ../app/libs/libbox.aar
+    - id: concord
+      uses: ./.github/actions/build-concord
+      with:
+        platform: ${{ inputs.platform }}
+    - name: Package Concord with libbox
+      shell: bash
+      env:
+        LIBBOX_PLATFORM: ${{ inputs.platform }}
+        CONCORD_PROCESSING_LIBRARY: ${{ steps.concord.outputs.library }}
+      run: python3 tools/package_processing.py app/libs/libbox.aar "$CONCORD_PROCESSING_LIBRARY" "$LIBBOX_PLATFORM"

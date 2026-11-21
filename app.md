@@ -15,7 +15,7 @@
 | 源码 namespace / 包路径 | `io.nekohasekai.sfa` |
 | Android / flavor | API 24（Android 7.0）起，`play` / `other` |
 
-应用版本独立于 Android 上游基线、核心标签与 FlClash 参考提交；版本和更新规则见 [应用版本与应用内更新](#应用版本与应用内更新)。以上描述当前源码，不表示已有 Release 包含全部改动。
+应用版本独立于 Android 上游基线、核心/Concord/Prism gitlink 与 FlClash 参考提交；版本和更新规则见 [应用版本与应用内更新](#应用版本与应用内更新)。以上描述当前源码，不表示已有 Release 包含全部改动。
 
 品牌、安装身份及组件约定：
 
@@ -35,6 +35,7 @@
 | 通道与命令 | `flutter/BoxBridge.kt` | `io.ericlee.bfa/box` MethodChannel 与 `io.ericlee.bfa/events` EventChannel，对接配置、工具和设置 |
 | 原生状态 | `backend/` | 仪表盘、分组、连接、日志、Tailscale/Taildrop、诊断和认证状态模型 |
 | 平台视图 | `flutter/BoxBrowserFactory.kt`、`flutter/BoxTerminalFactory.kt` | OpenConnect WebView 与 Ghostty 终端嵌入 Flutter，不回到旧 Compose 对话框 |
+| HTTP 处理桥接 | [flutter/BoxProcessing.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxProcessing.kt) | 原生配置/脚本校验、模块预览/导入/取消、当前服务脚本运行 |
 | 服务与数据 | `bg/`、`database/`、`utils/` | 保留 sing-box 服务、Room、订阅更新及本地/远程命令目标 |
 | 应用查询 | [vendor/](app/src/main/java/io/nekohasekai/sfa/vendor/) | 普通、Root/Shizuku 应用查询和托管列表扫描；API 24+ 实现及依赖由 `play` / `other` 共用 |
 
@@ -125,7 +126,7 @@ XHTTP 与 VLESS Encryption 通过同一 JSON、节点导入和订阅更新入口
 
 ## 请求抓取与 MITM
 
-MITM 配置、证书设置及 HTTP 脚本/Cron 的入口见 [配置编辑](flclash.md#配置页与内核差异)。先准备并安装 CA，再在选中配置的 MITM 中开启 HTTPS，按顺序填写域名及排除项，并按需开启 TCP 解密。空域名列表不解密。配置随本地服务生效；“工具 → 连接与请求”只控制记录，从新请求/流边界开始，未被接管的旧连接需要目标应用重新建立。HTTP 明文记录不需要 CA，协议选项、默认值及匹配规则见 [libbox.md](libbox.md#独立-mitm-配置)。
+MITM 配置、证书设置及 HTTP 脚本/Cron 的入口见 [配置编辑](flclash.md#配置页与内核差异)。先准备并安装 CA，再在选中配置中启用 Concord 处理及 TLS 解密，按顺序填写域名及排除项。旧配置的 TCP 解密继续由 Go 兼容处理器提供。空域名列表不解密。配置随本地服务生效；“工具 → 连接与请求”只控制记录，从新请求/流边界开始，未被接管的旧连接需要目标应用重新建立。HTTP 明文记录不需要 CA，协议选项、默认值及匹配规则见 [libbox.md](libbox.md#独立-mitm-配置)。
 
 [BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 提供本地请求启停、筛选、列表/详情、域名、HAR/cURL 导出以及 CA 管理。开始抓包需本地服务已 Started；记录设置准备完成后，在配置互斥区复核服务实例、运行配置和当前选择，再调用该服务的抓包绑定；解密设置与证书来自已启动配置。启动失败、返回期间取消或状态确认失败会回收本次已启动会话。切换远程会话停止本地抓包，远程会话拒绝读取或操作本机记录与证书。核心协议、路由、限额和停止行为见 [libbox.md](libbox.md#httphttps-请求调试)。
 
@@ -155,27 +156,21 @@ Root/eBPF 采集器、目标 TLS 库发现、FD 会话和手动函数偏移已�
 
 ### 配置处理生命周期
 
-`experimental.mitm`、`experimental.scripts` 和 `experimental.http_rewrite` 相互独立；字段、迁移及执行范围由 [libbox.md](libbox.md#独立-mitm-配置) 维护。规则与资源随原始 JSON 编辑、分项配置编辑、分享及配置备份保存；订阅更新只替换代理节点，保留配置原有处理设置。本机记录设置、CA 与记录继续留在设备私有目录。
+当前 `experimental.processing` 复用 Concord；旧 `mitm`、`scripts`、`http_rewrite` 仅作为已有配置兼容。字段、模块合成及执行边界由 [libbox.md](libbox.md#独立-mitm-配置) 维护。分项编辑、原始 JSON、分享和配置备份均保留处理规则；订阅只更新自己的代理节点。Flutter 切换旧处理配置时先显示完整候选 JSON，关闭旧 enabled 并保留规则原文，不能自动转换不等价字段。
 
-[BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 启动/重载时调用 `NeedsUIMITMCA`，只有启用且非空的 MITM 域名配置要求 CA。OverrideOptions 的 ProcessingDirectory/MitmCertificate/MitmSigner 传入私有路径、公钥证书及 Keystore 回调，ScriptTimezone 传入设备时区，ProcessingProfileDirectory 传入当前实际配置文件的父目录，供相对文件资源解析。缺少所需 CA 时明确失败，不自动生成或安装。
+[BoxService.kt](app/src/main/java/io/nekohasekai/sfa/bg/BoxService.kt) 启动/重载调用 `NeedsUIMITMCA`。只有实际处理配置需要解密时才加载现有 CA；OverrideOptions 提供私有 ProcessingDirectory、当前配置父目录、Keystore 签名器及设备时区，缺少所需证书时失败，不自动生成或安装。核心先校验/准备配置，再关闭旧会话、启动 sing-box，成功后激活处理、脚本和调度；失败走原有配置及服务恢复。
 
-脚本及 HTTP 改写的资源页通过 `profiles.importResource` 打开现有 Android 文档选择器，使用 ContentResolver 流式复制用户选择的文件。根据 [Android 应用专属存储](https://developer.android.com/training/data-storage/app-specific) 的访问边界，导入文件写入当前配置实际父目录，生成独立文件名并保留有效后缀，再向对应 `resources` 字典写入 `data_type: file` 和相对路径；重名资源加名称后缀，保留原条目。它不依赖 WorkingDirectoryProvider 暴露的外部文件目录，也不把 `content://` 当作 Go 文件路径。
+[BoxProcessing.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxProcessing.kt) 的 `processing.validate`、`validateScript`、`readModule` 调用实际库做结构/语法预览，不执行 JS、读文件或联网。`importModule` 使用文档选择器读取正文，`fetchModule` 使用可取消网络任务返回正文；它们不立即写配置。下载以 requestId 跟踪所有者任务，`processing.cancel` 取消原操作，返回前后复核本机会话。模块参数、附件、启用及顺序由用户确认后沿用整份配置保存；含 DNS/路由的模块必须明确确认只应用 HTTP 部分。
 
-复制在配置和桥接操作锁外完成，先写同目录暂存文件并同步；取消关闭正在读取的文档流并清理暂存。提交时重新核对本地会话、配置身份和内容修订，完整校验 JSON 后重命名文件，再沿用 ProfileContent 的原子保存、服务确认及失败恢复。恢复后确认资源未被配置引用才删除新文件；无法确认恢复状态时保留文件，避免再次破坏配置。导入只登记资源，规则通过资源名称引用；分享、配置导出及 B-box 应用内备份只保存引用，不打包本地资源文件，界面明确说明这一点。Android 系统云备份与设备迁移沿用 [backup_rules.xml](app/src/main/res/xml/backup_rules.xml) 和 [data_extraction_rules.xml](app/src/main/res/xml/data_extraction_rules.xml)，配置为包含整个 `configs` 目录（含导入资源），实际执行由系统决定。
+`processing.run` 持有 ProfileContent 互斥锁，核对所选配置修订和已启动配置快照，再调用该服务的 `CommandServer.RunUIProcessingScript`。核心比较处理器启动时的不可变原文，避免 reload 后把旧页面请求交给同名新脚本。返回原生 task 输出；远程会话、非 Started 状态和过期修订拒绝运行。
 
-libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理、启动核心，成功后才激活 MITM/改写/脚本、Cron 和外部资源刷新。脚本及资源下载使用已启动实例的路由和证书库，`policy` 查找该实例的真实出站，网关模板读取该实例默认接口的网关；配置校验和预览不读取外部源码、不联网或执行脚本。重载/停止先关闭共享路由准入，再取消在途网络及定时器，等待调度/刷新、异步路由和显式出站拨号退出后才关闭核心；手动抓包启停不会重建调度。默认联网、可选限制及失败语义见 [脚本 HTTP 客户端](libbox.md#脚本-http-客户端)。
+资源页通过 `profiles.importResource` 导入 `processing` 或旧处理器资源。ContentResolver 在锁外将文档流复制到当前配置实际父目录的暂存文件，取消关闭流并清理暂存；提交时复核本机会话、配置身份及内容修订，完整 `Libbox.checkConfig` 后原子重命名资源及配置，等待服务确认，失败恢复旧内容。恢复后确认未引用才删除新文件，不能确认时保留。导入生成独立文件名/有效后缀，重名资源不覆盖旧条目，不把 `content://` 当作核心文件路径。
 
-一元 gRPC 脚本的 `grpc_mode` 与空响应快捷动作使用同一 JSON 校验、格式化和保存通路，不新增平台绑定或模块导入入口。HTTP/2、消息与 trailers 处理及脚本宿主行为见 [一元 gRPC 正文脚本](libbox.md#一元-grpc-正文脚本)；脚本主动 abort 关闭当前 HTTP/1 连接或 HTTP/2 流，请求页仍保留实际错误记录。
+共享资源使用 `text/file/url` 和相对路径；模块附件引用同一资源字典。配置导出、应用内备份只保存引用，不打包本地文件，界面有明确说明。系统备份/设备迁移仍按 [backup_rules.xml](app/src/main/res/xml/backup_rules.xml) 和 [data_extraction_rules.xml](app/src/main/res/xml/data_extraction_rules.xml) 包含 `configs` 目录，实际执行由 Android 决定。CA、请求记录、Concord 私有脚本数据及旧脚本缓存不进入配置或备份，也不因模块删除或清空记录删除无关数据。
 
-脚本持久数据保存在私有 `noBackupFilesDir/http-debug/captures/script-storage/`，使用默认共享或显式命名空间；URL 资源缓存位于同级 `resource-cache/`。二者不设固定容量配额；清空记录、启停录制不删除它们，处理配置激活时只回收已无引用的资源缓存及未提交临时文件。脚本持久数据不会因移除规则或重载自动删除。配置/备份携带资源引用、命名空间和联网限制，订阅不会导入或覆盖这些设置。实际存储值和下载缓存留在本机，不加入配置导出、应用备份或系统自动备份；应用内备份也不额外打包引用的本地文件。原子提交及失败保留旧缓存分别见 [存储](libbox.md#脚本持久存储)和[资源加载](libbox.md#文件和-url-资源加载)。
+Concord 的所有上游/脚本/资源连接由 sing-box 路由并使用当前 RootPool；Android Keystore 根私钥只通过签名回调使用。重载和默认接口变化发送 profile-reloaded / network-changed。关闭先取消处理并等待 Rust task、宿主回调与 Go 路由退出，再关闭内核；记录启停只切换原存储策略，不重建 Cron。`ReadUICaptureStatus.active` 只表示手动记录，其他状态由实际处理会话报告；未投影 TLS 细节保持未知。
 
-所有保存继续经过 ProfileContent 修订检查、完整 Libbox.checkConfig、原子写入及失败恢复。配置应用、恢复和后台启动使用同一入口；失败不能留下部分生效的处理或被报告为启动成功。旧嵌套配置的保守迁移见 [核心说明](libbox.md#旧抓包配置清理)。
-
-`ReadUICaptureStatus` 的 active 仅表示手动记录，mitmActive/scriptsActive/rewriteActive 分别报告配置状态，scriptRules/cronJobs/rewriteRules 报告规则数量。录制策略在现有引擎中切换，启停不关闭已有连接；停止时封存记录，处理与转发继续，边界和资源状态字段见 [核心说明](libbox.md#httphttps-请求调试)。服务关闭结束全部处理；切换远程会话停止本地记录并禁止本机记录/证书操作，本地配置继续随本地服务运行，不作为远端状态展示。
-
-CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期间不能轮换密钥；活跃 MITM 或手动抓包拒绝重新生成。界面入口及状态展示见 [flclash.md](flclash.md#配置页与内核差异)。
-
-这些流程的 Android 仪器测试范围见 [验证与历史记录](#android-仪器测试)，核心回归文件见 [libbox.md](libbox.md#回归文件覆盖)。
+配置应用、后台恢复、修订冲突、原子写入、启动确认及失败恢复继续共用 ProfileContent；CA 管理与启动共用 MitmCertificate.accessLock。切换远程会话停止本机记录并禁止本机记录/证书/模块运行操作，不把本机处理结果显示为远端状态。原生验收范围见 [仪器测试](#android-仪器测试)，视觉范围见 [flclash.md](flclash.md#当前验证记录)。
 
 ## 应用版本与应用内更新
 
@@ -203,9 +198,9 @@ CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期�
 
 ## 构建与发布
 
-[app/build.gradle.kts](app/build.gradle.kts) 从本地 `app/libs/libbox.aar` 和 Flutter 生成的 Maven 仓库消费依赖。核心必须包含 [libbox.md](libbox.md) 的当前扩展。[setup-flutter](.github/actions/setup-flutter/action.yml) 统一固定 Flutter 3.47.6，并以 `--enforce-lockfile` 读取已提交的依赖锁文件；当前组件的 SDK 要求、界面来源和本地依赖见 [flclash.md](flclash.md#参考版本与来源清单)。Flutter 验证在 Gradle 启动前显式安装该 SDK 使用的 NDK 28.2.13676358，避免 AAR 配置阶段触发隐式安装；它与 libbox 使用的 NDK 独立。CI 先构建 AAR 到 `flutter/build/host/outputs/repo`，再构建 Android；应用使用 AAR 时不需要再安装 Flutter SDK。
+[app/build.gradle.kts](app/build.gradle.kts) 从本地 `app/libs/libbox.aar` 和 Flutter 生成的 Maven 仓库消费依赖。核心必须来自锁定 MiChongs fork，包含 [libbox.md](libbox.md) 的当前扩展及相同 ABI Concord 处理库。首次检出使用 `git clone --recurse-submodules`，已有检出执行 `git submodule update --init --recursive`。[setup-flutter](.github/actions/setup-flutter/action.yml) 统一固定 Flutter 3.47.6，并以 `--enforce-lockfile` 读取已提交的依赖锁文件；当前组件的 SDK 要求、界面来源和本地依赖见 [flclash.md](flclash.md#参考版本与来源清单)。Flutter 验证在 Gradle 启动前显式安装该 SDK 使用的 NDK 28.2.13676358，避免 AAR 配置阶段触发隐式安装；它与 libbox 使用的 NDK 独立。CI 先构建 AAR 到 `flutter/build/host/outputs/repo`，再构建 Android；应用使用 AAR 时不需要再安装 Flutter SDK。
 
-默认 ABI 为 ARMv7、ARM64、x86_64 并生成 universal；Flutter 不提供 x86 AOT，因此没有 x86。`-Parm64Only=true` 只生成 ARM64，`-PemulatorOnly=true` 只生成 x86_64，二者都关闭 universal；核心及 Flutter AAR 必须包含目标 ABI。
+默认 ABI 为 ARMv7、ARM64、x86_64 并生成 universal；Flutter 不提供 x86 AOT，因此没有 x86。`-Parm64Only=true` 只生成 ARM64，`-PemulatorOnly=true` 只生成 x86_64，二者都关闭 universal；libbox、Concord 与 Flutter 必须包含相同目标 ABI；默认多 ABI 构建须准备每个 ABI 的原生库。
 
 [build-release.yml](.github/workflows/build-release.yml) 仅手动触发，发布 Android 7.0+ 的 ARM64 `otherRelease`。Release 与模拟器构建共用 [build-libbox](.github/actions/build-libbox/action.yml)，核心使用 JDK 17，应用使用 JDK 21；具体 SDK/Build Tools/NDK 版本以共享 Action 和 Gradle 为准。本机未经明确要求不构建，见 [AGENTS.md](AGENTS.md)。
 
@@ -220,7 +215,7 @@ CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期�
 
 工作流将已有密钥解码至 `app/release.keystore`，结束时清理，不上传密钥。Gradle 属性优先读取直接环境变量，再回退 `LOCAL_PROPERTIES` 和 `local.properties`。本地签名文件不入库，不重新生成发布密钥。
 
-Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用 `--no-debug --no-profile`，只生成打包所需的 Release 库。应用构建从**同一次运行**下载两个 AAR 产物，再准备既有签名密钥并执行保留 R8 的 `assembleOtherRelease`。它不调用或等待测试工作流，也不执行 Go、Flutter 或 JVM 测试；验证统一由 [newui.yml](.github/workflows/newui.yml) 在代码推送时运行。中间 AAR Artifact 保留一天。[verify_release.py](tools/verify_release.py) 在 APK 上传前校验唯一 APK、最低 API 24、ARM64、应用包名/版本/标签、启动 Activity、MITM 模块 assets、退役采集器及 Xposed 模块元数据未打包、签名，再从已验证 APK 生成带文件大小和 SHA-256 的更新元数据。APK 和元数据共同上传至 `B-box-<应用版本>-arm64-v8a-release` Artifact，保留 30 天。
+Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用 `--no-debug --no-profile`，只生成打包所需的 Release 库。应用构建从**同一次运行**下载核心（含 Concord）及 Flutter 两个 AAR 产物，再准备既有签名密钥并执行保留 R8 的 `assembleOtherRelease`。它不调用或等待测试工作流，也不执行 Go、Flutter 或 JVM 测试；验证统一由 [newui.yml](.github/workflows/newui.yml) 在代码推送时运行。中间 AAR Artifact 保留一天。[verify_release.py](tools/verify_release.py) 在 APK 上传前校验唯一 APK、最低 API 24、ARM64、libbox/Concord 两个原生库、应用包名/版本/标签、启动 Activity、MITM 模块 assets、退役采集器及 Xposed 模块元数据未打包、签名，再从已验证 APK 生成带文件大小和 SHA-256 的更新元数据。APK 和元数据共同上传至 `B-box-<应用版本>-arm64-v8a-release` Artifact，保留 30 天。
 
 `publish_release` 默认开启；设为 `false` 时仍构建、校验并上传包含更新元数据的 Actions Artifact，仅跳过发布。[publish_release.py](tools/publish_release.py) 在任何远端写入前复核元数据身份及 APK 大小/SHA-256，要求 Release tag 严格等于 `v${VERSION_NAME}` 且指向本次源码 SHA；已有 tag 指向其他提交时失败，不移动版本标签。同一提交重跑可重传 APK 和 `B-box-version-metadata.json`。带预发布后缀的应用版本标为预发布；Release 不使用核心版本命名。
 
@@ -232,8 +227,8 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 | 入口 | 配置的验证范围 |
 | --- | --- |
-| [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入/导出、Android 入口、旧 UI/更新依赖、退役抓包/特权增强实现残留及 Root 事务编号的静态检查 |
-| [newui.yml](.github/workflows/newui.yml) | 各分支代码 push 自动触发，也支持目标为 `dev` / `newui` 的 PR 及手动触发；仅 Markdown 的 push/PR 跳过。统一运行 Root CA 挂载/补查、Go 扩展/XHTTP/VLESS Encryption/HTTP/MITM/重定向布局、Flutter 分析/交互/布局、JVM、`play` 编译及 API 24/31/36 smoke，API 36 另运行 `google_apis_ps16k`；同时构建验证所需的 AAR 和 x86_64 模拟器 APK |
+| [verify_newui.py](tools/verify_newui.py) | 三个 fork gitlink/上游 SHA、完整标签、来源/许可与旧 overlay 清理，Flutter 字形/导入/导出、Android 入口、旧 UI/更新依赖、退役抓包/特权增强实现残留及 Root 事务编号的静态检查 |
+| [newui.yml](.github/workflows/newui.yml) | 各分支代码 push 自动触发，也支持目标为 `dev` / `newui` 的 PR 及手动触发；仅 Markdown 的 push/PR 跳过。统一运行 Root CA 挂载/补查、完整 MiChongs 标签的 Go 扩展、真实 Concord C ABI/QuickJS/HTTP2/信任/取消、ARM64 原生 AAR、XHTTP/VLESS Encryption/旧 HTTP/Goja/重定向布局、Flutter 分析/交互/布局、JVM、`play` 编译及 API 24/31/36 smoke，API 36 另运行 `google_apis_ps16k`；同时构建验证所需的 AAR 和 x86_64 模拟器 APK |
 | [build-release.yml](.github/workflows/build-release.yml) | 仅手动触发；独立并行准备核心/Flutter Release 库，构建签名 ARM64 APK、校验安装身份/产物及可选发布，不运行测试 |
 
 ### JVM 回归
@@ -250,6 +245,8 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### Android 仪器测试
 
+[ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 的 `concordProcessingUsesKeystoreModulesQuickJSAndReloadRecovery` 使用实际 JNI、Android Keystore、Concord 模块/Map Local、URL 改写、QuickJS、脚本运行及 reload 失败恢复，并检查过期修订和旧处理器混用拒绝；它随下列四组 smoke 运行。测试源码不代表已经通过。
+
 以下用例使用实际 libbox AAR，由 smoke 矩阵的原生组在每个环境运行。模拟器中的自有客户端和本地测试服务器不代表第三方目标应用信任、真实网络或 Root 模块已经实机通过。
 
 - **应用更新绑定与 APK 身份：** [UpdateHTTPBindingTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/UpdateHTTPBindingTest.kt) 检查下载绑定拒绝明文地址和非法大小且不留缓存，并验证实际 JNI 元数据读取的协程取消及后续重试。[UpdateApkVerifierTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/UpdateApkVerifierTest.kt) 读取实际已安装 APK 与测试 APK 的身份/签名，覆盖相同或错误包名拒绝、摘要匹配但非 APK 的内容拒绝、非法元数据和非本仓库下载地址拒绝；API 36+ 同时经过系统签名验证接口。真实 GitHub 网络与跨版本覆盖安装的实际验收范围见 [当前验证记录](#当前验证记录)。
@@ -257,7 +254,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 - **默认文件与新建模板：** `defaultProfileStaysAvailableAlongsideExistingProfiles` 检查默认文件与其他配置一同显示、持久身份、实际模板的可信库及删除限制；旧系统名称更新保持内容和更新时间，自定义名称及当前选择保留。普通模板回归通过无 `content` 参数的真实新建入口创建本地文件，保持 `isDefault=false`，分别先添加节点或先导入订阅，再执行另一种操作、刷新来源及删除最后代理，核对 auto 不混入 direct、无节点时恢复兜底、根配置和来源归属保留且停服不启动服务。负向回归将完整模板保存为 Remote，或仅修改 `log.level` 后保存为 Local，验证添加节点保留显式 direct。原始 JSON 保存回归核对混合 auto 成员的清理、本地归属注释恢复、其他分组及根配置保留，以及重复保存不刷新时间或写入代次。
 - **配置内订阅来源：** 覆盖 URL 导入保持所选默认文件的本地身份且不创建文件、来源的证书字段不覆盖本机信任策略、Clash/Base64/WireGuard 端点、空或混合非法来源拒绝、混合 KCP 的跳过报告及更新后报告清除、XHTTP/VLESS Encryption 分享链接导入及更新、多来源及本地节点隔离、改名/删除后的归属、下载期间选择和内容冲突、来源编辑后旧下载拒绝、移除来源保留本地节点、Parcel/备份回读，以及来源和内容的应用失败恢复。本地/默认文件的自动更新成功及失败重试也使用实际绑定验证。直接更新用例调用生产 `UpdateProfileWork.updateProfiles`，以受控 WorkManager 暂停周期执行，避免重复下载干扰请求计数；测试结束取消并等待任务、恢复原调度实例。这些用例验证更新逻辑及真实绑定，不验证系统后台调度的实际时序；运行结果见下文记录。
 - **配置时间与日志级别：** `localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。`logLevelFollowsSuccessfulConfigurationReloads` 覆盖真实内核日志订阅的默认级别、运行中修改 `log.level` 后刷新，以及移除该字段后恢复当前核心的默认值。
-- **订阅下载、备份回滚与删除：** 覆盖超过旧 16 MiB 阈值的订阅完成 URL 导入、手动及自动更新并保留服务状态，以及协程取消阻塞中的原生下载。取消用例分别从 IO/Default 调度器发起，共连续执行 20 次，再验证后续请求仍能成功；取消必须结束 JNI 调用且不能作为普通网络失败取消父任务。其他用例覆盖备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、大正文、取消和重定向循环由 [核心订阅测试](libbox/ui_profile_test.go) 覆盖。
+- **订阅下载、备份回滚与删除：** 覆盖超过旧 16 MiB 阈值的订阅完成 URL 导入、手动及自动更新并保留服务状态，以及协程取消阻塞中的原生下载。取消用例分别从 IO/Default 调度器发起，共连续执行 20 次，再验证后续请求仍能成功；取消必须结束 JNI 调用且不能作为普通网络失败取消父任务。其他用例覆盖备份文件或设置回滚失败后保留暂存原件、继续其他回滚且不启动服务；运行/停止时拒绝删除选中配置、正常删除未选中配置，以及删除等待互斥锁期间选择变化的复核。下载的分块、gzip、大正文、取消和重定向循环由 [核心订阅测试](core/sing-box/experimental/libbox/ui_profile_test.go) 覆盖。
 - **设置持久化：** [PreferencePersistenceTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/database/preference/PreferencePersistenceTest.kt) 使用实际 Room 检查普通设置重新读取、提交失败后的缓存恢复、后续排队值保留、取消与回滚顺序，以及 UTF-8 字符串集合；“关闭弃用警告”显式关闭后重新读取及失败恢复仍为关闭。查询策略回归在每次切换 Root/Shizuku 并刷盘后重新打开 Room 数据库读取持久值，同时核对状态流，不以读取同一内存缓存代替持久化验证。
 - **LAN 缓存：** `lanCacheTracksEqualSizeWritesSuccessfulReloadsAndRecovery` 使用实际文件和 libbox，覆盖同大小同时间戳写入、保存与运行配置分离、成功重载、失败恢复和停服后的 LAN 状态。
 - **记录设置与 MITM CA：** `captureSettingsAreLocalAndCheckRevisions` 使用实际 libbox 和 AtomicFile，覆盖 version 3 设置迁移/保存/重新打开、修订冲突、本机 HTTPS 字段移除和退役选项拒绝。[MitmCertificateTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/MitmCertificateTest.kt) 使用实际 Android Keystore 与 gomobile，验证 CA 自签名、预哈希签名、私钥不可导出、无自动生成、修订冲突/轮换、AtomicFile 恢复、密钥缺失、大小限制，以及 CRT/模块仅含公钥和完整脚本；不安装设备证书或 Root 模块。
@@ -285,24 +282,11 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-2026-11-21 普通本地模板修复的功能源码 `3798fa0b8334fd9402a032767c955e77db0fd79b` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44826839888) 的全部 8 个作业：核心 Go、Root CA、Flutter 分析/交互/布局及 ARM64 AAR、Android JVM/编译，以及四组模拟器 UI/native 回归。Android 作业构建本次 x86_64 libbox、Flutter Debug AAR、应用和测试 APK，并编译 `play` Kotlin。
+本次重构以根仓库 `d16ad92cdbc7872f416da58f5913b33c65441071` 为应用基础。sing-box fork 功能源码 `d874e8444173c214fed8bb0e4fa38e1c0c8a6b16` 已通过 [核心集成](https://github.com/giturass/sing-box/actions/runs/44886346551) 与 [eBPF 检查](https://github.com/giturass/sing-box/actions/runs/44886346496)，前者包括 libbox 扩展、旧 HTTP race 和真实 Concord C ABI/QuickJS/HTTP2/信任/取消。该运行使用 workflow 中固定的 Concord 参考提交，不能代替根 gitlink 组合的验证。
 
-[API 24](https://github.com/giturass/B-box/actions/runs/44826839888/job/136605855091)、[API 31](https://github.com/giturass/B-box/actions/runs/44826839888/job/136605856420)、[API 36 / 4 KiB](https://github.com/giturass/B-box/actions/runs/44826839888/job/136605855387) 及 [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/44826839888/job/136605855118) 的原生日志各记录 `OK (77 tests)`。逐份日志确认本次新增的新建模板两种导入顺序、Remote/自定义根字段边界和原始 JSON 保存三项用例均实际执行一次并成功；覆盖停服时的真实新建、节点和回环订阅绑定、来源归属、完整保存及重复保存。本机仅执行 `python3 tools/verify_newui.py`、`git diff --check` 和文档本地链接/标题片段检查；新增代理的外网连通性及 ARM64 实机行为未验收，本次未触发签名 Release 或发布。后续验证记录提交仅补充文档；下列 Prism UI 验证对应其中明确列出的此前源码 SHA。
+当前锁定 sing-box `c787cfc076160de09ebb73d7db90fe9698610fd0` 已通过 [核心集成](https://github.com/giturass/sing-box/actions/runs/44888701960)，其真实 C ABI 步骤固定使用 Concord `c61e0d7bec99f4eb492722f817cc68d07e17d534`。该 Concord 提交已通过 [processing tests](https://github.com/giturass/concord/actions/runs/44888461689) 和 [完整 gate](https://github.com/giturass/concord/actions/runs/44888461797) 全部九个作业，包含 Linux/macOS 测试、Windows/Android 三 ABI lint、Release 及互通。
 
-此前 Prism UI 0.1.3 同步在 `6df59c595fe0ff86ca4c96c884a14070b61620f9` 基础上完成，组件比较 SHA、来源清单、SDK 要求及交互覆盖由 [界面说明](flclash.md#参考版本与来源清单) 维护。Android 上游、核心、应用版本和安装身份保持原基线。
-
-此前功能源码 `5931339c26bd4e4791b9fec3a68d4713f6780032` 的 [统一工作流](https://github.com/giturass/B-box/actions/runs/44692039380) 已完成，8 个作业全部通过：核心 Go 回归、Root CA、Flutter、Android 与四组 smoke。Flutter 分析、交互/布局测试、ARM64 AAR 及实际截图审阅由 [界面验证记录](flclash.md#当前验证记录) 维护。
-
-[Android 作业](https://github.com/giturass/B-box/actions/runs/44692039380/job/136139916873) 完成 x86_64 核心、Flutter Debug AAR、`play` Kotlin 编译及模拟器应用/测试 APK 构建。[JVM 报告](https://github.com/giturass/B-box/actions/runs/44692039380/artifacts/14608814348) 实际包含 18 个 suite、100 项测试，失败、错误及跳过均为 0。下列 smoke 均使用该次 APK；四组 `results.json.sha` 与上述源码一致，UI/native 检查均为 passed，`native-tests.txt` 各记录 `OK (74 tests)`。
-
-| x86_64 模拟器 | 实际页大小（字节） | 页大小读取来源 | 原生 / UI | 该次报告产物 |
-| --- | --- | --- | --- | --- |
-| [API 24 / Android 7.0](https://github.com/giturass/B-box/actions/runs/44692039380/job/136142750584) | 4096 | `/proc/self/smaps` | 74 项通过 / 通过 | [14610010882](https://github.com/giturass/B-box/actions/runs/44692039380/artifacts/14610010882) |
-| [API 31 / Android 12](https://github.com/giturass/B-box/actions/runs/44692039380/job/136142750637) | 4096 | `getconf` | 74 项通过 / 通过 | [14610350884](https://github.com/giturass/B-box/actions/runs/44692039380/artifacts/14610350884) |
-| [API 36 / Android 16](https://github.com/giturass/B-box/actions/runs/44692039380/job/136142750583) | 4096 | `getconf` | 74 项通过 / 通过 | [14610196981](https://github.com/giturass/B-box/actions/runs/44692039380/artifacts/14610196981) |
-| [API 36 / Android 16 / ps16k](https://github.com/giturass/B-box/actions/runs/44692039380/job/136142750538) | 16384 | `getconf` | 74 项通过 / 通过 | [14610186221](https://github.com/giturass/B-box/actions/runs/44692039380/artifacts/14610186221) |
-
-该次本机仅执行来源哈希、源码约束、`git diff --check` 及文档本地链接/标题片段检查；后续验证记录提交仅补充文档，功能源码与该次 Actions 一致。该次未触发签名 ARM64 Release 或发布；真实 GitHub 更新下载、跨版本覆盖安装及 ARM64 实机视觉未验收，旧 Release 产物不作为当前源码的通过依据。
+根仓库的新 Flutter/Kotlin、完整标签 ARM64/x86_64 AAR、16 KiB 包装和 smoke 待统一 Actions 实际运行；完成后以确切根 SHA 和产物更新本节。此前成功运行已移入历史记录，不能作为新架构已通过的结论。未触发签名 Release 或发布，ARM64 实机视觉/网络与性能未验收。
 
 ### 历史验证记录
 
@@ -310,6 +294,8 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 | 日期 | 主题 | 验证源码 | Actions | 范围与备注 |
 | --- | --- | --- | --- | --- |
+| 2026-11-21 | 普通本地模板导入与保存修复 | `3798fa0b8334fd9402a032767c955e77db0fd79b` | [44826839888](https://github.com/giturass/B-box/actions/runs/44826839888) | 8 个作业通过，四组各 77 项原生及 UI smoke 通过；不含 MiChongs/Concord 子模块重构，ARM64 实机未验收 |
+| 2026-11-20 | Prism UI 0.1.3 同步验收 | `5931339c26bd4e4791b9fec3a68d4713f6780032` | [44692039380](https://github.com/giturass/B-box/actions/runs/44692039380) | 8 个作业通过，100 项 JVM、四组各 74 项原生及 UI smoke；697 项 Flutter/Prism 和 ARM64 Flutter AAR。逐项产物/截图记录可查 Git `d16ad92:app.md` 与 `flclash.md`；不含新核心架构 |
 | 2026-11-20 | Prism UI SDK 导入修复 | `6d9fac605557ff27067b03a01b47a4765954300c` | [44690773881](https://github.com/giturass/B-box/actions/runs/44690773881) | 核心、Root CA、JVM 及模拟器 APK 构建通过；Flutter 两项失败，ARM64 AAR 跳过；配置卡宽度与日志测试 Key 修正后推送取消四组 smoke，整套为 cancelled；具体失败由 [界面历史](flclash.md#历史验证记录) 维护 |
 | 2026-11-20 | Prism UI 0.1.3 首轮同步 | `b5927256036a156b918063adcf873a49122aed2a` | [44689944833](https://github.com/giturass/B-box/actions/runs/44689944833) | 核心与 Root CA 通过；Flutter 分析因固定 SDK 不通过 widgets 导出 ScrollCacheExtent 而有 4 项错误，Android debug Flutter AAR 同类编译失败；Flutter 测试、ARM64 AAR、JVM 和 smoke 未运行，整套失败；两处显式导入修复由 [界面说明](flclash.md#参考版本与来源清单) 记录 |
 | 2026-11-19 | 应用独立版本与更新下载/安装 | `556a8716e0f7152ae2c3b012145127bcd1fea6d2` | [44489197911](https://github.com/giturass/B-box/actions/runs/44489197911)、[ARM64 Release 44489951496/attempts/3](https://github.com/giturass/B-box/actions/runs/44489951496/attempts/3) | 8 个作业通过；100 项 JVM，四组各 74 项原生及 UI smoke 通过；应用 `1.0.1` / `749` 的签名 ARM64 构建、元数据和既有签名证书核对通过，`publish_release=false`；设备覆盖安装与实机视觉未验收，包含替换前的图标 |
@@ -323,7 +309,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 | 2026-11-17 | WARP 注册与传输重写首轮 | `d825ccfc59e8a79568a8b78457e425503cd631d0` | [44113437340](https://github.com/giturass/B-box/actions/runs/44113437340) | 核心与 Flutter 夹具失败后被后续推送取消，不计为通过 |
 | 2026-11-17 | 停服代理组选择首轮 | `2167896c44aa6f9cc7e08c124fd868ebb4f96e87` | [44106959931](https://github.com/giturass/B-box/actions/runs/44106959931) | 重复标签/缓存属主夹具及 Flutter 列表选择用例失败；API 24 原生 60 项通过，UI 等待 Running 超时且没有具体服务异常依据，不能用后续 Messenger 弹窗解释 |
 | 2026-11-17 | XHTTP/VLESS Encryption 与 Vision 指针修正 | `8c56b623b46c7ab4c5c4632b1db428ebc49dcb25` | [44086051274](https://github.com/giturass/B-box/actions/runs/44086051274)、[ARM64 Release 44086592572](https://github.com/giturass/B-box/actions/runs/44086592572) | 核心、Flutter 287 项及 ARM64 AAR、JVM 56 项通过；四组各 59 项原生通过，API 31/36/16 KiB UI 通过，API 24 两次 UI 等待 Running 超时，统一工作流未通过。签名 Release `1.15.0-alpha.13` / `748` 构建与 v2 签名/身份/产物校验通过，`publish_release=false`，未发布或实机验收；[APK Artifact](https://github.com/giturass/B-box/actions/runs/44086592572/artifacts/14330106966) 属于该旧源码 |
-| 2026-11-17 | XHTTP/VLESS Encryption 移植首轮 | `c1a865fdc0a21d1d6572d27a0db0e2179817ccb2` | [44083485919](https://github.com/giturass/B-box/actions/runs/44083485919) | Vision 旧 `uintptr` 接口触发 `checkptr` 失败，后续推送取消；修正来源见 [SOURCE.md](libbox/xhttp/SOURCE.md) |
+| 2026-11-17 | XHTTP/VLESS Encryption 移植首轮 | `c1a865fdc0a21d1d6572d27a0db0e2179817ccb2` | [44083485919](https://github.com/giturass/B-box/actions/runs/44083485919) | Vision 旧 `uintptr` 接口触发 `checkptr` 失败，后续推送取消；修正来源见 [SOURCE.md](core/sing-box/b-box/README.md#xhttp-与-vless-encryption) |
 | 2026-11-17 | 配置内订阅来源及跳过报告 | `5937367671729a0c726182500288732851aa969a` | [44070105954](https://github.com/giturass/B-box/actions/runs/44070105954)、[ARM64 Release 44070141753](https://github.com/giturass/B-box/actions/runs/44070141753) | 核心、287 项 Flutter、56 项 JVM、四组各 54 项原生回归通过；API 31/36/16 KiB UI 通过，API 24 默认联网启动失败；当时 XHTTP 明确跳过，不包含新增协议。签名 Release 通过且未发布，未实机验收 |
 | 2026-11-17 | 默认名称、选中对号及弃用警告默认值 | `a4607728af065cb46a8b0c021480988bd9531442` | [43917329871](https://github.com/giturass/B-box/actions/runs/43917329871) | 8 个作业通过；271 项 Flutter；56 项 JVM；API 24/31/36 及 16 KiB 四组各 44 项原生测试和 UI smoke；API 24 默认文件和实际核心分组截图抽样通过，未覆盖本轮订阅来源；未触发签名 Release |
 | 2026-11-16 | 配置内节点、默认文件及首页切换语义修复 | `041325d4824cfae8f115f25021f0f7a8160c68aa` | [43875039054](https://github.com/giturass/B-box/actions/runs/43875039054) | 8 个作业通过；271 项 Flutter；56 项 JVM；API 24/31/36 及 16 KiB 四组各 44 项原生测试和 UI smoke，API 24 默认文件及核心分组截图抽样通过；未触发签名 Release |

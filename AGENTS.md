@@ -1,6 +1,6 @@
 # B-box 项目约束
 
-本文件适用于整个仓库，记录开发和维护约束。项目以 sing-box-for-android 为 Android 后端，以 FlClash 的 Flutter 组件构建界面；三个上游边界分别维护，不能将界面参考版本当作核心或应用的比较基线。
+本文件适用于整个仓库，记录开发和维护约束。项目以 sing-box-for-android 为 Android 后端，以 MiChongs sing-box 为主内核，Concord 提供 HTTP 处理，FlClash 与 Prism 提供 Flutter 界面。三个 fork 以 Git 子模块引入；核心、处理库、组件、应用与界面参考基线分别维护。
 
 ## 文档职责
 
@@ -8,7 +8,7 @@
 | --- | --- |
 | [README.md](README.md) | 项目介绍、下载入口和许可声明 |
 | [AGENTS.md](AGENTS.md) | 项目约束、工作方式和验证要求 |
-| [libbox.md](libbox.md) | 相对上游 sing-box/libbox 的补丁、扩展绑定及核心构建差异 |
+| [libbox.md](libbox.md) | MiChongs 主内核、Concord 处理库、扩展绑定及核心构建差异 |
 | [flclash.md](flclash.md) | FlClash UI 的参考版本、组件使用、适配范围及视觉验证 |
 | [app.md](app.md) | 相对 sing-box-for-android 的应用差异、兼容性及构建发布 |
 
@@ -26,17 +26,18 @@
 ## 架构与兼容性约束
 
 1. Flutter 负责全部应用页面和导航。`compose.MainActivity` 与 `compose.ShareActivity` 仅保留稳定组件名，进入 `BoxActivity`；不要恢复旧 Compose 页面或导航作为备用入口。原生状态模型在 `backend/`，平台能力通过 `flutter/` 下的 Android 桥接提供。
-2. Room 与 libbox 是配置、服务和会话数据的来源。配置为 sing-box JSON，保存前经过 `Libbox.checkConfig`；远程订阅只提取代理节点，保留配置自己的 DNS、路由、入站及分组，不将订阅作为整份配置应用。Clash 内容仅可作为明确导入的节点来源，不能静默转换整份 Clash YAML，不能引入 Mihomo 核心、提供者、覆写脚本或不受 sing-box 支持的开关。
+2. Room 与 libbox 是配置、服务和会话数据的来源。配置为 sing-box JSON，保存前经过 `Libbox.checkConfig`；远程订阅只提取代理节点，保留配置自己的 DNS、路由、入站及分组，不将订阅作为整份配置应用。保留 MiChongs 原生 Provider 和全部配置能力。Clash 内容仅可作为明确导入的节点来源，不能静默转换整份 Clash YAML，不能引入 Mihomo 核心或配置生成链路。Concord 模块复用 HTTP 处理；DNS、路由和出站仍由 sing-box 管理。
 3. 模式、代理组、可选节点和延迟来自当前内核；自动组不能手动选择。保留本地/远程会话区分，不把本机配置、出口 IP 或演示数据当作远端状态。
 4. 保留 Android VPN 权限、前台服务和服务状态确认流程。配置及备份应用须保留修订冲突检查、原子写入和失败恢复；不能在需要重启服务时把发出启动请求视为启动成功。
 5. B-box 的安装身份为 `io.ericlee.bfa`，源码 namespace、类路径及 AIDL 描述符保留 `io.nekohasekai.sfa`。任务未涉及这些约定时保持兼容；不要重排或复用已退役的 Binder 方法编号，也不要清空无关设置和数据库。
-6. 保留完整 sing-box 协议和 Tailscale/Taildrop、终端、普通 Root/Shizuku 能力。Xposed/LSPosed 系统模块、特权增强、Android 5/6、legacy AAR 和旧更新下载/静默安装链路已移除。具体范围见 [libbox.md](libbox.md) 和 [app.md](app.md#已移除能力与兼容入口)。
+6. 保留完整 MiChongs 原生功能标签、协议和 Tailscale/Taildrop、终端、普通 Root/Shizuku 能力。Xposed/LSPosed 系统模块、特权增强、Android 5/6、legacy AAR 和旧更新下载/静默安装链路已移除。具体范围见 [libbox.md](libbox.md) 和 [app.md](app.md#已移除能力与兼容入口)。
 7. 复用 FlClash 组件时保留来源和许可，按 [flclash-manifest.json](flutter/flclash-manifest.json) 区分直接导入与业务适配。共享源码复用、编译成功或预览声明都不能代替视觉和实机验收。
+8. sing-box、Concord 和 Prism 的构建版本由 gitlink 固定，[upstreams.json](upstreams.json) 维护原始比较 SHA 与 fork 地址。核心扩展直接维护在 fork，不恢复根仓库 overlay。Concord 仅构建处理库，不引入它的 engine/TUN；旧处理配置只保留兼容入口，切换须审阅新配置，两个处理器不能同时启用。
 
 ## 上游同步与验证
 
-- Android 上游比较基线维护在 [app.md](app.md)，核心标签由 [version.properties](version.properties) 决定，FlClash 参考提交维护在 [flclash.md](flclash.md) 和来源清单。更新其中一个上游时，不自动改变另两个基线。
-- 更新核心时核对 legacy 补丁、所有 `libbox/ui_*.go` 扩展及生成的绑定，并同步检查统一测试工作流的核心/Flutter/Android smoke 与 Release 构建。官方原版 AAR 缺少 B-box 新增绑定，不能仅凭版本相同直接替换。
+- Android 上游比较基线维护在 [app.md](app.md)，核心源码由子模块提交决定，[version.properties](version.properties) 指定显示版本与 Go 工具链，FlClash 参考提交维护在 [flclash.md](flclash.md) 和来源清单。更新其中一个上游时，不自动改变其他基线。
+- 更新核心时核对 API 24 单 AAR、完整构建标签、`core/sing-box/experimental/libbox/ui_*.go` 扩展、Concord C ABI 与生成绑定，并同步检查统一工作流的核心、ARM64 AAR、Flutter、Android smoke 及 Release 构建。原版 AAR 缺少 B-box 新增绑定和处理库，不能仅凭版本相同直接替换。依赖补丁只修改隔离副本，保留 MiChongs replacement 来源。
 - 更新 FlClash 时检查源文件及哈希、适配差异、字体/着色器和许可。改动直接导入文件后，应如实更新来源清单及改动说明，不把业务改动伪装为机械包名替换。
 - 按受影响范围验证。本机可运行 `git diff --check` 和 `python3 tools/verify_newui.py`；文档变更还应检查链接和旧引用。后者仅检查源码约束，不证明运行行为。
 - [.github/workflows/newui.yml](.github/workflows/newui.yml) 在各分支代码推送时自动运行 Go 扩展、Flutter 分析/交互/布局、JVM 及 [Android smoke 矩阵](app.md#验证与历史记录)，测试所需 AAR/APK 在同一工作流构建；纯 Markdown 推送跳过。[build-release.yml](.github/workflows/build-release.yml) 仅手动触发，独立构建签名 ARM64 Release 并校验产物，不调用或等待测试工作流。

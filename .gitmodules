@@ -1,0 +1,9 @@
+[submodule "sing-box"]
+	path = core/sing-box
+	url = https://github.com/giturass/sing-box
+[submodule "concord"]
+	path = core/concord
+	url = https://github.com/giturass/concord
+[submodule "prism_ui"]
+	path = flutter/packages/prism_ui
+	url = https://github.com/giturass/prism_ui

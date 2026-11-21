@@ -1,0 +1,23 @@
+{
+  "sing-box": {
+    "path": "core/sing-box",
+    "upstream": "https://github.com/MiChongs/sing-box",
+    "upstreamCommit": "f88982450a13a818f680de884663fa914798e84a",
+    "fork": "https://github.com/giturass/sing-box",
+    "branch": "bbox"
+  },
+  "concord": {
+    "path": "core/concord",
+    "upstream": "https://github.com/chen08209/concord",
+    "upstreamCommit": "4db36a472bd3f290195dec55dfc30ac2ebc03b7a",
+    "fork": "https://github.com/giturass/concord",
+    "branch": "bbox"
+  },
+  "prism_ui": {
+    "path": "flutter/packages/prism_ui",
+    "upstream": "https://github.com/chen08209/prism_ui",
+    "upstreamCommit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+    "fork": "https://github.com/giturass/prism_ui",
+    "branch": "bbox"
+  }
+}

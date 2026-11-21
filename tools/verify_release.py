@@ -103,6 +103,9 @@ def verify_apk(path, properties):
                 if name.startswith('lib/') and name.endswith('.so')}
         if any(name.endswith('/libbbox_capture.so') for name in names):
             raise SystemExit('Retired capture collector was packaged')
+        for library in ('libbox.so', 'libconcord_processing.so'):
+            if f'lib/arm64-v8a/{library}' not in names:
+                raise SystemExit(f'Missing ARM64 native library: {library}')
         if any(name.startswith('META-INF/xposed/') or name == 'assets/xposed_init' for name in names):
             raise SystemExit('Retired Xposed module metadata was packaged')
         for source in Path('app/src/main/assets/mitm-ca').rglob('*'):

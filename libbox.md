@@ -1,42 +1,36 @@
-# libbox 与上游的差异
+# MiChongs 主内核与 Concord 集成
 
 本文记录核心补丁和新增绑定；项目约束见 [AGENTS.md](AGENTS.md)，Android 调用及数据持久化见 [app.md](app.md)，FlClash 查询规则和界面适配见 [flclash.md](flclash.md)。
 
 ## 基线与集成方式
 
-上游为 [SagerNet/sing-box](https://github.com/SagerNet/sing-box)，绑定位于 `experimental/libbox`。当前基线是 [`v1.15.0-alpha.13`](https://github.com/SagerNet/sing-box/tree/v1.15.0-alpha.13/experimental/libbox)，Go 为 `go1.26.10`；实际版本由 [version.properties](version.properties) 的 `CORE_VERSION_NAME` 和 `GO_VERSION` 决定，工作流检出 `v${CORE_VERSION_NAME}`。应用版本独立维护，见 [app.md](app.md#应用版本与应用内更新)。
+主内核为 [MiChongs/sing-box](https://github.com/MiChongs/sing-box)，固定比较提交 `f88982450a13a818f680de884663fa914798e84a`。HTTP 处理复用 [Concord](https://github.com/chen08209/concord)，固定比较提交 `4db36a472bd3f290195dec55dfc30ac2ebc03b7a`。两个项目分别 fork 至 [giturass/sing-box](https://github.com/giturass/sing-box) 与 [giturass/concord](https://github.com/giturass/concord)，通过 [core/sing-box](core/sing-box) 与 [core/concord](core/concord) 子模块引入。实际构建 SHA 由根仓库 gitlink 固定，[upstreams.json](upstreams.json) 保存原始比较 SHA 与 fork 地址；显示核心版本 `1.15.0-alpha.13-xiaobaf14g.17` 和 Go `go1.27.0` 由 [version.properties](version.properties) 决定。应用及 Android 上游基线独立维护，见 [app.md](app.md#比较基线与应用身份)。
 
-本仓库不存储完整核心或 AAR，构建补丁与扩展源码统一保存在 [libbox/](libbox/)。CI 通过 [setup-core](.github/actions/setup-core/action.yml) 检出上游至 `.core/`，先准备版本文件指定的 Go，再应用构建补丁、sing-tun 兼容补丁、XHTTP/VLESS Encryption 补丁、WARP MASQUE 补丁和 HTTP 调试补丁。抓取引擎、路由适配及所有 `ui_*.go`及相应测试使用同一安装入口；Android 构建由 [build-libbox](.github/actions/build-libbox/action.yml) 生成标准 `libbox.aar`。仅有上游原版 AAR 不足以编译当前 B-box，因为它没有下面的 UI 扩展绑定，也不包含本仓库的路由和自动重定向兼容补丁。
+sing-box 管理 VPN、网络接口、DNS、路由、分组、Provider、服务及全部出站；Concord 只构建 `libconcord_processing.so`，复用其 MITM、HTTP 改写、QuickJS、模块解析和合成，不启动 Concord engine、TUN 或第二套代理。改写到新目标的请求重新进入 sing-box 路由，原目标沿用原选路；处理器内部拨号跳过处理钩子以防递归。
 
-| 差异 | 文件 | 作用 |
+B-box 扩展直接维护在 fork，根仓库不再保存 overlay 或向 SagerNet 原版覆盖源码。[setup-core](.github/actions/setup-core/action.yml) 校验 gitlink，建立隔离 `.core` 工作树；[依赖准备脚本](core/sing-box/b-box/prepare_dependencies.py) 核对逻辑模块、版本及 MiChongs replacement，复制需要补丁的依赖到该工作树，再应用检查过的补丁和本地 replace，不修改共享模块缓存。补丁来源与扩展路径由 [fork 集成说明](core/sing-box/b-box/README.md) 维护。
+
+| 集成范围 | 当前源码 | 行为 |
 | --- | --- | --- |
-| 排除 legacy 产物 | [libbox-no-legacy.patch](libbox/libbox-no-legacy.patch) | 修改上游 `cmd/internal/build_libbox/main.go`，删除 API 21 AAR 分支及只供该分支使用的 `filterTags` |
-| Android 自动重定向兼容 | [sing-tun-android-ingress.patch](libbox/sing-tun-android-ingress.patch) | 兼容 ingress discard BPF map 的 4/8 字节 value，保留接口归属检查和原值恢复 |
-| XHTTP 与 VLESS Encryption | [xhttp-vless.patch](libbox/xhttp-vless.patch)、[xhttp/](libbox/xhttp/) | 在当前核心基线上移植固定来源的 XHTTP 传输与 VLESS 加密，标准 AAR 启用 `with_xhttp` |
-| Vision 指针兼容 | [sing-vmess-vision-pointer.patch](libbox/sing-vmess-vision-pointer.patch) | 固定 sing-vmess 副本的 TLS/Encryption 注册保留 Go 指针来源，缓冲字段经布局核对后用 `unsafe.Add` 访问，兼容 race/checkptr |
-| Cloudflare WARP 注册与 MASQUE | [warp-masque.patch](libbox/warp-masque.patch)、[masque/](libbox/masque/)、[ui_warp.go](libbox/ui_warp.go) | MASQUE/WireGuard 设备注册、原生 WireGuard 端点、`masque` 出站、ECDSA 认证、公钥固定、HTTP/3 datagram 与 HTTP/2 capsule 及传输回退 |
-| 运行时内存绑定 | [ui_dashboard.go](libbox/ui_dashboard.go) | 读取 Go 运行时内存和 goroutine 数，提供释放内存操作 |
-| HTTP/WebDAV 与下载绑定 | [ui_http.go](libbox/ui_http.go)、[ui_download.go](libbox/ui_download.go) | 返回 HTTP 状态码与完整响应，通过 `UIHTTPTask` 传播 Android 取消；APK 直接流式写入私有暂存文件并返回大小/摘要与进度 |
-| 订阅下载绑定 | [ui_profile.go](libbox/ui_profile.go) | 可取消的完整订阅下载，失败响应不读取正文 |
-| 节点导入与订阅更新 | [ui_nodes.go](libbox/ui_nodes.go)、[ui_nodes_profile.go](libbox/ui_nodes_profile.go)、[ui_nodes_subscription.go](libbox/ui_nodes_subscription.go)、[node-profile.patch](libbox/node-profile.patch) | 节点直接写入所选配置，远端订阅只更新代理节点并保留本地配置和追加节点，格式化保留配置内的本地节点注释 |
-| VMess 外部节点加密选择 | [ui_nodes_scheme.go](libbox/ui_nodes_scheme.go) | Clash 和 VMess 分享链接的 `auto` 在导入时解析为明确 AEAD，避免 TLS 下被核心改为 `zero` |
-| 配置分组与停服选择 | [ui_groups.go](libbox/ui_groups.go) | 读取配置分组及 selector 缓存，停服时只更新对应选择缓存，不启动核心 |
-| 出口探测绑定 | [ui_egress.go](libbox/ui_egress.go) | 可取消的设备网络/运行中路由探测、出口 IP 多源查询与质量请求传输 |
-| 路由生命周期 | [ui_route.go](libbox/ui_route.go) | 出口探测与脚本共用路由准入、取消及退出等待，包含脚本指定出站的拨号 |
-| 正则取消 | [regexp2-cancel.patch](libbox/regexp2-cancel.patch)、[goja-regexp-cancel.patch](libbox/goja-regexp-cancel.patch) | 将请求取消和 VM 中断传入回溯执行，不对不同请求共用可变期限 |
-| 局域网代理配置绑定 | [ui_lan.go](libbox/ui_lan.go) | 读取 mixed/http/socks 监听端点、修改 listen 或显式新增 mixed 入站 |
-| HTTP/HTTPS 请求抓取 | [httpdebug.patch](libbox/httpdebug.patch)、[httpdebug/](libbox/httpdebug/)、[route/](libbox/route/)、[ui_capture.go](libbox/ui_capture.go) | HTTP 录制、HTTPS MITM、平台签名、域名提取、记录及导出绑定 |
-| 独立配置处理 | [http_rewrite.patch](libbox/http_rewrite.patch)、[ui_processing.go](libbox/ui_processing.go)、[processing.go](libbox/option/processing.go) | 独立的 MITM、HTTP 改写、HTTP 脚本与 Cron，统一校验及服务生命周期 |
+| Android 单 AAR / 全部原生标签 | [build_libbox](core/sing-box/cmd/internal/build_libbox/main.go)、[android.txt](core/sing-box/b-box/buildtags/android.txt) | API 24 起，保留 MiChongs 全部功能标签和完整 Tailscale，不生成 legacy AAR |
+| 节点、订阅及分组绑定 | [experimental/libbox](core/sing-box/experimental/libbox) 的 `ui_nodes*.go`、`ui_groups.go` | 节点写入配置，订阅不覆盖整份配置，组类型及可选择性由当前内核判断 |
+| 内存、HTTP、下载、WARP、出口与 LAN | 同目录 `ui_dashboard.go`、`ui_http.go`、`ui_download.go`、`ui_warp.go`、`ui_egress.go`、`ui_lan.go` | 保留原 Android 扩展及取消/生命周期合同 |
+| Concord 桥接 | [experimental/concord](core/sing-box/experimental/concord)、[ui_concord.go](core/sing-box/experimental/libbox/ui_concord.go) | C ABI v1、宿主拨号/信任/Keystore 签名、状态、模块预览、任务及共享请求记录 |
+| HTTP 记录与旧配置兼容 | [experimental/httpdebug](core/sing-box/experimental/httpdebug)、[路由钩子](core/sing-box/route/b_box_httpdebug.go) | 原请求存储和导出；旧 Go MITM、改写、Goja 仅用于已有配置 |
+| 配置 schema 与校验 | [processing.go](core/sing-box/option/processing.go)、[config.go](core/sing-box/experimental/libbox/config.go) | 新处理配置保留原生语法，保存前拒绝未接入的 DNS/路由脚本及旧处理器混用 |
+| 依赖兼容 | [b-box](core/sing-box/b-box) | sing-tun 4/8 字节 ingress map、sing-vmess Vision 指针、旧 Goja/regexp2 取消；固定版本及回归随 fork 维护 |
+
+MiChongs 原生 Provider、分组、证书提供者、服务、HTTP 客户端、namespace、实验选项和协议均保留。完整 JSON 可由原始编辑器及“网络”对应入口保存，再交给当前内核校验；这些能力的系统权限和平台条件沿用主内核，不以 UI 的参考范围裁剪它们。官方原版 AAR 缺少 B-box 新绑定和 Concord 动态库，不能按显示版本直接替换。
 
 ## 新增接口与行为
 
 ### 节点导入与配置合并
 
-[ui_nodes_parse.go](libbox/ui_nodes_parse.go) 的 `ParseUINodes` 读取节点分享 URI、Base64 订阅、Clash 节点列表、SIP008、wg-quick 以及 sing-box 出站/端点，返回节点、逐项拒绝原因和完整配置提示。节点按当前核心的出站及端点注册表判断协议，并经过选项解码和构造检查；Clash 内容只作为节点来源，不作为应用配置或静默转换整份 Clash 配置。WireGuard 保存在 `endpoints`，服务端、Tailscale、代理组及 direct 不作为可导入代理节点。
+[ui_nodes_parse.go](core/sing-box/experimental/libbox/ui_nodes_parse.go) 的 `ParseUINodes` 读取节点分享 URI、Base64 订阅、Clash 节点列表、SIP008、wg-quick 以及 sing-box 出站/端点，返回节点、逐项拒绝原因和完整配置提示。节点按当前核心的出站及端点注册表判断协议，并经过选项解码和构造检查；Clash 内容只作为节点来源，不作为应用配置或静默转换整份 Clash 配置。WireGuard 保存在 `endpoints`，服务端、Tailscale、代理组及 direct 不作为可导入代理节点。
 
 `AddUIConfigNodes(config, nodes, defaultProfile)` 返回 `UIConfigNodeUpdate` 的 `Config`、`Added`、`Skipped`，直接追加到所选配置的 `outbounds` / `endpoints`。重名的新节点按“名称 2”等空闲名称保存，并同步改写同批节点之间的 detour 引用；重复导入相同节点跳过。可用节点加入配置中的 selector/urltest，未解析、循环或通过代理组的 detour 不自动加入组，以避免分组产生循环。`GetUINode(config, tag)` 返回单节点的 `endpoint` 和格式化 `content`；`SetUIConfigNode` 修改配置节点及所有旧名称引用，`RemoveUIConfigNodes` 清理成员和默认选择，其他引用仍在使用时拒绝删除。
 
-本地追加的节点名称以配置开头的 `// b-box-local-nodes: ["名称"]` JSON 注释保存。sing-box 原生 JSON 解码忽略该注释，`CheckConfig` 和服务直接读取完整配置，没有额外运行时展开或共享节点库；本地追加节点不绑定 URL 来源。标记随配置分享、导出与备份保留，单节点改名及删除同步更新它。`PreserveUIConfigNodes(previous, edited)` 在平台 JSON 编辑移除注释后保留仍存在的本地节点标签；`edited` 自带标记时以它为准，空数组同样有效。[node-profile.patch](libbox/node-profile.patch) 修改原有 `FormatConfig` 的返回路径，使标准格式化调用也保留标记。Android 持久化与修订检查见 [应用配置写入](app.md#配置服务应用与备份)。
+本地追加的节点名称以配置开头的 `// b-box-local-nodes: ["名称"]` JSON 注释保存。sing-box 原生 JSON 解码忽略该注释，`CheckConfig` 和服务直接读取完整配置，没有额外运行时展开或共享节点库；本地追加节点不绑定 URL 来源。标记随配置分享、导出与备份保留，单节点改名及删除同步更新它。`PreserveUIConfigNodes(previous, edited)` 在平台 JSON 编辑移除注释后保留仍存在的本地节点标签；`edited` 自带标记时以它为准，空数组同样有效。[FormatConfig](core/sing-box/experimental/libbox/config.go) 修改原有 `FormatConfig` 的返回路径，使标准格式化调用也保留标记。Android 持久化与修订检查见 [应用配置写入](app.md#配置服务应用与备份)。
 
 `ApplyUISubscriptionNodes(current, subscription, previousTags, defaultProfile)` 把一个 URL 来源的节点写入现有选中配置，返回 `UISubscriptionNodeUpdate` 的 `Config`、`Tags`、`Added`、`Skipped` 和 `Warnings`；`Tags` 是实际保存名称的 JSON 数组，`Skipped` 为因明确不支持的能力而跳过的节点数，`Warnings` 为按固定原因聚合的 `[{"reason":"原因","count":数量}]` JSON 数组，无跳过时返回 `[]`。报告不包含节点链接、名称或凭据。新增来源传入 `[]`，只追加节点并保留全部现有节点；更新传入该来源上次的 `Tags`，只替换这些名称对应的代理节点，不删除其他来源、本地标记节点或非代理出站/端点。配置内容及来源名称由 Android 在同一成功提交中保存，来源数据及应用/恢复流程见 [应用配置写入](app.md#配置服务应用与备份)。此接口要求 `current` 已存在，不创建配置或独立节点库。
 
@@ -48,7 +42,7 @@
 
 行为核对参考 Throne `dev` 的固定提交 [`48273be2870fd2c81059628ff2cc439ac711808e`](https://github.com/throneproj/Throne/tree/48273be2870fd2c81059628ff2cc439ac711808e)：[SubscriptionParser.cpp](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/src/configs/sub/SubscriptionParser.cpp#L267) 识别 `outbounds` / `endpoints` 并分别遍历代理，跳过基础设施类型；[Protocols.cpp](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/src/configs/common/Protocols.cpp#L95) 包含 WireGuard / MASQUE 的解析能力。B-box 将节点写入选中配置，由本仓库独立实现，未复制 Throne 代码或引入其依赖，无新增许可归属。
 
-[ui_nodes_subscription_test.go](libbox/ui_nodes_subscription_test.go) 和 [ui_nodes_subscription_utls_test.go](libbox/ui_nodes_subscription_utls_test.go) 覆盖配置设置保留、分享 URI/Base64/sing-box/Clash/SIP008/wg-quick、严格拒绝无效更新及 Plain/Base64 中的未知 URI 协议、Clash 协议字段结构检查、Plain/Base64/Clash 混合 KCP 的明确跳过报告及修复后清空报告、被跳过节点的 detour 不改绑保留或同批同名节点、VMess 拒绝名称来自内层 JSON、46 条脱敏混合链接（包含 7 条 XHTTP）全部导入的完整核心校验、组循环清理与合法 detour 成员保留、本地/来源重名及 detour、重复更新、双来源更新隔离、来源移除转本地、WireGuard/MASQUE 端点及元数据不改变端点格式。脱敏混合样例含 REALITY，使用 `with_xhttp,with_utls` 在统一工作流的发货核心协议步骤运行，通用来源报告用例也在无该标签的基础检查运行。测试源码及静态检查不代表真实订阅网络已经验收。
+[ui_nodes_subscription_test.go](core/sing-box/experimental/libbox/ui_nodes_subscription_test.go) 和 [ui_nodes_subscription_utls_test.go](core/sing-box/experimental/libbox/ui_nodes_subscription_utls_test.go) 覆盖配置设置保留、分享 URI/Base64/sing-box/Clash/SIP008/wg-quick、严格拒绝无效更新及 Plain/Base64 中的未知 URI 协议、Clash 协议字段结构检查、Plain/Base64/Clash 混合 KCP 的明确跳过报告及修复后清空报告、被跳过节点的 detour 不改绑保留或同批同名节点、VMess 拒绝名称来自内层 JSON、46 条脱敏混合链接（包含 7 条 XHTTP）全部导入的完整核心校验、组循环清理与合法 detour 成员保留、本地/来源重名及 detour、重复更新、双来源更新隔离、来源移除转本地、WireGuard/MASQUE 端点及元数据不改变端点格式。脱敏混合样例含 REALITY，在统一工作流的全部功能标签 `TestUI` 步骤运行。测试源码及静态检查不代表真实订阅网络已经验收。
 
 `GetUIDefaultConfig` 提供无账号的合法 sing-box 模板：proxy 默认包含 auto，auto 在未添加节点时使用 direct。模板显式使用 `certificate.store: "mozilla"`，以当前固定核心内置的可信 CA 校验 HTTPS，避免旧 Android 系统证书库无法验证当前公共证书链；仍检查链、域名及有效期。机制与可信库范围见同版本的 [官方证书配置](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/docs/configuration/certificate/index.md)。配置可显式选择 `system` / `chrome` / `none` 或增加自有 PEM 证书；没有改变这些原生选项的语义。已有文件的保留规则见 [应用配置流程](app.md#配置服务应用与备份)。
 
@@ -56,33 +50,33 @@
 
 ### 节点分享
 
-`ShareUIConfigNodes(config, tags)` 从所选配置的 `outbounds` 和 `endpoints` 读取代理节点，按传入标签的顺序返回各节点的可用分享链接及完整节点 JSON 数组。当前可生成 SIP002 Shadowsocks、v2rayN VMess、VLESS、Trojan、Hysteria、Hysteria2、TUIC、AnyTLS、SOCKS、Naive 和单对端 WireGuard 的常见链接。核心重新解析生成的链接并比较 sing-box 选项。证书路径、配置内的拨号依赖和无法在 URI 中表达的选项会使该节点使用 JSON 分享。JSON 保留节点的配置内引用，接收端若要使用该节点，仍需有对应的配置或文件。[核心实现](libbox/ui_nodes_share.go) · [编码与回读回归](libbox/ui_nodes_share_test.go) · [Shadowsocks SIP002](https://shadowsocks.org/doc/sip002.html) · [Hysteria 2 URI](https://v2.hysteria.network/docs/developers/URI-Scheme/)
+`ShareUIConfigNodes(config, tags)` 从所选配置的 `outbounds` 和 `endpoints` 读取代理节点，按传入标签的顺序返回各节点的可用分享链接及完整节点 JSON 数组。当前可生成 SIP002 Shadowsocks、v2rayN VMess、VLESS、Trojan、Hysteria、Hysteria2、TUIC、AnyTLS、SOCKS、Naive 和单对端 WireGuard 的常见链接。核心重新解析生成的链接并比较 sing-box 选项。证书路径、配置内的拨号依赖和无法在 URI 中表达的选项会使该节点使用 JSON 分享。JSON 保留节点的配置内引用，接收端若要使用该节点，仍需有对应的配置或文件。[核心实现](core/sing-box/experimental/libbox/ui_nodes_share.go) · [编码与回读回归](core/sing-box/experimental/libbox/ui_nodes_share_test.go) · [Shadowsocks SIP002](https://shadowsocks.org/doc/sip002.html) · [Hysteria 2 URI](https://v2.hysteria.network/docs/developers/URI-Scheme/)
 
 ### VMess 外部节点的 auto 加密
 
 行为参考 [MiChongs/sing-box 修复提交 `22c9be74053d383baa831ccd7ea11c3a65bb2c29`](https://github.com/MiChongs/sing-box/commit/22c9be74053d383baa831ccd7ea11c3a65bb2c29) 的 [VMess 订阅加密解析](https://github.com/MiChongs/sing-box/blob/22c9be74053d383baa831ccd7ea11c3a65bb2c29/provider/parser/vmess.go)。当前官方核心的 [VMess 出站](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/protocol/vmess/outbound.go) 在启用 TLS 时将 `security: "auto"` 改为 `zero`，与外部节点来源所表达的自动 AEAD 加密不同。
 
-[uiNodeVMessNode](libbox/ui_nodes_scheme.go) 在 Clash `cipher`、VMess Base64 JSON 的 `scy` 及 VMess URI 的 `encryption` 为 `auto` 或缺省时，按当前固定 [sing-vmess 的 `AutoSecurityType`](https://github.com/SagerNet/sing-vmess/blob/a0c58542bd9d99b00ea0c3cfacce6f03cf8a4017/protocol.go#L137) 写入明确的 `aes-128-gcm` 或 `chacha20-poly1305`，有无 TLS 使用同一规则。显式 `none`、`zero` 和其他受支持 cipher 保留；原生 sing-box JSON 的 `security` 不经过此转换，继续使用核心原有语义。已有节点通过重新导入或刷新对应订阅来源获得修复，不批量改写已有配置。
+[uiNodeVMessNode](core/sing-box/experimental/libbox/ui_nodes_scheme.go) 在 Clash `cipher`、VMess Base64 JSON 的 `scy` 及 VMess URI 的 `encryption` 为 `auto` 或缺省时，按当前固定 [sing-vmess 的 `AutoSecurityType`](https://github.com/SagerNet/sing-vmess/blob/a0c58542bd9d99b00ea0c3cfacce6f03cf8a4017/protocol.go#L137) 写入明确的 `aes-128-gcm` 或 `chacha20-poly1305`，有无 TLS 使用同一规则。显式 `none`、`zero` 和其他受支持 cipher 保留；原生 sing-box JSON 的 `security` 不经过此转换，继续使用核心原有语义。已有节点通过重新导入或刷新对应订阅来源获得修复，不批量改写已有配置。
 
-[ui_nodes_vmess_test.go](libbox/ui_nodes_vmess_test.go) 覆盖上述导入格式、TLS 开关、显式 cipher、原生 JSON 保留及订阅应用后的配置校验。文件通过共享准备 Action 的 `ui_*.go` 安装规则进入统一工作流的基础 `^TestUI` 和发货协议 `^TestUINode` 检查；测试源码的存在不代表当前源码已通过 Actions 或外部服务互通验收。
+[ui_nodes_vmess_test.go](core/sing-box/experimental/libbox/ui_nodes_vmess_test.go) 覆盖上述导入格式、TLS 开关、显式 cipher、原生 JSON 保留及订阅应用后的配置校验。文件直接位于 fork，并由统一工作流以全部发布标签运行 `^TestUI`；测试源码的存在不代表当前源码已通过 Actions 或外部服务互通验收。
 
 ### 配置分组与停服选择
 
-[ui_groups.go](libbox/ui_groups.go) 的 `GetUIConfigGroups(config)` 使用当前核心的配置解码器读取 selector/urltest，按配置顺序返回与运行时相同的 `OutboundGroupIterator`，成员保留原生协议类型，包含 direct、嵌套组及端点。selector 的选中项按当前核心顺序取合法缓存、显式 default 或首个成员；没有运行内核时，自动组的选中项和所有成员的延迟保持未知，不虚构测速结果。未被分组引用的出站不额外组成虚拟节点组。
+[ui_groups.go](core/sing-box/experimental/libbox/ui_groups.go) 的 `GetUIConfigGroups(config)` 使用当前 MiChongs 核心的配置解码器读取原生分组，按配置顺序返回与运行时相同的 `OutboundGroupIterator`，成员保留原生协议类型，包含 direct、嵌套组及端点。手动组的选中项按当前核心顺序取合法缓存、显式 default 或首个成员；没有运行内核时，自动组的选中项和所有成员的延迟保持未知，不虚构测速结果。未被分组引用的出站不额外组成虚拟节点组。
 
-`SelectUIConfigGroup(config, group, tag)` 检查完整配置、手动组及成员后，以单次 bbolt 事务只写入核心的 `selected` 缓存。路径与 libbox 服务一致，使用工作目录及 `experimental.cache_file.path`，命名空间沿用 `cache_id` 的 `0x00 + ID` bucket；不修改其他组、DNS、规则集等缓存，不清空或重建损坏文件。读取只打开已有文件，缺少文件时使用配置默认选择；锁定或损坏报错。两项绑定仅供本机停服路径调用，Android 在配置及启动快照锁内确认状态及修订，见 [应用说明](app.md#配置服务应用与备份)。
+`SelectUIConfigGroup(config, group, tag)` 检查完整配置、手动组及成员后，以单次 bbolt 事务只写入核心的 `selected` 缓存。路径与 libbox 服务一致，使用工作目录及 `experimental.cache_file.path`，命名空间沿用 `cache_id` 的 `0x00 + ID` bucket；不修改其他组、DNS、规则集等缓存，不清空或重建损坏文件。读取只打开已有文件，缺少文件时使用配置默认选择；锁定或损坏报错。运行中保留 MiChongs Nested 手动选择；停服路径只对仍存在的静态成员维护 `name@group` 选择缓存，动态 Provider 成员不虚构为已加载节点。两项绑定仅供本机停服路径调用，Android 在配置及启动快照锁内确认状态及修订，见 [应用说明](app.md#配置服务应用与备份)。
 
 当前上游 [`box.go`](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/box.go) 在提供平台日志写入器时总是启用缓存，Android daemon 的启动路径提供该写入器，因此未声明或关闭 `cache_file.enabled` 也需使用同一缓存。上游 [`selector.go`](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/protocol/group/selector.go) 启动时先读取缓存再读取 default；停服选择直接保存该缓存，启动无需改写配置或补发选择命令。
 
-[ui_groups_test.go](libbox/ui_groups_test.go) 覆盖分组成员、未命名节点的实际标签、重复出站/端点标签拒绝、默认及缓存选择、缓存路径/命名空间隔离、自动组和失效成员拒绝、缓存锁定/损坏保留，以及启动 selector 读取停服选择。启动夹具按测试进程的 UID/GID 配置文件管理上下文，对应 Android 的 libbox `Setup`，不修改生产属主设置。统一工作流的 `TestUI` 入口安装并运行这些扩展；实际运行结果见 [应用验证记录](app.md#当前验证记录)。
+[ui_groups_test.go](core/sing-box/experimental/libbox/ui_groups_test.go) 覆盖分组成员、未命名节点的实际标签、重复出站/端点标签拒绝、默认及缓存选择、缓存路径/命名空间隔离、自动组和失效成员拒绝、缓存锁定/损坏保留，以及启动 selector 读取停服选择。启动夹具按测试进程的 UID/GID 配置文件管理上下文，对应 Android 的 libbox `Setup`，不修改生产属主设置。统一工作流的 `TestUI` 入口运行这些 fork 扩展；实际运行结果见 [应用验证记录](app.md#当前验证记录)。
 
 ### XHTTP 与 VLESS Encryption
 
-协议源码移植自 [MiChongs/sing-box](https://github.com/MiChongs/sing-box/tree/f88982450a13a818f680de884663fa914798e84a) 的固定提交 `f88982450a13a818f680de884663fa914798e84a`，该分支以 reF1nd/sing-box 为基础，协议行为参考 [Xray-core v26.9.30](https://github.com/XTLS/Xray-core/tree/b26a91de4f3294e26a0ad0a970b81a386a41f789)。B-box 继续检出官方 `v1.15.0-alpha.13`，只安装相关 option、传输、加密及 TLS 适配，不使用参考分支的 Provider 或其他协议扩展。[来源清单](libbox/xhttp/manifest.json) 记录原始和本地文件哈希；[安装脚本](tools/patch_xhttp_vless.py) 在共享核心准备入口应用 [补丁](libbox/xhttp-vless.patch)，标准 Android AAR 启用 `with_xhttp`，HTTP/3 另使用现有 `with_quic`。没有新增 gomobile 导出接口。
+XHTTP 与 VLESS Encryption 是 MiChongs 主内核的原生能力；生产源码位于 [transport/v2rayxhttp](core/sing-box/transport/v2rayxhttp)、[protocol/vless/encryption](core/sing-box/protocol/vless/encryption)，选项和插件注册保留。固定比较提交及 B-box 适配见 [fork 集成说明](core/sing-box/b-box/README.md#xhttp-与-vless-encryption)。不再单独移植协议文件或复制旧 QUIC TLS 适配；MiChongs 的 Provider 和其他扩展同样保留。协议行为参考 [Xray-core v26.9.30](https://github.com/XTLS/Xray-core/tree/b26a91de4f3294e26a0ad0a970b81a386a41f789)。
 
 `transport.type` 为 `xhttp`，与 VLESS、VMess、Trojan 等已有 V2Ray 传输层协议配合使用；同时提供入站和出站。支持 HTTP/1.1、HTTP/2、HTTP/3，模式为 `auto`、`packet-up`、`stream-up`、`stream-one`。明文默认 HTTP/1.1，REALITY 使用 HTTP/2，TLS 的 ALPN 仅为 `h3` 时使用 HTTP/3，仅为 `http/1.1` 时使用 HTTP/1.1，其余使用 HTTP/2。`auto` 在 REALITY 下选择 `stream-one`（上下行分离时为 `stream-up`），其他情况选择 `packet-up`。
 
-核心 JSON 将 XHTTP 字段直接放在 `transport` 中：`host`、`path`、`mode`、`headers`、填充/会话/序号/上行混淆选项、`xmux`、`download_settings` 及 QUIC 参数，具体字段由 [v2rayxhttp.go](libbox/xhttp/option/v2rayxhttp.go) 定义。范围值接受整数或 `"最小值-最大值"`。`download_settings` 的 XHTTP 参数不从上行继承，应显式提供；服务器地址和端口分别回退到上行，支持只指定下行端口。HTTP/3 忽略 uTLS 指纹，使用标准 TLS，同时保留 SNI、证书验证与当前核心支持的 ECH 设置；不增加参考分支独有的 TLS 字段。
+核心 JSON 将 XHTTP 字段直接放在 `transport` 中：`host`、`path`、`mode`、`headers`、填充/会话/序号/上行混淆选项、`xmux`、`download_settings` 及 QUIC 参数，具体字段由 [v2rayxhttp.go](core/sing-box/option/v2rayxhttp.go) 定义。范围值接受整数或 `"最小值-最大值"`。`download_settings` 的 XHTTP 参数不从上行继承，应显式提供；服务器地址和端口分别回退到上行，支持只指定下行端口。HTTP/3 忽略 uTLS 指纹，使用标准 TLS，同时保留 SNI、证书验证与当前核心支持的 ECH 设置；TLS 字段由当前 MiChongs 解码器校验。
 
 VLESS 出站新增 `encryption`，入站新增 `decryption`，空值或 `none` 保持原 VLESS 行为。加密方式为 `mlkem768x25519plus`，外观支持 `native`、`xorpub`、`random`；客户端使用 `0rtt` 或 `1rtt`，服务端使用票据有效期（如 `600s`、`300-600s` 或禁用复用的 `0s`），随后为可选填充和服务端提供的密钥参数。加密层使用 ML-KEM-768 与 X25519 混合握手，支持 X25519 或 ML-KEM-768 服务端认证、0-RTT 票据和重放拒绝。启用加密后 `xtls-rprx-vision` 可与 XHTTP、WebSocket 等传输配合，不要求外层 TLS；未启用加密时沿用原 Vision 的 TLS/REALITY 要求。
 
@@ -104,11 +98,11 @@ VLESS 出站新增 `encryption`，入站新增 `decryption`，空值或 `none` �
 
 节点分享链接识别 `type=xhttp` 和 `type=splithttp`（保存为 `xhttp`）、`host`、`path`、`mode` 与 `extra`；Clash 节点支持 `network: xhttp/splithttp` 和 `xhttp-opts`，VLESS 的 `encryption` 按原值保存，大小写不会改变密钥。Xray/Clash 的 XHTTP 设置转换为核心选项，再统一解码和构造校验；不支持的额外设置明确报告，非法模式、范围或加密参数不能作为可忽略节点静默保存。sing-box JSON 节点直接保留原生字段。所有导入仍只提取节点，保存前检查完整配置，更新只替换对应来源节点。
 
-[XHTTP 传输测试](libbox/xhttp/transport/v2rayxhttp) 覆盖各模式、真实 HTTP/1.1/2/3 传输、上下行分离、连接复用、取消/关闭/期限、混淆及证书拒绝；[加密测试](libbox/xhttp/protocol/vless/encryption/encryption_test.go) 覆盖认证/握手、0-RTT、票据过期、重放和 Vision。节点解析、实际 Android AAR 的配置及来源回归由统一测试工作流运行。这些回归及源码来源不代替与外部 Xray 服务的互通或 ARM64 实机验收，实际运行结果见 [应用验证记录](app.md#当前验证记录)。
+[XHTTP 传输测试](core/sing-box/transport/v2rayxhttp) 覆盖各模式、真实 HTTP/1.1/2/3 传输、上下行分离、连接复用、取消/关闭/期限、混淆及证书拒绝；[加密测试](core/sing-box/protocol/vless/encryption/encryption_test.go) 覆盖认证/握手、0-RTT、票据过期、重放和 Vision。节点解析、实际 Android AAR 的配置及来源回归由统一测试工作流运行。这些回归及源码来源不代替与外部 Xray 服务的互通或 ARM64 实机验收，实际运行结果见 [应用验证记录](app.md#当前验证记录)。
 
-HTTP/1.1 stream-up 的 POST 结束后，隧道读取可能遇到 Go 的 [http.ErrBodyReadAfterClose](https://github.com/golang/go/blob/go1.26.10/src/net/http/transfer.go#L825)。XHTTP 用 `errors.Is` 将该标准错误及其包装链归类为正常关闭，保留原始错误与消息；同文案普通错误不匹配。分类回归覆盖直接/包装值和同文案反例，现有各 HTTP 版本的 E2E 关闭断言保持原语义。
+HTTP/1.1 stream-up 的 POST 结束后，隧道读取可能遇到 Go 的 [http.ErrBodyReadAfterClose](https://github.com/golang/go/blob/go1.27.0/src/net/http/transfer.go#L825)。XHTTP 用 `errors.Is` 将该标准错误及其包装链归类为正常关闭，保留原始错误与消息；同文案普通错误不匹配。分类回归覆盖直接/包装值和同文案反例，现有各 HTTP 版本的 E2E 关闭断言保持原语义。
 
-移植保留 MiChongs/sing-box 的 GPL-3.0-or-later 许可及 Xray-core 的 MPL-2.0 来源；原始许可随应用打包并通过许可证页展示：[MiChongs/sing-box](flutter/assets/licenses/michongs-sing-box-LICENSE)、[Xray-core](flutter/assets/licenses/xray-core-LICENSE)。
+主内核保留 MiChongs/sing-box 的 GPL-3.0-or-later 许可及 Xray-core 的 MPL-2.0 来源；原始许可随应用打包并通过许可证页展示：[MiChongs/sing-box](flutter/assets/licenses/michongs-sing-box-LICENSE)、[Xray-core](flutter/assets/licenses/xray-core-LICENSE)。
 
 ### Cloudflare WARP MASQUE
 
@@ -116,7 +110,7 @@ B-box 的 WARP 注册支持选择 MASQUE 或 WireGuard：MASQUE 保存为 `outbo
 
 注册与传输核对 Throne 固定提交 [`48273be2870fd2c81059628ff2cc439ac711808e`](https://github.com/throneproj/Throne/tree/48273be2870fd2c81059628ff2cc439ac711808e) 的 [注册流程](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/core/internal/warp/register.go)、[API 请求](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/core/internal/warp/api.go)、[WireGuard 配置](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/src/configs/outbounds/wireguard.cpp)、[MASQUE 配置](https://github.com/throneproj/Throne/blob/48273be2870fd2c81059628ff2cc439ac711808e/src/configs/outbounds/masque.cpp)，以及其 `core/go.mod` 固定的 [throneproj/sing-box `183cf759ed909d9200d2baccab233f3221d034b1`](https://github.com/throneproj/sing-box/tree/183cf759ed909d9200d2baccab233f3221d034b1/transport/warpmasque)。传输范围同时参考 [Cloudflare 官方网络要求](https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/deployment/firewall/#masque)。B-box 独立实现所需行为，继续使用官方核心及其已有 TLS、QUIC、HTTP/2、WireGuard 和 IP 栈，不替换整个核心或引入 Throne 的运行时依赖；既有 MASQUE 节点仍保存在 `outbounds`。
 
-[ui_warp.go](libbox/ui_warp.go) 的 `NewUIWARPRegistrationTask` 用于本机停服时的设备网络；运行中的 `CommandServer.NewUIWARPRegistrationTask` 使用当前服务路由及既有取消/退出等待边界，不在路由失败后回退直连。两个注册绑定只返回可追加的单节点 JSON，不返回 token、设备 ID 或许可证；同一任务只能调用其中一个绑定一次。任务总时限为 45 秒，响应上限各为 1 MiB，`Close` 取消在途请求，禁止重定向及自动重试非幂等注册。API 错误不包含响应正文或凭据。完整成功响应在取消边界仍返回节点，供 Android 保留待保存项；配置提交继续由调用方复核取消、会话、所选配置与修订。
+[ui_warp.go](core/sing-box/experimental/libbox/ui_warp.go) 的 `NewUIWARPRegistrationTask` 用于本机停服时的设备网络；运行中的 `CommandServer.NewUIWARPRegistrationTask` 使用当前服务路由及既有取消/退出等待边界，不在路由失败后回退直连。两个注册绑定只返回可追加的单节点 JSON，不返回 token、设备 ID 或许可证；同一任务只能调用其中一个绑定一次。任务总时限为 45 秒，响应上限各为 1 MiB，`Close` 取消在途请求，禁止重定向及自动重试非幂等注册。API 错误不包含响应正文或凭据。完整成功响应在取消边界仍返回节点，供 Android 保留待保存项；配置提交继续由调用方复核取消、会话、所选配置与修订。
 
 `Register(name, httpVersion)` 保留 MASQUE 兼容绑定：先向 `https://api.cloudflareclient.com/v0a4471/reg` POST Curve25519/WireGuard 注册，再以返回的 Bearer token PATCH 同一设备为 P-256/secp256r1 MASQUE。`RegisterWireGuard(name)` 只执行初始 POST，直接保留同次注册的 Curve25519 私钥和 WireGuard 响应，不再 PATCH 为 MASQUE。
 
@@ -159,9 +153,9 @@ WireGuard 输出结构核对当前核心 [`v1.15.0-alpha.13` 的选项](https://
 
 注册地址在认证完成后配置给 IP 栈，拨号等待就绪，不等待 WARP 不发送的 `ADDRESS_ASSIGN`；普通 MASQUE 仍保留地址请求/分配。取消握手、停服和网络切换会关闭旧 TCP/QUIC 连接，已成功打开的隧道不被握手期限结束取消；重连沿用上游的退避与服务生命周期。网络切换取消会话时立即撤销其就绪状态，此后的拨号等待新隧道认证完成，不把首批报文写入已取消的旧隧道；上游客户端在重连循环回收旧会话前仍报告就绪，该修正由同一补丁维护，标准 MASQUE 端点同样生效。
 
-[patch_warp_masque.py](tools/patch_warp_masque.py) 对干净的匹配核心检查补丁并安装选项、出站和传输，重复安装失败。注册扩展与其他 `ui_*.go` 由共享 [setup-core](.github/actions/setup-core/action.yml) 安装，使统一测试、Android smoke 和 ARM64 Release 使用同一实现；正式 libbox 构建已有 `with_quic`。
+[MiChongs fork](core/sing-box/transport/masque) 对干净的匹配核心检查补丁并安装选项、出站和传输，重复安装失败。注册扩展与其他 `ui_*.go` 由共享 [setup-core](.github/actions/setup-core/action.yml) 安装，使统一测试、Android smoke 和 ARM64 Release 使用同一实现；正式 libbox 构建已有 `with_quic`。
 
-[注册回归](libbox/ui_warp_test.go) 使用本地 API 替身检查 MASQUE 两阶段与 WireGuard 单阶段注册、已注册私钥对应关系、地址和 reserved 字节、API peer 地址及缺省地址、WireGuard 端点追加/代理组/本地标记/重复保存、完整配置校验、错误状态/非法响应、响应上限、重定向拒绝、关闭取消及完整响应在取消边界的保留；[传输回归](libbox/masque/warp_test.go) 与 [HTTP/3 回归](libbox/masque/warp_http3_test.go) 检查握手、公钥固定、空 ALPN、传输回退、报文、失败/取消与重连，以及网络重置后拨号等待替换隧道；[ui_masque_test.go](libbox/ui_masque_test.go) 检查配置/格式化及真实 IP 栈经 selector 传输 UDP 和网络重置。Android 配置绑定与节点持久化回归由 [应用文档](app.md#android-仪器测试) 维护。实际运行记录维护在 [app.md](app.md#当前验证记录)；本地模拟服务不代表 Cloudflare 真实网络或注册流程已经验收。
+[注册回归](core/sing-box/experimental/libbox/ui_warp_test.go) 使用本地 API 替身检查 MASQUE 两阶段与 WireGuard 单阶段注册、已注册私钥对应关系、地址和 reserved 字节、API peer 地址及缺省地址、WireGuard 端点追加/代理组/本地标记/重复保存、完整配置校验、错误状态/非法响应、响应上限、重定向拒绝、关闭取消及完整响应在取消边界的保留；[传输回归](core/sing-box/transport/masque/b_box_warp_test.go) 与 [HTTP/3 回归](core/sing-box/transport/masque/b_box_warp_http3_test.go) 检查握手、公钥固定、空 ALPN、传输回退、报文、失败/取消与重连，以及网络重置后拨号等待替换隧道；[ui_masque_test.go](core/sing-box/experimental/libbox/ui_masque_test.go) 检查配置/格式化及真实 IP 栈经 selector 传输 UDP 和网络重置。Android 配置绑定与节点持久化回归由 [应用文档](app.md#android-仪器测试) 维护。实际运行记录维护在 [app.md](app.md#当前验证记录)；本地模拟服务不代表 Cloudflare 真实网络或注册流程已经验收。
 
 ### 运行时内存
 
@@ -178,7 +172,7 @@ WireGuard 输出结构核对当前核心 [`v1.15.0-alpha.13` 的选项](https://
 - `UIProfileGet` 下载订阅原始文本，完整读取实际响应及 gzip 解压后的内容，不设固定容量或总时限；节点解析及按来源配置合并由上述 `ApplyUISubscriptionNodes` 完成。保留 SFA User-Agent、URL 认证、证书库及 Modern TLS；非 HTTP 200 只报告状态并关闭正文。重定向检测重复的 URL 与方法，不按固定次数拒绝。
 - Android 订阅/WebDAV 使用 `NewUIHTTPTask` 的 `ProfileGet` / `WebDAVRequest`；协程取消立即调用 `Close`，使正在等待响应头、正文或 TLS 握手的阻塞绑定退出。原静态绑定保留兼容。没有 B-box 的固定 TLS 握手期限；调用方期限与取消继续生效。
 
-[ui_profile_test.go](libbox/ui_profile_test.go)、[ui_http_test.go](libbox/ui_http_test.go) 和 [ui_download_test.go](libbox/ui_download_test.go) 覆盖订阅认证/重定向、超过原容量的声明长度/分块/gzip 正文、WebDAV 大文件、等待响应头/正文时的取消、调用方期限、错误响应不读正文、APK 流式摘要/进度、大小不匹配和失败清理、独占文件创建，以及非法地址和重定向循环；通过统一测试工作流的 `TestUI` 入口运行。
+[ui_profile_test.go](core/sing-box/experimental/libbox/ui_profile_test.go)、[ui_http_test.go](core/sing-box/experimental/libbox/ui_http_test.go) 和 [ui_download_test.go](core/sing-box/experimental/libbox/ui_download_test.go) 覆盖订阅认证/重定向、超过原容量的声明长度/分块/gzip 正文、WebDAV 大文件、等待响应头/正文时的取消、调用方期限、错误响应不读正文、APK 流式摘要/进度、大小不匹配和失败清理、独占文件创建，以及非法地址和重定向循环；通过统一测试工作流的 `TestUI` 入口运行。
 
 这些接口不使用下述 `UIEgressProbe` 路由注入。需要查询当前 sing-box 出口时必须走探测接口，不能用一般 HTTP 请求替代。
 
@@ -186,9 +180,9 @@ WireGuard 输出结构核对当前核心 [`v1.15.0-alpha.13` 的选项](https://
 
 `NewUIDirectEgressProbe` 创建设备当前网络上的探测；Android 桥接只在本地服务停止时使用它。`CommandServer.NewUIEgressProbe` 绑定当前服务实例，经 `RouteConnectionEx` 和 `b-box-dashboard` 入站上下文使用 sing-box 路由，服务更换后拒绝旧实例请求。这里的入站上下文不是新增配置监听器。
 
-服务持有自身的路由探测集合，创建探测与停服/重载共用生命周期锁。[服务补丁](libbox/http_rewrite.patch) 在关闭核心之前取消这些探测，并等待已登记的 `RouteConnectionEx` 调用退出；探测关闭后不再允许 HTTP 客户端登记新的异步路由调用。这样，已经通过实例检查但尚未进入 DNS/拨号的请求不会在核心关闭后继续访问它。普通 `Close` 发出取消后快速返回，探测在路由退出后才从服务集合移除，因此后台停服仍会等待已经由界面取消的请求，不依赖 Flutter 收到状态通知后的清理时序。
+服务持有自身的路由探测集合，创建探测与停服/重载共用生命周期锁。[服务补丁](core/sing-box/option/processing.go) 在关闭核心之前取消这些探测，并等待已登记的 `RouteConnectionEx` 调用退出；探测关闭后不再允许 HTTP 客户端登记新的异步路由调用。这样，已经通过实例检查但尚未进入 DNS/拨号的请求不会在核心关闭后继续访问它。普通 `Close` 发出取消后快速返回，探测在路由退出后才从服务集合移除，因此后台停服仍会等待已经由界面取消的请求，不依赖 Flutter 收到状态通知后的清理时序。
 
-探测与脚本使用同一 [uiRouteLifecycle](libbox/ui_route.go)。停止先关闭路由准入并取消，随后停止处理引擎、等待已登记调用退出，最后关闭核心；脚本显式 `policy` 的 `DialContext` 也在此边界内。取消后才成功返回的连接立即关闭。[ui_route_test.go](libbox/ui_route_test.go) 检查路由/指定出站退出等待、关闭与登记竞争，以及迟到拨号结果。
+探测与脚本使用同一 [uiRouteLifecycle](core/sing-box/experimental/libbox/ui_route.go)。停止先关闭路由准入并取消，随后停止处理引擎、等待已登记调用退出，最后关闭核心；脚本显式 `policy` 的 `DialContext` 也在此边界内。取消后才成功返回的连接立即关闭。[ui_route_test.go](core/sing-box/experimental/libbox/ui_route_test.go) 检查路由/指定出站退出等待、关闭与登记竞争，以及迟到拨号结果。
 
 `UIEgressProbe` 提供：
 
@@ -198,7 +192,7 @@ WireGuard 输出结构核对当前核心 [`v1.15.0-alpha.13` 的选项](https://
 
 两种探测共用 libbox TLS 证书库；运行中的路由查询失败不能回退到设备网络。远程会话不提供本机出口探测。FlClash 来源、分批质量查询、缓存和界面刷新规则见 [flclash.md](flclash.md)；其中质量解析与缓存主要在 Dart/Android 层，不能将它们误记为 Go 核心补丁。
 
-[ui_egress_test.go](libbox/ui_egress_test.go) 用可控的路由退出时机检查探测关闭和服务关闭：取消必须传到请求，普通取消快速返回，停服须等仍在退出的路由结束，关闭中的探测拒绝后续请求；统一测试工作流另以 Go race detector 运行路由、出口探测、HTTP 任务和订阅回归。实际运行按 [应用验证记录](app.md#验证与历史记录) 中的源码 SHA 区分。
+[ui_egress_test.go](core/sing-box/experimental/libbox/ui_egress_test.go) 用可控的路由退出时机检查探测关闭和服务关闭：取消必须传到请求，普通取消快速返回，停服须等仍在退出的路由结束，关闭中的探测拒绝后续请求；统一测试工作流另以 Go race detector 运行路由、出口探测、HTTP 任务和订阅回归。实际运行按 [应用验证记录](app.md#验证与历史记录) 中的源码 SHA 区分。
 
 ### 局域网代理
 
@@ -210,253 +204,114 @@ WireGuard 输出结构核对当前核心 [`v1.15.0-alpha.13` 的选项](https://
 
 ### HTTP/HTTPS 请求调试
 
-[httpdebug/](libbox/httpdebug/) 在 sing-box 已选定路由后记录 HTTP 以及配置允许解密的 HTTPS/TLS 流。请求记录、[MITM](#独立-mitm-配置)、[HTTP 改写](#json-配置中的-http-改写)和[脚本](#独立脚本与-cron)分别控制；没有另开代理监听端口。手动抓包设置 version 3 仅含 `packages`、`ports`、`bodyLimit`、`extractHosts`，不含解密域名、证书、规则或脚本。
+[路由钩子](core/sing-box/route/b_box_httpdebug.go) 在 sing-box 完成选路后将需要处理的 TCP 流交给当前处理器，不另开代理端口；CONNECT/SOCKS 握手、嗅探缓存、原目的地址、应用归属和连接 UUID 继续来自 sing-box。Concord 处理 HTTP/1.1、HTTP/2、HTTPS、SSE 与 WebSocket 握手，透传升级后的流；未接管的字节完整回放。原目标拨号复用已选路由，改写目标重新路由，脚本网络同样经过主内核。
 
-[路由钩子](libbox/route/httpdebug.go) 将嗅探结果仅用于接管选择。转发继续调用原选定出站的 `ConnectionHandler` 或原连接管理器，保留原目的地址、解析结果、网络策略、TLS 分片、规则、代理组和应用归属。CONNECT/SOCKS 隧道先通过核心握手成功接口响应客户端，再等待请求或 ClientHello。需要观察的流通过普通 stream 路径处理；未命中流保留嗅探读到的所有字节继续原路由。
+Concord 使用 [ExternalRecorder](core/sing-box/experimental/httpdebug/external.go) 把请求、响应及正文投影到原有 B-box 存储；Rust 不再维护第二份 capture body 缓存。每条请求有独立 ID，`metadata.connectionId` 仍关联原客户端连接 UUID；流、请求和处理器 generation 隔离。停止记录封存已有前缀，迟到数据不再更新该记录，重开只从新的请求边界录制。清空记录不清理脚本持久数据或配置，停止服务才结束处理任务和连接。
 
-HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供的 Forwarded/X-Forwarded 字段。正文边转发边保存前缀，不因存储限额截断实际传输；SSE 立即刷新，WebSocket 透传升级后的连接且只记录 HTTP 握手。请求/响应 trailers 单独保存；并发 HTTP/2 流独立记录，取消保留已收到的正文及未完成标志。
+手动记录设置 version 3 仅含 `packages`、`ports`、`bodyLimit`、`extractHosts`；默认端口 80/443/8080/8443，应用与端口只限定记录范围。每方向正文默认保存 64 KiB，可填写正整数字节数或 `-1` 完整保存；实际传输不按保存前缀截断。Concord 自身的 MITM/正文/脚本限制继续按其原生 `mitm.limits` 处理，与 B-box 磁盘保存限额分别生效。
 
-每条请求/响应记录保留独立 `id`，详情查询、正文文件和导出继续使用它。路由入口从 sing-box [trafficcontrol.Tracker](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/common/trafficcontrol/tracker.go) 读取原始客户端连接的 UUID，写入可选的 `metadata.connectionId`，与 libbox 连接列表的 ID 一致；读取会穿过嗅探缓存等连接包装。同一连接的 HTTP/1.1 请求和 HTTP/2 流共享此关联，HTTPS 与 TLS/TCP 记录也保留它，跨目标改写不替换为新出站连接的 ID。
+`QueryUICapture(optionsJSON)` 保留搜索、活动状态、排序、连接 ID、分页窗口和摘要版本；仅编码查询窗口。`SelectUICaptureHAR` 在文件选择前固定全历史匹配 HTTP ID，`ExportUICaptureHARSelection` 按该选择导出，已清空的记录跳过。旧 List/Read/Export 绑定保留。正文预览、编码解压、HAR/cURL、资源错误和完整性继续由 [请求存储](core/sing-box/experimental/httpdebug) 提供；Concord 尚未向宿主投影的 TLS 握手细节保持未知，不填入旧 Go 处理器的推断值。界面与平台调用见 [app.md](app.md#请求抓取与-mitm)。
 
-没有跟踪器的流、跟踪前的 QUIC 域名观察和旧记录可缺省该字段；旧 `captureId` 不作为连接 ID。关联以字符串随记录保存，连接关闭或从连接历史淘汰不删除请求记录，请求记录保留到明确清空；启停抓包接口不接收连接 ID。
-
-[列表摘要](libbox/httpdebug/store.go) 也返回可选 `connectionId`、来源/目标、入站、出站、规则、应用及改写前 URL，供统一请求查看器直接关联、搜索和展示，无需逐条读取详情或正文。`requestBytes`/`responseBytes` 为该请求两个方向的实际正文计数，`bytes` 为二者之和；它们不是保存前缀大小或底层连接流量。旧记录的缺省关联保持缺省。
-
-`ExportUICaptureHARSelection(path, idsJSON)` 接收请求 ID 数组，校验 ID 并按选择顺序去重导出，空数组导出空 HAR，不设条数或参数字节配额。选择后已清理的记录跳过，不以新记录或整份历史替换；仅域名和 TLS/TCP 继续排除。原有按搜索文本的 HAR 绑定保留。详情与 cURL 使用请求 ID，关闭连接仍使用连接 UUID，两者不能交换。界面筛选及分页规则见 [统一查看器](flclash.md#导航与交互约定)。
-
-[store_query.go](libbox/httpdebug/store_query.go) 提供 `QueryUICapture(optionsJSON)`，接受搜索词、All/Captured/Active/Finished 状态、Created/Speed/Upload/Download 排序、可选精确连接 ID、正整数 `limit`、非负 `offset`、当前连接搜索元数据和窗口内已知摘要版本。关键词忽略大小写并逐词匹配已观测字段，HTTP 工作完成不代表 keep-alive 连接关闭。核心遍历保留索引，以只容纳 `offset + limit` 条引用的堆选取窗口，随后才创建摘要；不为整个历史创建摘要或正文数组。响应提供窗口 ID 顺序、摘要 SHA-256 版本、变化项、匹配总数、总记录数、HTTP 匹配数及下一页标志。父连接去重覆盖全部匹配记录，但只返回调用方当前连接集合内的 ID；相同排序值按请求 ID 稳定排列，请求速度仍保持未知。
-
-`SelectUICaptureHAR(optionsJSON)` 使用相同搜索及状态条件，返回全历史匹配 HTTP ID，不受分页范围影响，也不创建完整摘要。Android 在文件选择器打开前固定该选择，调用约定见 [应用桥接](app.md#请求抓取与-mitm)。两项新绑定与既有 `ListUICapture` 分别保留，原版上游 AAR 不包含这些扩展。
-
-资源与完整性边界：
-
-- 不设固定的接管连接、HTTP/2 并发流、每主机连接、HTTP 头或正文容量配额，也不增加固定读头、空闲、正文读取、MITM 探测和 TLS 握手期限。[tls_selection.go](libbox/httpdebug/tls_selection.go) 跟踪探测、待交接与正式处理的生命周期，调用取消及服务停止会回收连接。ClientHello 使用当前 Go `crypto/tls` 的解析边界；路由入口保留上游协议嗅探的回退期限，缓冲区按需增长并完整回放，不以初始容量拒绝大请求头。
-- [recording.go](libbox/httpdebug/recording.go) 将记录策略与服务处理引擎分开。启停记录不替换引擎或关闭已有 HTTP、SSE、WebSocket、TLS/TCP 连接；停止时封存已有前缀和当时的完整性状态，迟到正文、响应及 EOF 不再更新该记录。重新开启从已有拦截连接的新 HTTP 请求或新 TCP 流开始记录，不能补录正在传输的旧流；尚未被接管的连接需由应用重新建立。服务停止/重载才关闭旧处理连接，记录不会自动恢复。
-- 抓包端口默认 80、443、8080、8443，端口、应用和 MITM 主机列表不设条数配额；按原始目标端口筛选。应用列表为空表示不限；未知归属不能匹配指定应用，共享 UID 使用同一归属结果。这些设置只限制记录，不改变配置中的解密或处理范围。
-- 请求条数、磁盘总量、头部和 trailers 不设固定配额。每方向正文默认保留 64 KiB，用户可填写任意可表示的正整数字节数，`-1` 保存完整正文；旧记录的截断标记保留。存储失败、截断、未完成和流错误分别保留。
-- 正文处理、预览和 HAR 使用相同的 Content-Encoding 解析，支持 identity、gzip/x-gzip、deflate（zlib/raw）、br 和 zstd，合并重复头后按应用顺序逆序解码。处理阶段沿用 [content_encoding.go](libbox/httpdebug/content_encoding.go) 的逐层用户限额；预览和导出通过 [content_reader.go](libbox/httpdebug/content_reader.go) 串联流式解码器，不将完整正文或中间层装入内存。HAR 请求/响应保留原始保存内容与完整性标志，用 `_trailers` 保存尾部字段，耗时仅为总时长。cURL 仅允许完整、未截断且无 trailers 的 HTTP 请求；TLS/TCP 流和仅域名记录不进入 HAR，也不能导出 cURL。
-
-[store.go](libbox/httpdebug/store.go) 为每条记录的两个方向按需保留正文文件句柄，方向内串行写入，EOF、用户正文限额、完成和清空均释放句柄；达到前缀上限后继续累计实际转发字节。正文写入在索引锁外执行，完成标志等待在途写入提交计数，迟到写入不能重建已清理记录；元数据沿用原子替换。详情、正文页和导出在锁内复制元数据并打开文件，随后在锁外通过受快照字节数约束的 SectionReader 读取，保留并发追加及清空期间的快照一致性。兼容绑定 `ListUICapture` 仍支持 `limit=0` 返回全部摘要，新界面使用上述分页查询。
-
-[body_preview.go](libbox/httpdebug/body_preview.go) 将每方向详情限制为首个 16 KiB 正文页；`ReadUICaptureBody(id, response, offset, raw)` 按需读取后续页。`offset` / `nextOffset` 是所选字节表示的偏移，UTF-8 边界保留完整字符；`hasMore` 表示仍可翻页，与保存或解码的 `truncated` 分开。支持的编码默认查看解码后字节，二进制页以 Base64 表示；编码不可用时首个页回退到原始保存字节，返回 `source: raw` 及原因，后续沿用该来源。普通文件页直接定位，压缩内容为到达指定偏移从头流式解码并丢弃前缀，不缓存之前的正文页。16 KiB 是读取窗口，不改变用户的抓取保留范围。
-
-[export.go](libbox/httpdebug/export.go) 的 HAR 逐条、逐字段写入；解码大小及请求文本编码通过一次流式扫描确定，第二次流式写出完整保存内容，保留压缩原文 `_rawBody`。文本转义和 Base64 编码均分块进行，解码错误保留前缀、原文及错误标记。`ExportUICaptureCurlFile(path, id)` 直接流式生成脚本文件；旧 `ExportUICaptureCurl` 字符串绑定只为已有调用者保留，Android 文件导出使用新绑定。正文页、HAR 和 cURL 不共享全量正文数组。此边界对应 [Android 进程内存管理](https://developer.android.com/topic/performance/memory-overview)；它不是设备容量测量或新的抓取配额。
-
-`extractHosts` 额外保存可见 TLS/QUIC 名称，标为“仅域名”；它不启用解密、阻断 QUIC 或恢复 ECH 隐藏的名称。域名导出对当前搜索条件下的保留记录去重。保存记录在停服后仍可读取。
-
-没有独立抓包日志页面、缓冲或读写绑定。[logging.go](libbox/httpdebug/logging.go) 将运行错误与脚本 console 输出送到当前核心的普通日志，遵守配置日志等级；停止服务后释放日志回调。正文预算不足、编码/流式跳过、ClientHello 无法解析和 MITM 范围未命中保留具体原因；请求处理日志带连接/请求 ID，错误页指向请求详情及现有服务日志。TLS 客户端/上游握手错误区分阶段；握手完成但未收到 HTTP 请求就结束另记 `tlsNoRequest`，只提示可能的 pinning 或客户端取消，不认定已证实的证书固定校验失败。正常服务取消不产生该提示。
-
-`ReadUICaptureStatus` 保留抓包状态、计数和最近错误，并报告 `bodyBudgetReserved`/`bodyBudgetLimit`、`httpScriptsRunning`/`cronScriptsRunning`，供平台确认状态；请求页不展示配置已生效横幅。
-
-`CommandServer.StartUICapture(directory, config, certificate, signer)` 与核心重载/关闭串行；后两个参数保留生成调用兼容，解密策略及 CA 只取已启动配置的 MITM。`GenerateUICaptureCA(publicKeyDER, UICaptureSigner)` 只接收平台公钥和签名回调，不接收或导出根私钥。其他 `Open/Validate/Stop/Read/List/Clear/ExportUICapture*`、`ExtractUICaptureHosts` 提供本地访问；列表轮询传摘要，详情按需读取保存的正文。
+`CommandServer.StartUICapture` 只启用当前会话记录，不切换处理器或重启脚本调度。`ReadUICaptureStatus` 的 `backend` 标明 Concord 或兼容处理器，`active` 只代表手动记录；规则数量、错误及配置状态来自实际处理会话。旧 Go 实现的非 HTTP TLS/TCP 记录仅用于旧配置的 `mitm.tcp`，不能当作新 Concord 处理器的功能声明。
 
 ### 独立 MITM 配置
 
-`experimental.mitm` 是与 `experimental.http_rewrite`、`experimental.scripts` 平级的扩展，定义见 [mitm_config.go](libbox/httpdebug/mitm_config.go)，示例见 [examples/mitm.json](examples/mitm.json)。生成 schema、完整配置校验、格式化、分享和备份均保留它；CA 私钥和本机证书不进入 JSON。
+当前配置入口为 `experimental.processing`，其 `enabled` 统一启用 Concord HTTP 处理；`mitm` 使用 Concord 的 kebab-case 字段，不接受另一个 `mitm.enable` 开关。定义和保存校验见 [Config](core/sing-box/experimental/concord/config.go) 及 [Concord MitmSection](core/concord/crates/config/src/mitm/mod.rs)。
 
-| 字段 | 含义 |
+| 字段 | 当前行为 |
 | --- | --- |
-| `enabled` | 启用 HTTPS/TLS 解密，默认 false；不依赖改写、脚本或抓包开关 |
-| `hosts` | 支持域名、IP、`*` / `?` 通配符、`-` 排除前缀及 `:port`（`:0` 匹配所有端口）；按顺序取首个匹配项，排除项应放在前面。空列表不解密任何连接，非法项拒绝保存 |
-| `ports` / `packages` | 额外限定原始目的端口及应用，与 `hosts` 取交集；为空时不增加该项限制 |
-| `tcp` | 默认 false；开启后支持非 HTTP TLS 字节流，无 ALPN 时先识别 HTTP/1.x 请求，其他内容按 TCP 转发 |
-| `h2` | 默认 true；客户端与上游分别协商 HTTP 版本。显式 false 保留在格式化结果中；关闭时仅接管可使用 HTTP/1.1 的 HTTP 客户端，只提供 h2 的连接原样透传 |
-| `skip_server_cert_verify` | 默认 false；开启后跳过 MITM 上游服务器证书校验 |
-| `block_quic` | 默认 true；在 MITM 启用且命中域名/端口/应用时，拒绝已观测的 QUIC 连接以促使应用改用 TCP；显式 false 在配置格式化后保留 |
+| `mitm.hostname` / `hostname-disabled` | Concord Host List，保留顺序、排除、通配符和端口；空允许列表不解密 HTTPS |
+| `mitm.decrypt-tls` | 可单独关闭 TLS 解密并保留明文 HTTP 处理；默认沿用 Concord |
+| `mitm.h2` | 是否向客户端协商 HTTP/2；上游独立协商，默认沿用 Concord |
+| `mitm.skip-server-cert-verify` / `skip-server-cert-verify-hostname` | 全局或指定主机跳过上游信任校验；未开启时由当前 libbox RootPool 验证证书链、域名和有效期 |
+| `mitm.auto-quic-block` | 对实际匹配的 QUIC 流使用 Concord 的回退判断，无法恢复名称的其他 UDP 保留 |
+| `mitm.client-source-address` | Concord 原生源地址条件，应用包筛选继续属于手动记录设置 |
+| `mitm.ca-fingerprint` | 校验当前 CA 身份，不携带根私钥 |
+| `mitm.limits` | 原生正文、证书缓存、并发会话及脚本预算；设置及缺省值由 Concord 解析器和运行时决定 |
 
-HTTP/2 默认值按 Android 客户端兼容性选择，不沿用 Surge 的默认关闭策略。[gRPC Android](https://grpc.io/docs/platforms/android/java/quickstart/) 的 [OkHttp TLS 传输](https://github.com/grpc/grpc-java/blob/v1.85.1/okhttp/src/main/java/io/grpc/okhttp/OkHttpTlsUpgrader.java) 只接受 h2；关闭 h2 时，ClientHello 选择阶段直接回放这类连接，不向它宣告 HTTP/1.1，也不将它转成原始 TCP 解密。已有显式 false 配置继续生效。
+CA 仍由 Android 主动生成和安装。[外部签发器](core/sing-box/experimental/httpdebug/external_authority.go) 使用 Android Keystore P-256 根签名回调，为 Concord 提供叶证书链和叶私钥；根私钥不交给 Rust，不写入配置或备份。Concord 负责 TLS 接管与 HTTP 转发，默认上游验证使用当前 libbox 的可信 CA 池，不另建弱校验路径。TLS/HTTP 兼容边界以当前 Concord 源码为准；旧配置专用的 `tcp`、`ports`、`packages` 不能按同名开关自动搬到新 MITM。
 
-[mitm_hosts.go](libbox/httpdebug/mitm_hosts.go) 按 Surge [Host List](https://manual.nssurge.com/profile/host-list.html) 和 [MITM](https://manual.nssurge.com/http/mitm.html) 的规则匹配。未写端口的项默认匹配 443；名称来自实际 TLS/QUIC SNI 时，未写端口的项可匹配其他端口，显式端口仍按原始目标端口判断。IPv6 端口写为 `[2001:db8::1]:8443`；支持 `<ip-address>`、`<ipv4-address>`、`<ipv6-address>` 和 `<simple-hostname>`。例如 `["-private.example.com", "*.example.com:0"]` 排除前项命中的连接后匹配其他子域。
-
-[MITM 处理器](libbox/httpdebug/mitm.go) 用只读 TLS 探测器读取实际 ClientHello，探测阶段不写 ServerHello 或 alert。域名以实际 SNI 为准；没有 SNI 时仅接受已知 IP 目标，不以 DNS 映射冒充 SNI。无法解析的 hello、未命中域名及关闭 TCP 解密时的非 HTTP ALPN 流原样回放。route 的端口覆写不改变原始筛选端口和抓取 authority。
-
-普通 MITM 先通过原路由完成上游握手，默认使用 `adapter.RootPoolFromContext` 的当前证书库验证服务器链、有效期和名称，再签发客户端证书；原连接直接复用，后续连接沿用本配置的校验选项。支持 TLS 1.2/1.3。HTTP/1.1、HTTP/2 进入 HTTP 引擎；开启 `h2` 后客户端与上游分别协商，可在两个 HTTP 版本间转换，分别记录客户端 `alpn` 和 `upstreamALPN`。旧记录缺少上游 ALPN 时保留未知，不补写协商结果。HTTP 协商方式对照 Surge [HTTP 协议版本说明](https://kb.nssurge.com/surge-knowledge-base/zh/technotes/http-protocol-version)。同时提供 HTTP 和其他 ALPN 的客户端先协商上游，已协商的非 HTTP 协议继续按原始流处理。
-
-`tcp=false` 时没有 ALPN 的连接按 HTTP/1.1 处理。`tcp=true` 时，[mitm_detect.go](libbox/httpdebug/mitm_detect.go) 在已建立的 TLS 连接上识别完整 HTTP/1.x 请求行；识别成功后，HTTP 改写、脚本及 HAR/cURL 导出照常工作。探测同时观察上游首字节，服务器先发数据时直接选择原始流；客户端探测最多 64 KiB 请求行、10 秒，二进制或不符合 HTTP 的内容提前结束探测。探测结束先回收两个读取任务，再完整回放双方已读字节，保留半关闭；停止服务取消探测并关闭双方连接。探测限额仅决定处理方式，不截断转发内容。
-
-[mitm_tcp.go](libbox/httpdebug/mitm_tcp.go) 双向转发已确定为非 HTTP 的解密字节，支持服务器先发数据、二进制和 TLS 半关闭；不执行 HTTP 改写或 HTTP 脚本。开启记录时保存为 `TLS/TCP`，分别保留两个方向的有界前缀和完整性状态，元数据带 `rawTCP`。HTTPS 和 TCP 均记录真实 SNI、双方 TLS 版本、双方 ALPN 和上游叶证书 SHA-256。
-
-[签发器](libbox/httpdebug/authority.go) 使用平台 P-256 `crypto.Signer`，根私钥留在 Android Keystore。三年期自签名 CA 的名称包含公钥摘要；启动验证 CA 约束、有效期、公钥及随机挑战签名。[绑定](libbox/ui_capture_signer.go) 只接受 SHA-256 摘要并验证返回的 ECDSA 签名。叶证书只含当前名称的一个 SAN，有效期不超过十二小时及根有效期，最多缓存 128 个。HTTP authority 不同时返回 421，防止 HTTP/2 合并连接越过允许域名。
-
-HTTP 离线 Mock 的握手方式见下文。TCP 支持限于直接建立 TLS 的连接，不解密任意私有加密协议、STARTTLS 升级、HTTP/3、真实 ECH 或客户端证书认证；嵌套 CONNECT 不支持。证书固定校验或独立信任库可拒绝连接，可移除该域名或由目标客户端调整信任。QUIC 回退只处理已恢复名称的匹配流，其他 UDP、未知名称和未命中的数据报保留；不保证应用会回退。证书安装及平台限制见 [app.md](app.md#请求抓取与-mitm)。
-
-握手设计参考 mitmproxy [`b08148b35d7679bc9be8d4a3d85b32bcea5ce250`](https://github.com/mitmproxy/mitmproxy/tree/b08148b35d7679bc9be8d4a3d85b32bcea5ce250) 的 `addons/tlsconfig.py`、`proxy/layers/tls.py` 和 `certs.py`；生产实现使用 Go `crypto/tls`。FlClash 补充参考见 [界面来源](flclash.md#参考版本与来源清单)。
-
-叶证书缓存按证书到期时间清理，不设置固定主机数量配额；仍使用独立单主机 SAN，证书有效期不超过签发 CA。缓存随服务实例释放。
-
-协议和配置的回归范围见 [回归文件覆盖](#回归文件覆盖)，Android 路由回归及实际运行记录见 [app.md](app.md#验证与历史记录)。
+[示例](examples/concord-processing.json) 展示处理器配置。旧 `experimental.mitm` 及 [旧示例](examples/mitm.json) 继续由 Go 兼容处理器解析；包含 `experimental.processing` 时，必须先关闭旧 MITM、改写和脚本，即使新处理开关暂时关闭也不能保留已启用的旧处理器。Flutter 提供完整候选配置审阅，保留旧规则原文，不自动转换语义不同的字段。
 
 ### JSON 配置中的 HTTP 改写
 
-`experimental.http_rewrite` 包含声明式 HTTP 规则及资源，定义见 [rewrite_config.go](libbox/httpdebug/rewrite_config.go)，示例见 [examples/http-rewrite.json](examples/http-rewrite.json)。MITM 和脚本由平级扩展独立启用。以下配置为指定 HTTPS 域名提供本地 Mock：
+新规则位于 `experimental.processing.mitm` 的 `url-rewrite`、`header-rewrite`、`body-rewrite`、`map-local`、`request-body-mock` 字符串列表，复用 [Concord 规则解析与执行](core/concord/crates/mitm/src/rules.rs)。支持 URL 改写/拒绝/重定向、请求及响应头改写、正文替换/jq、本地响应及请求正文 Mock；规则顺序、匹配、参数和错误由原生预览及完整配置校验反馈。
 
-```json
-{
-  "experimental": {
-    "mitm": {"enabled": true, "hosts": ["api.example.test"]},
-    "http_rewrite": {
-      "enabled": true,
-      "map_local": [{
-        "pattern": "^https://api\\.example\\.test/mock$",
-        "data": "{\"ok\":true}",
-        "headers": [{"name": "Content-Type", "value": "application/json"}]
-      }]
-    }
-  }
-}
-```
+URL 改写到其他主机或端口后，宿主对实际新目标重新执行 sing-box 路由；原连接的应用及入站归属保留。原目标继续使用原选路，不把模块的 Clash policy 当作 sing-box 出站。Map Local 的文本、文件和 URL 内容由共享资源加载器提供，命名资源随配置保存。HTTP 页面直接编辑这些原生列表和完整 JSON，不再用旧 Map Remote 对象伪装 Concord 语法。
 
-HTTPS MITM 需准备并安装 CA，入口见 [配置编辑](flclash.md#配置页与内核差异)。所有扩展 `enabled` 默认 false，随本地服务启动/重载生效，停止服务或移除配置后结束；抓包只控制记录。失败恢复见 [app.md](app.md#配置处理生命周期)。示例使用测试域名，使用前替换域名及映射地址，再合并到自己的 sing-box JSON。
+旧 `experimental.http_rewrite` 和 [旧 JSON 示例](examples/http-rewrite.json) 由 [Go 兼容解析器](core/sing-box/experimental/httpdebug/rewrite_config.go) 执行，仅服务于已有配置。它的 Map Remote、独立正文限额和 Go jq 设置不自动转换为新规则。
 
-| 字段 | 含义 |
-| --- | --- |
-| `enabled` | 启用声明式 HTTP 处理，默认 false |
-| `ports` / `packages` | 原始目的端口及应用范围；默认端口 80、443、8080、8443，应用为空表示不限 |
-| `max_request_body_bytes` | 请求正文及改写输出上限，正整数按字节限制，缺省或 `-1` 不限制 |
-| `max_response_body_bytes` | 响应正文及改写输出上限，正整数按字节限制，缺省或 `-1` 不限制 |
-| `max_body_bytes` | 兼容旧配置，作为未指定方向的共同值；正整数按字节限制，`0` / `-1` 不限制，方向字段优先 |
-| `resources` | 资源字典，值包含 `data_type`、`data`，文件/URL 资源可设 `update_interval`，见[资源加载](#文件和-url-资源加载) |
+### 模块
 
-规则、资源数量及扩展 JSON 不设固定容量配额。规则有必填 `pattern`、可选 `name`/`disabled`（默认 false）。匹配依次尝试原始完整 URL（含查询参数）、替换为可见 Host 的 URL、替换为底层连接域名的 URL，任一命中即可；请求和响应使用相同候选，URL 替换基于实际命中的候选。HTTP 脚本同样使用这些候选。HTTP/1 absolute-form 的 Host 可见性受 Go HTTP 解析器约束：以请求目标的 authority 填充 Host 时，独立的原始 Host 头无法再作为另一候选恢复。
+`processing.mitm.modules` 是按顺序保存的模块数组，每项至少包含唯一 `name` 和内嵌 `text`，可带 `enabled`（缺省 true）、`arguments` 与 `attachments`。`module_urls` 保存下载来源；导入时先下载/读取正文，再用原生 `ReadUIProcessingModule` 预览，确认后原子保存完整配置，不在校验期间联网。
 
-[正则实现](libbox/httpdebug/rewrite_regex.go) 对普通表达式使用 Go RE2，对扩展语法回退 regexp2，支持正向/负向前查找 `(?=…)`/`(?!…)`、正向/负向后查找 `(?<=…)`/`(?<!…)`，以及正则内部数字和命名反向引用。替换模板保留 `$1`、`${name}`、`$$`，中文和 emoji 按字节位置正确切片；正文 `^`/`$` 按行匹配，索引按实际捕获组数量分配。表达式、捕获组、替换次数、回溯栈和并发不设 B-box 配额；输出遵守用户正文限额。回溯执行持续检查当前请求取消，每次调用使用独立 runner 缓存，不修改共享表达式的期限；不支持从右向左模式。
+解析和合成复用 Concord 的 [Surge/Loon/Quantumult X/Stash 模块](core/concord/crates/config/src/mitm/module) 和 [compose](core/concord/crates/config/src/mitm/modules.rs)。预览包含格式、元数据、参数、声明脚本、附件、行号、有效规则、错误及忽略原因。模块要求不满足或无法解析时，保存阶段拒绝启用；停用模块仍保留正文、要求诊断和实际 `active` 状态。模块行跟在配置自身规则之后，hostname 的插入语义由原生合成实现。
 
-| 能力 / 字段 | 规则内容及行为 |
-| --- | --- |
-| Header Rewrite / `header_rewrite` | `phase`: request/response；`operation`: add、delete、replace、replace_regex；指定 `header`，普通操作用 `value`，正则用 `regex`/`replacement`。add 保留重复字段；replace 仅替换已存在字段，新增或覆盖可依次 delete/add。请求 Host 仅允许 replace/replace_regex |
-| URL Rewrite / `url_rewrite` | `action`: header 透明改写并更新 Host，302/307 返回重定向，reject 返回 403；`reject-200` 返回 200 空正文，`reject-dict` 返回 200 和 `{}`（application/json），用于迁移模块时保留空响应语义，不改变已有 reject。`replacement` 为绝对 HTTP(S) URL 模板，header 另支持 `ws://`，保留原 Upgrade 头并使用 HTTP 传输。302/307 支持 `{{{GATEWAY_ADDRESS}}}`，取运行中核心默认接口的真实网关，IPv6 加方括号，无网关时跳过。首条命中处理，展开后非法目标丢弃并保留当前目标 |
-| Map Remote / `map_remote` | `replacement` 为绝对 HTTP(S) URL，默认更新 Host，`preserve_host: true` 保留 Host；首条命中生效。与 URL header 同时匹配时决定最终目标 |
-| Body Rewrite / `body_rewrite` | `phase`、URL `pattern`，使用正文 `regex`/`replacement` 或 `jq`，二者互斥；匹配规则依次执行 |
-| Map Local / `map_local` | 首条匹配返回本地响应，`status` 默认 200，接受 200～999；`headers` 为 `{name,value}` 数组；`data_type` 支持 text、base64、tiny-gif、file，`data` 为内容或路径/URL；可用 `resource` 引用资源，与 data/data_type 互斥。为兼容已有 B-box JSON，省略类型仍按 text 处理 |
-
-[jq](libbox/httpdebug/rewrite_json.go) 支持请求和响应的完整 JSON 值、保留大整数，多个输出值以换行连接。非法 JSON/表达式、执行失败、取消或超过用户输出限额时跳过该规则并告警；无输出（如 `empty`）保持原文。表达式、输出值数量和输出嵌套不设 B-box 配额，执行使用当前请求的 context；无外部模块、文件、输入和环境变量加载器。gojq 与原版 jq 并非逐项完全等价。
-
-顺序为请求 Header → URL → Map Remote → Body（含 jq）→ 请求脚本 → Map Local → 上游 → 响应 Header → Body（含 jq）→ 响应脚本。重定向、拒绝或脚本 Mock 提前结束请求路径，响应仍经过响应阶段。脚本未捕获异常、超时或源码加载失败时，本次脚本不生效，保留前序改写后的报文并继续，记录告警；不尝试后续匹配脚本。`$done({abort:true})` 终止当前 HTTP 交换：HTTP/1 关闭连接，HTTP/2 只重置当前流，不返回合成错误页。非法 `$done` 结果、分帧错误、正则处理错误和上游失败返回 502，超限请求正文返回 413。
-
-HTTP/1 请求处理错误立即终止后续正文读取并关闭连接，避免半上传阻塞错误响应；HTTP/2 只关闭本次请求正文。只缓冲需要正文的匹配规则，编码及分层限制见 [HTTP 调试](#httphttps-请求调试)。压缩前后检查限额；不支持/无效编码和非 UTF-8 文本保留原文。响应超限回放已读前缀继续转发；SSE、未显式选择[一元处理](#一元-grpc-正文脚本)的 gRPC/grpc-web、NDJSON、JSON sequence、multipart/x-mixed-replace、协议升级、HEAD 和 206 响应跳过正文处理，无需正文的规则仍可执行。普通 HTTP 改写后移除旧压缩、摘要、ETag、范围及 trailer，重算 Content-Length；gRPC 改写保留协议 trailers。禁止手动改变分帧/升级头或 101 状态。HEAD/204/205/304 不发送不允许的正文。B-box 保留 chunked 和 Expect 上传处理，不完全复制 Surge 的跳过条件。
-
-[body_budget.go](libbox/httpdebug/body_budget.go) 按实际正文缓冲长度记账，生产环境不设全局容量配额，不再按配置上限倍数预留。脚本主动请求先检查累计次数、取消与服务可用性，再解析选项；目标校验通过后才访问 body getter 或 JSON 序列化。字符串按 Goja UTF-16 精确计算 UTF-8 字节数，TypedArray 按子视图长度检查用户限额，并在分配自己的正文副本前登记；异步 worker 将所有权交给 VM 回调，结束或取消后释放。JSON 序列化本身发生在 VM 内，统计不涵盖任意 JS/gojq 分配、缓冲容量或进程 RSS，也不是实机容量测量。结果及响应回放保持登记直到正文关闭，`bodyBudgetLimit=0` 表示没有全局配额。
-
-保留的数值边界来自格式或表示范围：端口和 gRPC 长度字段、DNS 标签/域名长度、Go 整数与 duration 范围，以及 [RFC 9113](https://www.rfc-editor.org/rfc/rfc9113.html#section-6.5.2) 的 HTTP/2 SETTINGS/帧长度字段。HTTP zstd 保留 [RFC 9659 §3](https://www.rfc-editor.org/rfc/rfc9659.html#section-3) 要求的 8 MiB 最大窗口，采用流式解码；这不限制完整正文长度。`crypto/tls` 的 ClientHello 解析边界由固定 Go 版本决定，见 [Go 1.26.10 源码](https://github.com/golang/go/blob/go1.26.10/src/crypto/tls/conn.go)。Surge iOS/macOS 的容量值不作为 Android 容量依据。
-
-未改变 origin 的请求沿用原出站、解析结果和网络选项；跨 origin 重新进入同一核心，保留入站、来源和应用归属，清除旧目的地/规则缓存并防止递归处理，无直连回退。记录保留原 URL 和命中说明，路由字段表示原连接。
-
-为支持离线静态/脚本 Mock，[rewrite_transport.go](libbox/httpdebug/rewrite_transport.go) 对确定按 HTTP 处理且配置了 HTTP 规则的 TLS 连接先完成客户端握手，实际转发时才连接上游。真实上游沿用 MITM 证书校验和 HTTP/2 选项，Mock 不伪造上游 TLS 信息。纯 MITM、原始 TCP 及待识别的无 ALPN 流使用上游优先握手。
+DNS、路由、规则集及网络设置不由 Concord 应用。启用含这些设置的模块默认拒绝；预览确认后可显式选择 `processing.http_only_modules: true`，只应用 HTTP 部分并继续报告未应用内容。`module-policy`、`adopt-resources`、`type=rule` 和 `type=dns` 脚本明确拒绝；模块中的未知/忽略行通过原生诊断展示，不静默改为 Mihomo 配置。
 
 ### 文件和 URL 资源加载
 
-[processing_resources.go](libbox/httpdebug/processing_resources.go) 供 Map Local 和脚本共用。`data_type: "file"` 的 `data` 为相对实际配置文件目录的路径或 HTTP(S) URL；文件和脚本源码不设固定容量上限。文件读取、下载及每层解压随实际大小[登记正文缓冲](#json-配置中的-http-改写)。拒绝绝对本地路径、目录逃逸及非普通文件。配置 JSON 的校验、编辑、格式化、导入及应用内备份不读取其引用的文件，不下载或执行代码，缺失资源在运行时处理。Android 的主动本地资源导入负责复制用户选择的文档并写入相对引用，见 [应用导入流程](app.md#配置处理生命周期)。配置导出仅携带引用，不打包实际文件或下载缓存。
+`processing.resources` 按名称保存 `data_type: text/file/url` 和 `data`。文本可嵌入 JS、jq 或 Mock；文件必须在当前配置目录内，校验拒绝绝对路径及逃逸，运行时检查符号链接后的真实路径；URL 必须为带主机且无用户凭据的 HTTP(S)。模块附件可映射到同一资源字典。
 
-本地 Map Local 每次命中重新读，按后缀推断 MIME，显式 Content-Type 优先；内嵌资源引用继承其 data_type。本地脚本编译结果默认缓存到服务结束，`debug: true` 每次重新读/编译。URL 资源在服务成功激活后经当前核心路由自动下载、后台刷新，默认 86400 秒；资源 `update_interval` 或脚本 `script_update_interval` 接受可表示为 duration 的正整数秒。下载由调用方及服务取消，不另加固定期限；检测重复 URL/方法的重定向循环。同资源合并并发下载，不同资源独立刷新，同一身份使用最短配置间隔，不递归改写/脚本。
+保存/预览只检查配置结构和内嵌脚本语法，不读本地资源、下载远端文件或执行脚本。启动时将使用的资源写入 Concord 私有资源目录，远端下载通过已启动 sing-box 实例的路由与 RootPool。加载失败阻止启动，并由应用恢复旧配置。当前 Concord 适配未实现旧 Go URL 缓存刷新语义，不能把旧兼容实现的自动刷新当作新处理器能力。
 
-URL 内容和成功时间原子存入私有 `captures/resource-cache/`，按资源身份哈希命名，不设累计磁盘配额。处理配置激活时按当前引用集合清理过期身份及未提交的 `.pending`；只处理缓存拥有的 64 位十六进制文件名，不删除无关文件、目录或符号链接，不淘汰仍在引用的最后可用版本。缓存写入与清理共用锁，保持临时文件、同步及原子替换。更新、磁盘提交或新脚本编译失败保留上次可用缓存；无缓存时，Map Local 跳过并回到上游，脚本保留报文，均告警。首次命中可能等待下载，加载也计入用户脚本期限；有缓存则使用缓存并后台刷新。停止/重载取消下载、等待后台退出。清空抓包不删除缓存；目录和备份边界见 [应用生命周期](app.md#配置处理生命周期)。
-
-URL 脚本默认按资源身份及内容 SHA-256 缓存编译结果，命中磁盘或重新下载相同内容时复用；`debug: true` 每次重新编译。每个资源仅保留当前一份编译结果，随服务结束释放，重载后首次读取重新编译。新下载脚本只有编译及磁盘提交均成功才更新编译缓存；各次执行仍使用独立 Goja VM。
+Android 文档导入的原子复制、修订复核、取消及备份范围由 [app.md](app.md#配置处理生命周期) 维护。
 
 ### 独立脚本与 Cron
 
-`experimental.scripts` 定义见 [script_config.go](libbox/httpdebug/script_config.go)，示例见 [examples/scripts.json](examples/scripts.json)。`enabled` 默认 false，HTTP/Cron、资源数量、源码和 JSON 不设固定配额。每条规则从 `source`、`resource`、`script_path` 中选一个：非空内联源码、字典资源引用、文件/URL 路径。校验编译内联代码和时间表达式，外部源码按[资源加载](#文件和-url-资源加载)在运行时处理。
+新脚本使用 `processing.mitm.script` 中的 Concord 原生脚本行和 [QuickJS 运行时](core/concord/crates/mitm/src/quickjs)。支持 HTTP 请求/响应、通用任务、Cron 及 engine-started、profile-reloaded、network-changed 事件；语法、参数、正文模式和限制由原生检查及运行时决定。脚本资源使用共享 `resources`；内嵌 JS 在保存前编译检查，不执行。
 
-`ports`/`packages` 只限制被处理的 HTTP 流，默认端口同改写，不限制脚本主动请求。被拦截正文及脚本输出 `max_body_bytes` 缺省、`0` 或 `-1` 不限制，正整数按字节限制，HTTP 规则可覆盖。主动 HTTP 客户端可独立配置限额。
+HTTP 脚本通过 Concord 请求/响应对象、`$done`、异步 HTTP 客户端、持久存储、通知和定时器运行，binary-body 及响应 trailers 按原生语义处理。脚本/资源网络请求均由宿主 sing-box 拨号；通知转为原生平台通知并保留日志。Cron 读取 Android 当前时区，重载和默认接口变化发送相应原生事件。记录启停不重建调度；关闭/重载取消在途任务，等待 Rust Tasks、阻塞宿主回调和 Go 路由全部退出，再释放回调 handle。
 
-HTTP 规则指定 `pattern`、`phase`（request/response）、可选 `name`/`disabled`，每个方向只执行首条匹配脚本，失败不尝试下一条。HTTPS 必须另启 MITM 并匹配域名。[script.go](libbox/httpdebug/script.go) 提供：
+`CommandServer.RunUIProcessingScript(configContent, name)` 在当前服务实例运行通用/Cron 任务并返回原生输出。Android 先持有配置锁并确认运行快照，核心再次比较处理器启动时的不可变原文；重载后同名脚本不接收旧页面的运行请求。运行需要本机会话及真实 Started 状态，不用离线预览结果冒充执行结果。
 
-- `$request` 有 url/method/headers/id；请求阶段 `requires_body: true` 且正文非空时有 body，响应阶段 request 不带正文；URL 是前序规则处理后的值。
-- `$response` 有 status/headers，`requires_body: true` 且正文非空时有 body，包含前序正文规则和 jq 的结果。空正文不注入 body 属性。
-- `$done()`/`$done({})` 保持当前报文并结束执行；请求可返回 url/headers/body/response/abort，以及 B-box 的 method；响应可返回 status/headers/body/abort。Mock response 支持 status/headers/body，状态码 200～999。`abort: true` 终止当前 HTTP/1 连接或 HTTP/2 流。
-- body 默认 UTF-8，`binary_body: true` 用 Uint8Array。替换当前 body 要求 requires_body，Mock response.body 不要求读取请求正文。
-- `full_headers: true` 以 `{field,value}` 数组保留重复头，返回值接受数组/对象，普通输入对象每字段只取首值。
-- 非空 `argument` 通过 `$argument` 提供；未配置或为空时不注入该全局，避免脚本把缺省参数当成空 JSON。`$script` 有 name/type/binaryBodyMode/startTime/sessionID，name 优先取配置名称，startTime 为 Unix 秒数，sessionID 每次执行独立生成。console.log/info/warn/error/debug 进入服务日志，对象按 JSON 输出，不设每次执行的条数或单条截断配额；HTTP 脚本 `debug: true` 还将同一内容附到请求备注。
-
-HTTP/Cron `timeout_ms` 均默认 5000，正整数使用可表示的毫秒期限，`-1` 不增加期限；资源加载、网络、定时器和执行共享调用方期限及服务取消。每次使用独立 Goja VM，不设固定解释器数量或 B-box 调用栈配额。JS 原生正则在回溯循环中检查同一 VM 的中断，不另加匹配时限；一个 VM 的取消不会影响共享编译代码的其他 VM。Goja 并非 WebView 或进程级内存隔离。
-
-Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`timeout_ms` 和源码字段。支持五段“分 时 日 月 周”或六段“秒 分 时 日 月 周”，范围、列表、步长及月份/星期名称；IANA 时区未指定时用服务启动时的 Android 时区，包含 tzdata。`$cronexp` 是原表达式，`$script.type` 为 cron，无 `$request`/`$response`。常规 HTTP 和 Cron 执行均不注入 `$trigger`。
-
-[调度器](libbox/httpdebug/script_cron.go) 只在本地服务启动成功后运行；重载/停止取消任务并等待退出，抓包启停不重置调度。不同到期任务独立开始，不经过固定 worker 配额或排队；同任务仍在运行时跳过重复到期并记日志，防止自身重叠。设备休眠错过周期不补跑、不申请系统唤醒；必须调用 `$done`，异常及用户期限超时进入日志。
+旧 `experimental.scripts` 继续使用 [Goja 兼容运行时](core/sing-box/experimental/httpdebug/script.go)。旧字段、正文转换、网络限制和持久数据按原配置保留；新入口不自动引入它，也不复制成第二套 QuickJS 实现。
 
 #### 一元 gRPC 正文脚本
 
-[grpc_body.go](libbox/httpdebug/grpc_body.go) 为 HTTP 脚本增加 B-box 的 `grpc_mode: "unary"`，同时要求 `requires_body: true` 和 `binary_body: true`。仅给已知的一元 RPC 方法配置此选项；HTTP Content-Type 不包含一元/流式调用信息，不能据此自动判断。默认继续透传 gRPC，普通 Body Rewrite/jq 不直接修改其分帧。示例见 [grpc-scripts.json](examples/grpc-scripts.json)。
-
-支持 `application/grpc`、`application/grpc+*`、二进制 `application/grpc-web[+*]` 和 `application/grpc-web-text[+*]`。原生 gRPC 脚本接收完整的单个消息帧，与 Surge 二进制正文一致：第一个字节为压缩标记，后四字节为大端消息长度，其后才是 Protobuf 或其他消息内容。gRPC-Web 将尾部状态帧留在传输层；text 形式在进入脚本前解码 Base64，支持消息内部的独立填充块。脚本接收/返回相同的单消息帧格式，传输层随后追加原有状态帧并恢复 Base64。
-
-校验输入和输出的消息数、标记和长度；压缩消息支持 `grpc-encoding: gzip/deflate`，同时检查压缩前后限额。脚本自己解析消息；`$utils.ungzip` 可处理 gzip，其他消息解码器由脚本提供。替换消息时必须更新四字节长度及压缩标记，返回未压缩消息应使用标记 0。HTTP 的 `Content-Encoding` 与消息的 `grpc-encoding` 分别处理。替换后保留 HTTP trailers（包括真实 `grpc-status`、`grpc-message` 和状态详情）及 gRPC-Web 尾帧；无需伪造成功状态。有 HTTP trailers 时去掉固定 Content-Length，由传输层正确结束消息。
-
-无消息、多个消息、损坏分帧、不支持的压缩或响应超过用户限额时均跳过脚本、记录原因并保留原文；请求正文及解压消息超过用户限额仍返回 413。非法输出拒绝转发。`$done()`、异常等未提供替换正文时保留原有压缩和传输字节。读取使用当前请求的取消，不增加固定正文期限；声明为 unary 的调用必须等完整正文才能处理，不能将此模式作为流式处理。SSE 和持续流式 RPC 的正文改写不在本次支持范围。
-
-协议依据为 gRPC 官方 [HTTP/2 协议](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md) 和 [gRPC-Web 协议](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-WEB.md)。Surge 脚本行为对照官方 [HTTP 请求](https://manual.nssurge.com/scripting/http-request.html)、[HTTP 响应](https://manual.nssurge.com/scripting/http-response.html)及 [JavaScript API](https://manual.nssurge.com/scripting/api.html)。B-box 继续使用 sing-box JSON，不直接导入 `.sgmodule`，也不提供 WebView/Node、通知或完整 Surge 控制 API；`reject-200`/`reject-dict` 是迁移快捷动作，不将它们记为 Surge 官方 URL Rewrite 类型。
+Concord 支持其原生 binary-body 和 HTTP/2 trailers 语义。旧 `grpc_mode` 及空响应快捷动作仅属于 [Go 兼容正文处理](core/sing-box/experimental/httpdebug/grpc_body.go)，不能直接放入新脚本行；用户须按原生脚本格式重新配置。
 
 #### 脚本解压工具
 
-[script_utils.go](libbox/httpdebug/script_utils.go) 向 HTTP/Cron 提供 `$utils.ungzip(Uint8Array)`，支持 TypedArray 子视图，成功返回 Uint8Array，参数无效、gzip 损坏或取消返回 null。不设固定输出容量，读取计入正文缓冲统计，成功结果的登记持有至当前 VM 结束，失败立即释放。它不增加任意文件或设备控制能力。
+Concord 的解码和脚本宿主由原生运行时提供；旧 Goja 的 `$utils` 解压调用继续在兼容处理器生效。保存或预览不解压外部资源，也不运行用户 JS。
 
 #### 脚本 HTTP 客户端
 
-HTTP 与 Cron 共用 [script_http.go](libbox/httpdebug/script_http.go)：`$httpClient.get/post/put/patch/delete/head/options(url或选项对象, callback)`。网络在 worker 异步执行，JS 回调在本次 VM 事件循环顺序执行，网络等待期间顶层代码和定时器可继续运行。回调为 error/response/data；成功时 error 为 null，response 有 status/headers，data 默认为 UTF-8；失败时 error 为字符串、response 为 null、data 为 undefined。
-
-| 选项 | 行为 |
-| --- | --- |
-| `url` / `headers` / `body` | HTTP(S) URL，头接受对象或完整头数组；body 支持字符串、JSON 对象/数组、TypedArray 子视图；对象自动序列化并在缺少类型时设 application/json |
-| `timeout` | 单次请求秒数，默认 5，接受可表示的正数或 `-1` 不增加期限，同时受脚本总期限约束 |
-| `auto-redirect` / `auto-cookie` | 默认 true；检查重定向循环，307/308 可重放正文；Cookie 在同次执行内共享，可分别关闭 |
-| `binary-mode` / `full-header-mode` | 默认 false；分别返回 Uint8Array 或保留重复响应头的 `{field,value}` 数组 |
-| `insecure` | 默认 false；true 仅关闭该客户端请求的 TLS 证书校验 |
-| `policy` | 当前实例中真实 outbound tag（含 selector）；未知 tag 回调报错，无直连回退。不支持 Surge `policy-descriptor`，会明确报错 |
-
-HTTP/Cron 默认允许经核心主动联网。`http_client.allowed_origins` 可限制精确 HTTP(S) origin：省略/null 不限制，显式 `[]` 禁止，格式化保留区别。不设条数配额，无通配符、凭据、非根路径、查询或片段；规范化大小写、末尾点及默认端口，不能用 Host 或重定向越过限制，每跳校验。允许列表与 MITM 域名独立。
-
-脚本不设固定并发请求数；`http_client.max_requests` 可显式设正整数限制累计调用，失败和被拒绝调用也计数。客户端 `max_body_bytes` 缺省、`0` 或 `-1` 不限制，正整数限制输入/输出，与拦截正文限额独立。准入及复制前检查见[正文记账](#json-配置中的-http-改写)，worker 与回调交接同一登记，待回调队列不按固定数量丢弃事件。`$done`、异常、超时、取消和停服结束在途网络并释放队列及登记。
-
-响应按 Content-Encoding 解码，传输字节及各层解码结果分别检查客户端限额，编码/层数/完整性见[共用解码器](#httphttps-请求调试)。未知、损坏、截断编码、超限或非 UTF-8（未设 binary-mode）回调报错，不返回部分正文。客户端不添加 Accept-Encoding，保留脚本显式值；解压成功移除 Content-Encoding/旧 Content-Length。HEAD/204/304 返回空正文并保留表示元数据。
-
-无 policy 时以 `b-box-scripts` 入站上下文重新匹配当前实例路由、使用其证书库，不新增监听器、不回退设备直连、不递归改写/脚本/记录。指定 policy 由同一实例的对应出站拨号；两种路径都在[共享路由生命周期](#出口-ip-和质量查询传输)登记，核心关闭前等待其退出。
+Concord 的 `$httpClient` 和任务网络通过宿主拨号进入当前 sing-box 路由，TLS 使用当前 libbox 信任池。未接入的旧 Go `network`/`policy` 对象不自动转换；DNS 和路由脚本仍由保存检查拒绝。
 
 #### 脚本持久存储
 
-[script_storage.go](libbox/httpdebug/script_storage.go) 默认共享 `default` 命名空间；`storage_namespace` 使用非空 ASCII 字母、数字、点、下划线或连字符，首字符为字母/数字。规则只能用固定命名空间，不能枚举/切换；同名空间在本机配置及 HTTP/Cron 间共享，保留原显式命名空间兼容。名称用于私有文件名，实际文件系统错误继续报告，不另设经验长度上限。
-
-- `$persistentStore.read(key)` 返回字符串，不存在为 null，空字符串有效；`write(value,key)` 成功为 true，字符串写入，null 删除。省略 key 按脚本身份生成，同一文件/URL 的 HTTP/Cron 共享；内联源码变化改变默认 key，规则改名/排序不改变。
-- 读取失败抛异常；存储不可用或 I/O 写入失败为 false，首次失败记日志；非法类型抛异常。key 为非空合法 UTF-8 字符串，不用作文件路径。不设调用次数、键/命名空间数量、键/值长度或空间容量配额。
-- 写入持锁读取最新数据，同步临时文件并原子替换后才更新内存。等锁和提交前检查取消；每次调用独立原子化，read 后 write 不是事务，成功写入不因脚本异常/非法 `$done` 回滚。
-- 打开时校验版本及内容，拒绝快照/专用目录符号链接；中断写入不提升为快照。移除规则不自动删数据，删除最后一键释放空间。目录、备份和清理见[应用生命周期](app.md#配置处理生命周期)。
+Concord 的脚本数据位于处理会话私有 `concord/mitm` 目录，持久值不写入配置/备份；旧 Goja 数据和缓存留在各自原目录。清空记录、启停记录、重载或移除规则不清空无关数据。
 
 #### 脚本定时器
 
-[script_timers.go](libbox/httpdebug/script_timers.go) 提供 `setTimeout(function,delayMs,...args)`、`setInterval(function,delayMs,...args)` 和可互换句柄的 `clearTimeout`/`clearInterval`。回调须为函数，不执行字符串；delay 默认 0，接受可表示为 duration 的非负有限毫秒数，实际最小调度间隔 1 毫秒。
-
-待执行定时器、累计注册及回调次数不设固定配额。顶层返回后，定时器和 HTTP 回调在同一事件循环运行，可调用 HTTP、存储和 `$done`。重复定时器从回调结束后计下一次，不补跑错过间隔；不延长调用方期限、不跨执行/重启保存、不提供系统唤醒。无待执行事件也须调用 `$done`，它与 Cron 日历调度独立。
-
-上述语义对照 2026-11-05 的 Surge [HTTP Processing](https://manual.nssurge.com/http/overview.html)、[URL Rewrite](https://manual.nssurge.com/http/url-rewrite.html)、[Header Rewrite](https://manual.nssurge.com/http/header-rewrite.html)、[Body Rewrite](https://manual.nssurge.com/http/body-rewrite.html)、[Map Local](https://manual.nssurge.com/http/map-local.html)、[脚本概览](https://manual.nssurge.com/scripting/overview.html)、[请求](https://manual.nssurge.com/scripting/http-request.html)、[响应](https://manual.nssurge.com/scripting/http-response.html)、[Cron](https://manual.nssurge.com/scripting/cron.html)及 [JavaScript API](https://manual.nssurge.com/scripting/api.html)。B-box 使用 JSON 和 Goja，不沿用仅有 iOS/macOS 出处的固定容量配额；用户配置的正文限制及执行期限继续生效。不导入 Surge INI，不提供 Node.js、通知、完整 WebView/Surge API，也不引入 Mihomo 覆写。
-
-核心固定 [Goja a177d211bf606f6275674a35bc0d31d8ee0ee396](https://github.com/dop251/goja/tree/a177d211bf606f6275674a35bc0d31d8ee0ee396)、[regexp2/v2 v2.11.0](https://github.com/dlclark/regexp2/tree/v2.11.0)、[gojq v0.12.17](https://github.com/itchyny/gojq/tree/v0.12.17)、[timefmt-go v0.1.6](https://github.com/itchyny/timefmt-go/tree/v0.1.6) 和 [robfig/cron v3.0.1](https://github.com/robfig/cron/tree/v3.0.1)。setup-core 将最低 Go 版本设为 1.26.0，实际用 version.properties 的 go1.26.10；Goja 还引入 sourcemap、pprof 及 x/text v0.43.0。正文解码复用核心的 [brotli v1.1.0](https://github.com/andybalholm/brotli/tree/v1.1.0) 和 [klauspost/compress v1.19.1](https://github.com/klauspost/compress/tree/v1.19.1)。许可证随 Flutter assets 注册；统一测试和 Release 共用核心安装入口，三个上游基线不变。
-
-[patch_processing_runtimes.py](tools/patch_processing_runtimes.py) 核对固定版本，将 Goja/regexp2 复制到构建目录 `.core/.b-box/` 后应用取消补丁和 [Goja 扩展](libbox/goja/bbox_regexp_interrupt.go)、[regexp2 扩展](libbox/regexp2/bbox_context.go)，再设置模块替换；不修改共享模块缓存。升级依赖时须重新核对补丁位置、runner 隔离和 VM 中断行为。JS 正则字面量、构造器、`.compile`、match/replace 的取消与并行 VM 回归见 [script_admission_test.go](libbox/httpdebug/script_admission_test.go)。
+定时器、异步回调和 Cron 属于 Concord 会话任务，停止先取消并等待任务和宿主回调退出。旧兼容处理器的 Goja 定时器继续遵循原先生命周期，不在新配置校验中执行。
 
 ### 旧抓包配置清理
 
-抓包筛选为应用私有设置。`experimental.http_debug` 已退役，[兼容处理](libbox/ui_capture_migration.go) 在解析前删除它，不解释、迁移或执行其中规则/脚本。旧本机 HTTPS 设置不会被提升为可执行配置，原子迁移见 [app.md](app.md#请求抓取与-mitm)。
+抓包筛选为应用私有设置。`experimental.http_debug` 已退役，[兼容处理](core/sing-box/experimental/libbox/ui_capture_migration.go) 在解析前删除它，不解释、迁移或执行其中规则/脚本。旧本机 HTTPS 设置不会被提升为可执行配置，原子迁移见 [app.md](app.md#请求抓取与-mitm)。
 
 旧 `http_rewrite.mitm` 和 `http_rewrite.scripts` 会移到平级扩展，保留原来的应用/端口/正文范围及脚本资源；原改写关闭时迁移目标仍关闭。旧 MITM 的默认端口（含空/null 列表）显式保留为 80/443/8080/8443，避免变为任意 TLS 端口；域名空列表不解密。存在旧排除项时关闭该 MITM，待用户重新确认允许域名；排除字段被移除。若平级与嵌套字段同时存在则明确报错，不覆盖任一份配置。其他未知字段继续由核心校验。
 
-打开存储时，[存储清理](libbox/httpdebug/store_migration.go) 删除旧 `wire/` 中以 64 个十六进制字符 ID 命名的 `.wire` 包/密钥日志及 warning.txt，失败返回错误；不读取内容、不跟随符号链接，保留请求及无关文件，仅删除已清空的专用目录。
+打开存储时，[存储清理](core/sing-box/experimental/httpdebug/store_migration.go) 删除旧 `wire/` 中以 64 个十六进制字符 ID 命名的 `.wire` 包/密钥日志及 warning.txt，失败返回错误；不读取内容、不跟随符号链接，保留请求及无关文件，仅删除已清空的专用目录。
 
 ## Android 自动重定向兼容
 
-当前核心依赖 [sing-tun `611d83b7a57b4719be45581eb674942ff561de6c`](https://github.com/SagerNet/sing-tun/tree/611d83b7a57b4719be45581eb674942ff561de6c)，模块版本为 `v0.9.7-0.20261023115453-611d83b7a57b`。该版本的 `redirect_ingress_discard_android.go` 只接受 hash 类型、16 字节 key、8 字节 value 的系统 map；[AOSP Android 15 的实现](https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/tags/android-15.0.0_r1/bpf_progs/netd.c) 使用两个接口编号。一加 10 Pro / Android 15 的问题报告返回 `type 1, key 16, value 4`，因此会在自动重定向启动时被上游的布局检查拒绝。不能仅按 Android 版本号选择布局。
+MiChongs 使用 [reF1nd/sing-tun](https://github.com/reF1nd/sing-tun/tree/68a8ad81087d)，effective replacement 为 `v0.9.7-0.20261023142205-68a8ad81087d`；逻辑模块版本与 replacement 由 fork 的 [go.mod](core/sing-box/go.mod) 及 [准备脚本](core/sing-box/b-box/prepare_dependencies.py) 核对。该版本的 `redirect_ingress_discard_android.go` 只接受 hash 类型、16 字节 key、8 字节 value 的系统 map；[AOSP Android 15 的实现](https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/tags/android-15.0.0_r1/bpf_progs/netd.c) 使用两个接口编号。一加 10 Pro / Android 15 的问题报告返回 `type 1, key 16, value 4`，因此会在自动重定向启动时被上游的布局检查拒绝。不能仅按 Android 版本号选择布局。
 
-[兼容补丁](libbox/sing-tun-android-ingress.patch) 从 BPF map 元数据读取实际 value 大小，支持单接口编号的 4 字节值及双接口编号的 8 字节值。只处理当前 TUN 的 IPv4 地址，且所有 value 槽位都必须匹配当前 TUN 接口编号；其他 map 类型、key 长度和 value 大小继续报错。保存条目保留原始长度及字节，关闭时只向布局未变且 TUN 接口编号仍匹配的 map 恢复，继续使用 `BPF_NOEXIST` 避免覆盖系统新建条目。不跳过整张系统 map 的校验或清空无关规则。
+[兼容补丁](core/sing-box/b-box/sing-tun-android-ingress.patch) 从 BPF map 元数据读取实际 value 大小，支持单接口编号的 4 字节值及双接口编号的 8 字节值。只处理当前 TUN 的 IPv4 地址，且所有 value 槽位都必须匹配当前 TUN 接口编号；其他 map 类型、key 长度和 value 大小继续报错。保存条目保留原始长度及字节，关闭时只向布局未变且 TUN 接口编号仍匹配的 map 恢复，继续使用 `BPF_NOEXIST` 避免覆盖系统新建条目。不跳过整张系统 map 的校验或清空无关规则。
 
-[patch_sing_tun.py](tools/patch_sing_tun.py) 在匹配的 Go 工具链准备完成后运行，核对依赖版本，将 Go 模块缓存中的源码复制到全新 `.core/.b-box/sing-tun/`，检查并应用补丁，通过当前核心的本地 `replace` 引用副本；共享模块缓存不被修改。依赖版本变化或副本已存在时失败，升级核心须重新核对补丁，不能静默沿用。该处理用于统一测试中的核心/Android smoke 和独立 Release 构建，不改变核心标签、应用上游或 FlClash 基线。
+[prepare_dependencies.py](core/sing-box/b-box/prepare_dependencies.py) 在匹配的 Go 工具链准备完成后运行，核对依赖版本，将 Go 模块缓存中的源码复制到全新 `.core/.b-box/sing-tun/`，检查并应用补丁，通过当前核心的本地 `replace` 引用副本；共享模块缓存不被修改。依赖版本变化或副本已存在时失败，升级核心须重新核对补丁，不能静默沿用。该处理用于统一测试中的核心/Android smoke 和独立 Release 构建，不改变核心标签、应用上游或 FlClash 基线。
 
-[布局回归测试](libbox/sing-tun/redirect_ingress_discard_linux_test.go) 在 Linux CI 中测试生产代码的布局校验、单/双接口归属和恢复条件，覆盖 4/8 字节、未知布局、其他接口、map 大小变化和 TUN 更换。它不操作系统固定路径的 BPF map；一加设备上的实际启动、联网、停服恢复及与其他 VPN 的交互仍需 Root 实机验证。
+[布局回归测试](core/sing-box/b-box/sing-tun/redirect_ingress_discard_linux_test.go) 在 Linux CI 中测试生产代码的布局校验、单/双接口归属和恢复条件，覆盖 4/8 字节、未知布局、其他接口、map 大小变化和 TUN 更换。它不操作系统固定路径的 BPF map；一加设备上的实际启动、联网、停服恢复及与其他 VPN 的交互仍需 Root 实机验证。
 
 ## 保留与已撤销的差异
 
 2026-10-25 已回退历史 MOD-013 核心裁剪，恢复上游 NaiveProxy、Tailscale、OpenVPN、Snell、OpenConnect、USBIP、Tor、Tailscale/Taildrop 客户端绑定及原生 Shell/PTY。`libbox-trim.patch` 和裁剪专用校验器已删除，不能恢复旧裁剪标签或继续使用当时生成的裁剪 AAR。
 
-当前 legacy 补丁只排除 Android API 21 产物，不裁剪标准核心协议、上游构建标签或已有导出绑定。`ui_*.go` 是对标准核心的新增适配，不能将整个 B-box 核心描述为“与上游完全无差异”。
+当前 fork 构建器只排除 Android API 21 产物，不裁剪标准核心协议、上游构建标签或已有导出绑定。`ui_*.go` 是对标准核心的新增适配，不能将整个 B-box 核心描述为“与上游完全无差异”。
 
-HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.go) 的 Host List 匹配器处理，记录设置只按应用、原始端口和协议筛选。无法检查 ClientHello 时，[mitm.go](libbox/httpdebug/mitm.go) 的 `SelectTLS` 直接更新 `skipped` 计数并记录原因。内部无调用辅助函数的清理不改变这些路径、配置字段或 `ui_*` 导出绑定。
+HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](core/sing-box/experimental/httpdebug/mitm_hosts.go) 的 Host List 匹配器处理，记录设置只按应用、原始端口和协议筛选。无法检查 ClientHello 时，[mitm.go](core/sing-box/experimental/httpdebug/mitm.go) 的 `SelectTLS` 直接更新 `skipped` 计数并记录原因。内部无调用辅助函数的清理不改变这些路径、配置字段或 `ui_*` 导出绑定。
 
 ## 构建、同步和验证
 
@@ -464,15 +319,13 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 
 ### 构建与工作流
 
-- [Release 工作流](.github/workflows/build-release.yml) 仅手动构建、不运行测试；通过共享构建 Action 使用 JDK 17、版本文件指定的 Go 和 NDK 28.0.13004108，执行上游 `make lib_install` 与 `build_libbox -target android -platform android/arm64`，与 Flutter Release AAR 并行准备。
-- [统一测试工作流](.github/workflows/newui.yml) 的 Android job 使用同一构建 Action，核心目标为 `android/amd64`，用于 JVM 及 [Android 模拟器矩阵](app.md#模拟器-smoke-矩阵) 的回归。两种架构的构建均要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
-- 同一工作流的 core job 使用共享准备 Action 把扩展、补丁和回归文件安装到上游检出目录，不构建核心 AAR。所有生产扩展均参与编译，测试按名称前缀或目录自动纳入，不维护具体扩展名的筛选清单。该 job 依次运行：
-  1. `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1`：Android ingress-discard map 布局兼容。
-  2. `go test -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`：全部 `TestUI` 扩展回归；随后以 `-tags=with_xhttp,with_quic,with_wireguard,with_utls,with_clash_api` 单独运行 `^TestUINode`，核对随发布核心包含的节点协议。
-  3. `go test -race -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m`，再以 `-tags=with_quic` 运行同一命令；随后执行 `go test -tags=with_xhttp,with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIMASQUE' -count=1` 及 `go test -race -tags=with_xhttp,with_quic,with_wireguard -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIWARP' -count=1 -timeout=3m`：WARP MASQUE/WireGuard 注册与配置、认证及 HTTP/2、HTTP/3 隧道。HTTP/3 用例只在 `with_quic` 构建中编译。
-  4. `go test -race -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(Egress|Route|HTTP|Profile)' -count=1`：路由、出口探测、HTTP 任务和订阅的数据竞争。
-  5. `go test -race ./experimental/httpdebug -count=1 -timeout=5m` 与 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m`：HTTP/MITM 抓取与处理引擎的全部用例及数据竞争，以及原出站和嗅探字节保留。
-- 获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py) 以受限并发运行独立的抓取引擎测试，它不构建 Android 绑定。
+- [setup-core](.github/actions/setup-core/action.yml) 使用已锁定 fork 工作树和隔离依赖补丁；[build-libbox](.github/actions/build-libbox/action.yml) 使用 JDK 17、版本文件 Go 和 NDK 28.0 构建标准 API 24 AAR，再以 NDK 28.2 构建相同 ABI 的 Concord Rust 处理库。Android 完整标签由 fork 的 `b-box/buildtags/android.txt` 内嵌，无 `ts_omit_*` 裁剪。
+- [统一测试](.github/workflows/newui.yml) 的 core job 构建真实 Linux Concord 动态库，再运行完整功能标签的 `TestUI`、真实 C ABI/race、sing-tun map、sing-vmess Vision、XHTTP/VLESS Encryption、MASQUE/WireGuard、路由/出口探测及旧 HTTP/Goja 回归。旧处理器测试与新 Concord bridge 测试分别运行，不相互代替。
+- 同一工作流的 native-arm64 job 独立构建完整标签 ARM64 AAR；Android job 构建同来源 x86_64 AAR、Flutter 和 APK，运行 JVM、play 编译及四组 smoke。Flutter job 分析/测试新处理页面和 Prism 子模块，并构建 ARM64 Flutter AAR。
+- [package_processing.py](tools/package_processing.py) 检查 AAR 与 Concord ABI、ELF machine、LOAD 对齐至少 16 KiB、六个 C ABI 导出及无动态 `libc++_shared`，原子写入同 ABI `libconcord_processing.so`，拒绝重复或错架构库。
+- [Release](.github/workflows/build-release.yml) 仅手动触发，独立构建同一锁定核心/Concord/Flutter 的 ARM64 Release，不调用测试或自动发布本次开发改动。APK 必须同时含 libbox 与处理库，签名和发布规则见 [app.md](app.md#构建与发布)。
+
+[真实 bridge 回归](core/sing-box/experimental/concord/session_test.go) 覆盖 QuickJS、HTTP/2、TLS 信任、FD 与取消/关闭；[ui_concord_test.go](core/sing-box/experimental/libbox/ui_concord_test.go) 覆盖保存前校验/兼容排除和运行原文检查；[Concord 定义测试](core/concord/bins/processing/src/definition.rs) 覆盖模块 HTTP scope、要求诊断和结构检查。下面的详细 HTTP/脚本列表主要是旧 Go 兼容处理器的回归，不能当作新 Rust 实现已通过相同行为的证据。
 
 ### 回归文件覆盖
 
@@ -480,85 +333,85 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 
 **核心扩展（`./experimental/libbox`，步骤 2；路由、出口、HTTP 和订阅另由步骤 4 以 race 运行）**
 
-- [ui_http_test.go](libbox/ui_http_test.go)：WebDAV 状态/内容/重定向及超过旧大小上限的传输，HTTP 任务关闭时取消等待中的响应头与正文，Release 元数据的重定向、大响应、重定向循环和共享期限。
-- [ui_profile_test.go](libbox/ui_profile_test.go)：订阅请求头保留、超过旧容量的正文、覆盖响应头与正文的期限、错误状态不读正文、重定向循环和非法地址。
-- [ui_nodes_profile_test.go](libbox/ui_nodes_profile_test.go) 与 [ui_nodes_config_test.go](libbox/ui_nodes_config_test.go)：直接追加、重名及重复导入、端点分类、单节点编辑/删除、默认配置、远端刷新只保留本地节点、冲突节点链改名、消失的上游引用拒绝、标记在标准格式化/平台编辑/删除后保留或清除，以及无本地节点时保持超过 16 MiB 的订阅原文。[ui_nodes_default_test.go](libbox/ui_nodes_default_test.go) 补充默认 auto 的混合 direct 成员、重复导入、订阅新增及刷新清理，按实际类型区分直连成员与节点名称，以及空组兜底和删除最后节点的恢复。[ui_nodes_headers_test.go](libbox/ui_nodes_headers_test.go) 验证普通配置及远端声明的 direct 成员保留，节点追加、合并和改名不会改写自由 HTTP 头内容或把头键误判为出站引用。[ui_nodes_parse_test.go](libbox/ui_nodes_parse_test.go)、[ui_nodes_document_test.go](libbox/ui_nodes_document_test.go)、[ui_nodes_link_test.go](libbox/ui_nodes_link_test.go) 与 [ui_nodes_wireguard_test.go](libbox/ui_nodes_wireguard_test.go) 保留 URI、订阅文档和 WireGuard 协议解析覆盖。上述文件描述当前断言范围，实际运行结果以 [应用验证记录](app.md#当前验证记录) 为准。
-- [ui_egress_test.go](libbox/ui_egress_test.go)：来源解析、公网 IP 校验、竞速并发与取消、失败或解析失败后继续竞速、服务替换、期限和关闭取消路由拨号、停服等待路由退出、不回退直连，以及 IP 胜出后保持质量查询会话。
-- [ui_route_test.go](libbox/ui_route_test.go)：停服等待路由和指定出站的拨号退出，以及准入与关闭的竞争。
-- [ui_lan_test.go](libbox/ui_lan_test.go)：监听地址、开关保留原生配置、创建/停用 mixed 入站、新监听冲突与校验。
-- [ui_masque_test.go](libbox/ui_masque_test.go)：WARP 配置校验/格式化、非法账号拒绝、VPN 示例，以及真实 IP 栈经 HTTP/2 出站传输 UDP 和网络重置；步骤 3 另在 `with_quic` 构建中运行。
-- [ui_warp_test.go](libbox/ui_warp_test.go)：MASQUE POST/PATCH 与 WireGuard 单 POST、P-256 DER/Curve25519 私钥和分配地址、peer 地址选择及 client_id reserved 数值、原生端点追加/代理组/本地标记/重复保存、完整配置校验、非法响应和错误状态、响应上限、拒绝重定向、任务单次调用及关闭/完成边界取消；步骤 3 另以 `with_quic,with_wireguard` 和 race 运行。无 `with_wireguard` 的基础检查仍验证注册请求及端点选项解码，追加/完整配置子测试在包含 WireGuard 的核心中运行。
-- [ui_capture_test.go](libbox/ui_capture_test.go) 与 [ui_capture_signer_test.go](libbox/ui_capture_signer_test.go)：本地抓包设置、schema 和退役字段迁移；平台签名接口的摘要、算法及返回签名校验。
-- [ui_processing_test.go](libbox/ui_processing_test.go)：改写 schema 校验与格式化、退役选项不激活新规则、一元 gRPC 与 reject 动作往返、迁移保留范围和端口缺省、脚本能力 schema，以及 Surge 字段格式化时不加载资源。
+- [ui_http_test.go](core/sing-box/experimental/libbox/ui_http_test.go)：WebDAV 状态/内容/重定向及超过旧大小上限的传输，HTTP 任务关闭时取消等待中的响应头与正文，Release 元数据的重定向、大响应、重定向循环和共享期限。
+- [ui_profile_test.go](core/sing-box/experimental/libbox/ui_profile_test.go)：订阅请求头保留、超过旧容量的正文、覆盖响应头与正文的期限、错误状态不读正文、重定向循环和非法地址。
+- [ui_nodes_profile_test.go](core/sing-box/experimental/libbox/ui_nodes_profile_test.go) 与 [ui_nodes_config_test.go](core/sing-box/experimental/libbox/ui_nodes_config_test.go)：直接追加、重名及重复导入、端点分类、单节点编辑/删除、默认配置、远端刷新只保留本地节点、冲突节点链改名、消失的上游引用拒绝、标记在标准格式化/平台编辑/删除后保留或清除，以及无本地节点时保持超过 16 MiB 的订阅原文。[ui_nodes_default_test.go](core/sing-box/experimental/libbox/ui_nodes_default_test.go) 补充默认 auto 的混合 direct 成员、重复导入、订阅新增及刷新清理，按实际类型区分直连成员与节点名称，以及空组兜底和删除最后节点的恢复。[ui_nodes_headers_test.go](core/sing-box/experimental/libbox/ui_nodes_headers_test.go) 验证普通配置及远端声明的 direct 成员保留，节点追加、合并和改名不会改写自由 HTTP 头内容或把头键误判为出站引用。[ui_nodes_parse_test.go](core/sing-box/experimental/libbox/ui_nodes_parse_test.go)、[ui_nodes_document_test.go](core/sing-box/experimental/libbox/ui_nodes_document_test.go)、[ui_nodes_link_test.go](core/sing-box/experimental/libbox/ui_nodes_link_test.go) 与 [ui_nodes_wireguard_test.go](core/sing-box/experimental/libbox/ui_nodes_wireguard_test.go) 保留 URI、订阅文档和 WireGuard 协议解析覆盖。上述文件描述当前断言范围，实际运行结果以 [应用验证记录](app.md#当前验证记录) 为准。
+- [ui_egress_test.go](core/sing-box/experimental/libbox/ui_egress_test.go)：来源解析、公网 IP 校验、竞速并发与取消、失败或解析失败后继续竞速、服务替换、期限和关闭取消路由拨号、停服等待路由退出、不回退直连，以及 IP 胜出后保持质量查询会话。
+- [ui_route_test.go](core/sing-box/experimental/libbox/ui_route_test.go)：停服等待路由和指定出站的拨号退出，以及准入与关闭的竞争。
+- [ui_lan_test.go](core/sing-box/experimental/libbox/ui_lan_test.go)：监听地址、开关保留原生配置、创建/停用 mixed 入站、新监听冲突与校验。
+- [ui_masque_test.go](core/sing-box/experimental/libbox/ui_masque_test.go)：WARP 配置校验/格式化、非法账号拒绝、VPN 示例，以及真实 IP 栈经 HTTP/2 出站传输 UDP 和网络重置；步骤 3 另在 `with_quic` 构建中运行。
+- [ui_warp_test.go](core/sing-box/experimental/libbox/ui_warp_test.go)：MASQUE POST/PATCH 与 WireGuard 单 POST、P-256 DER/Curve25519 私钥和分配地址、peer 地址选择及 client_id reserved 数值、原生端点追加/代理组/本地标记/重复保存、完整配置校验、非法响应和错误状态、响应上限、拒绝重定向、任务单次调用及关闭/完成边界取消；步骤 3 另以 `with_quic,with_wireguard` 和 race 运行。无 `with_wireguard` 的基础检查仍验证注册请求及端点选项解码，追加/完整配置子测试在包含 WireGuard 的核心中运行。
+- [ui_capture_test.go](core/sing-box/experimental/libbox/ui_capture_test.go) 与 [ui_capture_signer_test.go](core/sing-box/experimental/libbox/ui_capture_signer_test.go)：本地抓包设置、schema 和退役字段迁移；平台签名接口的摘要、算法及返回签名校验。
+- [ui_processing_test.go](core/sing-box/experimental/libbox/ui_processing_test.go)：改写 schema 校验与格式化、退役选项不激活新规则、一元 gRPC 与 reject 动作往返、迁移保留范围和端口缺省、脚本能力 schema，以及 Surge 字段格式化时不加载资源。
 
 **WARP MASQUE 传输（`./transport/masque`，步骤 3）**
 
-- [warp_test.go](libbox/masque/warp_test.go)：HTTP/2 握手、数据报与重连，调用方取消和网络重置下的停滞握手，错误对端公钥与 HTTP 失败，私钥/公钥格式校验，静态账号地址与客户端生命周期，网络重置后撤销就绪并等待替换隧道，以及标准 MASQUE 地址协商不受 WARP 方言影响。
-- [warp_http3_test.go](libbox/masque/warp_http3_test.go)：未声明 Extended CONNECT 设置的 HTTP/3 握手、停滞握手取消和不可用对端拒绝。
+- [warp_test.go](core/sing-box/transport/masque/b_box_warp_test.go)：HTTP/2 握手、数据报与重连，调用方取消和网络重置下的停滞握手，错误对端公钥与 HTTP 失败，私钥/公钥格式校验，静态账号地址与客户端生命周期，网络重置后撤销就绪并等待替换隧道，以及标准 MASQUE 地址协商不受 WARP 方言影响。
+- [warp_http3_test.go](core/sing-box/transport/masque/b_box_warp_http3_test.go)：未声明 Extended CONNECT 设置的 HTTP/3 握手、停滞握手取消和不可用对端拒绝。
 
 **sing-tun 与路由接入（步骤 1 和步骤 5）**
 
-- [redirect_ingress_discard_linux_test.go](libbox/sing-tun/redirect_ingress_discard_linux_test.go)：map 布局校验、单/双接口归属和恢复条件，范围说明见 [Android 自动重定向兼容](#android-自动重定向兼容)。
-- [route/httpdebug_test.go](libbox/route/httpdebug_test.go)：嗅探缓冲随大请求头增长并完整回放；通过真实 TLS 握手核对原选定出站、SNI 与 DNS 映射隔离、端口覆写、CONNECT 确认顺序、证书库及未匹配流的字节回放；从真实流量跟踪器取得连接 UUID、穿过嗅探缓存、清空连接历史后重新打开请求存储，以及无跟踪器的 HTTP。
+- [redirect_ingress_discard_linux_test.go](core/sing-box/b-box/sing-tun/redirect_ingress_discard_linux_test.go)：map 布局校验、单/双接口归属和恢复条件，范围说明见 [Android 自动重定向兼容](#android-自动重定向兼容)。
+- [route/httpdebug_test.go](core/sing-box/route/b_box_httpdebug_test.go)：嗅探缓冲随大请求头增长并完整回放；通过真实 TLS 握手核对原选定出站、SNI 与 DNS 映射隔离、端口覆写、CONNECT 确认顺序、证书库及未匹配流的字节回放；从真实流量跟踪器取得连接 UUID、穿过嗅探缓存、清空连接历史后重新打开请求存储，以及无跟踪器的 HTTP。
 
 **HTTP 调试引擎（`./experimental/httpdebug`，步骤 5，全部以 race 运行）**
 
 抓取、存储与导出：
 
-- [httpdebug_test.go](libbox/httpdebug/httpdebug_test.go)：域名选择、HTTP 流式正文与原路由、SSE/WebSocket、存储保留/持久化/清空、HAR 与 cURL 导出，以及缺失正文不导出为完整请求。
-- [store_concurrency_test.go](libbox/httpdebug/store_concurrency_test.go)：正文句柄复用和关闭边界、前缀/转发总量、并发双向写入与详情快照，以及模拟慢写时其他记录和清空继续工作、完成状态等待计数提交。
-- [store_activity_test.go](libbox/httpdebug/store_activity_test.go)：摘要关联的持久化、独立正文计数、改写前 URL、旧记录缺省，以及 HAR 选择的去重、顺序、空选择、非法输入、非 HTTP 排除和淘汰后不扩大导出范围；真实 HTTP/1.1 复用连接的用例同时检查摘要与详情的关联一致。
-- [store_query_test.go](libbox/httpdebug/store_query_test.go)：超过 300 条历史的分页与搜索、当前连接和请求字段组合匹配、未加载父连接去重、状态和排序、摘要增量、全历史 HAR 选择、清空后不扩大导出、非法范围与选项，以及查询与录制/清空竞争。
-- [store_migration_test.go](libbox/httpdebug/store_migration_test.go)：旧文件清理、请求保留、符号链接隔离，以及旧记录不将 `captureId` 误认为连接 ID、未知上游 ALPN 保持区分。
-- [body_inspection_test.go](libbox/httpdebug/body_inspection_test.go)：正文分页不拆分 UTF-8 字符、不丢失或重复字节，预览只读取并解码所在页，流式 HAR 和 cURL 保留完整的已存正文及原始压缩数据，快照在追加和清空后保持已固定的前缀。
-- [recording_test.go](libbox/httpdebug/recording_test.go)：在同一 HTTP/1.1、HTTP/2 连接反复启停记录时处理不中断、连接 ID 不变，停止记录冻结 SSE 记录但不断开连接。
-- [diagnostics_test.go](libbox/httpdebug/diagnostics_test.go)：无 HTTP 请求的 TLS 结束提示、处理失败指向既有服务日志，以及停止后的迟到更新隔离。
+- [httpdebug_test.go](core/sing-box/experimental/httpdebug/httpdebug_test.go)：域名选择、HTTP 流式正文与原路由、SSE/WebSocket、存储保留/持久化/清空、HAR 与 cURL 导出，以及缺失正文不导出为完整请求。
+- [store_concurrency_test.go](core/sing-box/experimental/httpdebug/store_concurrency_test.go)：正文句柄复用和关闭边界、前缀/转发总量、并发双向写入与详情快照，以及模拟慢写时其他记录和清空继续工作、完成状态等待计数提交。
+- [store_activity_test.go](core/sing-box/experimental/httpdebug/store_activity_test.go)：摘要关联的持久化、独立正文计数、改写前 URL、旧记录缺省，以及 HAR 选择的去重、顺序、空选择、非法输入、非 HTTP 排除和淘汰后不扩大导出范围；真实 HTTP/1.1 复用连接的用例同时检查摘要与详情的关联一致。
+- [store_query_test.go](core/sing-box/experimental/httpdebug/store_query_test.go)：超过 300 条历史的分页与搜索、当前连接和请求字段组合匹配、未加载父连接去重、状态和排序、摘要增量、全历史 HAR 选择、清空后不扩大导出、非法范围与选项，以及查询与录制/清空竞争。
+- [store_migration_test.go](core/sing-box/experimental/httpdebug/store_migration_test.go)：旧文件清理、请求保留、符号链接隔离，以及旧记录不将 `captureId` 误认为连接 ID、未知上游 ALPN 保持区分。
+- [body_inspection_test.go](core/sing-box/experimental/httpdebug/body_inspection_test.go)：正文分页不拆分 UTF-8 字符、不丢失或重复字节，预览只读取并解码所在页，流式 HAR 和 cURL 保留完整的已存正文及原始压缩数据，快照在追加和清空后保持已固定的前缀。
+- [recording_test.go](core/sing-box/experimental/httpdebug/recording_test.go)：在同一 HTTP/1.1、HTTP/2 连接反复启停记录时处理不中断、连接 ID 不变，停止记录冻结 SSE 记录但不断开连接。
+- [diagnostics_test.go](core/sing-box/experimental/httpdebug/diagnostics_test.go)：无 HTTP 请求的 TLS 结束提示、处理失败指向既有服务日志，以及停止后的迟到更新隔离。
 
 MITM 与 TLS：
 
-- [mitm_test.go](libbox/httpdebug/mitm_test.go)：TLS 1.2/1.3、HTTP/1.1/2、同连接请求的独立 ID 与连接关联、上游连接复用、独立信任链、过期/错误名称/不受信任上游、客户端 pinning、未匹配域名和非 HTTP hello 回放、重复 Cookie、请求/响应 trailers、大正文、并发流、SSE 取消、跨 authority 拒绝、QUIC 筛选及停止/拨号超时。
-- [authority_test.go](libbox/httpdebug/authority_test.go)：独立根身份、SAN/IP、叶证书缓存和密钥错配。
-- [tls_selection_test.go](libbox/httpdebug/tls_selection_test.go)：已有 48 条连接时执行真实 ClientHello 探测、TLS 握手及 HTTP Mock 仍接管请求，并验证探测取消、未交接关闭及正式接管后的服务回收。
-- [mitm_tcp_test.go](libbox/httpdebug/mitm_tcp_test.go)：TLS/TCP 二进制、混合 ALPN、服务器先发、半关闭、连接关联及记录/导出边界。
-- [mitm_compat_test.go](libbox/httpdebug/mitm_compat_test.go)：默认配置不降级仅支持 HTTP/2 的 gRPC 客户端，无 ALPN 的 HTTP 仍经过改写、脚本和导出，客户端先发的原始 TLS 字节回放与半关闭，HTTP/2 选项区分客户端和源站版本，上游证书校验默认开启及显式关闭，停服取消无 ALPN 的协议探测。
-- [mitm_config_test.go](libbox/httpdebug/mitm_config_test.go)：Host List 的顺序、通配符、排除和端口匹配，默认值及显式关闭的协议选项在格式化后保留。
+- [mitm_test.go](core/sing-box/experimental/httpdebug/mitm_test.go)：TLS 1.2/1.3、HTTP/1.1/2、同连接请求的独立 ID 与连接关联、上游连接复用、独立信任链、过期/错误名称/不受信任上游、客户端 pinning、未匹配域名和非 HTTP hello 回放、重复 Cookie、请求/响应 trailers、大正文、并发流、SSE 取消、跨 authority 拒绝、QUIC 筛选及停止/拨号超时。
+- [authority_test.go](core/sing-box/experimental/httpdebug/authority_test.go)：独立根身份、SAN/IP、叶证书缓存和密钥错配。
+- [tls_selection_test.go](core/sing-box/experimental/httpdebug/tls_selection_test.go)：已有 48 条连接时执行真实 ClientHello 探测、TLS 握手及 HTTP Mock 仍接管请求，并验证探测取消、未交接关闭及正式接管后的服务回收。
+- [mitm_tcp_test.go](core/sing-box/experimental/httpdebug/mitm_tcp_test.go)：TLS/TCP 二进制、混合 ALPN、服务器先发、半关闭、连接关联及记录/导出边界。
+- [mitm_compat_test.go](core/sing-box/experimental/httpdebug/mitm_compat_test.go)：默认配置不降级仅支持 HTTP/2 的 gRPC 客户端，无 ALPN 的 HTTP 仍经过改写、脚本和导出，客户端先发的原始 TLS 字节回放与半关闭，HTTP/2 选项区分客户端和源站版本，上游证书校验默认开启及显式关闭，停服取消无 ALPN 的协议探测。
+- [mitm_config_test.go](core/sing-box/experimental/httpdebug/mitm_config_test.go)：Host List 的顺序、通配符、排除和端口匹配，默认值及显式关闭的协议选项在格式化后保留。
 
 正文处理与传输：
 
-- [body_processing_test.go](libbox/httpdebug/body_processing_test.go)：各编码、多层和重复头在改写、预览与 HAR 中一致；不符合条件的正文不被读取并继续流式转发；正文预留按实际字节登记并在输出后释放，不再有全局配额；显式解码上限和截断上传保持完整性；只读头部的脚本不为原始流保留正文预留。
-- [streaming_processing_test.go](libbox/httpdebug/streaming_processing_test.go)：HTTP/2 gRPC 在上传结束前响应并保留 trailers、`Expect: 100-continue` 上传改写不死锁，以及慢上传取消后释放预留。
-- [grpc_body_test.go](libbox/httpdebug/grpc_body_test.go)：通过真实 HTTP/2 MITM 检查一元 RPC 双向压缩消息改写、长度更新及请求/响应 trailers；gRPC-Web 二进制/Base64 填充、损坏及多消息跳过、无操作原字节保留、输出校验和取消释放。
-- [upload_rejection_test.go](libbox/httpdebug/upload_rejection_test.go)：使用真实 TCP 连接，固定长度/chunked 上传超过显式上限且停止发送时，HTTP/1 及时返回完整 413、关闭连接并完成记录及预留释放；未读取正文就发生的脚本错误返回 502；HTTP/2 返回 413 后同一连接仍可处理新请求。
-- [transport_limits_test.go](libbox/httpdebug/transport_limits_test.go)：慢上传越过旧正文期限后不中止，仍完成改写。
-- [processing_limits_test.go](libbox/httpdebug/processing_limits_test.go)：大规模配置、MITM 范围、改写与脚本数量不受旧数量或大小上限限制，长正则与大量分组可用，jq 无输出数量/嵌套上限并响应调用方取消，记录保留大正文和全部历史直至显式清空。
+- [body_processing_test.go](core/sing-box/experimental/httpdebug/body_processing_test.go)：各编码、多层和重复头在改写、预览与 HAR 中一致；不符合条件的正文不被读取并继续流式转发；正文预留按实际字节登记并在输出后释放，不再有全局配额；显式解码上限和截断上传保持完整性；只读头部的脚本不为原始流保留正文预留。
+- [streaming_processing_test.go](core/sing-box/experimental/httpdebug/streaming_processing_test.go)：HTTP/2 gRPC 在上传结束前响应并保留 trailers、`Expect: 100-continue` 上传改写不死锁，以及慢上传取消后释放预留。
+- [grpc_body_test.go](core/sing-box/experimental/httpdebug/grpc_body_test.go)：通过真实 HTTP/2 MITM 检查一元 RPC 双向压缩消息改写、长度更新及请求/响应 trailers；gRPC-Web 二进制/Base64 填充、损坏及多消息跳过、无操作原字节保留、输出校验和取消释放。
+- [upload_rejection_test.go](core/sing-box/experimental/httpdebug/upload_rejection_test.go)：使用真实 TCP 连接，固定长度/chunked 上传超过显式上限且停止发送时，HTTP/1 及时返回完整 413、关闭连接并完成记录及预留释放；未读取正文就发生的脚本错误返回 502；HTTP/2 返回 413 后同一连接仍可处理新请求。
+- [transport_limits_test.go](core/sing-box/experimental/httpdebug/transport_limits_test.go)：慢上传越过旧正文期限后不中止，仍完成改写。
+- [processing_limits_test.go](core/sing-box/experimental/httpdebug/processing_limits_test.go)：大规模配置、MITM 范围、改写与脚本数量不受旧数量或大小上限限制，长正则与大量分组可用，jq 无输出数量/嵌套上限并响应调用方取消，记录保留大正文和全部历史直至显式清空。
 
 改写、资源与 Surge 兼容：
 
-- [rewrite_test.go](libbox/httpdebug/rewrite_test.go)：配置校验、改写管线与记录内容、HTTPS 离线 Mock 及停止记录后继续处理、映射地址拨号与 TLS 校验、超限和流式响应保持原样、脚本隔离/二进制/错误、正文上限与 HTTP 分帧、Upgrade 保留协议并跳过正文、替换与分组，以及跨目标改写保留原始连接 ID。
-- [surge_rewrite_test.go](libbox/httpdebug/surge_rewrite_test.go)：四种前后查找、数字/命名反向引用及 Unicode 替换位置，原生正则的取消与并发使用，URL 候选、WebSocket、网关重定向和非法目标，jq 正文规则及失败时保留原报文，jq 先于脚本执行，正文大小缺省值与非标准 Mock 状态码。
-- [surge_compatibility_test.go](libbox/httpdebug/surge_compatibility_test.go)：空正文与参数缺省、会话信息、`$utils.ungzip` 的子视图/失败/预留释放、调试备注、空响应快捷动作，以及 HTTP/1 和 HTTP/2 的脚本 abort；HTTP/2 中核对后续请求仍复用连接。
-- [surge_resources_test.go](libbox/httpdebug/surge_resources_test.go)：内嵌资源的内容类型，配置校验不加载文件或下载资源，Map Local 读取配置目录内文件并拒绝目录逃逸、FIFO 等非普通文件，URL 资源缓存、并发去重和离线重载，远程脚本自动刷新并保留上次可用版本，本地脚本的 `debug` 重载及加载失败时透传上游，刷新随服务停止。
-- [resource_eviction_test.go](libbox/httpdebug/resource_eviction_test.go)：缓存清理只回收未引用且由缓存拥有的文件，写入超过旧磁盘配额仍可提交，一个来源停滞时其他资源继续刷新并在关闭时取消。
+- [rewrite_test.go](core/sing-box/experimental/httpdebug/rewrite_test.go)：配置校验、改写管线与记录内容、HTTPS 离线 Mock 及停止记录后继续处理、映射地址拨号与 TLS 校验、超限和流式响应保持原样、脚本隔离/二进制/错误、正文上限与 HTTP 分帧、Upgrade 保留协议并跳过正文、替换与分组，以及跨目标改写保留原始连接 ID。
+- [surge_rewrite_test.go](core/sing-box/experimental/httpdebug/surge_rewrite_test.go)：四种前后查找、数字/命名反向引用及 Unicode 替换位置，原生正则的取消与并发使用，URL 候选、WebSocket、网关重定向和非法目标，jq 正文规则及失败时保留原报文，jq 先于脚本执行，正文大小缺省值与非标准 Mock 状态码。
+- [surge_compatibility_test.go](core/sing-box/experimental/httpdebug/surge_compatibility_test.go)：空正文与参数缺省、会话信息、`$utils.ungzip` 的子视图/失败/预留释放、调试备注、空响应快捷动作，以及 HTTP/1 和 HTTP/2 的脚本 abort；HTTP/2 中核对后续请求仍复用连接。
+- [surge_resources_test.go](core/sing-box/experimental/httpdebug/surge_resources_test.go)：内嵌资源的内容类型，配置校验不加载文件或下载资源，Map Local 读取配置目录内文件并拒绝目录逃逸、FIFO 等非普通文件，URL 资源缓存、并发去重和离线重载，远程脚本自动刷新并保留上次可用版本，本地脚本的 `debug` 重载及加载失败时透传上游，刷新随服务停止。
+- [resource_eviction_test.go](core/sing-box/experimental/httpdebug/resource_eviction_test.go)：缓存清理只回收未引用且由缓存拥有的文件，写入超过旧磁盘配额仍可提交，一个来源停滞时其他资源继续刷新并在关闭时取消。
 
 脚本：
 
-- [script_api_test.go](libbox/httpdebug/script_api_test.go)：能力校验不执行脚本、两阶段 HTTP 客户端的路由注入、未配置目标与 Host 覆写拒绝、重定向/正文/请求次数的显式限制、不回退并校验 TLS、取消后释放解释器与正文预留，以及只读头部的脚本 HTTP 不受旧全局正文配额影响。
-- [script_admission_test.go](libbox/httpdebug/script_admission_test.go)：HTTP 准入先于正文读取和序列化、复制到宿主前检查 UTF-8 与视图长度、原生正则取消按 VM 隔离，以及 HTTP 脚本无固定 VM 栈或日志配额。
-- [script_storage_test.go](libbox/httpdebug/script_storage_test.go)：持久化、命名空间隔离与删除、超过旧配额的写入、并发写入与取消的锁等待、原子失败和中断写入恢复、损坏与符号链接拒绝且不丢数据、HTTP/Cron 共享且无调用次数配额，以及重载/清空记录后保留。
-- [script_timers_test.go](libbox/httpdebug/script_timers_test.go)：顺序、参数、interval 清理与 `$done`，延迟校验和取消，以及 Cron 定时器使用同一调用期限。
-- [script_source_test.go](libbox/httpdebug/script_source_test.go)：执行含 256 KiB 字符串的请求、响应及 Cron 脚本，覆盖内联、text/base64 资源、相对文件、URL、资源引用、压缩及多层下载和离线缓存；源码加载登记共享正文预留，加载失败后释放。
-- [processing_resources_cache_test.go](libbox/httpdebug/processing_resources_cache_test.go)：使用实际磁盘、HTTP 下载和 Goja 编译结果，检查同 URL 并发加载、离线重载、按内容哈希复用编译结果、`debug` 绕过、刷新失败保留上次可用程序，以及取消源码限额后仍可加载既有版本写入的缓存。
-- [script_http_encoding_test.go](libbox/httpdebug/script_http_encoding_test.go)：通过真实 HTTP 服务器及 Cron 路由客户端，覆盖显式/未提供 `Accept-Encoding` 时的所有支持编码、重复/多层编码、压缩前后及中间层的显式上限、损坏/截断/未知编码、UTF-8 校验、HEAD/204/304 元数据和容量释放。
-- [surge_script_http_test.go](libbox/httpdebug/surge_script_http_test.go)：超过旧并发/排队上限的请求、重定向/Cookie/JSON/二进制/`policy`、连续 20 次以上调用、跳过证书校验与单次请求期限，以及脚本异常或 `$done` 后取消未完成的请求。
-- [script_resources_test.go](libbox/httpdebug/script_resources_test.go)：多个 Cron HTTP 调用同时等待时互不阻塞，HTTP 脚本仍立即返回；取消使这些 Cron 调用失败并释放解释器与正文容量。
+- [script_api_test.go](core/sing-box/experimental/httpdebug/script_api_test.go)：能力校验不执行脚本、两阶段 HTTP 客户端的路由注入、未配置目标与 Host 覆写拒绝、重定向/正文/请求次数的显式限制、不回退并校验 TLS、取消后释放解释器与正文预留，以及只读头部的脚本 HTTP 不受旧全局正文配额影响。
+- [script_admission_test.go](core/sing-box/experimental/httpdebug/script_admission_test.go)：HTTP 准入先于正文读取和序列化、复制到宿主前检查 UTF-8 与视图长度、原生正则取消按 VM 隔离，以及 HTTP 脚本无固定 VM 栈或日志配额。
+- [script_storage_test.go](core/sing-box/experimental/httpdebug/script_storage_test.go)：持久化、命名空间隔离与删除、超过旧配额的写入、并发写入与取消的锁等待、原子失败和中断写入恢复、损坏与符号链接拒绝且不丢数据、HTTP/Cron 共享且无调用次数配额，以及重载/清空记录后保留。
+- [script_timers_test.go](core/sing-box/experimental/httpdebug/script_timers_test.go)：顺序、参数、interval 清理与 `$done`，延迟校验和取消，以及 Cron 定时器使用同一调用期限。
+- [script_source_test.go](core/sing-box/experimental/httpdebug/script_source_test.go)：执行含 256 KiB 字符串的请求、响应及 Cron 脚本，覆盖内联、text/base64 资源、相对文件、URL、资源引用、压缩及多层下载和离线缓存；源码加载登记共享正文预留，加载失败后释放。
+- [processing_resources_cache_test.go](core/sing-box/experimental/httpdebug/processing_resources_cache_test.go)：使用实际磁盘、HTTP 下载和 Goja 编译结果，检查同 URL 并发加载、离线重载、按内容哈希复用编译结果、`debug` 绕过、刷新失败保留上次可用程序，以及取消源码限额后仍可加载既有版本写入的缓存。
+- [script_http_encoding_test.go](core/sing-box/experimental/httpdebug/script_http_encoding_test.go)：通过真实 HTTP 服务器及 Cron 路由客户端，覆盖显式/未提供 `Accept-Encoding` 时的所有支持编码、重复/多层编码、压缩前后及中间层的显式上限、损坏/截断/未知编码、UTF-8 校验、HEAD/204/304 元数据和容量释放。
+- [surge_script_http_test.go](core/sing-box/experimental/httpdebug/surge_script_http_test.go)：超过旧并发/排队上限的请求、重定向/Cookie/JSON/二进制/`policy`、连续 20 次以上调用、跳过证书校验与单次请求期限，以及脚本异常或 `$done` 后取消未完成的请求。
+- [script_resources_test.go](core/sing-box/experimental/httpdebug/script_resources_test.go)：多个 Cron HTTP 调用同时等待时互不阻塞，HTTP 脚本仍立即返回；取消使这些 Cron 调用失败并释放解释器与正文容量。
 
 Cron：
 
-- [script_cron_test.go](libbox/httpdebug/script_cron_test.go)：脚本独立校验且校验不执行 Cron，Cron 语法/时区/DST，HTTP 回调与证书校验，仅含 Cron 的配置不拦截 HTTP，记录开关不重建调度，停服取消在途请求。
-- [script_cron_queue_test.go](libbox/httpdebug/script_cron_queue_test.go)：通过阻塞路由拨号控制脚本完成顺序，检查不同任务并行运行、同一任务未完成时的重复触发合并且不重叠、单次超时不影响其他任务和后续调度，以及关闭时取消并等待全部调用、不保留待运行任务。
+- [script_cron_test.go](core/sing-box/experimental/httpdebug/script_cron_test.go)：脚本独立校验且校验不执行 Cron，Cron 语法/时区/DST，HTTP 回调与证书校验，仅含 Cron 的配置不拦截 HTTP，记录开关不重建调度，停服取消在途请求。
+- [script_cron_queue_test.go](core/sing-box/experimental/httpdebug/script_cron_queue_test.go)：通过阻塞路由拨号控制脚本完成顺序，检查不同任务并行运行、同一任务未完成时的重复触发合并且不重叠、单次超时不影响其他任务和后续调度，以及关闭时取消并等待全部调用、不保留待运行任务。
 
-XHTTP 与 VLESS Encryption 的独立传输、加密与 race 回归由同一 core job 分别在 `with_xhttp` 和 `with_xhttp,with_quic,with_utls` 下运行 `./transport/v2rayxhttp ./protocol/vless/encryption`。同一步骤以 `with_utls` 和 race 运行 sing-vmess 的 `^TestBboxVision`，检查标准/uTLS 缓冲及非法字段布局。安装器对当前固定 SagerNet/sing-vmess 版本应用最小指针补丁，副本位于 `.core/.b-box/sing-vmess` 并由本地 replace 引用；模块缓存、依赖来源及版本不变，保留 Go `checkptr` 检查。具体来源及哈希见 [SOURCE.md](libbox/xhttp/SOURCE.md)；传输范围见 [XHTTP 与 VLESS Encryption](#xhttp-与-vless-encryption)。
+XHTTP 与 VLESS Encryption 的独立传输、加密与 race 回归由同一 core job 分别在 `with_xhttp` 和 `with_xhttp,with_quic,with_utls` 下运行 `./transport/v2rayxhttp ./protocol/vless/encryption`。同一步骤以 `with_utls` 和 race 运行 sing-vmess 的 `^TestBboxVision`，检查标准/uTLS 缓冲及非法字段布局。依赖准备脚本对当前固定 sing-vmess 版本应用最小指针补丁，副本位于 `.core/.b-box/sing-vmess` 并由本地 replace 引用；模块缓存、依赖来源及版本不变，保留 Go `checkptr` 检查。具体来源及补丁范围见 [fork 集成说明](core/sing-box/b-box/README.md#xhttp-与-vless-encryption)；传输范围见 [XHTTP 与 VLESS Encryption](#xhttp-与-vless-encryption)。
 
 ### 升级核心
 
-升级核心时先检查补丁是否仍准确排除 legacy 分支，核对 sing-tun 依赖版本及自动重定向补丁，检查 HTTP 调试路由/服务生命周期补丁及覆盖文件，再逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对共享准备 Action 的安装范围，以及统一测试与 Release 两条工作流的调用。
+升级 MiChongs 时固定新的原始比较 SHA，在 fork 合并并审查源码差异，核对单 AAR/全部标签、effective replacements、隔离依赖补丁、全部 UI 扩展、路由生命周期、Concord C ABI 与生成绑定；推送可拉取的 fork 提交后更新根仓库 gitlink 和 upstreams.json。Concord 与 Prism 分别更新，不自动改变 Android 或 FlClash 基线。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对 fork 源码、绑定和完整构建范围，以及统一测试与 Release 两条工作流的调用。

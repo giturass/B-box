@@ -22,6 +22,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: recursive
       - name: Application version and release metadata regressions
         run: python3 -m unittest discover -s tools -p 'test_release.py'
       - name: Prepare isolated module regression
@@ -33,19 +35,26 @@ jobs:
         run: sudo --preserve-env=GITHUB_ACTIONS unshare --mount --pid --fork --mount-proc python3 tools/test_mitm_ca.py
   core:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      LD_LIBRARY_PATH: ${{ github.workspace }}/core/concord/target/debug
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: recursive
       - uses: ./.github/actions/setup-core
+      - uses: ./.github/actions/build-concord
+        with:
+          platform: linux/amd64
       - name: Android ingress-discard map compatibility tests
         working-directory: .core
         run: go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1
-      - name: HTTP, routed IP and LAN tests against the matching core
+      - name: Core bindings with all shipped MiChongs features and Concord
         working-directory: .core
-        run: go test -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1
-      - name: Configuration node tests with the protocols of the shipped core
+        run: go test -tags="$(cat b-box/buildtags/android.txt)" -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1 -timeout=10m
+      - name: Real Concord C ABI, routing, QuickJS, HTTP/2, trust and shutdown races
         working-directory: .core
-        run: go test -ldflags=-checklinkname=0 -tags=with_xhttp,with_quic,with_wireguard,with_utls,with_clash_api ./experimental/libbox -run '^TestUINode' -count=1
+        run: go test -race -tags=with_concord -ldflags=-checklinkname=0 ./experimental/concord -count=1 -timeout=5m
       - name: XHTTP transports and VLESS Encryption handshake and Vision regressions
         working-directory: .core
         run: |
@@ -67,11 +76,29 @@ jobs:
         run: |
           go test -race ./experimental/httpdebug -count=1 -timeout=5m
           go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m
+  native-arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/build-libbox
+        with:
+          platform: android/arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-aar-arm64
+          path: app/libs/libbox.aar
+          if-no-files-found: error
+          retention-days: 7
   flutter:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: recursive
       - run: python3 tools/verify_newui.py
       - uses: ./.github/actions/setup-flutter
       - uses: actions/setup-java@v5
@@ -110,9 +137,11 @@ jobs:
           retention-days: 7
   android:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: recursive
       - uses: ./.github/actions/build-libbox
         with:
           platform: android/amd64
@@ -166,6 +195,8 @@ jobs:
             ram-size: 4096M
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: recursive
       - name: Make room for emulator data
         run: |
           # This job consumes APKs and does not compile native libraries.

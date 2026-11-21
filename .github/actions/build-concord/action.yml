@@ -1,0 +1,71 @@
+name: Build Concord HTTP processor
+description: Build only Concord's HTTP processor; sing-box owns the router and all outbound sockets.
+
+inputs:
+  platform:
+    description: linux/amd64, android/arm64, android/arm or android/amd64.
+    required: true
+
+outputs:
+  library:
+    description: Path to the processing shared library.
+    value: ${{ steps.build.outputs.library }}
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: '1.100.0'
+        components: rustfmt, clippy
+        targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: core/concord
+        key: processing-${{ inputs.platform }}
+    - name: Build the locked processing library
+      id: build
+      shell: bash
+      working-directory: core/concord
+      env:
+        BBOX_PROCESSING_PLATFORM: ${{ inputs.platform }}
+        CARGO_INCREMENTAL: '0'
+      run: |
+        case "$BBOX_PROCESSING_PLATFORM" in
+          linux/amd64)
+            cargo build --locked -p concord-processing
+            library="$PWD/target/debug/libconcord_processing.so"
+            ;;
+          android/arm64|android/arm|android/amd64)
+            case "$BBOX_PROCESSING_PLATFORM" in
+              android/arm64) target=aarch64-linux-android; clang=aarch64-linux-android; abi=arm64-v8a ;;
+              android/arm) target=armv7-linux-androideabi; clang=armv7a-linux-androideabi; abi=armeabi-v7a ;;
+              android/amd64) target=x86_64-linux-android; clang=x86_64-linux-android; abi=x86_64 ;;
+            esac
+            export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+            ndk_host="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+            under="${target//-/_}"
+            upper="${under^^}"
+            toolchain="$RUNNER_TEMP/bbox-processing-$abi.cmake"
+            printf 'set(ANDROID_ABI "%s")\nset(ANDROID_PLATFORM "android-24")\ninclude("%s")\n' \
+              "$abi" "$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" > "$toolchain"
+            export "CC_$under=$ndk_host/bin/${clang}24-clang"
+            export "CXX_$under=$ndk_host/bin/${clang}24-clang++"
+            export "AR_$under=$ndk_host/bin/llvm-ar"
+            export "CARGO_TARGET_${upper}_LINKER=$ndk_host/bin/${clang}24-clang"
+            export "CMAKE_TOOLCHAIN_FILE_$under=$toolchain"
+            export "BINDGEN_EXTRA_CLANG_ARGS_$under=--sysroot=$ndk_host/sysroot --target=${clang}24"
+            export BORING_BSSL_RUST_CPPLIB=c++_static
+            export "CARGO_TARGET_${upper}_RUSTFLAGS=-C link-arg=-Wl,-z,max-page-size=16384"
+            cargo clippy --locked -p concord-processing --target "$target" --all-targets -- \
+              -D warnings -A clippy::missing_const_for_thread_local
+            export "CFLAGS_$under=-DNDEBUG"
+            export "CXXFLAGS_$under=-DNDEBUG"
+            cargo build --locked --release -p concord-processing --target "$target"
+            library="$PWD/target/$target/release/libconcord_processing.so"
+            "$ndk_host/bin/llvm-strip" --strip-unneeded "$library"
+            ;;
+          *) echo "Unsupported Concord platform: $BBOX_PROCESSING_PLATFORM" >&2; exit 1 ;;
+        esac
+        test -s "$library"
+        echo "library=$library" >> "$GITHUB_OUTPUT"

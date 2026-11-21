@@ -1,8 +1,0 @@
-include: lint_options.yaml
-
-analyzer:
-  exclude:
-    - build/**
-    - lib/generated/**
-  errors:
-    invalid_annotation_target: ignore

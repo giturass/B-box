@@ -23,8 +23,8 @@ OTHER_SHA = 'b' * 40
 PROPERTIES = (
     'VERSION_CODE=749\n'
     'VERSION_NAME=1.0.1\n'
-    'CORE_VERSION_NAME=1.15.0-alpha.13\n'
-    'GO_VERSION=go1.26.10\n'
+    'CORE_VERSION_NAME=1.15.0-alpha.13-xiaobaf14g.17\n'
+    'GO_VERSION=go1.27.0\n'
 )
 BADGING = (
     "package: name='io.ericlee.bfa' versionCode='749' versionName='1.0.1'\n"
@@ -95,7 +95,7 @@ class ReleaseTests(unittest.TestCase):
         result = self.run_version_script()
         self.assertEqual(result.returncode, 0, result.stderr)
         output = Path(os.environ['GITHUB_OUTPUT']).read_text()
-        self.assertEqual(output, 'version=1.15.0-alpha.13\ngo_version=1.26.10\n')
+        self.assertEqual(output, 'version=1.15.0-alpha.13-xiaobaf14g.17\ngo_version=1.27.0\n')
         Path('version.properties').write_text(PROPERTIES.replace('VERSION_NAME=1.0.1', 'VERSION_NAME=9.8.7'))
         Path(os.environ['GITHUB_OUTPUT']).unlink()
         result = self.run_version_script()
@@ -103,7 +103,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(Path(os.environ['GITHUB_OUTPUT']).read_text(), output)
 
     def test_core_version_is_required_without_falling_back_to_app_version(self):
-        Path('version.properties').write_text(PROPERTIES.replace('CORE_VERSION_NAME=1.15.0-alpha.13\n', ''))
+        Path('version.properties').write_text(PROPERTIES.replace('CORE_VERSION_NAME=1.15.0-alpha.13-xiaobaf14g.17\n', ''))
         self.assertNotEqual(self.run_version_script().returncode, 0)
         self.assertFalse(Path(os.environ['GITHUB_OUTPUT']).exists())
 
@@ -125,6 +125,7 @@ class ReleaseTests(unittest.TestCase):
     def test_verified_apk_produces_metadata_without_publishing(self):
         with ZipFile(self.apk, 'w') as apk:
             apk.writestr('lib/arm64-v8a/libbox.so', b'native library fixture')
+            apk.writestr('lib/arm64-v8a/libconcord_processing.so', b'processing library fixture')
         with patch('verify_release.subprocess.check_output', return_value=BADGING), \
                 patch('verify_release.subprocess.run') as signing:
             verify_release.main()
@@ -136,6 +137,7 @@ class ReleaseTests(unittest.TestCase):
     def test_failed_identity_or_signature_does_not_generate_metadata(self):
         with ZipFile(self.apk, 'w') as apk:
             apk.writestr('lib/arm64-v8a/libbox.so', b'native library fixture')
+            apk.writestr('lib/arm64-v8a/libconcord_processing.so', b'processing library fixture')
         with patch('verify_release.subprocess.check_output', return_value=BADGING.replace("'749'", "'748'")), \
                 patch('verify_release.subprocess.run') as signing:
             with self.assertRaises(SystemExit):
@@ -147,6 +149,17 @@ class ReleaseTests(unittest.TestCase):
                 verify_release.main()
         self.assertFalse(self.metadata_path.exists())
         self.assertFalse(Path(os.environ['GITHUB_OUTPUT']).exists())
+
+    def test_release_rejects_missing_processing_library_before_signing_or_metadata(self):
+        with ZipFile(self.apk, 'w') as apk:
+            apk.writestr('lib/arm64-v8a/libbox.so', b'native library fixture')
+        with patch('verify_release.subprocess.check_output') as badging, \
+                patch('verify_release.subprocess.run') as signing:
+            with self.assertRaisesRegex(SystemExit, 'Missing ARM64 native library: libconcord_processing.so'):
+                verify_release.main()
+            badging.assert_not_called()
+            signing.assert_not_called()
+        self.assertFalse(self.metadata_path.exists())
 
     def test_metadata_tracks_all_artifact_bytes_and_accepts_either_order(self):
         self.apk.write_bytes(b'first' * (1024 * 1024))

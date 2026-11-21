@@ -4,7 +4,7 @@
 
 ## 参考版本与来源清单
 
-FlClash 应用层固定参考 [chen08209/FlClash v0.9.3](https://github.com/chen08209/FlClash/tree/be84736605527034689c95bf27828ff27d912c5e)，提交 `be84736605527034689c95bf27828ff27d912c5e`（2026-11-04）。共享组件独立同步到 [prism_ui 0.1.3](https://github.com/chen08209/prism_ui/tree/7831ade349ede896aedb8a5757dc9c3fe88081d5)，提交 `7831ade349ede896aedb8a5757dc9c3fe88081d5`（2026-11-19，上游 `main` 与 `v0.1.3` 标签指向同一提交）。FlClash 参考提交中的 `plugins/prism_ui` 仍为 `63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185`，由清单的 `flclashSubmoduleCommit` 单独记录。当前使用实际 Flutter 组件，历史 Compose 仿制按钮和卡片不再定义界面。
+FlClash 应用层固定参考 [chen08209/FlClash v0.9.3](https://github.com/chen08209/FlClash/tree/be84736605527034689c95bf27828ff27d912c5e)，提交 `be84736605527034689c95bf27828ff27d912c5e`（2026-11-04）。共享组件独立同步到 [prism_ui 0.1.3](https://github.com/chen08209/prism_ui/tree/7831ade349ede896aedb8a5757dc9c3fe88081d5)，提交 `7831ade349ede896aedb8a5757dc9c3fe88081d5`（2026-11-19，上游 `main` 与 `v0.1.3` 标签指向同一提交）。FlClash 参考提交中的 `plugins/prism_ui` 仍为 `63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185`，由清单的 `flclashSubmoduleCommit` 单独记录。Prism fork 至 [giturass/prism_ui](https://github.com/giturass/prism_ui)，通过 `flutter/packages/prism_ui` 子模块消费；实际 fork SHA 由根 gitlink 与来源清单的 `prismUi.fork.commit` 一致锁定，原始比较 SHA 和 FlClash 子模块参考分别保留。当前使用实际 Flutter 组件，历史 Compose 仿制按钮和卡片不再定义界面。
 
 [flutter/flclash-manifest.json](flutter/flclash-manifest.json) 是逐文件来源清单：
 
@@ -12,13 +12,15 @@ FlClash 应用层固定参考 [chen08209/FlClash v0.9.3](https://github.com/chen
 | --- | --- |
 | `files` | 直接导入的 14 个 FlClash 应用层 UI 文件及两个字体；哈希对应将 Dart 包引用从 `fl_clash` 机械改名为 `b_box_ui` 后的文件 |
 | `adaptedFiles` | 仪表盘、配置/代理、外观、备份、选项列表行、IP 质量查询及参考测试等适配文件；记录原始来源哈希和实际改动说明 |
-| `adaptedNativeFiles` | `libbox/ui_egress.go` 对 FlClash IP 查询的适配来源；独立保留 v0.9.2 的 `7fd417fb9a9a277c6a9339a8ac87f907df7c25f7` 参考，不随界面升级改写原生查询 |
-| `prismUi` | 独立组件提交与 FlClash 子模块参考、191 个原样导入文件、两个 SDK 导入兼容补丁、B-box 导航栏与日志流适配及应用内许可资源；共 193 个本地包文件，包含源码、生成模型、两个 shader、包配置、许可、说明和 39 个上游测试及辅助文件 |
+| `adaptedNativeFiles` | `core/sing-box/experimental/libbox/ui_egress.go` 对 FlClash IP 查询的适配来源；独立保留 v0.9.2 的 `7fd417fb9a9a277c6a9339a8ac87f907df7c25f7` 参考，不随界面升级改写原生查询 |
+| `prismUi` | 独立 fork gitlink、原始比较提交与 FlClash 子模块参考、191 个原样导入文件、两个 SDK 导入兼容补丁、B-box 导航栏与日志流适配及应用内许可资源；共 193 个本地包文件，包含源码、生成模型、两个 shader、包配置、许可、说明和 39 个上游测试及辅助文件 |
 | `supplementalReferences` | 独立于整体 UI 基线的 MITM dev 补充参考，按原样导入、改写或设计参考记录源文件哈希；本地路径相对仓库根目录 |
 
 清单中 `files` 和 `adaptedFiles` 的本地路径相对 `flutter/`，`adaptedNativeFiles` 的本地路径相对仓库根目录；`source`/`sources` 指向各自固定参考提交内的上游路径。`prismUi.files` 相对其 `localPath`，记录实际本地文件哈希；其中的适配文件和许可资源相对 `flutter/`，适配条目单独保留原始上游 `sourceSHA256`。清单记录逐文件哈希和改动来源，本文维护使用说明，两者一并保留。
 
-请求/MITM 功能独立参考 FlClash `dev` 的 [`63aa150e23288558074d877f745a6d3b5f6418f6`](https://github.com/chen08209/FlClash/tree/63aa150e23288558074d877f745a6d3b5f6418f6)，相关提交为 [`f54486102172566e7342d7f5c138663c3c5dec0b`](https://github.com/chen08209/FlClash/commit/f54486102172566e7342d7f5c138663c3c5dec0b) 的 MITM 应用侧设计和 [`1a7556d30a38707f39abfba4b7d6a6b8f57774ed`](https://github.com/chen08209/FlClash/commit/1a7556d30a38707f39abfba4b7d6a6b8f57774ed) 的请求/连接整合。该 dev 源码的 `FEATURE_MITM` 默认关闭，公开 core 不提供完整 MITM 实现；B-box 自行实现 sing-box 路由上的 TLS 接管，不能把上游页面当成可用核心。采用证书信任、报文展示和 CA 模块设计；统一请求查看器的交互参考 Surge [近期请求说明](https://kb.nssurge.com/surge-knowledge-base/zh/guidelines/troubleshooting)及[近期/活动请求 API](https://manual.nssurge.com/tools/http-api.html)，以 B-box 的真实连接和抓取记录实现。该补充参考与 v0.9.3 UI、Android 上游和核心基线分别维护。
+请求/MITM 功能独立参考 FlClash `dev` 的 [`63aa150e23288558074d877f745a6d3b5f6418f6`](https://github.com/chen08209/FlClash/tree/63aa150e23288558074d877f745a6d3b5f6418f6)，相关提交为 [`f54486102172566e7342d7f5c138663c3c5dec0b`](https://github.com/chen08209/FlClash/commit/f54486102172566e7342d7f5c138663c3c5dec0b) 的 MITM 应用侧设计和 [`1a7556d30a38707f39abfba4b7d6a6b8f57774ed`](https://github.com/chen08209/FlClash/commit/1a7556d30a38707f39abfba4b7d6a6b8f57774ed) 的请求/连接整合。该早期 dev 参考只用于界面和证书设计。当前实际 MITM、改写和脚本复用 Concord 处理库，通过 sing-box 路由接入，不以页面参考替代处理实现。采用证书信任、报文展示和 CA 模块设计；统一请求查看器的交互参考 Surge [近期请求说明](https://kb.nssurge.com/surge-knowledge-base/zh/guidelines/troubleshooting)及[近期/活动请求 API](https://manual.nssurge.com/tools/http-api.html)，以 B-box 的真实连接和抓取记录实现。该补充参考与 v0.9.3 UI、Android 上游和核心基线分别维护。
+
+模块与脚本页面另参考 FlClash `afe7136002271fd64f098b154e7fff40be721eb8` 的 `mitm.dart`、`mitm_modules.dart`、`scripts.dart`、`module_editor.dart` 及模块 actions/model，作为来源清单 `concord-http-processing` 的独立补充参考。B-box 移植模块编辑、预览、参数/附件、安装链接、下载取消、排序/启用及 task 输出交互，业务数据经 Room/ProfileContent 和原生 Concord bridge 保存。该参考不改变整体 v0.9.3 UI 或 Prism 比较基线，也不引入 FlClash 的整份 Clash 配置和第二个核心。
 
 FlClash 应用层组件位于 [flutter/lib/ui](flutter/lib/ui)，共享控件以本地包 [flutter/packages/prism_ui](flutter/packages/prism_ui) 使用，保留原始源码与 shader，不再依赖旧 `material_ui`/`cupertino_ui`。原始许可见 [FlClash GPL](flutter/assets/licenses/LICENSE)、[prism_ui LICENSE](flutter/packages/prism_ui/LICENSE) 和 [NOTICE](flutter/packages/prism_ui/NOTICE)。Prism 内置的 shapes、sliver list、resizable navigator 的 MIT 声明另从源文件头提取至 [应用许可资源](flutter/assets/licenses)，与 HCT/Flutter 的 Apache/BSD 及 SDK、插件许可一起在 [许可证页](flutter/lib/pages/licenses.dart) 展示。该页面按包名列出、搜索并打开可选中的完整正文。
 
@@ -28,7 +30,7 @@ FlClash 应用层组件位于 [flutter/lib/ui](flutter/lib/ui)，共享控件以
 
 字体归属见 [JetBrainsMono-OFL.txt](flutter/assets/licenses/JetBrainsMono-OFL.txt) 和 [Twemoji-LICENSE.md](flutter/assets/licenses/Twemoji-LICENSE.md)。Twemoji 原始图形来自 Twitter，字体转换由 Mozilla 提供，图形未修改；字体许可同样用于应用内许可证页。
 
-应用内手工登记的许可由 [main.dart](flutter/lib/main.dart) 统一注册，与 [pubspec.yaml](flutter/pubspec.yaml) 打包的 [许可资源](flutter/assets/licenses) 同步维护，覆盖当前 UI、字体和核心扩展依赖。核心正文解码及 jq 的许可包括 [brotli-LICENSE](flutter/assets/licenses/brotli-LICENSE)、[klauspost-compress-LICENSE](flutter/assets/licenses/klauspost-compress-LICENSE)、[gojq-LICENSE](flutter/assets/licenses/gojq-LICENSE) 和 [timefmt-go-LICENSE](flutter/assets/licenses/timefmt-go-LICENSE)；JavaScript 与 Cron 的许可也由同一入口登记。依赖版本及执行范围见 [libbox.md](libbox.md#独立脚本与-cron)。
+应用内手工登记的许可由 [main.dart](flutter/lib/main.dart) 统一注册，与 [pubspec.yaml](flutter/pubspec.yaml) 打包的 [许可资源](flutter/assets/licenses) 同步维护，覆盖当前 UI、字体和核心扩展依赖。核心正文解码及 jq 的许可包括 [brotli-LICENSE](flutter/assets/licenses/brotli-LICENSE)、[klauspost-compress-LICENSE](flutter/assets/licenses/klauspost-compress-LICENSE)、[gojq-LICENSE](flutter/assets/licenses/gojq-LICENSE) 和 [timefmt-go-LICENSE](flutter/assets/licenses/timefmt-go-LICENSE)；Concord GPL 和 [第三方声明](flutter/assets/licenses/concord-NOTICE) 同样打包并登记，含 QuickJS/rquickjs；旧兼容 Goja 与 Cron 许可保留。依赖版本及执行范围见 [libbox.md](libbox.md#独立脚本与-cron)。
 
 应用打包的字体均有实际用途：[JetBrainsMono-Regular.ttf](flutter/assets/fonts/JetBrainsMono-Regular.ttf) 用于代码编辑、请求报文、记录详情及终端预览，[Twemoji.Mozilla.ttf](flutter/assets/fonts/Twemoji.Mozilla.ttf) 用于代理名称等 Emoji 文本。[NotoSansSC-status.ttf](flutter/test/support/fonts/NotoSansSC-status.ttf) 仅供状态卡像素比较测试使用，不进入应用资源。
 
@@ -44,7 +46,7 @@ Prism UI 0.1.3 原样同步列表长尾值截断、折叠分组前置内容的�
 | --- | --- | --- |
 | 首页与状态 | [dashboard.dart](flutter/lib/pages/dashboard.dart)、[status_panel.dart](flutter/lib/components/status_panel.dart)、[start_toggle.dart](flutter/lib/components/start_toggle.dart) | 复用状态布局、国家徽章、服务按钮形变及网络速率展示；启停调用原生服务流程 |
 | 配置卡与分组概览 | [profile_panel.dart](flutter/lib/components/profile_panel.dart)、[proxy_groups_panel.dart](flutter/lib/components/proxy_groups_panel.dart) | 使用真实配置元数据和内核分组；配置切换按钮固定在右侧，与进入配置的箭头同列居中对齐，按钮名称位于其独立 32 dp 点击语义中。代理组、出站、路由规则数字及加载占位与对应标签逐列居中对齐，远端未知数量保持未知 |
-| 配置页代理区域 | [proxies.dart](flutter/lib/pages/proxies.dart)、[proxy_card.dart](flutter/lib/components/proxy_card.dart)、[proxy_list.dart](flutter/lib/components/proxy_list.dart) | 在配置文件下方显示 libbox 分组，保留卡片/列表、搜索、测速与节点定位；只有可选择的组显示选择操作。本机停服时由 libbox 读取所选配置的 selector/urltest 并允许选择手动组，启停前后复用同一分组界面；编辑从节点菜单进入 |
+| 配置页代理区域 | [proxies.dart](flutter/lib/pages/proxies.dart)、[proxy_card.dart](flutter/lib/components/proxy_card.dart)、[proxy_list.dart](flutter/lib/components/proxy_list.dart) | 在配置文件下方显示 libbox 分组，保留卡片/列表、搜索、测速与节点定位；只有可选择的组显示选择操作。本机停服时由 libbox 读取所选配置的原生组类型 并允许选择手动组，启停前后复用同一分组界面；编辑从节点菜单进入 |
 | 配置文件管理 | [profiles.dart](flutter/lib/pages/profiles.dart)、[profile_card.dart](flutter/lib/components/profile_card.dart)、[profile_details.dart](flutter/lib/pages/profile_details.dart)、[subscriptions.dart](flutter/lib/pages/subscriptions.dart) | 顶部横向配置卡片复用行高、对号选中态与相对更新时间，卡片外边框与代理区域使用相同的 16 dp 左右间距；默认文件显示为“配置文件”并与已有配置一同显示，保留添加、更新、排序、编辑和导入 sing-box JSON；URL 节点导入当前文件并保留独立来源，编辑页可管理来源，切换弹层使用自适应网格 |
 | 首页编辑 | [dashboard_editor.dart](flutter/lib/components/dashboard_editor.dart) | 右上角 FlClash 铅笔按钮或长按卡片进入原地编辑，保留摇摆、长按排序、移除徽章及添加列表 |
 | 内存与局域网 | [memory_panel.dart](flutter/lib/components/memory_panel.dart)、[intranet_panel.dart](flutter/lib/components/intranet_panel.dart) | 分别使用 Go/进程内存和 sing-box 监听配置，不虚构 Mihomo 内存或全局代理端口 |
@@ -127,7 +129,7 @@ XHTTP 与 VLESS Encryption 使用现有节点链接、订阅及 sing-box JSON �
 | 参考版能力 | B-box 的适配边界 |
 | --- | --- |
 | 链接、文件、二维码导入 | 远程链接只解析节点订阅并追加到当前配置，保存多个独立来源；文件/二维码/剪贴板保留 sing-box JSON、节点分享链接、`.bpf` 及动态 QRS。Clash 订阅仅提取 `proxies` 节点，不导入完整配置 |
-| 自定义配置、提供者与覆写 | “新建配置”创建本地 sing-box JSON；通过原始 JSON 及分项配置编辑器修改，不引入 Mihomo 配置生成、提供者或覆写脚本 |
+| 自定义配置、提供者与覆写 | “新建配置”创建本地 sing-box JSON；通过原始 JSON 及分项配置编辑器修改，保留 MiChongs 原生 Provider、服务、证书提供者、HTTP 客户端、namespace 和实验选项的 JSON 入口；不引入 Mihomo 配置生成或整份 Clash 转换 |
 | 配置预览与文件编辑 | 从编辑页的“打开配置内容”入口读取保存的 JSON，不将其称为运行时配置 |
 | 自动更新 | 每个订阅来源独立保存开关和间隔，仅更新自己的代理节点，保留其他来源和当前配置的其他设置；保留 Android 后端至少 15 分钟的限制，关闭后隐藏间隔输入，无效草稿不阻止关闭，保留原有效间隔及导入元数据；批量更新包含本地及默认文件中的来源，并按原生互斥写入流程串行执行 |
 | 流量用量与到期徽标 | 当前 Room/桥接没有订阅额度和到期字段，卡片显示真实本地/远程类型，不用会话流量代替额度；这是当前元数据能力的差异，不表示 sing-box 无法支持订阅信息展示 |
@@ -148,9 +150,11 @@ XHTTP 与 VLESS Encryption 使用现有节点链接、订阅及 sing-box JSON �
 
 配置“编辑”页依次直接提供“日志”、“网络”、“DNS”、“路由规则”、“规则集”、“MITM”、“HTTP 改写”和“脚本”，末尾单独保留一个“打开配置内容”入口，元数据表单仅保留元数据字段和更新时间。各分项打开时读取该配置的最新内容，由 [configuration.dart](flutter/lib/pages/configuration.dart) 复用共享分组、规则列表、排序及 JSON 表单；原始 JSON 入口独立于分项加载。内网详情的“编辑”入口复用同一配置编辑页。
 
-MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、服务器证书校验、“解密TCP”和 QUIC 回退设置；证书入口独立于配置加载。页面顶部不显示配置名或解密说明，TCP 和 QUIC 开关仅显示标题。域名入口只显示标题，完整域名及排除项在二级编辑器查看和修改，保留输入顺序及通配符、端口后缀，新增抓取域名追加在列表末尾。端口、应用等额外筛选通过同页 JSON 编辑入口修改，见 [MITM 配置](libbox.md#独立-mitm-配置)。HTTP 改写页面依次显示 URL Rewrite、Header Rewrite、Body Rewrite（含 jq）、Map Local / API Mock、Map Remote，下方提供资源及完整 JSON 编辑入口；脚本独立编辑启用状态、HTTP、Cron 和资源。脚本及改写资源页提供“导入本地资源”、已有资源的 JSON 编辑及整个资源字典编辑；导入期间禁用重复提交，取消保留原配置，成功后显示可供规则引用的资源名，失败显示原因。文件位置、修订检查和备份边界见 [Android 导入流程](app.md#配置处理生命周期)。前后查找/反向引用、URL 资源及独立正文限额通过完整 JSON 表单配置，字段及运行行为见 [libbox.md](libbox.md#json-配置中的-http-改写)。新建规则/任务示例默认禁用。
+MITM 页面复用 Prism 列表和证书入口，编辑共享 processing 开关、TLS 解密、hostname/disabled、HTTP2、证书校验和 QUIC 回退。域名列表保持原生顺序、通配符和端口；HTTP 改写提供 URL/Header/Body（jq）/Map Local/Request Body Mock 原生字符串规则，脚本提供 HTTP、Cron/通用/event 列表与资源。完整字段可通过同页 JSON 编辑；校验、预览和默认值来自 Concord。旧独立 Go 配置出现时显示兼容入口，切换先审阅完整候选 JSON，关闭旧 enabled 并保留原文。
 
-字段修改通过 ProfileConfigStore.set，本地资源导入通过独立桥接；二者均保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
+新“模块”页在 [processing.dart](flutter/lib/pages/processing.dart) 提供启用、排序、编辑、删除、文件/URL/安装链接导入及下载取消。模块编辑器在原生预览中显示名称、格式、元数据、要求、参数、附件、声明脚本、有效规则和忽略原因；含 DNS/路由设置的模块要明确选择只应用 HTTP，未满足要求或无效内容不能启用。草稿打开时固定配置修订，其他保存或 reload 后拒绝覆盖，保留待修改正文。
+
+模块和配置脚本的 task 条目可在真实本机 Started 会话运行并查看原生输出；原生 bridge 复核修订和启动原文，页面不把预览当作运行。新增资源复用文件导入、JSON 字典和引用说明；取消保留原配置，保存复用 ProfileConfigStore 与原生完整校验、原子写入及失败恢复。Android 会话和导入边界见 [app.md](app.md#配置处理生命周期)，规则及 legacy 差异见 [libbox.md](libbox.md#模块)。CA 不写入配置，活跃 MITM 或记录时禁用重新生成。
 
 #### 节点分享
 
@@ -162,7 +166,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 状态卡片与出口查询
 
-查询来源、字段解析及质量判定参考上述固定版本。IP 竞速由 [ui_egress.go](libbox/ui_egress.go) 负责：Cloudflare、IP.SB、IPinfo、ipwho.is、GeoJS、country.is、IPQuery、ident.me 共八源，B-box 的完整解析与失败回退、限额及传输约束见 [libbox.md](libbox.md#出口-ip-和质量查询传输)。
+查询来源、字段解析及质量判定参考上述固定版本。IP 竞速由 [ui_egress.go](core/sing-box/experimental/libbox/ui_egress.go) 负责：Cloudflare、IP.SB、IPinfo、ipwho.is、GeoJS、country.is、IPQuery、ident.me 共八源，B-box 的完整解析与失败回退、限额及传输约束见 [libbox.md](libbox.md#出口-ip-和质量查询传输)。
 
 质量查询在 [ip_quality.dart](flutter/lib/common/ip_quality.dart) 中依次分批使用 ident.me/ip-api.com/IPQuery、IPLocate、ipapi.is、proxycheck.io；等待一秒或当前请求全部失败后进入后续批次。默认不增加单请求期限，调用方可显式指定，用户取消和会话失效继续关闭在途请求。保留参考版组织/ASN 解析、显式类型优先、住宅类型推断及 Tor/abuser 质量规则，模型见 [ip_quality_models.dart](flutter/lib/common/ip_quality_models.dart)。
 
@@ -187,9 +191,11 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 测试入口与产物
 
-[newui.yml](.github/workflows/newui.yml) 在各分支代码推送时自动运行，统一包含核心、Flutter、JVM 和 Android smoke；[setup-flutter](.github/actions/setup-flutter/action.yml) 固定 SDK 和依赖锁文件。Flutter job 先运行 [verify_newui.py](tools/verify_newui.py) 核验 FlClash/prism_ui 文件哈希、许可、适配目标和退役依赖等源码约束，再依次执行 `flutter analyze --no-fatal-infos`、`flutter test --reporter expanded test packages/prism_ui/test` 和 `flutter build aar --no-profile --target-platform android-arm64`。上游 Prism 测试与 B-box 测试共用应用锁文件，不另行解析组件的开发依赖。截图和像素比较由同一测试入口生成，截图及失败对比图上传为 `newui-validation`，验证用 AAR 上传为 `flutter-aar-arm64`。手动 Release 构建独立准备所需的 Flutter Release AAR，不依赖测试运行，见 [构建与发布](app.md#构建与发布)。
+[newui.yml](.github/workflows/newui.yml) 在各分支代码推送时自动运行，统一包含核心、Flutter、JVM 和 Android smoke；[setup-flutter](.github/actions/setup-flutter/action.yml) 固定 SDK 和依赖锁文件。Flutter job 先运行 [verify_newui.py](tools/verify_newui.py) 核验三个 fork gitlink/上游 SHA、FlClash/prism_ui 文件哈希、Concord/组件许可、完整核心标签、适配目标和旧 overlay/退役依赖等源码约束，再依次执行 `flutter analyze --no-fatal-infos`、`flutter test --reporter expanded test packages/prism_ui/test` 和 `flutter build aar --no-profile --target-platform android-arm64`。上游 Prism 测试与 B-box 测试共用应用锁文件，不另行解析组件的开发依赖。截图和像素比较由同一测试入口生成，截图及失败对比图上传为 `newui-validation`，验证用 AAR 上传为 `flutter-aar-arm64`。手动 Release 构建独立准备所需的 Flutter Release AAR，不依赖测试运行，见 [构建与发布](app.md#构建与发布)。
 
 ### 测试文件覆盖
+
+[processing_test.dart](flutter/test/processing_test.dart) 覆盖共享开关、MITM/模块 scope 大字号布局、原生预览、模块草稿修订冲突、停用的错误脚本可编辑、安装链接和任务输出，生成 `build/screenshots/processing/` 截图。所有网络、Keystore 和 Rust 执行使用原生仪器测试验证，Flutter 替身测试不证明实际 TLS 行为。
 
 下列测试使用桥接替身和测试数据，验证交互、通知、调用和几何断言。它们不代替实际 TLS、系统证书安装、第三方应用或实机视觉验收；实际 PSS/RSS、CPU、帧耗时和加载耗时仍需在同设备、同配置下测量。原生服务重启、配置重载和内核日志级别由 [Android 仪器测试](app.md#android-仪器测试) 覆盖。
 
@@ -243,21 +249,9 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-2026-11-20 本轮在 `6df59c595fe0ff86ca4c96c884a14070b61620f9` 基础上，将 Prism UI 从 `63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185` 同步至 `7831ade349ede896aedb8a5757dc9c3fe88081d5`。193 个本地包文件中 191 个逐字节对应新提交，两个仅恢复固定 SDK 所需的 rendering 导入；来源清单区分原样导入、兼容补丁与 FlClash 子模块参考。日志流显式启用尾部锚定，上游测试已接入统一工作流。
+本次新增 Concord 处理页面和模块交互、MiChongs 完整配置入口及 Prism fork 子模块，以根仓库 `d16ad92cdbc7872f416da58f5913b33c65441071` 为修改基础。此前 Prism 0.1.3 的成功分析/697 项测试和五张截图仅对应历史源码 `5931339c26bd4e4791b9fec3a68d4713f6780032`，现移入下表。
 
-本轮功能源码 `5931339c26bd4e4791b9fec3a68d4713f6780032` 的 [统一测试](https://github.com/giturass/B-box/actions/runs/44692039380)（[Flutter 作业](https://github.com/giturass/B-box/actions/runs/44692039380/job/136139917060)）完成源码约束检查、Flutter 分析（95 项 info，0 warning/error）、全部 697 项交互/布局测试（B-box 323 项、Prism 374 项）及 ARM64 Debug/Release Flutter AAR 构建。[AAR 产物](https://github.com/giturass/B-box/actions/runs/44692039380/artifacts/14608958430) 和 [newui-validation 截图](https://github.com/giturass/B-box/actions/runs/44692039380/artifacts/14608874032) 的 `workflow_run.head_sha` 均已核对与该源码一致。
-
-实际查看下列五张本轮截图，文件名相对截图产物的 `build/screenshots/`：
-
-| 截图 | SHA-256 | 可观察结论 |
-| --- | --- | --- |
-| `navigation/diagnostics-long-outbound-320-light-1.4.png` | `fdaed69efa5f274797c55b1e9ba51475366bd22f54e157b2f87dfb9474fe785c` | 320 宽、1.4 倍字号下，Outbound 标题完整，长值省略，选择图标与文字分离；返回、开关及 Start 按钮无可见遮挡或溢出 |
-| `360-dark-1.4-Profiles-populated.png` | `6068b88e70d4eae96a24381b7d410d1a2a69475ee693a6cea488eabe7c54e0bb` | 配置名称、更新时间和选中对号互不遮挡；节点卡片、顶部工具栏及底部导航无可见溢出或重叠 |
-| `800-light-1.0-Profiles-populated.png` | `aa60e4a9cdbd6187eab86fc29261886f75e7e5ceed09955d5e423b75b42e6002` | 宽屏配置标题完整，时间与对号位于右侧；侧栏、工具栏和节点卡片边界清晰 |
-| `360-dark-1.4-Profile-edit.png` | `e7d3db2264941a5e4acab5fda8ceb55fd69b22561d684a441920384313912862` | 弹层关闭、标题和保存按钮分离，可见字段与说明无水平溢出；底部更新间隔行仅露出滚动边界的一部分 |
-| `requests/360-1.4-dark-message-menu.png` | `be3c5cf4451c533f36e88d175ab56bae4fe211e02b87a6cea4191eb5df825632` | 菜单标题、Request/Response/Cookies 和选中对号位于弹层内，菜单行无可见重叠或越出视口 |
-
-这些是 Linux widget 测试截图，采用 SDK Roboto、报文区域的 JetBrainsMono 与 Android 桥接替身；未覆盖中文、键盘弹出、完整表单滚动、加载及弹层动画、真实远程数据或 ARM64 实机视觉。本机仅执行来源哈希、源码约束、`git diff --check` 及文档本地链接/标题片段检查；后续验证记录提交仅补充文档，结论固定于上述功能源码 SHA。核心及 Android 验证由 [应用记录](app.md#当前验证记录) 维护。
+本次源码来源/许可、gitlink、文档链接和差异执行本机静态检查；Flutter 分析、交互/布局测试、ARM64 AAR 及新处理页截图等待统一 Actions。尚无本次 ARM64 实机视觉、键盘/动画、第三方 TLS 信任或性能验收；实际运行后按确切根 SHA、Actions 和逐张截图更新，不沿用此前结论。核心/Android 当前结果由 [app.md](app.md#当前验证记录) 维护。
 
 ### 历史验证记录
 
@@ -265,6 +259,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 | 日期 | 主题 | 验证源码 | Actions | 测试 / info | 当时实际查看的截图 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-11-20 | Prism UI 0.1.3 同步验收 | `5931339c26bd4e4791b9fec3a68d4713f6780032` | [44692039380](https://github.com/giturass/B-box/actions/runs/44692039380) | 697 / 95 | ARM64 Debug/Release AAR 通过；实际看过长 Outbound 320×1.4、360 深色 Profiles、800 浅色 Profiles、Profile edit 和请求菜单五张截图，无可见溢出；使用替身/测试字体，中文/键盘/动画/ARM64 未覆盖。逐张哈希可查 Git `d16ad92:flclash.md` |
 | 2026-11-20 | Prism UI SDK 导入修复 | `6d9fac605557ff27067b03a01b47a4765954300c` | [44690773881](https://github.com/giturass/B-box/actions/runs/44690773881) | 695 通过、2 失败 / 95 | Prism 374 项全部通过；配置卡更新时间在大字号下溢出约 1.1 px，日志测试 Key 类型与生产组件不匹配；ARM64 AAR 跳过，修正推送取消运行，截图不作为当前通过依据 |
 | 2026-11-20 | Prism UI 0.1.3 首轮同步 | `b5927256036a156b918063adcf873a49122aed2a` | [44689944833](https://github.com/giturass/B-box/actions/runs/44689944833) | 未运行 / 95（4 error） | ScrollCacheExtent 显式导入删除与固定 SDK 导出不兼容；测试和 AAR 跳过，无本轮截图结论；修复原始来源及实际补丁已记录 |
 | 2026-11-19 | 应用独立版本与更新弹窗 | `556a8716e0f7152ae2c3b012145127bcd1fea6d2` | [44489197911](https://github.com/giturass/B-box/actions/runs/44489197911) | 320 / 95 | ARM64 AAR 通过；实际查看中英文 320×568、1.4 倍字号下载、未知来源授权和签名错误六张更新弹窗截图，无重叠/遮挡/溢出；采用测试字体与桥接替身，早于本轮品牌图标及组件更新；设备安装与实机视觉未验收 |

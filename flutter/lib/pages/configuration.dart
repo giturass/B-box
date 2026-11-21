@@ -5,6 +5,7 @@ import 'profile_editor.dart' show JsonEditorController;
 import 'mitm_certificate.dart';
 import 'capture_domains.dart';
 import '../components/form.dart';
+import 'processing.dart';
 
 const configEncoder = JsonEncoder.withIndent('  ');
 
@@ -131,7 +132,8 @@ enum ProfileConfigSection {
   ruleSets('Rule sets', AppGlyphs.resources),
   mitm('MITM', AppGlyphs.lock),
   httpRewrite('HTTP rewriting', AppGlyphs.code),
-  scripts('Scripts', AppGlyphs.code);
+  scripts('Scripts', AppGlyphs.code),
+  modules('Modules', AppGlyphs.resources);
 
   const ProfileConfigSection(this.title, this.glyph);
   final String title;
@@ -159,7 +161,7 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
   @override Widget build(BuildContext context) {
     final store = context.box.remote ? null : _store;
     // Certificate access is independent of profile loading.
-    if (widget.section == ProfileConfigSection.mitm) return MitmConfigPage(store: store);
+    if (widget.section == ProfileConfigSection.mitm) return ConcordMitmPage(store: store);
     final title = widget.section.title;
     if (store == null) return Scaffold(title: context.tr(title),
       body: NullStatus(label: context.tr(context.box.remote ? 'Disconnect remote session to edit local profiles' : 'No profile'),
@@ -175,9 +177,10 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
         ProfileConfigSection.routing => RouteConfigPage(store: store),
         ProfileConfigSection.ruleSets => ConfigListPage(store: store, title: 'Rule sets', path: const ['route', 'rule_set'],
           initial: const {'type': 'inline', 'tag': 'new-rules', 'rules': []}),
-        ProfileConfigSection.mitm => MitmConfigPage(store: store),
-        ProfileConfigSection.httpRewrite => HttpRewriteConfigPage(store: store),
-        ProfileConfigSection.scripts => ScriptsConfigPage(store: store),
+        ProfileConfigSection.mitm => ConcordMitmPage(store: store),
+        ProfileConfigSection.httpRewrite => ConcordRewritePage(store: store),
+        ProfileConfigSection.scripts => ConcordScriptsPage(store: store),
+        ProfileConfigSection.modules => ConcordModulesPage(store: store),
       };
     });
   }
@@ -232,7 +235,7 @@ class MitmPage extends StatelessWidget {
   const MitmPage({super.key, this.store});
   final ProfileConfigStore? store;
   @override Widget build(BuildContext context) => store == null
-    ? const ProfileConfigurationPage(section: ProfileConfigSection.mitm) : MitmConfigPage(store: store);
+    ? const ProfileConfigurationPage(section: ProfileConfigSection.mitm) : ConcordMitmPage(store: store);
 }
 
 class MitmConfigPage extends StatelessWidget {
@@ -466,16 +469,32 @@ class RouteConfigPage extends StatelessWidget {
 class NetworkConfigPage extends StatelessWidget {
   const NetworkConfigPage({super.key, required this.store});
   final ProfileConfigStore store;
-  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) => BoxPage(title: 'Network', loading: store.saving, children: [
+  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) {
+    final revision = store.revision;
+    return BoxPage(title: 'Network', loading: store.saving, children: [
     generateSection(items: [
       ListItem.open(leading: const GlyphIcon(AppGlyphs.devices), title: Text(context.tr('Inbounds')),
         widget: ConfigListPage(store: store, title: 'Inbounds', path: const ['inbounds'], initial: const {'type': 'socks', 'tag': 'new-socks', 'listen': '127.0.0.1', 'listen_port': 2080})),
       ListItem.open(leading: const GlyphIcon(AppGlyphs.proxies), title: Text(context.tr('Outbounds')),
         widget: ConfigListPage(store: store, title: 'Outbounds', path: const ['outbounds'], initial: const {'type': 'direct', 'tag': 'new-direct'})),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Providers')),
+        widget: ConfigListPage(store: store, title: 'Providers', path: const ['providers'], initial: const {'type': 'inline', 'tag': 'new-provider', 'outbounds': []})),
       ListItem.open(leading: const GlyphIcon(AppGlyphs.devices), title: Text(context.tr('Endpoints')),
         widget: ConfigListPage(store: store, title: 'Endpoints', path: const ['endpoints'], initial: const {})),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.tools), title: Text(context.tr('Services')),
+        widget: ConfigListPage(store: store, title: 'Services', path: const ['services'], initial: const {})),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.key), title: Text(context.tr('Certificate providers')),
+        widget: ConfigListPage(store: store, title: 'Certificate providers', path: const ['certificate_providers'], initial: const {})),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.dns), title: Text(context.tr('HTTP clients')),
+        widget: ConfigListPage(store: store, title: 'HTTP clients', path: const ['http_clients'], initial: const {})),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.devices), title: Text(context.tr('Network namespaces')),
+        widget: ConfigListPage(store: store, title: 'Network namespaces', path: const ['network_namespaces'], initial: const {})),
+      ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Native experimental options')),
+        widget: ConfigValueEditor(title: 'Native experimental options', initial: store.value(const ['experimental']) ?? const {},
+          onSave: (value) => store.set(const ['experimental'], value, expectedRevision: revision, rethrowFailure: true))),
     ]),
-  ]));
+    ]);
+  });
 }
 
 class LogConfigPage extends StatelessWidget {

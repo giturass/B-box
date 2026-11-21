@@ -2,6 +2,7 @@
 import re
 import json
 import hashlib
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,8 +57,11 @@ for path in (native / "flutter").glob("*.kt"):
         errors.append(f"{path.name}: legacy UI fallback is not allowed")
     if "NavController" in source or "navController.navigate" in source:
         errors.append(f"{path.name}: legacy navigation is not allowed")
-for retired in ("flutter/lib/pages/capture_rules.dart", "libbox/option/httpdebug.go", "tools/ebpf",
-                "libbox/httpdebug/wire.go", "flutter/lib/pages/tls_offsets.dart",
+for retired in ("flutter/lib/pages/capture_rules.dart", "core/sing-box/option/httpdebug.go", "tools/ebpf",
+                "core/sing-box/experimental/httpdebug/wire.go", "flutter/lib/pages/tls_offsets.dart",
+                "libbox", "tools/patch_httpdebug.py", "tools/patch_warp_masque.py",
+                "tools/patch_xhttp_vless.py", "tools/patch_sing_tun.py", "tools/patch_processing_runtimes.py",
+                "tools/verify_httpdebug.py",
                 "app/src/main/java/io/nekohasekai/sfa/bg/RootCaptureSession.kt",
                 "flutter/lib/pages/privilege.dart", "third_party/libxposed-api",
                 "app/src/main/java/io/nekohasekai/sfa/xposed",
@@ -111,6 +115,35 @@ check_adaptations(manifest["adaptedNativeFiles"], ROOT)
 
 prism = manifest["prismUi"]
 check_commit(prism["commit"], "prism_ui")
+check_commit(prism["fork"]["commit"], "prism_ui fork")
+for local, source in (("concord-LICENSE", "LICENSE"), ("concord-NOTICE", "THIRD_PARTY_NOTICES.md")):
+    original = ROOT / "core/concord" / source
+    if original.is_file():
+        check_hash(flutter / "assets/licenses" / local, hashlib.sha256(original.read_bytes()).hexdigest())
+    else:
+        errors.append(f"Missing Concord license source: {source}")
+upstreams = json.loads((ROOT / "upstreams.json").read_text())
+for name, upstream in upstreams.items():
+    check_commit(upstream["upstreamCommit"], name + " comparison baseline")
+    path = ROOT / upstream["path"]
+    if not (path / ".git").exists():
+        errors.append(f"{name}: initialize the pinned Git submodule")
+        continue
+    url = subprocess.check_output(["git", "config", "-f", str(ROOT / ".gitmodules"), f"submodule.{name}.url"], text=True).strip()
+    if url != upstream["fork"]:
+        errors.append(f"{name}: submodule URL does not point to its fork")
+    head = subprocess.check_output(["git", "-C", str(path), "rev-parse", "HEAD"], text=True).strip()
+    entry = subprocess.check_output(["git", "-C", str(ROOT), "ls-files", "--stage", "--", upstream["path"]], text=True).split()
+    if len(entry) < 2 or entry[0] != "160000" or entry[1] != head:
+        errors.append(f"{name}: the staged Git submodule must pin the checked-out commit")
+    if name == "prism_ui" and head != prism["fork"]["commit"]:
+        errors.append("prism_ui fork commit does not match its source manifest")
+tags = (ROOT / "core/sing-box/b-box/buildtags/android.txt").read_text().strip().split(",")
+required_tags = {"with_quic", "with_wireguard", "with_utls", "with_naive_outbound", "with_clash_api", "with_xhttp",
+                 "with_easytier", "with_ebpf", "with_concord", "with_usbip", "with_acme", "with_dhcp", "with_openvpn",
+                 "with_openconnect", "with_cloudflared", "with_ccm", "with_ocm", "with_v2ray_api", "with_tailscale"}
+if not required_tags.issubset(tags) or any(tag.startswith("ts_omit_") for tag in tags):
+    errors.append("The shipped Android core must retain all MiChongs features and full Tailscale")
 check_commit(prism["flclashSubmoduleCommit"], "FlClash prism_ui submodule reference")
 prism_root = flutter / prism["localPath"]
 for local, expected in prism["files"].items():
@@ -155,4 +188,4 @@ for reference in manifest.get("supplementalReferences", []):
                 errors.append(f"Changed verbatim supplemental import: {local}")
 if errors:
     raise SystemExit("\n".join(errors))
-print("FlClash/prism_ui sources, licenses, Flutter imports, glyphs, Android entry points and retired feature guards passed")
+print("Fork gitlinks, complete core tags, FlClash/Prism/Concord sources and licenses, Android entries and retired feature guards passed")

@@ -71,7 +71,7 @@ internal class BoxProfiles(
         val outbounds = root.optJSONArray("outbounds")
         var groupCount = 0
         for (index in 0 until (outbounds?.length() ?: 0)) {
-            if (outbounds?.optJSONObject(index)?.optString("type") in setOf("selector", "urltest")) groupCount++
+            if (Libbox.isUIConfigGroupType(outbounds?.optJSONObject(index)?.optString("type").orEmpty())) groupCount++
         }
         val route = root.optJSONObject("route")
         return mapOf("content" to content, "formatted" to formatted, "revision" to revision(content), "stats" to mapOf(
@@ -80,6 +80,10 @@ internal class BoxProfiles(
             "ruleSets" to (route?.optJSONArray("rule_set")?.length() ?: 0),
             "dnsServers" to (root.optJSONObject("dns")?.optJSONArray("servers")?.length() ?: 0),
             "endpoints" to (root.optJSONArray("endpoints")?.length() ?: 0),
+            "providers" to (root.optJSONArray("providers")?.length() ?: 0),
+            "processing" to root.optJSONObject("experimental")?.optJSONObject("processing")?.let {
+                jsonObject(JSONObject(Libbox.validateUIProcessingConfig(it.toString())))
+            },
         ))
     }
 
@@ -100,7 +104,7 @@ internal class BoxProfiles(
 
     /** Copy a document incrementally, without holding the configuration or bridge operation lock. */
     suspend fun prepareResource(id: Long, section: String, expectedRevision: String, name: String, input: InputStream): PreparedResource {
-        require(section in setOf("scripts", "http_rewrite")) { "Invalid resource section" }
+        require(section in setOf("scripts", "http_rewrite", "processing")) { "Invalid resource section" }
         val profilePath = mutex.withLock {
             val path = get(id).typed.path
             require(revision(File(path).readText()) == expectedRevision) { "Configuration changed; reload it before saving" }

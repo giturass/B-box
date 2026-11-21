@@ -1,0 +1,32 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    { "type": "mixed", "tag": "local", "listen": "127.0.0.1", "listen_port": 2080 }
+  ],
+  "outbounds": [
+    { "type": "direct", "tag": "direct" }
+  ],
+  "route": { "final": "direct" },
+  "experimental": {
+    "processing": {
+      "enabled": false,
+      "mitm": {
+        "hostname": ["example.test"],
+        "h2": true,
+        "url-rewrite": ["^https?://example\\.test/ads _ reject-200"],
+        "script": ["task = type=generic,script-path=task.js"],
+        "modules": [
+          {
+            "name": "local-response",
+            "enabled": true,
+            "text": "#!name=Local response\n[Map Local]\n^https?://example\\.test/local$ data=local-body data-type=text status-code=200\n"
+          }
+        ]
+      },
+      "resources": {
+        "task.js": { "data_type": "text", "data": "$done({result: 'Concord task'});" },
+        "local-body": { "data_type": "text", "data": "Concord local response" }
+      }
+    }
+  }
+}
