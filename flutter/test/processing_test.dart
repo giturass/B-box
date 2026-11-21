@@ -161,11 +161,11 @@ void main() {
       '[Rule]\nDOMAIN,ads.test,REJECT\n[URL Rewrite]\n^http://ads.test/ _ reject-200\n'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('module-name')), 'Privacy');
+    final scrollable = find.descendant(of: find.byType(ConcordModuleEditor), matching: find.byType(Scrollable)).first;
     final previewButton = find.byKey(const ValueKey('module-preview'));
-    await tester.ensureVisible(previewButton);
+    await tester.scrollUntilVisible(previewButton, 220, scrollable: scrollable);
     await tester.tap(previewButton);
     await tester.pumpAndSettle();
-    final scrollable = find.descendant(of: find.byType(ConcordModuleEditor), matching: find.byType(Scrollable)).first;
     final enabled = find.byKey(const ValueKey('module-enabled'));
     await tester.scrollUntilVisible(enabled, 220, scrollable: scrollable);
     await tester.tap(enabled);

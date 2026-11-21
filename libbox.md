@@ -6,7 +6,7 @@
 
 主内核为 [MiChongs/sing-box](https://github.com/MiChongs/sing-box)，固定比较提交 `f88982450a13a818f680de884663fa914798e84a`。HTTP 处理复用 [Concord](https://github.com/chen08209/concord)，固定比较提交 `4db36a472bd3f290195dec55dfc30ac2ebc03b7a`。两个项目分别 fork 至 [giturass/sing-box](https://github.com/giturass/sing-box) 与 [giturass/concord](https://github.com/giturass/concord)，通过 [core/sing-box](core/sing-box) 与 [core/concord](core/concord) 子模块引入。实际构建 SHA 由根仓库 gitlink 固定，[upstreams.json](upstreams.json) 保存原始比较 SHA 与 fork 地址；显示核心版本 `1.15.0-alpha.13-xiaobaf14g.17` 和 Go `go1.27.0` 由 [version.properties](version.properties) 决定。应用及 Android 上游基线独立维护，见 [app.md](app.md#比较基线与应用身份)。
 
-sing-box 管理 VPN、网络接口、DNS、路由、分组、Provider、服务及全部出站；Concord 只构建 `libconcord_processing.so`，复用其 MITM、HTTP 改写、QuickJS、模块解析和合成，不启动 Concord engine、TUN 或第二套代理。改写到新目标的请求重新进入 sing-box 路由，原目标沿用原选路；处理器内部拨号跳过处理钩子以防递归。
+sing-box 管理 VPN、网络接口、DNS、路由、分组、Provider、服务及全部出站；Concord 只构建 `libconcord_processing.so`，复用其 MITM、HTTP 改写、QuickJS、模块解析和合成，不启动 Concord engine、TUN 或第二套代理。改写到新目标的请求重新进入 sing-box 路由，原目标沿用原选路；处理器内部拨号跳过处理钩子以防递归。HTTP/TLS/QUIC 观察优先读取主内核的 `SniffHost`，保留 `Domain` 的 DNS 缓存和原选路；QUIC 回退必须取得实际嗅探域名。
 
 B-box 扩展直接维护在 fork，根仓库不再保存 overlay 或向 SagerNet 原版覆盖源码。[setup-core](.github/actions/setup-core/action.yml) 校验 gitlink，建立隔离 `.core` 工作树；[依赖准备脚本](core/sing-box/b-box/prepare_dependencies.py) 核对逻辑模块、版本及 MiChongs replacement，复制需要补丁的依赖到该工作树，再应用检查过的补丁和本地 replace，不修改共享模块缓存。补丁来源与扩展路径由 [fork 集成说明](core/sing-box/b-box/README.md) 维护。
 
@@ -319,19 +319,19 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](core/sing-box/experimental/h
 
 ### 构建与工作流
 
-- [setup-core](.github/actions/setup-core/action.yml) 使用已锁定 fork 工作树和隔离依赖补丁；[build-libbox](.github/actions/build-libbox/action.yml) 使用 JDK 17、版本文件 Go 和 NDK 28.0 构建标准 API 24 AAR，再以 NDK 28.2 构建相同 ABI 的 Concord Rust 处理库。Android 完整标签由 fork 的 `b-box/buildtags/android.txt` 内嵌，无 `ts_omit_*` 裁剪。处理库与 libbox 同目录打包；[加载器](core/sing-box/experimental/concord/bridge.c) 在平台库搜索失败后使用 libbox 的相邻路径，并返回动态链接器的具体失败原因。
+- [setup-core](.github/actions/setup-core/action.yml) 使用已锁定 fork 工作树和隔离依赖补丁；[build-libbox](.github/actions/build-libbox/action.yml) 使用 JDK 17、版本文件 Go 和 NDK 28.0 构建标准 API 24 AAR，再以 NDK 28.2 构建相同 ABI 的 Concord Rust 处理库。Android 完整标签由 fork 的 `b-box/buildtags/android.txt` 内嵌，无 `ts_omit_*` 裁剪。[处理库链接设置](core/concord/bins/processing/build.rs) 沿用 Concord Android 的静态 C++ ABI 与未解析符号检查。处理库与 libbox 同目录打包；[加载器](core/sing-box/experimental/concord/bridge.c) 在平台库搜索失败后使用 libbox 的相邻路径，并返回动态链接器的具体失败原因。
 - [统一测试](.github/workflows/newui.yml) 的 core job 构建真实 Linux Concord 动态库，再运行完整功能标签的 `TestUI`、真实 C ABI/race、sing-tun map、sing-vmess Vision、XHTTP/VLESS Encryption、MASQUE/WireGuard、路由/出口探测及旧 HTTP/Goja 回归。Linux 完整标签链接使用 [setup-naive](.github/actions/setup-naive/action.yml) 准备的 Chromium 编译器、sysroot 和 lld；Cronet 提交由主内核的 `.github/CRONET_GO_VERSION` 固定并与 replacement 核对，准备方式遵循该版本的 [下游构建说明](https://github.com/MiChongs/cronet-go/blob/d20ca2de32ca9d00a686c03ce7c2ccf28abe8ca8/README.md#linux-build-instructions)。旧处理器测试与新 Concord bridge 测试分别运行，不相互代替。
 - 同一工作流的 native-arm64 job 独立构建完整标签 ARM64 AAR；Android job 构建同来源 x86_64 AAR、Flutter 和 APK，运行 JVM、play 编译及四组 smoke。Flutter job 分析/测试新处理页面和 Prism 子模块，并构建 ARM64 Flutter AAR。
-- [package_processing.py](tools/package_processing.py) 检查 AAR 与 Concord ABI、ELF machine、LOAD 对齐至少 16 KiB、六个 C ABI 导出及无动态 `libc++_shared`，原子写入同 ABI `libconcord_processing.so`，拒绝重复或错架构库。
+- [package_processing.py](tools/package_processing.py) 检查 AAR 与 Concord ABI、ELF machine、LOAD 对齐至少 16 KiB、六个 C ABI 导出及无动态 `libc++_shared`，原子写入同 ABI `libconcord_processing.so`，拒绝错架构或导出缺失的库。
 - [Release](.github/workflows/build-release.yml) 仅手动触发，独立构建同一锁定核心/Concord/Flutter 的 ARM64 Release，不调用测试或自动发布本次开发改动。APK 必须同时含 libbox 与处理库，签名和发布规则见 [app.md](app.md#构建与发布)。
 
-[真实 bridge 回归](core/sing-box/experimental/concord/session_test.go) 覆盖 QuickJS、HTTP/2、TLS 信任、FD 与取消/关闭；[ui_concord_test.go](core/sing-box/experimental/libbox/ui_concord_test.go) 覆盖保存前校验/兼容排除和运行原文检查；[Concord 定义测试](core/concord/bins/processing/src/definition.rs) 覆盖模块 HTTP scope、要求诊断和结构检查。下面的详细 HTTP/脚本列表主要是旧 Go 兼容处理器的回归，不能当作新 Rust 实现已通过相同行为的证据。
+[真实 bridge 回归](core/sing-box/experimental/concord/session_test.go) 覆盖 QuickJS、HTTP/2、TLS 信任、FD 与取消/关闭；[加载回归](core/sing-box/experimental/concord/bridge_native_test.go) 在 Linux 子进程中移除库搜索路径后加载相邻的真实处理库；[ui_concord_test.go](core/sing-box/experimental/libbox/ui_concord_test.go) 覆盖保存前校验/兼容排除和运行原文检查；[Concord 定义测试](core/concord/bins/processing/src/definition.rs) 覆盖模块 HTTP scope、要求诊断和结构检查。下面的详细 HTTP/脚本列表主要是旧 Go 兼容处理器的回归，不能当作新 Rust 实现已通过相同行为的证据。
 
 ### 回归文件覆盖
 
 下列文件按 core job 的入口分组，描述各文件断言的行为。Linux 上的回归不能代替 Android 系统 CA 模块、Keystore/gomobile 签名或目标应用的实机验收，后者的仪器测试范围见 [app.md](app.md#android-仪器测试)；大样本越过旧阈值只证明不再因该阈值拒绝，不代表 Android 容量测量。
 
-**核心扩展（`./experimental/libbox`，步骤 2；路由、出口、HTTP 和订阅另由步骤 4 以 race 运行）**
+**核心扩展（`./experimental/libbox`，完整功能标签；路由、出口、HTTP 和订阅另以 race 运行）**
 
 - [ui_http_test.go](core/sing-box/experimental/libbox/ui_http_test.go)：WebDAV 状态/内容/重定向及超过旧大小上限的传输，HTTP 任务关闭时取消等待中的响应头与正文，Release 元数据的重定向、大响应、重定向循环和共享期限。
 - [ui_profile_test.go](core/sing-box/experimental/libbox/ui_profile_test.go)：订阅请求头保留、超过旧容量的正文、覆盖响应头与正文的期限、错误状态不读正文、重定向循环和非法地址。
@@ -339,22 +339,22 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](core/sing-box/experimental/h
 - [ui_egress_test.go](core/sing-box/experimental/libbox/ui_egress_test.go)：来源解析、公网 IP 校验、竞速并发与取消、失败或解析失败后继续竞速、服务替换、期限和关闭取消路由拨号、停服等待路由退出、不回退直连，以及 IP 胜出后保持质量查询会话。
 - [ui_route_test.go](core/sing-box/experimental/libbox/ui_route_test.go)：停服等待路由和指定出站的拨号退出，以及准入与关闭的竞争。
 - [ui_lan_test.go](core/sing-box/experimental/libbox/ui_lan_test.go)：监听地址、开关保留原生配置、创建/停用 mixed 入站、新监听冲突与校验。
-- [ui_masque_test.go](core/sing-box/experimental/libbox/ui_masque_test.go)：WARP 配置校验/格式化、非法账号拒绝、VPN 示例，以及真实 IP 栈经 HTTP/2 出站传输 UDP 和网络重置；步骤 3 另在 `with_quic` 构建中运行。
-- [ui_warp_test.go](core/sing-box/experimental/libbox/ui_warp_test.go)：MASQUE POST/PATCH 与 WireGuard 单 POST、P-256 DER/Curve25519 私钥和分配地址、peer 地址选择及 client_id reserved 数值、原生端点追加/代理组/本地标记/重复保存、完整配置校验、非法响应和错误状态、响应上限、拒绝重定向、任务单次调用及关闭/完成边界取消；步骤 3 另以 `with_quic,with_wireguard` 和 race 运行。无 `with_wireguard` 的基础检查仍验证注册请求及端点选项解码，追加/完整配置子测试在包含 WireGuard 的核心中运行。
+- [ui_masque_test.go](core/sing-box/experimental/libbox/ui_masque_test.go)：WARP 配置校验/格式化、非法账号拒绝、VPN 示例，以及真实 IP 栈经 HTTP/2 出站传输 UDP 和网络重置；另在 `with_xhttp,with_quic` 构建中运行。
+- [ui_warp_test.go](core/sing-box/experimental/libbox/ui_warp_test.go)：MASQUE POST/PATCH 与 WireGuard 单 POST、P-256 DER/Curve25519 私钥和分配地址、peer 地址选择及 client_id reserved 数值、原生端点追加/代理组/本地标记/重复保存、完整配置校验、非法响应和错误状态、响应上限、拒绝重定向、任务单次调用及关闭/完成边界取消；另以 `with_xhttp,with_quic,with_wireguard` 和 race 运行。无 `with_wireguard` 的基础检查仍验证注册请求及端点选项解码，追加/完整配置子测试在包含 WireGuard 的核心中运行。
 - [ui_capture_test.go](core/sing-box/experimental/libbox/ui_capture_test.go) 与 [ui_capture_signer_test.go](core/sing-box/experimental/libbox/ui_capture_signer_test.go)：本地抓包设置、schema 和退役字段迁移；平台签名接口的摘要、算法及返回签名校验。
 - [ui_processing_test.go](core/sing-box/experimental/libbox/ui_processing_test.go)：改写 schema 校验与格式化、退役选项不激活新规则、一元 gRPC 与 reject 动作往返、迁移保留范围和端口缺省、脚本能力 schema，以及 Surge 字段格式化时不加载资源。
 
-**WARP MASQUE 传输（`./transport/masque`，步骤 3）**
+**WARP MASQUE 传输（`./transport/masque`，基础与 `with_quic` 构建均以 race 运行）**
 
 - [warp_test.go](core/sing-box/transport/masque/b_box_warp_test.go)：HTTP/2 握手、数据报与重连，调用方取消和网络重置下的停滞握手，错误对端公钥与 HTTP 失败，私钥/公钥格式校验，静态账号地址与客户端生命周期，网络重置后撤销就绪并等待替换隧道，以及标准 MASQUE 地址协商不受 WARP 方言影响。
 - [warp_http3_test.go](core/sing-box/transport/masque/b_box_warp_http3_test.go)：未声明 Extended CONNECT 设置的 HTTP/3 握手、停滞握手取消和不可用对端拒绝。
 
-**sing-tun 与路由接入（步骤 1 和步骤 5）**
+**sing-tun 与路由接入**
 
 - [redirect_ingress_discard_linux_test.go](core/sing-box/b-box/sing-tun/redirect_ingress_discard_linux_test.go)：map 布局校验、单/双接口归属和恢复条件，范围说明见 [Android 自动重定向兼容](#android-自动重定向兼容)。
 - [route/httpdebug_test.go](core/sing-box/route/b_box_httpdebug_test.go)：嗅探缓冲随大请求头增长并完整回放；通过真实 TLS 握手核对原选定出站、SNI 与 DNS 映射隔离、端口覆写、CONNECT 确认顺序、证书库及未匹配流的字节回放；从真实流量跟踪器取得连接 UUID、穿过嗅探缓存、清空连接历史后重新打开请求存储，以及无跟踪器的 HTTP。
 
-**HTTP 调试引擎（`./experimental/httpdebug`，步骤 5，全部以 race 运行）**
+**HTTP 调试引擎（`./experimental/httpdebug`，全部以 race 运行）**
 
 抓取、存储与导出：
 
