@@ -151,9 +151,9 @@ WireGuard 输出结构核对当前核心 [`v1.15.0-alpha.13` 的选项](https://
 
 每次 TLS 握手使用已注册的私钥签发临时客户端证书；证书更新不替换注册私钥。服务端证书以注册公钥固定校验，缺少公钥、密钥格式错误、重复地址族和失败的 CONNECT 都返回错误。HTTP/3 使用核心受保护的非连接 UDP socket，保留 detour、DNS 和 QUIC 的原生 UDP 能力；发送 WARP 旧 datagram setting，在服务端未声明 extended CONNECT 时仍完成 `cf-connect-ip`，读取并丢弃有界控制 capsule，datagram 容量为 QUIC packet number 预留四字节。HTTP/2 接受 `h2` 或空 ALPN，使用普通 CONNECT 和 WARP 专用头，capsule 内直接传 IP 数据，不添加 HTTP/3 的 context ID。允许回退时 HTTP/3 握手最多等待五秒再尝试 HTTP/2，成功传输用于后续重连；握手期限不会取消已建立的隧道。
 
-注册地址在认证完成后配置给 IP 栈，拨号等待就绪，不等待 WARP 不发送的 `ADDRESS_ASSIGN`；普通 MASQUE 仍保留地址请求/分配。取消握手、停服和网络切换会关闭旧 TCP/QUIC 连接，已成功打开的隧道不被握手期限结束取消；重连沿用上游的退避与服务生命周期。网络切换取消会话时立即撤销其就绪状态，此后的拨号等待新隧道认证完成，不把首批报文写入已取消的旧隧道；上游客户端在重连循环回收旧会话前仍报告就绪，该修正由同一补丁维护，标准 MASQUE 端点同样生效。
+注册地址在认证完成后配置给 IP 栈，拨号等待就绪，不等待 WARP 不发送的 `ADDRESS_ASSIGN`；普通 MASQUE 仍保留地址请求/分配。取消握手、停服和网络切换会关闭旧 TCP/QUIC 连接，已成功打开的隧道不被握手期限结束取消；重连沿用主内核的退避与服务生命周期。[MASQUE 客户端](core/sing-box/transport/masque/client.go) 在网络切换取消会话时立即撤销其就绪状态，此后的拨号等待新隧道认证完成，不把首批报文写入已取消的旧隧道；标准 MASQUE 端点同样生效。
 
-[MiChongs fork](core/sing-box/transport/masque) 对干净的匹配核心检查补丁并安装选项、出站和传输，重复安装失败。注册扩展与其他 `ui_*.go` 由共享 [setup-core](.github/actions/setup-core/action.yml) 安装，使统一测试、Android smoke 和 ARM64 Release 使用同一实现；正式 libbox 构建已有 `with_quic`。
+WARP 选项、出站、[传输](core/sing-box/transport/masque) 和注册扩展直接维护在 MiChongs fork 中。[setup-core](.github/actions/setup-core/action.yml) 准备 gitlink 锁定的核心工作树及依赖，使统一测试、Android smoke 和 ARM64 Release 使用同一实现；正式 libbox 构建包含 `with_quic`。
 
 [注册回归](core/sing-box/experimental/libbox/ui_warp_test.go) 使用本地 API 替身检查 MASQUE 两阶段与 WireGuard 单阶段注册、已注册私钥对应关系、地址和 reserved 字节、API peer 地址及缺省地址、WireGuard 端点追加/代理组/本地标记/重复保存、完整配置校验、错误状态/非法响应、响应上限、重定向拒绝、关闭取消及完整响应在取消边界的保留；[传输回归](core/sing-box/transport/masque/b_box_warp_test.go) 与 [HTTP/3 回归](core/sing-box/transport/masque/b_box_warp_http3_test.go) 检查握手、公钥固定、空 ALPN、传输回退、报文、失败/取消与重连，以及网络重置后拨号等待替换隧道；[ui_masque_test.go](core/sing-box/experimental/libbox/ui_masque_test.go) 检查配置/格式化及真实 IP 栈经 selector 传输 UDP 和网络重置。Android 配置绑定与节点持久化回归由 [应用文档](app.md#android-仪器测试) 维护。实际运行记录维护在 [app.md](app.md#当前验证记录)；本地模拟服务不代表 Cloudflare 真实网络或注册流程已经验收。
 
@@ -180,7 +180,7 @@ WireGuard 输出结构核对当前核心 [`v1.15.0-alpha.13` 的选项](https://
 
 `NewUIDirectEgressProbe` 创建设备当前网络上的探测；Android 桥接只在本地服务停止时使用它。`CommandServer.NewUIEgressProbe` 绑定当前服务实例，经 `RouteConnectionEx` 和 `b-box-dashboard` 入站上下文使用 sing-box 路由，服务更换后拒绝旧实例请求。这里的入站上下文不是新增配置监听器。
 
-服务持有自身的路由探测集合，创建探测与停服/重载共用生命周期锁。[服务补丁](core/sing-box/option/processing.go) 在关闭核心之前取消这些探测，并等待已登记的 `RouteConnectionEx` 调用退出；探测关闭后不再允许 HTTP 客户端登记新的异步路由调用。这样，已经通过实例检查但尚未进入 DNS/拨号的请求不会在核心关闭后继续访问它。普通 `Close` 发出取消后快速返回，探测在路由退出后才从服务集合移除，因此后台停服仍会等待已经由界面取消的请求，不依赖 Flutter 收到状态通知后的清理时序。
+服务持有自身的路由探测集合，创建探测与停服/重载共用生命周期锁。[服务关闭流程](core/sing-box/experimental/libbox/command_server.go) 在关闭核心之前取消这些探测，并等待已登记的 `RouteConnectionEx` 调用退出；探测关闭后不再允许 HTTP 客户端登记新的异步路由调用。这样，已经通过实例检查但尚未进入 DNS/拨号的请求不会在核心关闭后继续访问它。`UIEgressProbe.Close` 发出取消后快速返回，探测在路由退出后才从服务集合移除，因此后台停服仍会等待已经由界面取消的请求，不依赖 Flutter 收到状态通知后的清理时序。
 
 探测与脚本使用同一 [uiRouteLifecycle](core/sing-box/experimental/libbox/ui_route.go)。停止先关闭路由准入并取消，随后停止处理引擎、等待已登记调用退出，最后关闭核心；脚本显式 `policy` 的 `DialContext` 也在此边界内。取消后才成功返回的连接立即关闭。[ui_route_test.go](core/sing-box/experimental/libbox/ui_route_test.go) 检查路由/指定出站退出等待、关闭与登记竞争，以及迟到拨号结果。
 
@@ -319,7 +319,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](core/sing-box/experimental/h
 
 ### 构建与工作流
 
-- [setup-core](.github/actions/setup-core/action.yml) 使用已锁定 fork 工作树和隔离依赖补丁；[build-libbox](.github/actions/build-libbox/action.yml) 使用 JDK 17、版本文件 Go 和 NDK 28.0 构建标准 API 24 AAR，再以 NDK 28.2 构建相同 ABI 的 Concord Rust 处理库。Android 完整标签由 fork 的 `b-box/buildtags/android.txt` 内嵌，无 `ts_omit_*` 裁剪。
+- [setup-core](.github/actions/setup-core/action.yml) 使用已锁定 fork 工作树和隔离依赖补丁；[build-libbox](.github/actions/build-libbox/action.yml) 使用 JDK 17、版本文件 Go 和 NDK 28.0 构建标准 API 24 AAR，再以 NDK 28.2 构建相同 ABI 的 Concord Rust 处理库。Android 完整标签由 fork 的 `b-box/buildtags/android.txt` 内嵌，无 `ts_omit_*` 裁剪。处理库与 libbox 同目录打包；[加载器](core/sing-box/experimental/concord/bridge.c) 在平台库搜索失败后使用 libbox 的相邻路径，并返回动态链接器的具体失败原因。
 - [统一测试](.github/workflows/newui.yml) 的 core job 构建真实 Linux Concord 动态库，再运行完整功能标签的 `TestUI`、真实 C ABI/race、sing-tun map、sing-vmess Vision、XHTTP/VLESS Encryption、MASQUE/WireGuard、路由/出口探测及旧 HTTP/Goja 回归。Linux 完整标签链接使用 [setup-naive](.github/actions/setup-naive/action.yml) 准备的 Chromium 编译器、sysroot 和 lld；Cronet 提交由主内核的 `.github/CRONET_GO_VERSION` 固定并与 replacement 核对，准备方式遵循该版本的 [下游构建说明](https://github.com/MiChongs/cronet-go/blob/d20ca2de32ca9d00a686c03ce7c2ccf28abe8ca8/README.md#linux-build-instructions)。旧处理器测试与新 Concord bridge 测试分别运行，不相互代替。
 - 同一工作流的 native-arm64 job 独立构建完整标签 ARM64 AAR；Android job 构建同来源 x86_64 AAR、Flutter 和 APK，运行 JVM、play 编译及四组 smoke。Flutter job 分析/测试新处理页面和 Prism 子模块，并构建 ARM64 Flutter AAR。
 - [package_processing.py](tools/package_processing.py) 检查 AAR 与 Concord ABI、ELF machine、LOAD 对齐至少 16 KiB、六个 C ABI 导出及无动态 `libc++_shared`，原子写入同 ABI `libconcord_processing.so`，拒绝重复或错架构库。

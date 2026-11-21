@@ -10,6 +10,7 @@ import 'package:b_box_ui/pages/request_settings.dart';
 import 'package:b_box_ui/pages/mitm_certificate.dart';
 import 'package:b_box_ui/pages/capture_domains.dart';
 import 'package:b_box_ui/pages/configuration.dart';
+import 'package:b_box_ui/pages/processing.dart';
 import 'package:b_box_ui/components/captured_body.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
@@ -202,11 +203,11 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('independent MITM and cron configuration fit a narrow screen', (tester) async {
+  testWidgets('Concord MITM and task configuration fit a narrow screen', (tester) async {
     await mount(tester, dark: true, scale: 1.3, size: const Size(320, 900));
     extra = (call) async => call.method == 'profiles.config' ? {
-      'formatted': r'{"experimental":{"mitm":{"enabled":false,"hosts":[]},"scripts":{"enabled":false,"cron":[{"name":"Daily task","cron":"0 2 * * *","source":"$done();"}]},"http_rewrite":{"enabled":false}}}',
-      'revision': 'independent-screenshot',
+      'formatted': r'{"experimental":{"processing":{"enabled":false,"mitm":{"hostname":[],"script":["Daily task = type=cron,cronexp=0 2 * * *,script-path=task.js"]},"resources":{"task.js":{"data_type":"text","data":"$done();"}}}}}',
+      'revision': 'concord-screenshot',
     } : null;
     final store = ProfileConfigStore(box, {'id': 7, 'name': 'Profile'});
     addTearDown(store.dispose);
@@ -214,18 +215,20 @@ void main() {
     await open(tester, MitmPage(store: store));
     expect(find.text('Decryption domains'), findsOneWidget);
     expect(find.text('HTTPS excluded domains'), findsNothing);
-    await capture(tester, 'independent-mitm-config');
+    await capture(tester, 'concord-mitm-config');
     await expectClearTrailingToolbar(tester, boundaryKey, find.byType(MitmPage));
-    final mitmScrollable = find.descendant(of: find.byType(MitmConfigPage), matching: find.byType(Scrollable)).first;
+    final mitmScrollable = find.descendant(of: find.byType(ConcordMitmPage), matching: find.byType(Scrollable)).first;
     await tester.scrollUntilVisible(find.byKey(const ValueKey('mitm-block-quic')), 220, scrollable: mitmScrollable);
     await tester.pumpAndSettle();
-    await capture(tester, 'independent-mitm-tcp-quic');
+    await capture(tester, 'concord-mitm-quic');
     Navigator.pop(tester.element(find.byType(MitmPage))); await tester.pumpAndSettle();
-    await open(tester, ScriptsConfigPage(store: store));
-    await capture(tester, 'independent-scripts-cron');
-    final list = find.descendant(of: find.byType(ScriptsConfigPage), matching: find.byType(ListView)).first;
+    await open(tester, ConcordScriptsPage(store: store));
+    final list = find.descendant(of: find.byType(ConcordScriptsPage), matching: find.byType(ListView)).first;
     expect(tester.getTopLeft(list).dy, greaterThanOrEqualTo(tester.getBottomLeft(find.text('Scripts')).dy));
-    expect(find.byKey(const ValueKey('cron-scripts')), findsOneWidget);
+    await tester.tap(find.text('HTTP and task scripts'));
+    await tester.pumpAndSettle();
+    expect(find.text('Daily task = type=cron,cronexp=0 2 * * *,script-path=task.js'), findsOneWidget);
+    await capture(tester, 'concord-scripts-tasks');
     expect(tester.takeException(), isNull);
   });
 
