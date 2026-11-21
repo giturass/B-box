@@ -9,6 +9,7 @@ import io.nekohasekai.sfa.backend.tools.OpenConnectStatusViewModel
 import io.nekohasekai.sfa.backend.tools.OpenVPNStatusViewModel
 import io.nekohasekai.sfa.backend.tools.STUNTestViewModel
 import io.nekohasekai.sfa.backend.tools.TaildropFiles
+import io.nekohasekai.sfa.backend.tools.TaildropSendFile
 import io.nekohasekai.sfa.backend.tools.TaildropSendManager
 import io.nekohasekai.sfa.backend.tools.TaildropViewModel
 import io.nekohasekai.sfa.backend.tools.TailscalePingViewModel
@@ -22,6 +23,8 @@ import io.nekohasekai.sfa.utils.CommandClient
 import io.nekohasekai.sfa.utils.RemoteControlManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -29,7 +32,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.Closeable
 
-internal class BoxTools(private val activity: BoxActivity, private val emit: (String, Any?) -> Unit) : Closeable {
+internal class BoxTools(private val activity: BoxHost, private val emit: (String, Any?) -> Unit) : Closeable {
     private val scope = activity.lifecycleScope
     private val provider = ViewModelProvider(activity)
     val tailscale = provider[TailscaleStatusViewModel::class.java]
@@ -228,16 +231,37 @@ internal class BoxTools(private val activity: BoxActivity, private val emit: (St
                 val endpoint = string("endpoint")
                 val peer = tailscale.peer(endpoint, string("peer")) ?: error("Peer no longer exists")
                 require(peer.canReceiveFiles && peer.online) { "Peer is not available for file transfer" }
-                val files = withContext(Dispatchers.IO) { activity.openShare(string("token")) }
-                return TaildropSendManager.send(endpoint, peer.stableID, peer.displayName, files)
+                val token = string("token")
+                var files = emptyList<TaildropSendFile>()
+                var handedOff = false
+                try {
+                    // Capture inside IO: cancellation can discard withContext's return value.
+                    withContext(Dispatchers.IO) { files = activity.openShare(token) }
+                    currentCoroutineContext().ensureActive()
+                    val id = TaildropSendManager.send(endpoint, peer.stableID, peer.displayName, files)
+                    handedOff = id >= 0L
+                    if (handedOff) activity.discardShare(token)
+                    return id
+                } finally {
+                    if (!handedOff) files.forEach(TaildropSendFile::close)
+                }
             }
             "taildrop.send" -> {
                 val endpoint = string("endpoint")
                 val peer = tailscale.peer(endpoint, string("peer")) ?: error("Peer no longer exists")
                 require(peer.canReceiveFiles) { "This peer cannot receive files" }
                 val uri = activity.pickDocument() ?: return null
-                val files = withContext(Dispatchers.IO) { TaildropSendManager.openURIs(listOf(uri)) }
-                return TaildropSendManager.send(endpoint, peer.stableID, peer.displayName, files)
+                var files = emptyList<TaildropSendFile>()
+                var handedOff = false
+                try {
+                    withContext(Dispatchers.IO) { files = TaildropSendManager.openURIs(listOf(uri)) }
+                    currentCoroutineContext().ensureActive()
+                    val id = TaildropSendManager.send(endpoint, peer.stableID, peer.displayName, files)
+                    handedOff = id >= 0L
+                    return id
+                } finally {
+                    if (!handedOff) files.forEach(TaildropSendFile::close)
+                }
             }
             "taildrop.cancelSend" -> TaildropSendManager.cancel((args["id"] as Number).toLong())
             "taildrop.dismissSend" -> TaildropSendManager.dismiss((args["id"] as Number).toLong())

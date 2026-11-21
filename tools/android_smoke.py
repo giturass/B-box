@@ -21,6 +21,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 PACKAGE = "io.ericlee.bfa"
+UI_PROCESS = PACKAGE + ":ui"
 COMPONENT = PACKAGE + "/io.nekohasekai.sfa.compose.MainActivity"
 TEST_RUNNER = PACKAGE + ".test/androidx.test.runner.AndroidJUnitRunner"
 GESTURE_COMPONENT = PACKAGE + ".test/io.nekohasekai.sfa.flutter.SmokeGestureInstrumentation"
@@ -37,6 +38,61 @@ def launch_activity(*args):
     with (OUT / "activity-starts.txt").open("a") as log:
         log.write(f"Arguments: {args!r}\n{result}\n")
     print(result, flush=True)
+
+
+def process_pids(name):
+    try:
+        result = adb("shell", "pidof", name)
+    except subprocess.CalledProcessError as error:
+        if error.returncode == 1:
+            return []
+        raise
+    return sorted(int(pid) for pid in result.split())
+
+
+def background_ui_exit(name, service_running, restored_label=None):
+    backend = process_pids(PACKAGE)
+    ui = process_pids(UI_PROCESS)
+    assert len(backend) == len(ui) == 1 and backend != ui, \
+        f"Expected separate native and Flutter processes: native={backend}, ui={ui}"
+    timeline = []
+    started = time.monotonic()
+    adb("shell", "input", "keyevent", "3")
+    deadline = started + 20
+    try:
+        while time.monotonic() < deadline:
+            current_backend = process_pids(PACKAGE)
+            current_ui = process_pids(UI_PROCESS)
+            timeline.append({"elapsed": round(time.monotonic() - started, 3),
+                             "native": current_backend, "ui": current_ui})
+            if service_running:
+                assert current_backend == backend, "Backgrounding the UI restarted or stopped the VPN process"
+            if not current_ui:
+                break
+            time.sleep(0.25)
+        else:
+            raise AssertionError("Flutter UI process did not exit in the background")
+        services = adb("shell", "dumpsys", "activity", "services", PACKAGE)
+        (OUT / f"{name}-services.txt").write_text(services)
+        if service_running:
+            assert "io.nekohasekai.sfa.bg.VPNService" in services and "isForeground=true" in services, \
+                "VPN foreground service disappeared after UI exit"
+        launch_activity()
+        current = wait_for(restored_label or ("Running" if service_running else "Not running"), whole_window=True)
+        if restored_label is None:
+            assert matching("Profile file", current), "UI restart lost the selected configuration"
+            assert not matching("Save", current), "UI restart replayed an already completed import"
+        replacement_ui = process_pids(UI_PROCESS)
+        assert len(replacement_ui) == 1 and replacement_ui != ui, "Reopening did not create a fresh UI process"
+        if service_running:
+            assert process_pids(PACKAGE) == backend, "Reopening the UI restarted the VPN process"
+        capture(name)
+    finally:
+        (OUT / f"{name}-processes.json").write_text(json.dumps({
+            "nativeBefore": backend, "uiBefore": ui, "serviceRunning": service_running,
+            "restoredLabel": restored_label,
+            "observations": timeline,
+        }, indent=2) + "\n")
 
 
 @contextlib.contextmanager
@@ -164,7 +220,7 @@ def hold_node(item):
     # filters out of touch-only long-press recognizers. Inject a real finger
     # through a self-targeting test runner without restarting the current app.
     check_instrumentation_targets()
-    original_pid = adb("shell", "pidof", PACKAGE).split()
+    original_pid = process_pids(UI_PROCESS)
     assert original_pid, "B-box must already be running for a long press"
     request = f"Finger long press at ({x}, {y}), {duration} ms, bounds={bounds}, pid={original_pid}"
     print(request, flush=True)
@@ -179,8 +235,8 @@ def hold_node(item):
         "Finger injection failed; see gesture-injections.txt"
     assert re.search(r"^INSTRUMENTATION_CODE: -1\s*$", result, re.MULTILINE), \
         "Gesture instrumentation did not finish successfully"
-    assert adb("shell", "pidof", PACKAGE).split() == original_pid, \
-        "Gesture instrumentation restarted B-box"
+    assert process_pids(UI_PROCESS) == original_pid, \
+        "Gesture instrumentation restarted the Flutter UI"
     time.sleep(0.6)
 
 
@@ -341,6 +397,8 @@ def ui_smoke():
             }) + "#" + urllib.parse.quote("Smoke subscription")
             # ADB's shell parses the encoded URI a second time.
             launch_activity("-a", "android.intent.action.VIEW", "-d", "'" + uri + "'")
+            wait_for("Save", stable=True)
+            background_ui_exit("01-pending-import-restored", service_running=False, restored_label="Save")
             # Prism's form sheet can expose semantics before it stops moving.
             # Confirm the button's position, then require the form to close;
             # its prefilled name alone does not establish a successful import.
@@ -388,6 +446,8 @@ def ui_smoke():
             else:
                 current = wait_for("Running", whole_window=True)
             capture("03-vpn-running")
+            background_ui_exit("03-background-vpn", service_running=True)
+            current = wait_for("Running", whole_window=True)
             # Reuse the window that confirmed Running. A second UIAutomator
             # idle wait can time out on the continuously updating dashboard.
             click("Profiles", current)
@@ -419,6 +479,7 @@ def ui_smoke():
             click("Dashboard")
             click("Stop")
             wait_for("Not running")
+            background_ui_exit("05-background-stopped", service_running=False)
             adb("shell", "am", "force-stop", PACKAGE)
             launch_activity()
             wait_for("Profile file")

@@ -37,7 +37,7 @@ import java.io.Closeable
 import java.io.File
 import java.net.NetworkInterface
 
-internal class BoxDashboard(private val activity: BoxActivity, private val emit: (String, Any?) -> Unit) : Closeable {
+internal class BoxDashboard(private val activity: BoxHost, private val emit: (String, Any?) -> Unit) : Closeable {
     @Volatile var remoteMemory = 0L
     private var networkSnapshot: Map<String, Any?>? = null
     private val networkMutex = Mutex()

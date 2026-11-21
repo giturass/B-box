@@ -20,7 +20,7 @@ object ShizukuPackageManager {
         Shizuku.removeBinderDeadListener(binderDeadListener)
     }
 
-    fun requestPermission() = ShizukuAccess.requestPermission()
+    suspend fun requestPermission(): Boolean = ShizukuAccess.requestPermission()
 
     suspend fun getInstalledPackages(flags: Int): List<PackageInfo> = withContext(Dispatchers.IO) {
         val service = ShizukuPrivilegedServiceClient.getService()

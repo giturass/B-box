@@ -8,14 +8,20 @@ import android.os.PowerManager
 import androidx.core.content.getSystemService
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 object AppLifecycleObserver : DefaultLifecycleObserver {
-    private val _isForeground = MutableStateFlow(true)
+    private val _isForeground = MutableStateFlow(false)
     val isForeground: StateFlow<Boolean> = _isForeground.asStateFlow()
+    private val visibleUiHosts = mutableSetOf<String>()
+
+    /** Called on the main thread by the native hosts of the independent UI process. */
+    fun updateUiForeground(host: String, visible: Boolean) {
+        if (visible) visibleUiHosts.add(host) else visibleUiHosts.remove(host)
+        _isForeground.value = visibleUiHosts.isNotEmpty()
+    }
 
     private val _isScreenOn = MutableStateFlow(true)
     val isScreenOn: StateFlow<Boolean> = _isScreenOn.asStateFlow()
@@ -30,8 +36,6 @@ object AppLifecycleObserver : DefaultLifecycleObserver {
     }
 
     fun register(context: Context) {
-        ProcessLifecycleOwner.get().lifecycle.addObserver(this)
-
         val powerManager = context.getSystemService<PowerManager>()!!
         _isScreenOn.value = powerManager.isInteractive
 

@@ -24,7 +24,7 @@ import org.json.JSONArray
 import java.io.File
 
 /** Local routed HTTP recording and opt-in TLS interception. */
-internal class BoxCapture(private val activity: BoxActivity) {
+internal class BoxCapture(private val activity: BoxHost) {
     private val directory = File(activity.noBackupFilesDir, "http-debug")
     private val captures = File(directory, "captures")
     private val settings = CaptureSettings(directory)
@@ -148,7 +148,7 @@ internal class BoxCapture(private val activity: BoxActivity) {
             val intent = if (Build.VERSION.SDK_INT >= 30) Intent(AndroidSettings.ACTION_SECURITY_SETTINGS)
                 else KeyChain.createInstallIntent().putExtra(KeyChain.EXTRA_CERTIFICATE, ca.encoded)
                     .putExtra(KeyChain.EXTRA_NAME, ca.subjectX500Principal.name)
-            activity.startActivity(intent)
+            activity.openActivity(intent)
         }
         true // Only confirms that settings opened, never that trust was granted.
     }

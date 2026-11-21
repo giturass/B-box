@@ -249,12 +249,16 @@ Future<void> _importProfile(BuildContext context, String source) async {
 }
 
 /// Opens what an import decoded: the nodes of a link or a subscription, or the form of a profile.
-Future<void> openImport(BuildContext context, Json data) async {
+Future<void> openImport(BuildContext context, Json data, {bool restoreInterruptedIntent = false}) async {
   if (!context.mounted) return;
   final nodes = data['nodes'];
   if (nodes is String) { await openForm(context, NodeImportPage(parsed: nodes)); }
   else if (data['url'] is String && (data['url'] as String).isNotEmpty && data['content'] == null) {
-    await openSubscriptionImport(context, data);
+    if (restoreInterruptedIntent) {
+      await openSubscriptionIntent(context, data);
+    } else {
+      await openSubscriptionImport(context, data);
+    }
   } else { await openForm(context, ProfileForm(initial: data)); }
 }
 

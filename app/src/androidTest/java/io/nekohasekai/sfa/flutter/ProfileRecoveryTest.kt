@@ -7,7 +7,6 @@ import androidx.concurrent.futures.CallbackToFutureAdapter
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModelProvider
 import androidx.room.Room
-import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.Configuration
@@ -28,7 +27,6 @@ import io.nekohasekai.sfa.backend.log.LogLevel
 import io.nekohasekai.sfa.backend.log.LogViewModel
 import io.nekohasekai.sfa.bg.UpdateProfileWork
 import io.nekohasekai.sfa.bg.BoxService
-import io.nekohasekai.sfa.compose.MainActivity
 import io.nekohasekai.sfa.constant.Path
 import io.nekohasekai.sfa.constant.SettingsKey
 import io.nekohasekai.sfa.constant.Status
@@ -2290,7 +2288,7 @@ class ProfileRecoveryTest {
     }
 
     private suspend fun importResourceDocument(
-        activity: BoxActivity, profiles: BoxProfiles, id: Long, section: String, suffix: String, content: String,
+        activity: BoxHost, profiles: BoxProfiles, id: Long, section: String, suffix: String, content: String,
     ): Pair<String, File> {
         val document = File.createTempFile("resource-document-", suffix, activity.cacheDir)
         try {
@@ -2388,9 +2386,31 @@ class ProfileRecoveryTest {
         } finally { importedFiles.forEach { it.delete() } }
     }
 
+    private fun withNativeHost(block: (BoxHost) -> Unit) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val packageName = instrumentation.targetContext.packageName
+        // The production Activity runs in :ui. Keep its UID foreground, then exercise
+        // the actual native host in this default-process instrumentation runner.
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(
+            "am start -W -n $packageName/io.nekohasekai.sfa.compose.MainActivity",
+        )).use { it.readBytes() }
+        lateinit var host: BoxHost
+        instrumentation.runOnMainSync {
+            host = BoxHost(instrumentation.targetContext) { method, _ -> error("Unexpected UI request in native fixture: $method") }
+            host.updateForeground(true)
+        }
+        try {
+            runBlocking { host.initialize() }
+            block(host)
+        } finally {
+            instrumentation.runOnMainSync { host.close() }
+            runBlocking { withTimeout(15_000) { host.awaitClosed() } }
+        }
+    }
+
     private fun withRunningProfile(
         url: String = "",
-        block: suspend (MainActivity, BoxProfiles, Long) -> Unit,
+        block: suspend (BoxHost, BoxProfiles, Long) -> Unit,
     ) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         if (Build.VERSION.SDK_INT >= 33) {
@@ -2398,9 +2418,7 @@ class ProfileRecoveryTest {
                 instrumentation.uiAutomation.executeShellCommand("pm grant ${instrumentation.targetContext.packageName} android.permission.POST_NOTIFICATIONS"),
             ).use { it.readBytes() }
         }
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            lateinit var activity: MainActivity
-            scenario.onActivity { activity = it }
+        withNativeHost { activity ->
             runBlocking(Dispatchers.IO) {
                 Settings.dataStore.initialize()
                 val oldSelection = Settings.selectedProfile
@@ -2441,7 +2459,7 @@ class ProfileRecoveryTest {
             (1..skipped).map { "$address?security=tls&sni=example.test&type=kcp#ignored-kcp-node-$it" }).joinToString("\n")
     }
 
-    private fun nodeSubscriptions(activity: BoxActivity) = BoxNodeSubscriptions(
+    private fun nodeSubscriptions(activity: BoxHost) = BoxNodeSubscriptions(
         beforeApply = { ProfileContent.requireStableService(activity.serviceStatus.value) },
     ) { recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) } }
 
@@ -2502,9 +2520,7 @@ class ProfileRecoveryTest {
                 instrumentation.uiAutomation.executeShellCommand("pm grant ${instrumentation.targetContext.packageName} android.permission.POST_NOTIFICATIONS"),
             ).use { it.readBytes() }
         }
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            lateinit var activity: MainActivity
-            scenario.onActivity { activity = it }
+        withNativeHost { activity ->
             runBlocking(Dispatchers.IO) {
                 Settings.dataStore.initialize()
                 val oldSelection = Settings.selectedProfile

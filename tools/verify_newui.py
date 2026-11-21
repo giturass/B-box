@@ -2,6 +2,7 @@
 import re
 import json
 import hashlib
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +26,26 @@ for name in ("MainActivity", "ShareActivity"):
     source = (native / f"compose/{name}.kt").read_text()
     if f"class {name} : BoxActivity()" not in source or "setContent" in source:
         errors.append(f"{name} must enter the Flutter host")
+android = "{http://schemas.android.com/apk/res/android}"
+application = ET.parse(ROOT / "app/src/main/AndroidManifest.xml").getroot().find("application")
+if application is None:
+    errors.append("Android application manifest is missing")
+else:
+    if application.get(android + "process"):
+        errors.append("Native application state must remain in the default process")
+    activities = {node.get(android + "name"): node for node in application.findall("activity")}
+    for name in ("MainActivity", "ShareActivity"):
+        node = activities.get(f".compose.{name}")
+        if node is None or node.get(android + "process") != ":ui":
+            errors.append(f"{name} must run in the separate :ui process")
+    services = {node.get(android + "name"): node for node in application.findall("service")}
+    ipc_services = (".flutter.ipc.BoxUiService", ".terminal.BoxTerminalService")
+    for name in (*ipc_services, ".bg.VPNService", ".bg.ProxyService", ".bg.USBIPService", ".bg.TaildropSendService"):
+        node = services.get(name)
+        if node is None or node.get(android + "process"):
+            errors.append(f"{name} must remain in the default process")
+        if name in ipc_services and (node is None or node.get(android + "exported") != "false"):
+            errors.append(f"{name} must be private to this application")
 root_aidl = (ROOT / "app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl").read_text()
 if re.search(r"=\s*(?:2|3|10|11)\s*;", root_aidl):
     errors.append("Retired Root transactions 2, 3, 10 and 11 must not be reused")

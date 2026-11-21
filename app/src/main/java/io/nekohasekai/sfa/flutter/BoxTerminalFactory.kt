@@ -15,25 +15,35 @@ import io.github.sagernet.libghostty.GhosttyTerminalSession
 import io.github.sagernet.libghostty.GhosttyUiHandler
 import io.github.sagernet.libghostty.extras.GhosttyFontStore
 import io.github.sagernet.libghostty.extras.GhosttyThemeStore
-import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.terminal.GhosttyCustomConfig
-import io.nekohasekai.sfa.terminal.TailscaleSSHSessionStore
+import io.nekohasekai.sfa.terminal.TerminalClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Only the terminal surface is native. Navigation, settings and prompts are Flutter. */
-internal class BoxTerminalFactory(private val messenger: BinaryMessenger) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
-    override fun create(context: Context, viewId: Int, args: Any?): PlatformView = TerminalSurface(context, viewId, args, messenger)
+internal class BoxTerminalFactory(private val messenger: BinaryMessenger,
+    private val invokeBackend: suspend (String, Map<String, Any?>) -> Any?) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
+    override fun create(context: Context, viewId: Int, args: Any?): PlatformView = TerminalSurface(context, viewId, args, messenger, invokeBackend)
 }
 
-private class TerminalSurface(context: Context, id: Int, args: Any?, messenger: BinaryMessenger) : PlatformView {
+private class TerminalSurface(context: Context, id: Int, args: Any?, messenger: BinaryMessenger,
+    private val invokeBackend: suspend (String, Map<String, Any?>) -> Any?) : PlatformView {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val channel = MethodChannel(messenger, "io.ericlee.bfa/terminal/$id")
     private val view = GhosttyTerminalView(context)
     private val modifiers = GhosttyExtraKeysState()
+    private val client = TerminalClient(context, scope)
+    private val updates = Mutex()
+    private var updateRevision = 0
+    private var attachment: TerminalClient.Attachment? = null
+    private var attachedId: String? = null
+    private var settings: Map<*, *> = emptyMap<String, Any?>()
     private val pending = mutableSetOf<(Any?) -> Unit>()
     private var disposed = false
     private var sessionId: String? = null
@@ -59,14 +69,23 @@ private class TerminalSurface(context: Context, id: Int, args: Any?, messenger: 
         }
         view.listener = object : GhosttyTerminalView.Listener {
             override fun onFontSizeChanged(view: GhosttyTerminalView, fontSizeSp: Float) {
-                Settings.tailscaleSSHFontSize = fontSizeSp.toInt()
+                scope.launch {
+                    val previous = (settings["fontSize"] as? Number)?.toFloat() ?: 14f
+                    try {
+                        settings = invokeBackend("terminal.set", mapOf("key" to "fontSize", "value" to fontSizeSp.toInt())) as? Map<*, *>
+                            ?: settings
+                    } catch (_: Exception) {
+                        if (!disposed) view.fontSizeSp = previous
+                    }
+                }
             }
             override fun onFinishedSessionKey(view: GhosttyTerminalView) {
-                sessionId?.let(TailscaleSSHSessionStore::removeSession)
+                val id = sessionId ?: return
+                scope.launch { runCatching { invokeBackend("ssh.close", mapOf("id" to id)) } }
             }
         }
         channel.setMethodCallHandler { call, result ->
-            try {
+            scope.launch { try {
                 val values = call.arguments as? Map<*, *> ?: emptyMap<String, Any?>()
                 when (call.method) {
                     "update" -> update(values)
@@ -82,35 +101,71 @@ private class TerminalSurface(context: Context, id: Int, args: Any?, messenger: 
                     else -> error("Unknown terminal view operation")
                 }
                 result.success(null)
-            } catch (e: Exception) { result.error("terminal", e.message, null) }
+            } catch (e: Exception) { result.error("terminal", e.message, null) } }
         }
-        update(args as? Map<*, *> ?: emptyMap<String, Any?>())
+        scope.launch { runCatching { update(args as? Map<*, *> ?: emptyMap<String, Any?>()) } }
         scope.launch { modifiers.ctrl.collect { publishModifiers() } }
         scope.launch { modifiers.alt.collect { publishModifiers() } }
-        scope.launch {
-            TailscaleSSHSessionStore.state.collect { state ->
-                if (!preview && state.sessions.none { it.id == sessionId }) view.session = null
-            }
-        }
         if (!preview) view.post { if (!disposed) view.showIme() }
     }
 
     private fun publishModifiers() = channel.invokeMethod("modifiers", mapOf("ctrl" to modifiers.ctrl.value.name, "alt" to modifiers.alt.value.name))
 
-    private fun update(args: Map<*, *>) {
-        sessionId = args["id"] as? String
-        dark = args["dark"] == true
-        val session = previewSession ?: TailscaleSSHSessionStore.state.value.sessions.firstOrNull { it.id == sessionId }?.terminalSession
-        view.session = session
-        val name = if (dark) Settings.tailscaleSSHDarkTheme else Settings.tailscaleSSHLightTheme
-        val config = if (name.isEmpty()) GhosttyCustomConfig.parse(if (dark) Settings.tailscaleSSHDarkConfig else Settings.tailscaleSSHLightConfig) else null
-        val theme = config?.theme ?: GhosttyThemeStore.loadThemeOrDefault(view.context, name, dark)
-        theme?.let { session?.setTheme(it) }
-        session?.setColorScheme(dark)
-        view.typeface = if (Settings.tailscaleSSHFontFollowTheme) {
-            config?.fontFamily?.takeIf { it.isNotBlank() }?.let { Typeface.create(it, Typeface.NORMAL) } ?: Typeface.MONOSPACE
-        } else GhosttyFontStore.resolveTypeface(Settings.tailscaleSSHFontFamily, Settings.tailscaleSSHCustomFontPath) ?: Typeface.MONOSPACE
-        view.fontSizeSp = Settings.tailscaleSSHFontSize.toFloat()
+    private suspend fun update(args: Map<*, *>) {
+        val revision = ++updateRevision
+        updates.withLock {
+            if (disposed || revision != updateRevision) return@withLock
+            sessionId = args["id"] as? String
+            dark = args["dark"] == true
+            val currentSettings = invokeBackend("terminal.settings", emptyMap()) as? Map<*, *>
+                ?: error("Terminal settings are unavailable")
+            if (disposed || revision != updateRevision) return@withLock
+            settings = currentSettings
+            if (!preview && (attachment == null || attachedId != sessionId)) {
+                val previous = attachment
+                attachment = null
+                attachedId = null
+                view.session = null
+                previous?.close()
+                sessionId?.let { id ->
+                    val opened = client.attach(id, ::onAttachmentClosed)
+                    if (disposed || revision != updateRevision) {
+                        opened.close()
+                        return@withLock
+                    }
+                    attachment = opened
+                    attachedId = id
+                }
+            }
+            val session = previewSession ?: attachment?.session
+            view.session = session
+            fun value(key: String) = settings[key] as? String ?: ""
+            val name = value(if (dark) "darkTheme" else "lightTheme")
+            val config = if (name.isEmpty()) GhosttyCustomConfig.parse(value(if (dark) "darkConfig" else "lightConfig")) else null
+            val theme = config?.theme ?: GhosttyThemeStore.loadThemeOrDefault(view.context, name, dark)
+            val appearance = {
+                theme?.let { session?.setTheme(it) }
+                session?.setColorScheme(dark)
+                Unit
+            }
+            attachment?.setAppearance(dark, appearance) ?: appearance()
+            view.typeface = if (settings["fontFollowTheme"] == true) {
+                config?.fontFamily?.takeIf { it.isNotBlank() }?.let { Typeface.create(it, Typeface.NORMAL) } ?: Typeface.MONOSPACE
+            } else GhosttyFontStore.resolveTypeface(value("fontFamily"), value("fontPath")) ?: Typeface.MONOSPACE
+            view.fontSizeSp = (settings["fontSize"] as? Number)?.toFloat() ?: 14f
+        }
+    }
+
+    private fun onAttachmentClosed(closed: TerminalClient.Attachment) {
+        if (attachment !== closed) return
+        attachment = null
+        attachedId = null
+        view.session = null
+        if (disposed || sessionId == null) return
+        scope.launch {
+            delay(100)
+            if (!disposed) runCatching { update(mapOf("id" to sessionId, "dark" to dark)) }
+        }
     }
 
     private fun request(method: String, value: Any?, respond: (Any?) -> Unit) {
@@ -131,6 +186,8 @@ private class TerminalSurface(context: Context, id: Int, args: Any?, messenger: 
         pending.toList().forEach { it(null) }
         channel.setMethodCallHandler(null)
         view.session = null
+        attachment = null
+        client.close()
         previewSession?.close()
         view.listener = null
         view.clearFocus()

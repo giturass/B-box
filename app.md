@@ -31,12 +31,28 @@
 
 | 区域 | 路径 | 当前职责 |
 | --- | --- | --- |
-| Flutter 宿主 | `flutter/BoxActivity.kt` | 启动器/分享入口、文档选择、权限、服务状态及配置应用 |
-| 通道与命令 | `flutter/BoxBridge.kt` | `io.ericlee.bfa/box` MethodChannel 与 `io.ericlee.bfa/events` EventChannel，对接配置、工具和设置 |
+| Flutter 宿主 | `flutter/BoxActivity.kt` | `:ui` 进程中的启动器/分享入口、系统文档/权限/安装交互与平台视图 |
+| 原生宿主 | `flutter/BoxHost.kt`、`flutter/BoxBackend.kt` | 默认进程中的服务状态、配置应用/恢复、Intent 状态和原生生命周期 |
+| 通道与命令 | `flutter/BoxBridge.kt`、`flutter/ipc/` | 保留 `io.ericlee.bfa/box` MethodChannel 与 `io.ericlee.bfa/events` EventChannel，通过内部 Binder 对接默认进程的配置、工具和设置 |
 | 原生状态 | `backend/` | 仪表盘、分组、连接、日志、Tailscale/Taildrop、诊断和认证状态模型 |
 | 平台视图 | `flutter/BoxBrowserFactory.kt`、`flutter/BoxTerminalFactory.kt` | OpenConnect WebView 与 Ghostty 终端嵌入 Flutter，不回到旧 Compose 对话框 |
 | 服务与数据 | `bg/`、`database/`、`utils/` | 保留 sing-box 服务、Room、订阅更新及本地/远程命令目标 |
+| 终端会话 | `terminal/` | 默认进程持有 Shell/SSH 连接和 Ghostty 状态；内部 Binder 与文件描述符向 UI 提供终端镜像 |
 | 应用查询 | [vendor/](app/src/main/java/io/nekohasekai/sfa/vendor/) | 普通、Root/Shizuku 应用查询和托管列表扫描；API 24+ 实现及依赖由 `play` / `other` 共用 |
+
+### UI 与后台进程
+
+[AndroidManifest.xml](app/src/main/AndroidManifest.xml) 将两个稳定 Flutter Activity 放入 `${applicationId}:ui`。默认进程运行 Room、Settings、配置事务、libbox、VPN/代理服务、订阅更新、Taildrop/USBIP 和终端连接；UI 的 Application 安装独立 JVM 崩溃记录入口，初始化相机所需的 ML Kit 与 [UiProcessLifecycle.kt](app/src/main/java/io/nekohasekai/sfa/flutter/UiProcessLifecycle.kt)。
+
+全部 UI Activity 不可见后，[UiExitPolicy.kt](app/src/main/java/io/nekohasekai/sfa/flutter/UiExitPolicy.kt) 等待 700 ms，再通过原生宿主取消在途 UI 请求，等待配置的失败恢复、设置刷盘和 Intent 快照完成。退出前再次核对前台状态、外部交互和进程名，仅结束当前 `:ui` PID。返回前台会取消退出；配置重建以及等待文档选择、VPN/系统权限、USB/Shizuku 授权或安装器结果时暂缓退出。恢复或落盘失败会保留 UI 进程并记录错误。
+
+`BoxUiService` 与 `BoxTerminalService` 均为默认进程的非导出绑定服务，新增 AIDL 独立于既有服务与 Root Binder。应用通道沿用 Flutter 编码，跨 Binder 只传匿名文件描述符，配置正文、备份和日志大消息不会占用 Binder 的整块消息缓冲。UI 与原生连接断开后，在途请求失败；重连恢复 Activity 身份、前台状态与事件订阅，并重新取得当前后端快照。
+
+[CrashReportManager.kt](app/src/main/java/io/nekohasekai/sfa/bg/CrashReportManager.kt) 将 UI 的 JVM 日志与应用/进程元数据写入独立私有暂存目录，记录时不调用 libbox。默认进程启动或刷新报告时将其归档到既有报告列表，保留归档失败的原件；UI 报告不消费主进程的待归档日志或 `configuration.json`。正常后台结束 UI 不产生 JVM 异常报告。
+
+[BoxIntentState.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxIntentState.kt) 按 Activity 的稳定 token 保存排队及未完成的导入/分享，每次输入都有独立 UUID。输入交付和退出快照以 AtomicFile JSON 写入私有 `noBackupFilesDir`，仅保存消费所需的身份、文本和 URI；新 UI 恢复未完成项，导入关闭或保存后按 ID 确认完成，真正结束 Activity 时清理该状态。前台恢复会重投未确认输入，Flutter 合并当前持有或已完成的相同 ID，保留用户再次打开同一 URI 的独立输入；表单结束但确认中断时仅重试确认。相同 token 的新宿主等待旧宿主完成恢复后再接管，旧格式快照在读取时迁移。
+
+默认进程保留终端完整 VT/滚屏、SSH 与 Shell 传输。新 UI 通过 Ghostty 快照恢复显示，并经文件描述符传输输入与输出；UI 退出只分离镜像，已建立的终端会话继续运行。输出确认协调终端查询回复，避免主/UI 两个解析器重复响应。Flutter 返回时重新建立页面和表单，持久配置、设置、后台服务与已建立的终端会话由原生后端恢复。
 
 `profiles.scan.image` 复用 Android 文档选择器，以 `image/*` 筛选图片。Android 在后台线程用与 `mobile_scanner` 相同的内置 ML Kit 模型读取所选 URI，只向 Flutter 返回识别出的二维码文本。取消选择返回空值，图片选择和解码可在相机权限被拒绝时使用。
 
@@ -232,7 +248,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 | 入口 | 配置的验证范围 |
 | --- | --- |
-| [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入/导出、Android 入口、旧 UI/更新依赖、退役抓包/特权增强实现残留及 Root 事务编号的静态检查 |
+| [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入/导出、Android 入口与进程边界、旧 UI/更新依赖、退役抓包/特权增强实现残留及 Root 事务编号的静态检查 |
 | [newui.yml](.github/workflows/newui.yml) | 各分支代码 push 自动触发，也支持目标为 `dev` / `newui` 的 PR 及手动触发；仅 Markdown 的 push/PR 跳过。统一运行 Root CA 挂载/补查、Go 扩展/XHTTP/VLESS Encryption/HTTP/MITM/重定向布局、Flutter 分析/交互/布局、JVM、`play` 编译及 API 24/31/36 smoke，API 36 另运行 `google_apis_ps16k`；同时构建验证所需的 AAR 和 x86_64 模拟器 APK |
 | [build-release.yml](.github/workflows/build-release.yml) | 仅手动触发；独立并行准备核心/Flutter Release 库，构建签名 ARM64 APK、校验安装身份/产物及可选发布，不运行测试 |
 
@@ -247,10 +263,16 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 - **连接与网络刷新：** [ConnectionStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ConnectionStreamTest.kt) 检查增量计数、最终关闭计数、历史淘汰、DNS 过滤、快照隔离及 3000 条记录经过状态合并和恢复订阅后的消息内容；[NetworkRefreshTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/NetworkRefreshTest.kt) 用虚拟时间覆盖网络通知、十秒/六十秒补查、前后台/熄屏取消和突发通知合并。
 - **默认接口与开机恢复：** [DefaultInterfaceMonitorTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/DefaultInterfaceMonitorTest.kt) 覆盖网络先于核心监听器到达、开机无网及接口编号超过一秒才就绪、同网络刷新、断网恢复、切网或监听器替换后的迟到结果、异常重试及停止/取消期间的等待与结果丢弃。纯 Kotlin 调度回归不代替 Android 网络回调、系统重启或实际代理连通验收。
 - **WARP 注册：** [BoxWarpTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxWarpTest.kt) 检查注册等待时配置/会话冲突、重复提交、取消及时关闭 JNI 请求、已返回凭据在取消后留待保存、失败重试复用账号及错误消敏；WireGuard 另核对所选目标、协议传递和失败重试的协议保留，并检查非法协议在准备配置及注册之前拒绝。
+- **UI 退出与终端回复：** [UiExitPolicyTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/UiExitPolicyTest.kt) 用虚拟时间检查多 Activity、快速前后台切换、配置重建、外部结果和恢复失败；[TerminalReplyLedgerTest.kt](app/src/test/java/io/nekohasekai/sfa/terminal/TerminalReplyLedgerTest.kt) 检查输出确认、UI 断开后的回复恢复及有序等待。
+- **UI JVM 报告：** [UiJvmCrashReportsTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/UiJvmCrashReportsTest.kt) 使用真实临时文件检查 UI 报告的独立发布、主进程日志/配置保留、多个报告及失败后重试；测试不加载 Android、libbox 或 Flutter 引擎。
 
 ### Android 仪器测试
 
 以下用例使用实际 libbox AAR，由 smoke 矩阵的原生组在每个环境运行。模拟器中的自有客户端和本地测试服务器不代表第三方目标应用信任、真实网络或 Root 模块已经实机通过。
+
+- **跨进程状态：** [UiProcessIpcTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ipc/UiProcessIpcTest.kt) 通过本地 Binder 和真实匿名文件描述符检查大消息、双向请求、断开与恢复，以及快速返回前台后的迟到退出请求；[BoxIntentStateTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/BoxIntentStateTest.kt) 检查未完成 Intent 恢复、完成确认、文本/多 URI 分享与 AtomicFile 冷恢复；[TerminalProcessIpcTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/terminal/TerminalProcessIpcTest.kt) 用仅 Debug 的两个服务实际跨默认/`:ui` 进程验证终端快照、ANSI/UTF-8、大文件描述符消息、UI 死亡、输出背压、查询回复超时及初次连接中断恢复。配置恢复测试通过默认进程的真实 `BoxHost` 操作服务，另启动生产 `:ui` Activity 保持前台身份。
+- **宿主退出与权限：** [BoxHostExitTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/BoxHostExitTest.kt) 用退出屏障验证关闭或后台准备期间不再请求定位授权，启动失败仍报告，快速返回前台后恢复授权，且旧退出任务完成不会再次阻止前台交互。
+- **Taildrop 文件交接：** [TaildropSendManagerTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/backend/tools/TaildropSendManagerTest.kt) 用真实 Android 文件描述符检查前台服务启动被拒绝和 LAZY 任务开始前取消，要求清理会话与全部文件句柄；成功交接后的发送由默认进程独立管理。
 
 - **应用更新绑定与 APK 身份：** [UpdateHTTPBindingTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/UpdateHTTPBindingTest.kt) 检查下载绑定拒绝明文地址和非法大小且不留缓存，并验证实际 JNI 元数据读取的协程取消及后续重试。[UpdateApkVerifierTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/UpdateApkVerifierTest.kt) 读取实际已安装 APK 与测试 APK 的身份/签名，覆盖相同或错误包名拒绝、摘要匹配但非 APK 的内容拒绝、非法元数据和非本仓库下载地址拒绝；API 36+ 同时经过系统签名验证接口。真实 GitHub 网络与跨版本覆盖安装的实际验收范围见 [当前验证记录](#当前验证记录)。
 - **配置应用与恢复：** [ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/完整备份恢复失败、注入的订阅应用失败恢复，以及停服和未选中配置更新的服务状态；停服 selector 回归核对已保存选择在启动时生效、运行选择在停服后保留、不改配置正文/更新时间或启动服务，并拒绝自动组、失效成员、配置选择/修订及会话冲突；另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。`failedSelectionRestoresThePreviousSelectionAndService` 连续五轮核对选配置失败恢复、停止释放核心及重新启动，防止服务清理竞态污染后续用例。
@@ -271,11 +293,11 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 模拟器镜像名称依据 [Google SDK 系统镜像清单](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml)；16 KiB 测试方式见 [Android 官方文档](https://developer.android.com/guide/practices/page-sizes)。smoke 读取设备实际页大小，普通镜像要求 4096、`ps16k` 要求 16384，不能仅凭镜像名称记录通过。页大小优先使用 `getconf PAGE_SIZE`；旧系统缺少该命令时从 `/proc/self/smaps` 的 `KernelPageSize` 读取，并在结果中记录采集来源，不按 Android 版本猜测。所有矩阵均为临时 x86_64 模拟器，不代表 ARM64 实机或系统 CA 模块安装已验收。
 
-统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、Base64 混合 URL 订阅导入所选默认文件、跳过报告、VPN 授权、启停、配置文件与实际内核分组同页、底栏设置入口及进程重启后配置保留；原生组运行全部仪器测试并拒绝零测试结果。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
+统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、Base64 混合 URL 订阅导入所选默认文件、未完成导入在后台退出后的恢复、跳过报告、VPN 授权、启停、配置文件与实际内核分组同页、底栏设置入口及进程重启后配置保留；在运行和停服状态分别按 Home，核对 UI PID 消失、重开后的新 UI PID，以及运行时 VPN 主进程 PID 与前台服务持续存在，保存进程时间线。原生组运行全部仪器测试并拒绝零测试结果。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
 
 - **结果与日志：** `build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。每组测试在应用启动前持续采集 main/system/crash/events 日志，结束后保存 Activity、服务和内存状态，API 30+ 另保存该应用的系统退出记录；`am start -W` 的输出单独保存，避免启动过程被末尾日志截断。当前代次的服务启动/重载失败由 `BoxService` 记录原始异常及堆栈，smoke 另提取为各组的 `service-errors.txt`，用于定位来不及在界面观察的错误；服务状态确认及失败恢复流程不变。
 - **启动与导入：** 首次仪表盘等待允许截图后分别关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 或预装 Messenger 崩溃弹窗，再重新打开 B-box。Messenger 专例须匹配系统包 `android`、标题 `Messenger has stopped` 和 `android:id/aerr_close`，另保存弹窗窗口 XML；重复或其他弹窗、B-box 自身错误仍使测试失败。导入 smoke 等待弹层保存按钮在连续两次窗口观察中位置稳定后点击，记录实际点击边界；保存后须返回保持原配置名称的仪表盘，在来源页确认一个受支持节点及一个不支持的 KCP 节点的跳过原因已持久化，并检查实际核心节点及原分组。CI 通过 loopback SOCKS5 和 ADB reverse 提供可用节点，保存 `subscription-proxy.json` 连接诊断；默认规则集及探测目标仍需 runner 能联网访问。
-- **菜单长按：** Android 7 的 shell `input swipe` 使用未知工具类型，固定 Flutter 将其映射为 unknown，触摸菜单因此不响应。测试 APK 的 [SmokeGestureInstrumentation.java](app/src/androidTest/java/io/nekohasekai/sfa/flutter/SmokeGestureInstrumentation.java) 使用 `UiAutomation` 注入明确的手指事件；[测试清单](app/src/androidTest/AndroidManifest.xml) 的普通 runner 仍指向 B-box，手势助手只指向测试包。脚本安装后及调用前核对实际目标，记录坐标、时长、输入结果，并确认 B-box 主进程 PID 保持一致。助手只用于 CI，不加入原生 JUnit 用例计数，生产界面继续使用原有手势组件。
+- **菜单长按：** Android 7 的 shell `input swipe` 使用未知工具类型，固定 Flutter 将其映射为 unknown，触摸菜单因此不响应。测试 APK 的 [SmokeGestureInstrumentation.java](app/src/androidTest/java/io/nekohasekai/sfa/flutter/SmokeGestureInstrumentation.java) 使用 `UiAutomation` 注入明确的手指事件；[测试清单](app/src/androidTest/AndroidManifest.xml) 的普通 runner 仍指向 B-box，手势助手只指向测试包。脚本安装后及调用前核对实际目标，记录坐标、时长、输入结果，并确认 B-box UI 进程 PID 保持一致。助手只用于 CI，不加入原生 JUnit 用例计数，生产界面继续使用原有手势组件。
 - **MITM 测试服务器：** 脚本在 CI 临时目录生成独立测试服务器证书，经 ADB reverse 提供 HTTP 和原始流两个 TLS 端点，只把公钥 CA 传给仪器测试；私钥不写入仓库、设备或上传产物，套件结束删除。单独运行路由 MITM 用例需要脚本提供的 `mitmOriginPort` / `mitmTCPOriginPort` / `mitmOriginCA` 参数。
 - **存储与内存：** 模拟器数据分区统一设为 4 GiB，以容纳完整核心的测试 APK 及安装数据。API 36 / 16 KiB 另显式分配 4 GiB RAM：默认镜像曾在冷启动期间因内存水位不足杀掉前台 B-box，系统退出记录为 `LOW_MEMORY`；该矩阵用于页大小兼容验证，不是低内存压力测试。smoke job 不编译原生库，下载镜像前移除该临时 runner 上不使用的预装 NDK，为系统镜像和数据分区留空间；构建 job 的 NDK 不受影响。
 
@@ -284,6 +306,8 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 统一工作流的 `root-ca` job 在独立 Linux PID/mount namespace 中运行 [test_mitm_ca.py](tools/test_mitm_ca.py)，使用 BusyBox 和导出的原始脚本，覆盖 APEX 延迟就绪、旧系统缺少 APEX、hash 冲突和原证书保留、已有二级后代/隐藏模块路径、同一 namespace 的重新挂载、准备失败、service 重试和禁用退出。该测试只在 Actions 运行，不对本机 Android 做 Root 挂载，也不代表真实 Magisk/KernelSU/APatch 安装与重启已验收。
 
 ### 当前验证记录
+
+2026-11-22 UI 进程拆分基于 `d16ad92cdbc7872f416da58f5913b33c65441071` 的当前工作树，新增上述退出策略、跨进程 IPC、Intent 和终端回归及 PID smoke。本轮尚未运行 GitHub Actions、编译或设备测试；下列已完成运行对应各自列出的旧源码 SHA。
 
 2026-11-21 普通本地模板修复的功能源码 `3798fa0b8334fd9402a032767c955e77db0fd79b` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44826839888) 的全部 8 个作业：核心 Go、Root CA、Flutter 分析/交互/布局及 ARM64 AAR、Android JVM/编译，以及四组模拟器 UI/native 回归。Android 作业构建本次 x86_64 libbox、Flutter Debug AAR、应用和测试 APK，并编译 `play` Kotlin。
 

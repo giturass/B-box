@@ -19,7 +19,7 @@ import java.util.Date
 import java.util.UUID
 
 internal class BoxBackups(
-    private val activity: BoxActivity,
+    private val activity: BoxHost,
     private val readSettings: () -> Map<String, Any?>,
     private val writeSettings: suspend (Map<String, Any?>) -> Unit,
     private val applySelected: suspend (restart: Boolean, recover: Boolean) -> Unit,

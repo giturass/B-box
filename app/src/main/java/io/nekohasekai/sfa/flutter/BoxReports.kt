@@ -14,7 +14,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Date
 
-internal class BoxReports(private val activity: BoxActivity) {
+internal class BoxReports(private val activity: BoxHost) {
     private val sources: Map<String, Source<*, *>> = mapOf(
         "crash" to Source<CrashReport, CrashReportFile>(
             refresh = CrashReportManager::refresh,

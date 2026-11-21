@@ -153,8 +153,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int _index = 0;
   bool _sidebarExpanded = false;
   StreamSubscription<String>? _intents;
+  StreamSubscription<void>? _intentRecovery;
   BoxController? _box;
   bool _handlingIntent = false, _readingClipboard = false;
+  int _intentWake = 0;
+  int? _blockedIntentWake;
   static const _items = <(String, Glyph)>[
     ('Dashboard', AppGlyphs.dashboard), ('Profiles', AppGlyphs.profiles),
     ('Tools', AppGlyphs.tools), ('Settings', AppGlyphs.settings),
@@ -168,6 +171,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (_box != null) return;
     _box = context.box;
     _intents = _box!.intents.stream.listen((_) => _drainIntents());
+    _intentRecovery = _box!.intentRecovery.stream.listen((_) => _wakeIntents());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _drainIntents();
       if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) _offerClipboard();
@@ -175,7 +179,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   @override void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _offerClipboard();
+    if (state == AppLifecycleState.resumed) {
+      _wakeIntents();
+      _offerClipboard();
+    }
   }
 
   // Android shows the clipboard to the focused app alone, so it is read once the window is resumed.
@@ -192,30 +199,70 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } finally { _readingClipboard = false; }
   }
 
-  Future<void> _drainIntents() async {
-    if (_handlingIntent || !mounted) return;
-    _handlingIntent = true;
-    try {
-      while (mounted && _box!.pendingIntents.isNotEmpty) {
-        await _import(_box!.pendingIntents.removeAt(0));
-      }
-    } finally { _handlingIntent = false; }
+  void _wakeIntents() {
+    _intentWake++;
+    unawaited(_drainIntents());
   }
 
-  Future<void> _import(String uri) async {
+  Future<void> _drainIntents() async {
+    if (_handlingIntent || !mounted || _blockedIntentWake == _intentWake) return;
+    _handlingIntent = true;
+    var wakeAgain = false;
     try {
-      if (uri.startsWith('bbox-share:')) {
-        if (mounted) await openPage(context, SharePage(token: uri.substring('bbox-share:'.length)));
-        return;
+      while (mounted && _box!.pendingIntents.isNotEmpty) {
+        final input = _box!.pendingIntents.removeAt(0), wake = _intentWake;
+        if (await _import(input)) continue;
+        _box!.retryIntent(input);
+        _blockedIntentWake = wake;
+        // A resume/reconnection may have arrived before the cancelled call
+        // answered. Give that newer wake one attempt after releasing the drain.
+        wakeAgain = _intentWake != wake;
+        break;
       }
-      final data = json(await _box!.call('profiles.decodeIntent', {'uri': uri}));
-      if (mounted) await openImport(context, data);
-    } catch (error) { _box!.report(error); }
+    } finally {
+      _handlingIntent = false;
+      if (mounted && wakeAgain) unawaited(_drainIntents());
+    }
   }
+
+  Future<bool> _import(BoxIntent input) async {
+    if (!input.consumed) {
+      try {
+        if (input.uri.startsWith('bbox-share:')) {
+          if (!mounted) return false;
+          await openPage(context, SharePage(token: input.uri.substring('bbox-share:'.length)));
+        } else {
+          final data = json(await _box!.call('profiles.decodeIntent', {'uri': input.uri}));
+          if (!mounted) return false;
+          await openImport(context, data, restoreInterruptedIntent: true);
+        }
+        if (!mounted) return false;
+        input.consumed = true;
+      } catch (error) {
+        if (_interruptedIntent(error)) return false;
+        input.consumed = true;
+        _box!.report(error);
+      }
+    }
+    if (!mounted) return false;
+    try {
+      await _box!.completeIntent(input);
+      return true;
+    } catch (error) {
+      // Keep a finished form owned until the durable acknowledgement succeeds;
+      // a retry only acknowledges it and cannot reopen the form.
+      if (!_interruptedIntent(error)) _box!.report(error);
+      return false;
+    }
+  }
+
+  bool _interruptedIntent(Object error) => error is PlatformException &&
+      (error.code == 'cancelled' || error.code == 'ui_bridge');
 
   @override void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _intents?.cancel();
+    _intentRecovery?.cancel();
     super.dispose();
   }
 

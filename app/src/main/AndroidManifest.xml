@@ -48,6 +48,7 @@
 
         <activity
             android:name=".compose.MainActivity"
+            android:process=":ui"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:launchMode="singleTask"
@@ -115,6 +116,7 @@
         </activity>
         <activity
             android:name=".compose.ShareActivity"
+            android:process=":ui"
             android:excludeFromRecents="true"
             android:exported="true"
             android:label="@string/taildrop"
@@ -134,6 +136,13 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".flutter.ipc.BoxUiService"
+            android:exported="false" />
+        <service
+            android:name=".terminal.BoxTerminalService"
+            android:exported="false" />
 
         <service
             android:name=".bg.TileService"

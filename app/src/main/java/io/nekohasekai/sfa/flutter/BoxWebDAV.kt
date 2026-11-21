@@ -5,7 +5,7 @@ import io.nekohasekai.sfa.utils.HTTPClient
 import org.json.JSONObject
 import java.net.URI
 
-internal class BoxWebDAV(activity: BoxActivity) {
+internal class BoxWebDAV(activity: BoxHost) {
     private val preferences: SharedPreferences = activity.getSharedPreferences("bbox_webdav", 0)
 
     fun snapshot(): Map<String, Any?>? = preferences.getString("value", null)?.let { jsonObject(JSONObject(it)) }

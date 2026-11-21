@@ -12,6 +12,7 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.content.getSystemService
 import androidx.work.WorkManager
+import com.google.mlkit.common.MlKit
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.SetupOptions
 import io.nekohasekai.sfa.bg.AppChangeReceiver
@@ -23,6 +24,11 @@ import io.nekohasekai.sfa.backend.tools.TaildropFiles
 import io.nekohasekai.sfa.constant.Bugs
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.AppLifecycleObserver
+import io.nekohasekai.sfa.flutter.BoxActivity
+import io.nekohasekai.sfa.flutter.BoxBackend
+import io.nekohasekai.sfa.flutter.UiProcess
+import io.nekohasekai.sfa.flutter.UiProcessLifecycle
+import io.nekohasekai.sfa.flutter.ipc.BoxUiService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -45,6 +51,14 @@ class Application : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        if (UiProcess.isUiProcess(this)) {
+            CrashReportManager.installUi(filesDir, "$packageName:ui")
+            // The default-process MlKitInitProvider does not run for Flutter's camera process.
+            MlKit.initialize(this)
+            UiProcessLifecycle.install(this, BoxActivity::prepareProcessExit)
+            return
+        }
+        BoxUiService.createBackend = ::BoxBackend
         AppLifecycleObserver.register(this)
 
 //        Seq.setContext(this)

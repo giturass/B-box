@@ -13,7 +13,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
-internal class BoxTerminalSettings(private val activity: BoxActivity) {
+internal class BoxTerminalSettings(private val activity: BoxHost) {
     fun snapshot(): Map<String, Any?> = mapOf(
         "lightTheme" to Settings.tailscaleSSHLightTheme, "darkTheme" to Settings.tailscaleSSHDarkTheme,
         "lightConfig" to Settings.tailscaleSSHLightConfig, "darkConfig" to Settings.tailscaleSSHDarkConfig,

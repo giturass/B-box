@@ -34,9 +34,7 @@ object PackageQueryManager {
         ShizukuPackageManager.unregisterListeners()
     }
 
-    fun requestShizukuPermission() {
-        ShizukuPackageManager.requestPermission()
-    }
+    suspend fun requestShizukuPermission(): Boolean = ShizukuPackageManager.requestPermission()
 
     suspend fun checkRootAvailable(): Boolean = RootClient.checkRootAvailable()
 

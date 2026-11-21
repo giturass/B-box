@@ -33,9 +33,8 @@ data class TailscaleSSHTerminalState(
 }
 
 /**
- * Holds terminal sessions for the whole process so they survive navigating
- * away from the terminal screen; a session ends only when closed explicitly
- * or when the SSH connection ends.
+ * Holds terminal sessions in the backend process. Destroying a Flutter UI
+ * process only detaches its mirror; SSH and the complete VT state survive.
  */
 object TailscaleSSHSessionStore : GhosttyTerminalSession.EventListener {
 
@@ -74,7 +73,7 @@ object TailscaleSSHSessionStore : GhosttyTerminalSession.EventListener {
         val current = _state.value
         val session = current.sessions.firstOrNull { it.id == id } ?: return
         session.exitWatcher?.cancel()
-        session.terminalSession.close()
+        session.close()
         disconnectClient(session)
         val remaining = current.sessions.filter { it.id != id }
         val newActiveId = if (current.activeSessionId == id) {
@@ -96,7 +95,8 @@ object TailscaleSSHSessionStore : GhosttyTerminalSession.EventListener {
 
     override fun onNotification(session: GhosttyTerminalSession, title: String, body: String) {
         // The user is watching this session; a system notification is noise.
-        if (AppLifecycleObserver.isForeground.value && session.hasAttachedView) return
+        if (AppLifecycleObserver.isForeground.value &&
+            _state.value.sessions.any { it.terminalSession === session && it.hasSurface }) return
         TerminalNotifier.notify(Application.application, session.title.value, title, body)
     }
 
@@ -127,7 +127,7 @@ object TailscaleSSHSessionStore : GhosttyTerminalSession.EventListener {
                             }
 
                             override fun onOutput(data: ByteArray) {
-                                managed.terminalSession.feedOutput(data)
+                                managed.feedOutput(data)
                             }
 
                             override fun onAuthBanner(message: String) {
@@ -148,9 +148,9 @@ object TailscaleSSHSessionStore : GhosttyTerminalSession.EventListener {
                     withContext(Dispatchers.IO) { sshSession.close() }
                     return@launch
                 }
-                managed.terminalSession.transport = TailscaleSSHTransport(sshSession) { exception ->
+                managed.setTransport(TailscaleSSHTransport(sshSession) { exception ->
                     finishSession(managed, -1, null, exception.message ?: "SSH transport failed")
-                }
+                })
             } catch (e: Exception) {
                 finishSession(managed, -1, null, e.message ?: "SSH connection failed")
             }
@@ -160,15 +160,14 @@ object TailscaleSSHSessionStore : GhosttyTerminalSession.EventListener {
     private fun finishSession(managed: ManagedSession, exitCode: Int, signal: String?, errorMessage: String?) {
         managed.exitSignal = signal
         managed.exitError = errorMessage
-        managed.terminalSession.finish(exitCode)
+        managed.finish(exitCode)
     }
 
     private fun onSessionExited(managed: ManagedSession) {
-        managed.terminalSession.transport?.close()
-        managed.terminalSession.transport = null
+        managed.clearTransport()
         disconnectClient(managed)
         managed.phase.value = TerminalSessionPhase.FINISHED
-        managed.terminalSession.feedOutput(exitNotice(managed).toByteArray())
+        managed.feedOutput(exitNotice(managed).toByteArray())
 
         val current = _state.value
         if (current.sessions.size <= 1) return

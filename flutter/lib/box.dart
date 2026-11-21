@@ -17,6 +17,19 @@ List<Json> rows(Object? value) => value is List ? value.map(json).toList() : [];
 enum BoxAspect { state, appearance, groups, traffic, memory, connections, logs, tools, diagnostics, transfers, terminal, updates }
 enum BoxData { memory, logs, connections, tools, outbounds, lan }
 
+/// One Android delivery retains its identity until its acknowledgement is durable.
+class BoxIntent {
+  BoxIntent(this.id, this.uri);
+  final String id, uri;
+  bool consumed = false;
+
+  static BoxIntent? fromWire(Object? value) {
+    final input = json(value), id = input['id'], uri = input['uri'];
+    return id is String && id.isNotEmpty && uri is String && uri.isNotEmpty
+        ? BoxIntent(id, uri) : null;
+  }
+}
+
 class BoxController extends ChangeNotifier with WidgetsBindingObserver {
   BoxController({MethodChannel? channel, Stream<dynamic>? events})
       : _channel = channel ?? const MethodChannel('io.ericlee.bfa/box'),
@@ -26,6 +39,7 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
   final Stream<dynamic> _events;
   final messages = StreamController<String>.broadcast();
   final intents = StreamController<String>.broadcast();
+  final intentRecovery = StreamController<void>.broadcast();
   final browserEvents = StreamController<Json>.broadcast();
   StreamSubscription<dynamic>? _subscription;
   final _revisions = List<int>.filled(BoxAspect.values.length, 0);
@@ -60,11 +74,17 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
   int sessionRevision = 0;
   bool _disposed = false;
   bool _observingLifecycle = false;
+  int _backendRefresh = 0;
+  int _nativeRecovery = 0;
+  bool _startupInterrupted = false;
+  bool _takingIntents = false, _takeIntentsAgain = false;
   bool ready = false;
   bool lanChanging = false;
   bool serviceSettingsChanging = false;
   String? startupError;
-  final pendingIntents = <String>[];
+  final pendingIntents = <BoxIntent>[];
+  final _ownedIntents = <String, BoxIntent>{};
+  final _completedIntentIds = <String>{};
   String? applyRequired;
   late final appIcons = AppIconCache(
     load: (package) async => await call('apps.icon', {'package': package}) as Uint8List?,
@@ -231,9 +251,19 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
     }
     await _subscription?.cancel();
     _subscription = _events.listen(_onEvent, onError: report);
+    await _refreshBackend();
+  }
+
+  Future<void> _refreshBackend() async {
+    final refresh = ++_backendRefresh;
+    final recovery = _nativeRecovery;
+    var retryAfterRecovery = false;
+    _startupInterrupted = false;
+    startupError = null;
     try {
       final before = Map<String, int>.of(_eventRevisions);
       final result = json(await call('ready'));
+      if (_disposed || refresh != _backendRefresh) return;
       bool unchanged(String type) => _eventRevisions[type] == before[type];
       version = result['version'] as String;
       coreVersion = result['coreVersion'] as String;
@@ -249,14 +279,25 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
       final diagnostics = json(result['diagnostics']);
       if (unchanged('stun') && diagnostics['stun'] is Map) stun = json(diagnostics['stun']);
       if (unchanged('quality') && diagnostics['quality'] is Map) quality = json(diagnostics['quality']);
-      final intent = result['intent'] as String?;
-      if (intent != null) pendingIntents.add(intent);
+      _acceptIntent(result['intent']);
       ready = true;
       for (final data in _dataOwners.keys) { _syncData(data); }
+      // ready takes one native input. Continue through restored queues even
+      // when that first input already belongs to the currently open form.
+      if (result['intent'] != null || _takingIntents) unawaited(_takeIntent());
+      intentRecovery.add(null);
     } catch (error) {
+      if (_disposed || refresh != _backendRefresh) return;
       startupError = describe(error);
+      _startupInterrupted = error is PlatformException &&
+          (error.code == 'cancelled' || error.code == 'ui_bridge');
+      if (ready && !_startupInterrupted) report(error);
+      // Recovery can arrive before a cancelled ready response. Retry that
+      // newer confirmation once, including a cold UI that has no Home yet.
+      retryAfterRecovery = _startupInterrupted && recovery != _nativeRecovery;
     }
     notifyListeners();
+    if (retryAfterRecovery && !_disposed && refresh == _backendRefresh) unawaited(_refreshBackend());
   }
 
   Future<dynamic> call(String method, [Json? args]) => _channel.invokeMethod<dynamic>(method, args);
@@ -282,7 +323,9 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   @override void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && ready && appUpdate['status'] != 'idle') {
+    if (state != AppLifecycleState.resumed || !ready) return;
+    unawaited(_takeIntent());
+    if (appUpdate['status'] != 'idle') {
       // Android permission and installer screens only report their confirmed
       // state. Returning to the app never automatically installs an APK.
       unawaited(refreshUpdates());
@@ -366,6 +409,14 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
   /// Applies one backend event and returns the aspects whose consumers rebuild.
   List<BoxAspect> _applyEvent(String type, Object? value) {
     switch (type) {
+      case 'backendReconnected':
+        sessionRevision++;
+        profilesRevision++;
+        _profileStats.clear();
+        _connectionsById.clear();
+        connections = [];
+        unawaited(_refreshBackend());
+        return const [BoxAspect.state, BoxAspect.connections];
       case 'dashboard':
         return _updateDashboard(json(value));
       case 'profiles':
@@ -450,6 +501,14 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
         browserEvents.add(json(value));
       case 'intentAvailable':
         unawaited(_takeIntent());
+      case 'intentRecovery':
+        _nativeRecovery++;
+        if (_startupInterrupted) {
+          unawaited(_refreshBackend());
+          return const [];
+        }
+        unawaited(_takeIntent());
+        intentRecovery.add(null);
     }
     return const [];
   }
@@ -511,15 +570,52 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
     defaultLogLevel = update['defaultLogLevel'] as String?;
   }
 
+  bool _acceptIntent(Object? value) {
+    final input = BoxIntent.fromWire(value);
+    if (input == null) return false;
+    // URI equality is irrelevant: two identical links can be separate inputs.
+    if (_completedIntentIds.contains(input.id) || _ownedIntents.containsKey(input.id)) return true;
+    _ownedIntents[input.id] = input;
+    pendingIntents.add(input);
+    intents.add(input.uri);
+    return true;
+  }
+
+  void retryIntent(BoxIntent input) {
+    if (_disposed || !_ownedIntents.containsKey(input.id) || pendingIntents.any((pending) => pending.id == input.id)) return;
+    pendingIntents.insert(0, input);
+  }
+
+  Future<void> completeIntent(BoxIntent input) async {
+    await call('intent.complete', {'id': input.id});
+    if (_disposed) return;
+    _completedIntentIds.add(input.id);
+    _ownedIntents.remove(input.id);
+    pendingIntents.removeWhere((pending) => pending.id == input.id);
+  }
+
   Future<void> _takeIntent() async {
+    if (_disposed) return;
+    _takeIntentsAgain = true;
+    if (_takingIntents) return;
+    _takingIntents = true;
     try {
-      final uri = await call('intent.take');
-      if (uri is! String) return;
-      pendingIntents.add(uri);
-      intents.add(uri);
-    } catch (error) {
-      report(error);
-    }
+      do {
+        _takeIntentsAgain = false;
+        final refresh = _backendRefresh;
+        try {
+          while (!_disposed) {
+            final input = await call('intent.take');
+            if (_disposed || refresh != _backendRefresh) break;
+            if (!_acceptIntent(input)) break;
+          }
+        } catch (error) {
+          if (!_disposed && refresh == _backendRefresh) report(error);
+        }
+        // Events arriving during a read request another pass. A failed read
+        // alone waits for foreground/reconnection instead of retrying forever.
+      } while (_takeIntentsAgain && !_disposed);
+    } finally { _takingIntents = false; }
   }
 
   @override
@@ -530,6 +626,7 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
     appIcons.clear();
     messages.close();
     intents.close();
+    intentRecovery.close();
     browserEvents.close();
     _stateChanges.dispose();
     super.dispose();

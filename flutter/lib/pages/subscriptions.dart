@@ -40,7 +40,13 @@ Future<void> updateProfileSubscriptions(BuildContext context, Json profile, {boo
 }
 
 /// Pin the file and revision before opening the form or starting a download.
-Future<bool> openSubscriptionImport(BuildContext context, [Json initial = const {}]) async {
+Future<bool> openSubscriptionImport(BuildContext context, [Json initial = const {}]) =>
+    _openSubscriptionImport(context, initial);
+
+Future<bool> openSubscriptionIntent(BuildContext context, Json initial) =>
+    _openSubscriptionImport(context, initial, restoreInterruptedIntent: true);
+
+Future<bool> _openSubscriptionImport(BuildContext context, Json initial, {bool restoreInterruptedIntent = false}) async {
   if (!context.mounted) return false;
   final box = context.box;
   if (box.remote) return false;
@@ -58,7 +64,12 @@ Future<bool> openSubscriptionImport(BuildContext context, [Json initial = const 
     return await openForm<bool>(context, SubscriptionForm(
       profileId: profileId, profileRevision: profileRevision, profileName: profileName, initial: initial,
     )) ?? false;
-  } catch (error) { box.report(error); return false; }
+  } catch (error) {
+    if (restoreInterruptedIntent && error is PlatformException &&
+        (error.code == 'cancelled' || error.code == 'ui_bridge')) rethrow;
+    box.report(error);
+    return false;
+  }
 }
 
 class SubscriptionForm extends StatefulWidget {

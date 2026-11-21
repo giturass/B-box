@@ -147,13 +147,66 @@ void main() {
   });
 
   test('imports received before the home route mounts stay queued', () async {
+    final pending = <Json>[{'id': 'bf1d8af5-9f2d-4f38-a354-10d94458fdba',
+      'uri': 'sing-box://import-remote-profile?url=https%3A%2F%2Fexample.org%2Fconfig.json'}];
     messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'intent.take'
-      ? 'sing-box://import-remote-profile?url=https%3A%2F%2Fexample.org%2Fconfig.json'
+      ? (pending.isEmpty ? null : pending.removeAt(0))
       : {'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'}});
     await box.initialize();
     events.add({'type': 'intentAvailable', 'value': true});
     await Future<void>.delayed(Duration.zero);
     await Future<void>.delayed(Duration.zero);
-    expect(box.pendingIntents.single, startsWith('sing-box://'));
+    expect(box.pendingIntents.single.uri, startsWith('sing-box://'));
+  });
+
+  test('an input notification during a pending empty read requests another serialized drain', () async {
+    final emptyRead = Completer<dynamic>();
+    final pending = <Json>[];
+    var reads = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'ready') return {'version': 'test', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'}};
+      if (call.method == 'intent.take') {
+        if (++reads == 1) return emptyRead.future;
+        return pending.isEmpty ? null : pending.removeAt(0);
+      }
+      return null;
+    });
+    await box.initialize();
+    events.add({'type': 'intentAvailable', 'value': true});
+    await Future<void>.delayed(Duration.zero);
+    expect(reads, 1);
+    pending.add({'id': 'bf1d8af5-9f2d-4f38-a354-10d94458fdba', 'uri': 'second-notification'});
+    events.add({'type': 'intentAvailable', 'value': true});
+    await Future<void>.delayed(Duration.zero);
+    emptyRead.complete(null);
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    expect(reads, 3);
+    expect(box.pendingIntents.single.uri, 'second-notification');
+  });
+
+  test('a previous session input read cannot replace the new reconnect input', () async {
+    messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready'
+      ? {'version': 'first', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'}} : null);
+    await box.initialize();
+    final previous = Completer<dynamic>();
+    var reads = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'ready') return {'version': 'restored', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'},
+        'intent': {'id': 'bf1d8af5-9f2d-4f38-a354-10d94458fdba', 'uri': 'restored-input'}};
+      if (call.method == 'intent.take' && ++reads == 1) return previous.future;
+      return null;
+    });
+    events.add({'type': 'intentAvailable', 'value': true});
+    await Future<void>.delayed(Duration.zero);
+    expect(reads, 1);
+    events.add({'type': 'backendReconnected', 'value': null});
+    await Future<void>.delayed(Duration.zero);
+    previous.complete({'id': 'd19bdc9d-69e9-44c3-af23-d66ff99db9b4', 'uri': 'previous-input'});
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    expect(box.version, 'restored');
+    expect(box.pendingIntents.map((input) => input.uri), ['restored-input']);
+    expect(reads, 2);
   });
 }

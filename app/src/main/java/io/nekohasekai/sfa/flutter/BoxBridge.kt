@@ -1,11 +1,11 @@
 package io.nekohasekai.sfa.flutter
 
-import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
 import android.os.PowerManager
+import android.util.Log
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.tasks.Tasks
@@ -42,12 +42,14 @@ import io.nekohasekai.sfa.vendor.PerAppProxyScanner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -57,7 +59,7 @@ import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.IOException
 
-class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) : Closeable {
+internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMessenger) : Closeable {
     private val scope = activity.lifecycleScope
     private val channel = MethodChannel(messenger, "io.ericlee.bfa/box")
     private val events = EventChannel(messenger, "io.ericlee.bfa/events")
@@ -73,6 +75,10 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     private val connectionsVisible = MutableStateFlow(false)
     private val logsVisible = MutableStateFlow(false)
     private val operations = Mutex()
+    private val calls = mutableSetOf<Job>()
+    private var quiescing = false
+    private var profileCallbackRegistered = false
+    private var packageListenersRegistered = false
     private val apps = AppListCache {
         val packageManager = activity.packageManager
         PackageQueryManager.getInstalledPackages(android.content.pm.PackageManager.GET_PERMISSIONS).mapNotNull { info ->
@@ -118,6 +124,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
     }
     private val profileCallback: () -> Unit = { scope.launch { operations.withLock { publishProfiles(ensureDefault = false) } } }
     private val initialize = scope.async {
+        activity.initialize()
         withContext(Dispatchers.IO) {
             Settings.dataStore.initialize()
             Application.application.setupLibbox()
@@ -132,7 +139,9 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         dashboardDetails = BoxDashboard(activity, ::emit)
         dashboard.commandClient.addHandler(rates)
         ProfileManager.registerCallback(profileCallback)
+        profileCallbackRegistered = true
         PackageQueryManager.registerListeners()
+        packageListenersRegistered = true
         RemoteControlManager.restore()
         scope.launch {
             activity.serviceStatus.collect {
@@ -159,7 +168,12 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
 
     init {
         channel.setMethodCallHandler { call, result ->
-            scope.launch {
+            if (quiescing && call.method != "intent.complete") {
+                result.error("cancelled", "UI is closing", null)
+                return@setMethodCallHandler
+            }
+            lateinit var job: Job
+            job = scope.launch(start = CoroutineStart.LAZY) {
                 try {
                     initialize.await()
                     result.success(invoke(call))
@@ -169,8 +183,12 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                     result.error(e.code, e.message, e.details)
                 } catch (e: Exception) {
                     result.error("box_error", e.message ?: e.toString(), null)
+                } finally {
+                    calls.remove(job)
                 }
             }
+            calls.add(job)
+            job.start()
         }
         events.setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, eventSink: EventChannel.EventSink) {
@@ -314,6 +332,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         when (method) {
             "ready" -> return ready()
             "intent.take" -> return activity.takeIntent()
+            "intent.complete" -> activity.completeIntent(args.string("id"))
             "config.check" -> return withContext(Dispatchers.IO) {
                 BoxProfiles.validate(args.string("content"))
                 true
@@ -325,16 +344,16 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
                     type = "text/plain"
                     putExtra(Intent.EXTRA_TEXT, args.string("content"))
                 }
-                activity.startActivity(Intent.createChooser(send, null))
+                activity.openActivity(Intent.createChooser(send, null))
             }
             "battery.open" -> {
                 val action = android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
-                activity.startActivity(Intent(action, Uri.parse("package:" + activity.packageName)))
+                activity.openActivity(Intent(action, Uri.parse("package:" + activity.packageName)))
             }
             "url.open" -> {
                 val uri = Uri.parse(args.string("url"))
                 require(uri.scheme in listOf("http", "https")) { "Unsupported URL" }
-                activity.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                activity.openActivity(Intent(Intent.ACTION_VIEW, uri))
             }
             "terminal.set", "terminal.importFont", "terminal.deleteFont" -> return operations.withLock { toolBridge.invoke(method, args) }
             else -> return toolBridge.invoke(method, args)
@@ -588,15 +607,11 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
 
     /** The node links copied since the last look, as libbox parsed them, or null. */
     private suspend fun clipboardNodes(): String? {
-        val clipboard = activity.getSystemService(ClipboardManager::class.java) ?: return null
-        // The description is read first: the system announces every read of the text itself.
-        val description = clipboard.primaryClipDescription ?: return null
-        if (!description.hasMimeType("text/*")) return null
-        if (android.os.Build.VERSION.SDK_INT >= 26 && description.timestamp != 0L) {
-            if (description.timestamp == preferences.getLong("clipboardStamp", 0L)) return null
-            preferences.edit().putLong("clipboardStamp", description.timestamp).apply()
-        }
-        val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()?.trim().orEmpty()
+        // Android only permits the focused UI process to read the clipboard.
+        val value = activity.readClipboard(preferences.getLong("clipboardStamp", 0L)) ?: return null
+        val stamp = (value["stamp"] as? Number)?.toLong() ?: 0L
+        if (stamp != 0L) preferences.edit().putLong("clipboardStamp", stamp).apply()
+        val text = (value["text"] as? String).orEmpty().trim()
         if (text.length !in 8..262144) return null
         return withContext(Dispatchers.IO) {
             val revision = ProfileContent.revision(text)
@@ -706,7 +721,7 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
         when (method) {
             "apps.list" -> return listApps(args)
             "apps.icon" -> return withContext(Dispatchers.IO) { appIcon(args.string("package")) }
-            "apps.permission" -> PackageQueryManager.requestShizukuPermission()
+            "apps.permission" -> activity.requestShizukuPermission()
             "apps.rescan" -> return operations.withLock {
                 if (Settings.perAppProxyManagedMode) {
                     Settings.saveManagedApps(PerAppProxyScanner.scanAllChinaApps())
@@ -950,25 +965,43 @@ class BoxBridge(private val activity: BoxActivity, messenger: BinaryMessenger) :
 
     fun refreshSystemAppearance() = emit("systemAccent", systemAccentColor())
 
+    suspend fun prepareForExit() {
+        quiescing = true
+        val pending = calls.toList()
+        pending.forEach { it.cancel() }
+        pending.joinAll()
+        initialize.join()
+    }
+
+    fun resume() { quiescing = false }
+
+    suspend fun browserRequest(endpoint: String, challengeID: String): Map<String, Any?> {
+        initialize.await()
+        val challenge = toolBridge.openConnect.endpoint(endpoint)?.authChallenge
+        require(challenge?.id == challengeID) { "Authentication request expired" }
+        return challenge?.browser?.toWire() ?: error("Browser request no longer exists")
+    }
+
     internal fun emit(type: String, value: Any?) {
         scope.launch(Dispatchers.Main.immediate) { sink?.success(mapOf("type" to type, "value" to value)) }
     }
 
     override fun close() {
-        warp.close()
-        qrScanner.close()
-        channel.setMethodCallHandler(null)
-        events.setStreamHandler(null)
+        fun cleanup(work: () -> Unit) {
+            runCatching(work).onFailure { Log.w("BoxBridge", "Native bridge cleanup", it) }
+        }
+        cleanup(warp::close)
+        cleanup(qrScanner::close)
+        cleanup { channel.setMethodCallHandler(null) }
+        cleanup { events.setStreamHandler(null) }
         streamJob?.cancel()
         sink = null
-        if (::dashboard.isInitialized) {
-            dashboard.commandClient.removeHandler(rates)
-            ProfileManager.unregisterCallback(profileCallback)
-            PackageQueryManager.unregisterListeners()
-            if (connectionsVisible.value) connections.setVisible(false)
-            toolBridge.close()
-            dashboardDetails.close()
-        }
+        if (::dashboard.isInitialized) cleanup { dashboard.commandClient.removeHandler(rates) }
+        if (profileCallbackRegistered) cleanup { ProfileManager.unregisterCallback(profileCallback) }
+        if (packageListenersRegistered) cleanup { PackageQueryManager.unregisterListeners() }
+        if (::connections.isInitialized && connectionsVisible.value) cleanup { connections.setVisible(false) }
+        if (::toolBridge.isInitialized) cleanup(toolBridge::close)
+        if (::dashboardDetails.isInitialized) cleanup(dashboardDetails::close)
     }
 }
 

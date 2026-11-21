@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Only the Debug APK contains these real Binder/PFD regression fixtures. -->
+        <service
+            android:name=".terminal.fixture.TerminalBackendFixture"
+            android:exported="false" />
+        <service
+            android:name=".terminal.fixture.TerminalRendererFixture"
+            android:exported="false"
+            android:process=":ui" />
+    </application>
+</manifest>

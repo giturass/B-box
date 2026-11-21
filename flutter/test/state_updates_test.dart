@@ -208,6 +208,84 @@ void main() {
     box.dispose();
   });
 
+  test('backend reconnection restores subscriptions and preserves newer events', () async {
+    final reloaded = Completer<Json>();
+    var readyCalls = 0, statsCalls = 0;
+    final visibleCalls = <bool>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'ready':
+          if (++readyCalls == 1) return {'version': 'first', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'}};
+          return reloaded.future;
+        case 'logs.visible':
+          visibleCalls.add(json(call.arguments)['visible'] == true);
+          return null;
+        case 'profiles.stats':
+          return {'read': ++statsCalls};
+      }
+      return null;
+    });
+    box.setDataVisible(BoxData.logs, Object(), true);
+    await box.initialize();
+    expect((await box.profileStats(1))['read'], 1);
+    events.add({'type': 'backendReconnected', 'value': null});
+    await Future<void>.delayed(Duration.zero);
+    events.add({'type': 'dashboard', 'value': {'status': 'Started'}});
+    events.add({'type': 'settings', 'value': {'allowBypass': true}});
+    await Future<void>.delayed(Duration.zero);
+    reloaded.complete({'version': 'second', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'},
+      'settings': {'allowBypass': false}});
+    await Future<void>.delayed(Duration.zero);
+    expect(box.ready, isTrue);
+    expect(box.version, 'second');
+    expect(box.running, isTrue);
+    expect(box.settings['allowBypass'], isTrue);
+    expect(visibleCalls, [true, true]);
+    expect((await box.profileStats(1))['read'], 2);
+    expect(events.hasListener, isTrue);
+    box.dispose();
+  });
+
+  test('an older reconnect snapshot cannot replace a newer native session', () async {
+    await box.initialize();
+    final deliveredIntents = <String>[];
+    final listener = box.intents.stream.listen(deliveredIntents.add);
+    final older = Completer<Json>(), newer = Completer<Json>();
+    var reads = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready'
+      ? (++reads == 1 ? older.future : newer.future) : null);
+    events.add({'type': 'backendReconnected', 'value': null});
+    await Future<void>.delayed(Duration.zero);
+    events.add({'type': 'backendReconnected', 'value': null});
+    await Future<void>.delayed(Duration.zero);
+    newer.complete({'version': 'newer', 'coreVersion': 'test', 'dashboard': {'status': 'Started'},
+      'intent': {'id': 'bf1d8af5-9f2d-4f38-a354-10d94458fdba', 'uri': 'new-intent'}});
+    await Future<void>.delayed(Duration.zero);
+    older.complete({'version': 'older', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'},
+      'intent': {'id': 'd19bdc9d-69e9-44c3-af23-d66ff99db9b4', 'uri': 'old-intent'}});
+    await Future<void>.delayed(Duration.zero);
+    expect(box.version, 'newer');
+    expect(box.running, isTrue);
+    expect(box.pendingIntents.map((input) => input.uri), ['new-intent']);
+    expect(deliveredIntents, ['new-intent']);
+    await listener.cancel();
+    box.dispose();
+  });
+
+  test('a restored intent wakes existing consumers after backend reconnection', () async {
+    await box.initialize();
+    final restored = box.intents.stream.first;
+    messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'ready'
+      ? {'version': 'restored', 'coreVersion': 'test', 'dashboard': {'status': 'Stopped'},
+        'intent': {'id': 'bf1d8af5-9f2d-4f38-a354-10d94458fdba',
+          'uri': 'sing-box://import?url=https%3A%2F%2Fexample.com%2Fsubscription'}} : null);
+    events.add({'type': 'backendReconnected', 'value': null});
+    final uri = await restored;
+    expect(uri, 'sing-box://import?url=https%3A%2F%2Fexample.com%2Fsubscription');
+    expect(box.pendingIntents.map((input) => input.uri), [uri]);
+    box.dispose();
+  });
+
   test('late updater replies preserve newer progress and installer events', () async {
     await box.initialize();
     final download = Completer<Json>(), snapshot = Completer<Json>();

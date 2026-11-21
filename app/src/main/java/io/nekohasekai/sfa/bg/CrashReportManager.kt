@@ -7,8 +7,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.text.ParseException
@@ -16,6 +19,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.UUID
+
+private const val METADATA_FILE_NAME = "metadata.json"
+private const val JVM_LOG_FILE_NAME = "jvm.log"
+private const val CRASH_REPORTS_DIR_NAME = "crash_reports"
 
 data class CrashReport(
     val id: String,
@@ -38,12 +46,9 @@ data class CrashReportFile(
 }
 
 object CrashReportManager {
-    private const val METADATA_FILE_NAME = "metadata.json"
     private const val GO_LOG_FILE_NAME = "go.log"
-    private const val JVM_LOG_FILE_NAME = "jvm.log"
     private const val CONFIG_FILE_NAME = "configuration.json"
     private const val READ_MARKER_FILE_NAME = ".read"
-    private const val CRASH_REPORTS_DIR_NAME = "crash_reports"
     private const val PENDING_JVM_CRASH_FILE_NAME = "CrashReport-JVM.log"
     private const val PENDING_JVM_METADATA_FILE_NAME = "CrashReport-JVM-metadata.json"
 
@@ -53,6 +58,7 @@ object CrashReportManager {
 
     private lateinit var workingDir: File
     private lateinit var baseDir: File
+    private val archiveAccess = Any()
 
     private val _reports = MutableStateFlow<List<CrashReport>>(emptyList())
     val reports: StateFlow<List<CrashReport>> = _reports
@@ -62,10 +68,26 @@ object CrashReportManager {
     fun install(workingDir: File, baseDir: File) {
         this.workingDir = workingDir
         this.baseDir = baseDir
-        archivePendingJvmCrashReport()
+        synchronized(archiveAccess) {
+            archivePendingJvmCrashReport()
+            archivePendingUiJvmCrashReports()
+        }
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             writePendingJvmCrashReport(thread, throwable)
+            previous?.uncaughtException(thread, throwable)
+        }
+    }
+
+    /** The Flutter process records only JVM failures and never initializes libbox. */
+    fun installUi(baseDir: File, processName: String) {
+        val pending = UiJvmCrashReports(baseDir)
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching {
+                pending.write(thread, throwable, processName,
+                    BuildConfig.VERSION_CODE.toString(), BuildConfig.VERSION_NAME)
+            }
             previous?.uncaughtException(thread, throwable)
         }
     }
@@ -94,9 +116,18 @@ object CrashReportManager {
     }
 
     suspend fun refresh() = withContext(Dispatchers.IO) {
-        val reports = scanCrashReports()
-        _reports.value = reports
-        _unreadCount.value = reports.count { !it.isRead }
+        synchronized(archiveAccess) {
+            archivePendingUiJvmCrashReports()
+            val reports = scanCrashReports()
+            _reports.value = reports
+            _unreadCount.value = reports.count { !it.isRead }
+        }
+    }
+
+    private fun archivePendingUiJvmCrashReports() {
+        // Leave a failed archive queued for the next refresh. A UI failure must
+        // not interrupt installation of the default process's report handler.
+        runCatching { UiJvmCrashReports(baseDir).archiveTo(File(workingDir, CRASH_REPORTS_DIR_NAME)) }
     }
 
     private fun archivePendingJvmCrashReport() {
@@ -249,5 +280,126 @@ object CrashReportManager {
             timeZone = TimeZone.getTimeZone("UTC")
         }
         return format.format(date)
+    }
+}
+
+/** Pure JVM storage: immutable UI entries share neither the main pending files nor its config. */
+internal class UiJvmCrashReports(baseDir: File) {
+    private val pendingDir = File(baseDir, PENDING_DIRECTORY_NAME)
+
+    fun write(thread: Thread, throwable: Throwable, processName: String, appVersion: String, marketingVersion: String) {
+        check(pendingDir.isDirectory || pendingDir.mkdirs() || pendingDir.isDirectory) { "Unable to create UI crash report directory" }
+        val id = UUID.randomUUID().toString()
+        val staged = File(pendingDir, ".$id")
+        val ready = File(staged, READY_FILE_NAME)
+        check(staged.mkdir()) { "Unable to stage UI crash report" }
+        try {
+            val stack = StringWriter().also { throwable.printStackTrace(PrintWriter(it)) }.toString()
+            writeSynced(File(staged, JVM_LOG_FILE_NAME), stack)
+            val metadataFile = File(staged, METADATA_FILE_NAME)
+            val metadataDraft = File(staged, ".$METADATA_FILE_NAME")
+            runCatching {
+                val metadata = buildJsonObject {
+                    put("source", "Application")
+                    put("processName", processName)
+                    put("threadName", thread.name)
+                    put("crashedAt", utcFormat("yyyy-MM-dd'T'HH:mm:ssZ").format(Date()))
+                    put("exceptionName", throwable.javaClass.name)
+                    put("exceptionReason", throwable.message ?: "")
+                    put("appVersion", appVersion)
+                    put("appMarketingVersion", marketingVersion)
+                }
+                writeSynced(metadataDraft, metadata.toString())
+                check(metadataDraft.renameTo(metadataFile)) { "Unable to finish UI crash metadata" }
+            }.onFailure {
+                // Metadata is optional for existing reports too. Preserve a
+                // complete stack if metadata allocation or writing fails.
+                metadataDraft.delete()
+            }
+            // Ready is created only after all available data files close. A
+            // failed directory rename remains safe for the backend to retry.
+            writeSynced(ready, "")
+            staged.renameTo(File(pendingDir, id))
+        } catch (error: Throwable) {
+            if (!ready.isFile) staged.deleteRecursively()
+            throw error
+        }
+    }
+
+    fun archiveTo(reportsDir: File) {
+        val entries = pendingDir.listFiles { file ->
+            file.isDirectory && entryId(file) != null && File(file, READY_FILE_NAME).isFile
+        }?.sortedBy { File(it, JVM_LOG_FILE_NAME).lastModified() }.orEmpty()
+        if (entries.isEmpty()) return
+        check(reportsDir.isDirectory || reportsDir.mkdirs() || reportsDir.isDirectory) { "Unable to create crash report archive directory" }
+        val archived = reportsDir.listFiles { file -> file.isDirectory }.orEmpty().mapNotNull { report ->
+            runCatching { File(report, ORIGIN_FILE_NAME).readText() }.getOrNull()
+        }.toMutableSet()
+        for (entry in entries) {
+            val id = checkNotNull(entryId(entry))
+            val claimed = File(pendingDir, ".archiving-$id")
+            // Claim a stable path before copying: the UI may still be trying
+            // to rename its ready directory, and refresh may follow a crash.
+            if (entry != claimed && !entry.renameTo(claimed)) continue
+            val log = File(claimed, JVM_LOG_FILE_NAME)
+            if (id in archived || !log.isFile || log.length() == 0L) {
+                check(claimed.deleteRecursively()) { "Unable to remove consumed UI crash report" }
+                continue
+            }
+            val report = reserveReportDir(reportsDir, Date(log.lastModified()))
+            try {
+                copySynced(log, File(report, JVM_LOG_FILE_NAME))
+                File(claimed, METADATA_FILE_NAME).takeIf { it.isFile }?.let { copySynced(it, File(report, METADATA_FILE_NAME)) }
+                writeSynced(File(report, ORIGIN_FILE_NAME), id)
+            } catch (error: Throwable) {
+                report.deleteRecursively()
+                throw error
+            }
+            // Retain a stable origin so a crash after copying, before deleting
+            // the pending entry, does not produce a second archived report.
+            archived.add(id)
+            check(claimed.deleteRecursively()) { "Unable to remove archived UI crash report" }
+        }
+    }
+
+    private fun entryId(file: File): String? {
+        val id = file.name.removePrefix(".archiving-").removePrefix(".")
+        return runCatching { id.takeIf { UUID.fromString(it).toString() == it } }.getOrNull()
+    }
+
+    private fun reserveReportDir(reportsDir: File, date: Date): File {
+        val timestamp = utcFormat("yyyy-MM-dd'T'HH-mm-ss").format(date)
+        var index = 0
+        while (true) {
+            val directory = File(reportsDir, timestamp + if (index == 0) "" else "-$index")
+            if (directory.mkdir()) return directory
+            check(directory.exists()) { "Unable to reserve UI crash report archive" }
+            index++
+        }
+    }
+
+    private fun writeSynced(file: File, content: String) = FileOutputStream(file).use { output ->
+        output.write(content.toByteArray(Charsets.UTF_8))
+        output.fd.sync()
+    }
+
+    private fun copySynced(source: File, target: File) {
+        check(target.createNewFile()) { "Unable to create UI crash report archive file" }
+        source.inputStream().use { input ->
+            FileOutputStream(target).use { output ->
+                input.copyTo(output)
+                output.fd.sync()
+            }
+        }
+    }
+
+    private fun utcFormat(pattern: String) = SimpleDateFormat(pattern, Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
+
+    companion object {
+        const val PENDING_DIRECTORY_NAME = "crash_reports_ui_pending"
+        private const val READY_FILE_NAME = ".ready"
+        private const val ORIGIN_FILE_NAME = ".ui-origin"
     }
 }
