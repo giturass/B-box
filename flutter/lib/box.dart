@@ -77,6 +77,7 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
   int _backendRefresh = 0;
   int _nativeRecovery = 0;
   bool _startupInterrupted = false;
+  bool _refreshingBackend = false;
   bool _takingIntents = false, _takeIntentsAgain = false;
   bool ready = false;
   bool lanChanging = false;
@@ -259,6 +260,7 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
     final recovery = _nativeRecovery;
     var retryAfterRecovery = false;
     _startupInterrupted = false;
+    _refreshingBackend = true;
     startupError = null;
     try {
       final before = Map<String, int>.of(_eventRevisions);
@@ -281,13 +283,15 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
       if (unchanged('quality') && diagnostics['quality'] is Map) quality = json(diagnostics['quality']);
       _acceptIntent(result['intent']);
       ready = true;
+      _refreshingBackend = false;
       for (final data in _dataOwners.keys) { _syncData(data); }
       // ready takes one native input. Continue through restored queues even
       // when that first input already belongs to the currently open form.
-      if (result['intent'] != null || _takingIntents) unawaited(_takeIntent());
+      if (result['intent'] != null || _takeIntentsAgain || _takingIntents) unawaited(_takeIntent());
       intentRecovery.add(null);
     } catch (error) {
       if (_disposed || refresh != _backendRefresh) return;
+      _refreshingBackend = false;
       startupError = describe(error);
       _startupInterrupted = error is PlatformException &&
           (error.code == 'cancelled' || error.code == 'ui_bridge');
@@ -597,10 +601,13 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _takeIntent() async {
     if (_disposed) return;
     _takeIntentsAgain = true;
-    if (_takingIntents) return;
+    // A cancelled ready can advance the refresh generation. Keep native input
+    // pending until ready confirms this generation, including late notifications.
+    if (_takingIntents || _refreshingBackend || !ready) return;
     _takingIntents = true;
     try {
       do {
+        if (_refreshingBackend || !ready) break;
         _takeIntentsAgain = false;
         final refresh = _backendRefresh;
         try {

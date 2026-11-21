@@ -32,6 +32,7 @@ Future<_IntentFixture> _mountIntent(WidgetTester tester, {
   List<Json> initialInputs = const [_input],
   bool settle = true,
   Future<Json> Function(Json)? readyHandler,
+  Future<dynamic> Function(Json?)? takeHandler,
   Future<dynamic> Function(MethodCall)? handler,
 }) async {
   tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
@@ -57,7 +58,10 @@ Future<_IntentFixture> _mountIntent(WidgetTester tester, {
       };
       return readyHandler == null ? snapshot : readyHandler(snapshot);
     }
-    if (call.method == 'intent.take') return nativePending.isEmpty ? null : nativePending.removeAt(0);
+    if (call.method == 'intent.take') {
+      final input = nativePending.isEmpty ? null : nativePending.removeAt(0);
+      return takeHandler == null ? input : takeHandler(input);
+    }
     if (handler != null) return handler(call);
     if (call.method == 'profiles.decodeIntent') return _decoded;
     return null;
@@ -145,6 +149,64 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('cold recovery defers a delayed take across a cancelled ready retry', (tester) async {
+    final firstReady = Completer<Json>(), secondReady = Completer<Json>();
+    final delayedTake = Completer<dynamic>();
+    Json? retriedSnapshot;
+    var readyReads = 0;
+    final fixture = await _mountIntent(tester, settle: false, readyHandler: (snapshot) async {
+      if (++readyReads == 1) return firstReady.future;
+      retriedSnapshot = snapshot;
+      return secondReady.future;
+    }, takeHandler: (input) async => input == null ? null : delayedTake.future);
+    fixture.nativePending.add(_input);
+    fixture.events.add({'type': 'intentRecovery', 'value': true});
+    await tester.pump();
+    expect(fixture.callsFor('intent.take'), isEmpty);
+    firstReady.completeError(PlatformException(code: 'cancelled'));
+    await tester.pump();
+    expect(readyReads, 2);
+    expect(fixture.callsFor('intent.take'), isEmpty);
+    secondReady.complete(retriedSnapshot!);
+    await tester.pump();
+    // Any premature native take would return only after the new ready reply,
+    // when its previous generation would otherwise discard this same input.
+    delayedTake.complete(_input);
+    await tester.pumpAndSettle();
+    expect(fixture.box.ready, isTrue);
+    expect(find.byType(SubscriptionForm), findsOneWidget);
+    expect(fixture.callsFor('profiles.decodeIntent').length, 1);
+    await _dismissImport(tester);
+    expect(fixture.callsFor('intent.complete').map((call) => call.arguments), [{'id': _id}]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('an input arriving after an empty ready snapshot drains after readiness completes', (tester) async {
+    final ready = Completer<Json>(), delayedTake = Completer<dynamic>();
+    Json? emptySnapshot;
+    final fixture = await _mountIntent(tester, initialInputs: const [], settle: false, readyHandler: (snapshot) async {
+      emptySnapshot = snapshot;
+      return ready.future;
+    }, takeHandler: (input) async => input == null ? null : delayedTake.future);
+    expect(emptySnapshot!['intent'], isNull);
+    fixture.nativePending.add(_input);
+    fixture.events.add({'type': 'intentAvailable', 'value': true});
+    await tester.pump();
+    expect(fixture.callsFor('intent.take'), isEmpty);
+    ready.complete(emptySnapshot!);
+    await tester.pump();
+    expect(fixture.box.ready, isTrue);
+    expect(fixture.callsFor('intent.take').length, 1);
+    expect(find.byType(SubscriptionForm), findsNothing);
+    delayedTake.complete(_input);
+    await tester.pumpAndSettle();
+    expect(find.byType(SubscriptionForm), findsOneWidget);
+    expect(fixture.callsFor('profiles.decodeIntent').length, 1);
+    await _dismissImport(tester);
+    expect(fixture.callsFor('intent.complete').map((call) => call.arguments), [{'id': _id}]);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final code in ['cancelled', 'ui_bridge']) {
     testWidgets('an interrupted $code decode waits for a new wake without retrying forever', (tester) async {
