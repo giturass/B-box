@@ -3,12 +3,15 @@ package io.nekohasekai.sfa.flutter
 import io.nekohasekai.sfa.backend.model.Connection
 import io.nekohasekai.sfa.backend.model.Group
 import io.nekohasekai.sfa.backend.dashboard.DashboardUiState
+import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.RemoteControlManager
 
 internal fun DashboardUiState.toWire(): Map<String, Any?> = mapOf(
     "status" to serviceStatus.name,
     "selectedProfileId" to Settings.selectedProfile,
+    "processingGeneration" to if (RemoteControlManager.remoteServer.value == null) BoxService.dashboardConfig.value?.processingGeneration ?: 0L else null,
+    "processingApplying" to (RemoteControlManager.remoteServer.value == null && BoxService.isApplyingProfile),
     "startedAt" to (RemoteControlManager.startedAt.value ?: serviceStartTime),
     "memory" to memory,
     "goroutines" to goroutines,

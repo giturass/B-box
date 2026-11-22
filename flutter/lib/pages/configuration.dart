@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/services.dart';
 import '../widgets.dart';
 import 'profiles.dart';
 import 'profile_editor.dart' show JsonEditorController;
@@ -33,6 +35,8 @@ class ProfileConfigStore extends ChangeNotifier {
   String? error;
   bool ready = false, saving = false, loading = false, _disposed = false;
   int _generation = 0;
+  final _runningScripts = <(String, int), String>{};
+  final _cancelingScripts = <String>{};
 
   void _receive(Json data) {
     root = json(decodeConfigJson(data['formatted'] as String));
@@ -68,6 +72,50 @@ class ProfileConfigStore extends ChangeNotifier {
 
   List<Json> entries(List<String> path) => rows(value(path));
   List<String> tags(List<String> path) => entries(path).map((entry) => entry['tag']).whereType<String>().toList();
+
+  bool isScriptRunning(String type, int index) => _runningScripts.containsKey((type, index));
+  String? scriptRequestId(String type, int index) => _runningScripts[(type, index)];
+  bool isScriptCanceling(String type, int index) => _cancelingScripts.contains(scriptRequestId(type, index));
+
+  bool canRunScript(String type, int index) {
+    if (_disposed || !ready || loading || saving || revision.isEmpty ||
+        !const {'cron', 'event', 'generic'}.contains(type) || box.remote ||
+        !box.running || box.transitioning || box.serviceSettingsChanging ||
+        box.dashboard['processingApplying'] == true ||
+        (box.dashboard['processingGeneration'] as num? ?? 0) <= 0 ||
+        box.selectedProfileId != profile['id'] || value([...ScriptsConfigPage.path, 'enabled']) != true ||
+        isScriptRunning(type, index)) return false;
+    final scripts = entries([...ScriptsConfigPage.path, type]);
+    return index >= 0 && index < scripts.length && scripts[index]['disabled'] != true;
+  }
+
+  Future<Json?> runScript(String type, int index, {required String requestId}) async {
+    if (!canRunScript(type, index)) return null;
+    final key = (type, index);
+    _runningScripts[key] = requestId;
+    notifyListeners();
+    try {
+      final output = await box.call('scripts.run', {
+        'profileId': profile['id'], 'revision': revision, 'type': type, 'index': index, 'requestId': requestId,
+      });
+      return output == null ? null : json(output);
+    } finally {
+      _runningScripts.remove(key);
+      _cancelingScripts.remove(requestId);
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  Future<void> cancelScript(String requestId) async {
+    if (!_runningScripts.containsValue(requestId) || !_cancelingScripts.add(requestId)) return;
+    if (!_disposed) notifyListeners();
+    try { await box.call('scripts.cancel', {'requestId': requestId}); }
+    catch (_) {
+      _cancelingScripts.remove(requestId);
+      if (!_disposed) notifyListeners();
+      rethrow;
+    }
+  }
 
   Future<bool> set(List<String> path, dynamic value, {bool remove = false, String? expectedRevision, bool rethrowFailure = false}) async {
     if (_disposed || !ready || saving || loading) return false;
@@ -126,7 +174,13 @@ class ProfileConfigStore extends ChangeNotifier {
     } finally { saving = false; if (!_disposed) notifyListeners(); }
   }
 
-  @override void dispose() { _disposed = true; super.dispose(); }
+  @override void dispose() {
+    for (final requestId in _runningScripts.values.toList()) {
+      unawaited(cancelScript(requestId).then<void>((_) {}, onError: (Object _) {}));
+    }
+    _disposed = true;
+    super.dispose();
+  }
 }
 
 enum ProfileConfigSection {
@@ -336,7 +390,7 @@ class ScriptsConfigPage extends StatelessWidget {
     final revision = store.revision;
     if (context.box.remote) return const BoxPage(title: 'Scripts', children: [EmptyState('Disconnect remote session to edit local profiles')]);
     return ProcessingConfigScaffold(title: 'Scripts', store: store, children: [
-      ListFooter(text: context.tr('HTTP scripts and cron tasks run independently of HTTP rewriting. HTTPS scripts use the MITM domain settings.')),
+      ListFooter(text: context.tr('HTTP, cron, event and generic scripts run independently of HTTP rewriting. HTTPS HTTP scripts use the MITM domain settings.')),
       generateSection(items: [
         ListItem.toggle(key: const ValueKey('scripts-enabled'), title: Text(context.tr('Enable scripts')),
           value: store.value([...path, 'enabled']) == true,
@@ -349,12 +403,26 @@ class ScriptsConfigPage extends StatelessWidget {
           }, showHttpMatchHelp: true)),
         ListItem.open(key: const ValueKey('cron-scripts'), leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Cron tasks')),
           subtitle: Text('${store.entries([...path, 'cron']).length}'),
-          widget: ConfigListPage(store: store, title: 'Cron tasks', path: [...path, 'cron'], initial: const {
+          widget: ConfigListPage(store: store, title: 'Cron tasks', path: [...path, 'cron'], scriptType: 'cron', initial: const {
             'name': 'Scheduled task', 'disabled': true, 'cron': '0 2 * * *', 'timeout_ms': 5000,
             'source': r'console.log($cronexp); $done();',
           })),
+        ListItem.open(key: const ValueKey('event-scripts'), leading: const GlyphIcon(AppGlyphs.connections), title: Text(context.tr('Event scripts')),
+          subtitle: Text('${store.entries([...path, 'event']).length}'),
+          widget: ConfigListPage(store: store, title: 'Event scripts', path: [...path, 'event'], scriptType: 'event', initial: const {
+            'name': 'Network change task', 'disabled': true, 'event': 'network-changed', 'timeout_ms': 5000,
+            'source': r'$done();',
+          })),
+        ListItem.open(key: const ValueKey('generic-scripts'), leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Generic scripts')),
+          subtitle: Text('${store.entries([...path, 'generic']).length}'),
+          widget: ConfigListPage(store: store, title: 'Generic scripts', path: [...path, 'generic'], scriptType: 'generic', initial: const {
+            'name': 'Generic script', 'disabled': true, 'timeout_ms': 5000,
+            'source': r'$done({title: "B-box", content: "Script completed"});',
+          })),
       ], footer: context.tr('Cron accepts five fields, or six with seconds first. The default timezone follows the device when the service starts.')),
       ListFooter(text: context.tr('Cron runs while the local service is running. Missed intervals are not replayed.')),
+      ListFooter(text: context.tr('Events: network-changed for network changes, engine-started for engine startup, and profile-reloaded after configuration reload. Generic scripts run only on request.')),
+      ListFooter(text: context.tr('Save and enable a cron, event or generic script, then use Run script in its menu. The selected local profile must be running. MITM is not required.')),
       generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Script resources')),
           widget: ProcessingResourcesPage(store: store, section: 'scripts')),
@@ -501,68 +569,339 @@ class LogConfigPage extends StatelessWidget {
   ]));
 }
 
-class ConfigListPage extends StatelessWidget {
+class ConfigListPage extends StatefulWidget {
   const ConfigListPage({super.key, required this.store, required this.title, required this.path, required this.initial,
-    this.showHttpMatchHelp = false});
+    this.showHttpMatchHelp = false, this.scriptType});
   final ProfileConfigStore store;
   final String title;
   final List<String> path;
   final Json initial;
   final bool showHttpMatchHelp;
+  final String? scriptType;
+  @override State<ConfigListPage> createState() => _ConfigListPageState();
+}
+
+class _ConfigListPageState extends State<ConfigListPage> with WidgetsBindingObserver {
+  static int _requestSequence = 0;
+  final _requests = <String>{}, _canceledRequests = <String>{};
+  final _outputInvalidation = ValueNotifier<int>(0);
+  int _runEpoch = 0;
+  bool _visible = false, _editing = false;
+  Object? _runContext;
+  ProfileConfigStore get store => widget.store;
+  List<String> get path => widget.path;
+  String get title => widget.title;
+
+  @override void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _listen(store);
+  }
+
+  void _listen(ProfileConfigStore value) {
+    value.addListener(_stateChanged);
+    value.box.stateChanges.addListener(_stateChanged);
+    _runContext = _contextIdentity();
+  }
+
+  void _unlisten(ProfileConfigStore value) {
+    value.removeListener(_stateChanged);
+    value.box.stateChanges.removeListener(_stateChanged);
+  }
+
+  Object _contextIdentity() {
+    final box = store.box;
+    return (store.revision, store.ready, store.loading, store.saving,
+      store.value([...ScriptsConfigPage.path, 'enabled']), box.sessionRevision,
+      box.selectedProfileId, box.dashboard['status'], box.profilesRevision,
+      box.dashboard['processingGeneration'], box.dashboard['processingApplying'],
+      box.serviceSettingsChanging, box.remote);
+  }
+
+  void _invalidateRuns() {
+    _outputInvalidation.value = ++_runEpoch;
+    for (final requestId in _requests) {
+      if (_canceledRequests.add(requestId)) {
+        unawaited(store.cancelScript(requestId).then<void>((_) {}, onError: (Object _) {}));
+      }
+    }
+  }
+
+  void _stateChanged() {
+    final identity = _contextIdentity();
+    if (identity != _runContext) {
+      _runContext = identity;
+      _invalidateRuns();
+    }
+    if (mounted) setState(() {});
+  }
+
+  @override void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncVisibility();
+  }
+
+  void _syncVisibility() {
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    final visible = PageActivityScope.isActiveOf(context) && TickerMode.of(context) &&
+      (lifecycle == null || lifecycle == AppLifecycleState.resumed);
+    if (visible == _visible) return;
+    _visible = visible;
+    _invalidateRuns();
+  }
+
+  @override void didChangeAppLifecycleState(AppLifecycleState state) {
+    _syncVisibility();
+    if (mounted) setState(() {});
+  }
+
+  @override void didUpdateWidget(ConfigListPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.store, store)) {
+      for (final requestId in _requests) {
+        unawaited(oldWidget.store.cancelScript(requestId).then<void>((_) {}, onError: (Object _) {}));
+      }
+      _unlisten(oldWidget.store);
+      _outputInvalidation.value = ++_runEpoch;
+      _listen(store);
+    } else if (oldWidget.scriptType != widget.scriptType || oldWidget.path.join('.') != path.join('.')) {
+      _invalidateRuns();
+    }
+  }
+
+  @override void dispose() {
+    _invalidateRuns();
+    _unlisten(store);
+    WidgetsBinding.instance.removeObserver(this);
+    _outputInvalidation.dispose();
+    super.dispose();
+  }
+
+  String _label(Json entry, int index) {
+    for (final key in ['name', 'tag', 'action', 'type']) {
+      final value = entry[key]?.toString();
+      if (value != null && value.isNotEmpty) return value;
+    }
+    return '${context.tr(title)} ${index + 1}';
+  }
+
+  Future<void> _run(int index, {required ProfileConfigStore expectedStore, required String expectedRevision,
+    required String expectedType, required int expectedEpoch}) async {
+    final type = widget.scriptType;
+    if (type == null || type != expectedType || !identical(store, expectedStore) || store.revision != expectedRevision ||
+        expectedEpoch != _runEpoch || !_visible || _editing || !store.canRunScript(type, index)) return;
+    final epoch = _runEpoch, targetStore = store;
+    final label = _label(store.entries(path)[index], index);
+    final requestId = '${DateTime.now().microsecondsSinceEpoch}-${++_requestSequence}';
+    _requests.add(requestId);
+    Json? output;
+    var canceled = false;
+    try {
+      output = await targetStore.runScript(type, index, requestId: requestId);
+    } catch (failure) {
+      output = {'error': BoxController.describe(failure)};
+    } finally {
+      _requests.remove(requestId);
+      canceled = _canceledRequests.contains(requestId);
+      _canceledRequests.remove(requestId);
+    }
+    bool current() => mounted && _visible && !_editing && epoch == _runEpoch && identical(targetStore, store) && !store.box.remote;
+    if (canceled || !current() || output == null) return;
+    await showBoxDialog<void>(context: context, builder: (_) => ScriptOutputDialog(name: label, output: output!,
+      invalidation: _outputInvalidation, isValid: current));
+  }
+
+  Future<void> _cancel(int index, {required ProfileConfigStore expectedStore, required String expectedRequestId}) async {
+    final type = widget.scriptType;
+    if (type == null || !_visible || _editing || !identical(store, expectedStore)) return;
+    final requestId = store.scriptRequestId(type, index);
+    if (requestId == null || requestId != expectedRequestId || store.isScriptCanceling(type, index)) return;
+    final targetStore = store, epoch = _runEpoch;
+    _canceledRequests.add(requestId);
+    try { await targetStore.cancelScript(requestId); }
+    catch (failure) {
+      if (mounted && epoch == _runEpoch && identical(targetStore, store)) {
+        _canceledRequests.remove(requestId);
+        store.box.report(failure);
+      }
+    }
+  }
 
   Future<void> _edit(BuildContext context, [int? index]) async {
     final entries = List<Json>.of(store.entries(path));
     final revision = store.revision;
-    final value = index == null ? Map<String, dynamic>.of(initial) : entries[index];
+    final value = index == null ? Map<String, dynamic>.of(widget.initial) : entries[index];
     if (index == null && value['tag'] is String) {
       final base = value['tag'] as String, tags = store.tags(path).toSet();
       var suffix = 2;
       while (tags.contains(value['tag'])) { value['tag'] = '$base-${suffix++}'; }
     }
-    await openForm(context, ConfigValueEditor(title: index == null ? 'Add' : 'Edit', initial: value,
-      showHttpMatchHelp: showHttpMatchHelp, onSave: (value) async {
-      if (value is! Map) throw const FormatException('JSON object required');
-      final next = List<Json>.of(entries);
-      if (index == null) next.add(json(value)); else next[index] = json(value);
-      return store.set(path, next, expectedRevision: revision, rethrowFailure: true);
-    }));
+    _invalidateRuns();
+    setState(() => _editing = true);
+    try {
+      await openForm(context, ConfigValueEditor(title: index == null ? 'Add' : 'Edit', initial: value,
+        showHttpMatchHelp: widget.showHttpMatchHelp, scriptType: widget.scriptType, onSave: (value) async {
+        if (value is! Map) throw const FormatException('JSON object required');
+        final next = List<Json>.of(entries);
+        if (index == null) next.add(json(value)); else next[index] = json(value);
+        return store.set(path, next, expectedRevision: revision, rethrowFailure: true);
+      }));
+    } finally { if (mounted) setState(() => _editing = false); }
   }
 
-  @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) {
+  Future<void> _reorder() async {
+    _invalidateRuns();
+    setState(() => _editing = true);
+    try { await openForm(context, ConfigOrderPage(store: store, title: title, path: path)); }
+    finally { if (mounted) setState(() => _editing = false); }
+  }
+
+  @override Widget build(BuildContext context) {
+    if (context.box.remote) return BoxPage(title: title, children: const [EmptyState('Disconnect remote session to edit local profiles')]);
     final entries = store.entries(path);
-    return Scaffold(title: context.tr(title), isLoading: store.saving,
-      primaryAction: IconButtonData(glyph: AppGlyphs.add, tooltip: context.tr('Add'), onPressed: store.saving ? null : () => _edit(context)),
+    final blocked = !store.ready || store.saving || store.loading || _editing;
+    return Scaffold(title: context.tr(title), isLoading: store.saving || store.loading,
+      primaryAction: IconButtonData(glyph: AppGlyphs.add, tooltip: context.tr('Add'), onPressed: blocked ? null : () => _edit(context)),
       iconActions: [
-        IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Reload'), onPressed: store.saving ? null : store.load),
+        IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Reload'), onPressed: blocked ? null : store.load),
         if (entries.length > 1) IconButtonData(glyph: AppGlyphs.sort, tooltip: context.tr('Reorder'),
-          onPressed: store.saving ? null : () => openForm(context, ConfigOrderPage(store: store, title: title, path: path))),
+          onPressed: blocked ? null : _reorder),
       ],
       body: entries.isEmpty ? NullStatus(label: context.tr('No results'), illustration: NullStatusIllustration.profile,
-        action: TonalButton(size: TonalButtonSize.bar, glyph: AppGlyphs.add, label: context.tr('Add'), onPressed: () => _edit(context)))
+        action: TonalButton(size: TonalButtonSize.bar, glyph: AppGlyphs.add, label: context.tr('Add'), onPressed: blocked ? null : () => _edit(context)))
         : ListView.separated(padding: EdgeInsets.fromLTRB(16, context.contentTopPadding, 16, 16 + context.bottomInset),
             itemCount: entries.length, separatorBuilder: (_, _) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
               final entry = entries[index];
-              final revision = store.revision;
-              final label = entry['name'] ?? entry['tag'] ?? entry['action'] ?? entry['type'] ?? '${context.tr(title)} ${index + 1}';
+              final revision = store.revision, targetStore = store, epoch = _runEpoch;
+              final label = _label(entry, index), type = widget.scriptType;
+              final requestId = type == null ? null : store.scriptRequestId(type, index);
+              final running = requestId != null;
               final menu = [
-                PopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => _edit(context, index)),
-                PopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Delete'), danger: true, onPressed: () async {
+                if (type != null && _visible && !_editing && store.canRunScript(type, index))
+                  PopupMenuItem(glyph: AppGlyphs.playPause(0), label: context.tr('Run script'), onPressed: () => _run(index,
+                    expectedStore: targetStore, expectedRevision: revision, expectedType: type, expectedEpoch: epoch)),
+                if (type != null && requestId != null && _visible && !_editing && !store.isScriptCanceling(type, index))
+                  PopupMenuItem(glyph: AppGlyphs.close, label: context.tr('Cancel script'), onPressed: () => _cancel(index,
+                    expectedStore: targetStore, expectedRequestId: requestId)),
+                PopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: blocked ? null : () => _edit(context, index)),
+                PopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Delete'), danger: true, onPressed: blocked ? null : () async {
+                  _invalidateRuns();
                   if (await confirm(context, 'Delete', message: label.toString())) {
                     final next = List<Json>.of(entries)..removeAt(index);
                     await store.set(path, next, expectedRevision: revision);
                   }
                 }),
               ];
-              return ContextMenuRegion(menuItems: menu, child: Card(radius: AppCorner.xl, onPressed: () => _edit(context, index), child: ListItem(
-                leading: const GlyphIcon(AppGlyphs.profiles), title: Text(label.toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
+              return ContextMenuRegion(key: ValueKey('config-entry-$index'), menuItems: menu,
+                child: Card(radius: AppCorner.xl, onPressed: blocked ? null : () => _edit(context, index), child: ListItem(
+                leading: GlyphIcon(type == null ? AppGlyphs.profiles : AppGlyphs.code), title: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
                 subtitle: Text(entry['url']?.toString() ?? entry['path']?.toString() ?? entry['server']?.toString() ?? jsonEncode(entry), maxLines: 2, overflow: TextOverflow.ellipsis),
-                trailing: BoxMenu(items: menu),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (running) Padding(padding: const EdgeInsets.only(right: 8),
+                    child: ActivityIndicator(key: ValueKey('script-running-$index'), size: 18, semanticLabel: context.tr('Running script'))),
+                  BoxMenu(items: menu),
+                ]),
               )));
             },
           ),
     );
-  });
+  }
+}
+
+/// Reads a panel script's text without exposing its JSON wrapper to the reader.
+String? scriptResultText(String result) {
+  if (result.isEmpty) return null;
+  final Object? value;
+  try { value = jsonDecode(result); } on FormatException { return result; }
+  return switch (value) {
+    null || '' => null,
+    final String text => text,
+    {'title': final Object title} => [title, if ((value as Map)['content'] case final Object content) content].join('\n'),
+    final Map map when map.isEmpty => null,
+    _ => result,
+  };
+}
+
+String scriptOutputText(Json output, {String noOutput = 'No output'}) {
+  final error = output['error'] as String? ?? '';
+  final result = scriptResultText(output['result'] as String? ?? '');
+  final parts = [if (error.isNotEmpty) error, if (result != null) result,
+    ...(output['logs'] as List? ?? []).whereType<String>()];
+  return parts.isEmpty ? noOutput : parts.join('\n');
+}
+
+class ScriptOutputDialog extends StatefulWidget {
+  const ScriptOutputDialog({super.key, required this.name, required this.output, this.invalidation, this.isValid});
+  final String name;
+  final Json output;
+  final Listenable? invalidation;
+  final bool Function()? isValid;
+  @override State<ScriptOutputDialog> createState() => _ScriptOutputDialogState();
+}
+
+class _ScriptOutputDialogState extends State<ScriptOutputDialog> {
+  bool _closing = false;
+  bool get _valid => widget.isValid?.call() != false;
+
+  @override void initState() {
+    super.initState();
+    widget.invalidation?.addListener(_checkValidity);
+  }
+
+  @override void didChangeDependencies() {
+    super.didChangeDependencies();
+    _checkValidity();
+  }
+
+  @override void didUpdateWidget(ScriptOutputDialog oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.invalidation, widget.invalidation)) {
+      oldWidget.invalidation?.removeListener(_checkValidity);
+      widget.invalidation?.addListener(_checkValidity);
+    }
+    _checkValidity();
+  }
+
+  void _checkValidity() {
+    if (_closing || _valid) return;
+    _closing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final route = ModalRoute.of(context);
+      // Remove this result route even if another result or editor is above it.
+      if (route != null && route.isActive) route.navigator?.removeRoute(route);
+    });
+  }
+
+  @override void dispose() {
+    widget.invalidation?.removeListener(_checkValidity);
+    super.dispose();
+  }
+
+  Future<void> _copy(String text) async {
+    if (_closing || !_valid) return;
+    final box = context.box;
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+      if (mounted && _valid) box.messages.add(context.tr('Copied'));
+    } catch (failure) { if (mounted && _valid) box.report(failure); }
+  }
+
+  @override Widget build(BuildContext context) {
+    if (_closing || !_valid) return const SizedBox.shrink();
+    final text = scriptOutputText(widget.output, noOutput: context.tr('No output'));
+    // Prism alerts bound their content and scroll it while keeping actions fixed.
+    return AlertDialog(key: const ValueKey('script-output-dialog'), title: context.tr('Script output'),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        SelectableText(widget.name, style: AppTextStyle.headline.of(context)),
+        const SizedBox(height: 12),
+        SelectableText(text, key: const ValueKey('script-output-text')),
+      ]), actions: [
+        TextButton(key: const ValueKey('copy-script-output'), onPressed: () => _copy(text), child: Text(context.tr('Copy'))),
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(context.tr('Close'))),
+      ]);
+  }
 }
 
 class ConfigOrderPage extends StatefulWidget {
@@ -610,11 +949,12 @@ class _ConfigOrderPageState extends State<ConfigOrderPage> {
 
 class ConfigValueEditor extends StatefulWidget {
   const ConfigValueEditor({super.key, required this.title, required this.initial, required this.onSave,
-    this.showHttpMatchHelp = false});
+    this.showHttpMatchHelp = false, this.scriptType});
   final String title;
   final dynamic initial;
   final Future<bool> Function(dynamic value) onSave;
   final bool showHttpMatchHelp;
+  final String? scriptType;
   @override State<ConfigValueEditor> createState() => _ConfigValueEditorState();
 }
 class _ConfigValueEditorState extends State<ConfigValueEditor> {
@@ -628,6 +968,19 @@ class _ConfigValueEditorState extends State<ConfigValueEditor> {
     if (_lastText == _text.text) return;
     _lastText = _text.text;
     if (mounted) setState(() {});
+  }
+  String _eventName() {
+    try { return json(decodeConfigJson(_text.text))['event'] as String? ?? 'network-changed'; }
+    catch (_) { return 'network-changed'; }
+  }
+
+  void _setEvent(String event) {
+    try {
+      final value = decodeConfigJson(_text.text);
+      if (value is! Map) throw const FormatException('JSON object required');
+      _text.text = configEncoder.convert({...json(value), 'event': event});
+      setState(() => _error = null);
+    } catch (failure) { setState(() => _error = BoxController.describe(failure)); }
   }
   @override void dispose() { _text.dispose(); super.dispose(); }
   @override Widget build(BuildContext context) => BoxEditGuard(dirty: _text.text != _original, busy: _saving,
@@ -644,6 +997,16 @@ class _ConfigValueEditorState extends State<ConfigValueEditor> {
     }),
     children: [
       if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: SelectableText(_error!, style: TextStyle(color: context.colorScheme.error))),
+      if (widget.scriptType == 'event') ...[
+        AbsorbPointer(absorbing: _saving, child: ListItem<String>.options(key: const ValueKey('script-event-trigger'), title: Text(context.tr('Event trigger')),
+          options: const ['network-changed', 'engine-started', 'profile-reloaded'], value: _eventName(),
+          textBuilder: (event) => context.tr(switch (event) {
+            'network-changed' => 'Network changes', 'engine-started' => 'Engine startup', 'profile-reloaded' => 'Configuration reload', _ => event,
+          }), onChanged: (event) { if (!_saving) _setEvent(event); })),
+        ListFooter(text: context.tr('Events: network-changed for network changes, engine-started for engine startup, and profile-reloaded after configuration reload. Generic scripts run only on request.')),
+      ],
+      if (widget.scriptType != null)
+        ListFooter(text: context.tr('Save and enable a cron, event or generic script, then use Run script in its menu. The selected local profile must be running. MITM is not required.')),
       BoxField(label: context.tr('Configuration'), borderRadius: AppRadius.md,
         child: TextField(controller: _text, readOnly: _saving, maxLines: 16, minLines: 8, autocorrect: false, enableSuggestions: false,
         smartDashesType: SmartDashesType.disabled, smartQuotesType: SmartQuotesType.disabled,

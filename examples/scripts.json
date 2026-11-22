@@ -111,6 +111,35 @@
           "source": "$httpClient.get($argument, function(error, response, data) { if(error || response.status!==200) throw Error(error || 'HTTP status '+response.status); if(!$persistentStore.write(data,'latest')) throw Error('Storage write failed'); console.log(response.status); $done(); });"
         }
       ],
+      "event": [
+        {
+          "name": "Network changed",
+          "disabled": true,
+          "event": "network-changed",
+          "source": "console.log($event.name); $done();"
+        },
+        {
+          "name": "Engine started",
+          "disabled": true,
+          "event": "engine-started",
+          "source": "console.log($event.name); $done();"
+        },
+        {
+          "name": "Profile reloaded",
+          "disabled": true,
+          "event": "profile-reloaded",
+          "source": "console.log($event.name); $done();"
+        }
+      ],
+      "generic": [
+        {
+          "name": "Manual diagnostics",
+          "disabled": true,
+          "argument": "Hello, B-box",
+          "source": "console.log($trigger); $done({title:'Diagnostics',content:$argument});",
+          "timeout_ms": 5000
+        }
+      ],
       "resources": {
         "response.js": {
           "data_type": "text",

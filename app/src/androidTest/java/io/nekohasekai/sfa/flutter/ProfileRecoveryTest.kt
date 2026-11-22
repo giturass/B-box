@@ -23,6 +23,7 @@ import androidx.work.testing.WorkManagerTestInitHelper
 import com.google.common.util.concurrent.ListenableFuture
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.OutboundGroup
+import io.nekohasekai.libbox.UIScriptTask
 import io.nekohasekai.sfa.Application
 import io.nekohasekai.sfa.backend.log.LogLevel
 import io.nekohasekai.sfa.backend.log.LogViewModel
@@ -472,6 +473,130 @@ class ProfileRecoveryTest {
             }
         }
     }
+
+    @Test fun scriptLifecycleEventsAndManualDebugUseTheCurrentAndroidCore() = withRunningProfile { activity, profiles, id -> coroutineScope {
+        val namespace = "android-script-events-${UUID.randomUUID()}"
+        val storage = File(activity.noBackupFilesDir, "http-debug/captures/script-storage/$namespace.json")
+        val eventSource = """
+            if(typeof ${'$'}trigger === 'undefined') {
+                const name=${'$'}event.name;
+                ${'$'}persistentStore.write(String(Number(${'$'}persistentStore.read(name)||0)+1),name);
+            }
+            ${'$'}done({event:${'$'}event.name,trigger:typeof ${'$'}trigger==='undefined'?'automatic':${'$'}trigger});
+        """.trimIndent()
+        val scripts = JSONObject().put("enabled", true).put("event", JSONArray().apply {
+            for (event in listOf("engine-started", "network-changed", "profile-reloaded")) {
+                put(JSONObject().put("event", event).put("source", eventSource).put("storage_namespace", namespace))
+            }
+        }).put("cron", JSONArray().put(JSONObject().put("cron", "0 0 1 1 *").put("source",
+            "${'$'}done({trigger:${'$'}trigger,cron:${'$'}cronexp,request:typeof ${'$'}request});")))
+            .put("generic", JSONArray()
+                .put(JSONObject().put("name", "same").put("disabled", true).put("source", "${'$'}done('disabled');"))
+                .put(JSONObject().put("name", "same").put("source", "console.log('native-script-output'); ${'$'}done({position:1,trigger:${'$'}trigger});"))
+                .put(JSONObject().put("storage_namespace", namespace).put("source", "${'$'}done({engine:Number(${'$'}persistentStore.read('engine-started')||0),reload:Number(${'$'}persistentStore.read('profile-reloaded')||0)});"))
+                .put(JSONObject().put("storage_namespace", namespace).put("timeout_ms", -1)
+                    .put("source", "${'$'}persistentStore.write('1','waiting'); while(true){}")))
+        val config = JSONObject().put("log", JSONObject().put("level", "error"))
+            .put("outbounds", JSONArray().put(JSONObject().put("type", "direct").put("tag", "scripts-direct")))
+            .put("experimental", JSONObject().put("scripts", scripts)).toString()
+        suspend fun awaitCount(key: String, count: Int) = withTimeout(5_000) {
+            while (!storage.isFile || JSONObject(storage.readText()).getJSONObject("values").optString(key).toIntOrNull() != count) delay(10)
+        }
+        fun finishTask(task: UIScriptTask): JSONObject {
+            try { return JSONObject(task.run()) } finally { task.close(); task.join() }
+        }
+        fun run(type: String, index: Int) = finishTask(BoxService.dashboardServer!!.newUIScriptTask(type, index))
+        suspend fun eventAfterAutomatic(index: Int): JSONObject = withTimeout(5_000) {
+            var task: UIScriptTask? = null
+            while (task == null) {
+                task = try { BoxService.dashboardServer!!.newUIScriptTask("event", index) } catch (error: Exception) {
+                    // A storage write precedes the automatic worker's cleanup.
+                    // Only that same task's busy gate permits an admission retry.
+                    if (error.message != "script task is already running") throw error
+                    delay(10)
+                    null
+                }
+            }
+            finishTask(task)
+        }
+        var admitted: ScriptDebugTask? = null
+        try {
+            withContext(Dispatchers.Main) { activity.stopService() }
+            withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }
+            profiles.writeContent(id, config, BoxProfiles.revision(profiles.read(id)))
+            withContext(Dispatchers.Main) { activity.applyProfile(recover = true) }
+            awaitCount("engine-started", 1)
+            assertFalse(BoxService.isApplyingProfile)
+            val firstGeneration = BoxService.dashboardConfig.value!!.processingGeneration
+            assertTrue(firstGeneration > 0)
+            assertTrue(runCatching { BoxService.dashboardServer!!.newUIScriptTask("generic", 0) }.isFailure)
+            val output = run("generic", 1)
+            assertEquals("", output.getString("error"))
+            assertEquals(1, JSONObject(output.getString("result")).getInt("position"))
+            assertEquals("editor", JSONObject(output.getString("result")).getString("trigger"))
+            assertEquals(1, output.getJSONArray("logs").length())
+            assertTrue(output.getJSONArray("logs").getString(0).endsWith("native-script-output"))
+            val revision = BoxProfiles.revision(profiles.read(id))
+            val request = ScriptRunRequest("native-admission", id, revision, "generic", 1)
+            val target = prepareProfileScript(request, CommandTarget.localSession()) { admitted = it }
+            admitted!!.awaitClosed()
+
+            // Hold only the startup snapshot lock to observe a real command-server
+            // reload before it reads/activates the same JSON. Status stays Started.
+            ProfileContent.snapshotMutex.lock()
+            val reloading = async { withContext(Dispatchers.Main) { activity.applyProfile() } }
+            try {
+                withTimeout(5_000) { BoxService.processingApplying.first { it } }
+                assertEquals(Status.Started, BoxService.currentStatus)
+                var created = false
+                assertTrue(runCatching { prepareProfileScript(request, CommandTarget.localSession()) { created = true } }.exceptionOrNull() is IllegalArgumentException)
+                assertFalse(created)
+            } finally { ProfileContent.snapshotMutex.unlock() }
+            withTimeout(15_000) { reloading.await() }
+            awaitCount("profile-reloaded", 1)
+            assertFalse(BoxService.isApplyingProfile)
+            assertTrue(BoxService.dashboardConfig.value!!.processingGeneration > firstGeneration)
+            assertEquals(revision, BoxProfiles.revision(profiles.read(id)))
+            assertTrue(runCatching { validateProfileScript(target) }.exceptionOrNull() is IllegalArgumentException)
+            val manualEvent = JSONObject(eventAfterAutomatic(2).getString("result"))
+            assertEquals("manually", manualEvent.getString("event"))
+            assertEquals("editor", manualEvent.getString("trigger"))
+            val manualCron = JSONObject(run("cron", 0).getString("result"))
+            assertEquals("editor", manualCron.getString("trigger"))
+            assertEquals("0 0 1 1 *", manualCron.getString("cron"))
+            assertEquals("undefined", manualCron.getString("request"))
+            val counts = JSONObject(run("generic", 2).getString("result"))
+            assertEquals(1, counts.getInt("engine"))
+            assertEquals(1, counts.getInt("reload"))
+            var created = false
+            assertTrue(runCatching { prepareProfileScript(request.copy(revision = "0".repeat(64)), CommandTarget.localSession()) { created = true } }.isFailure)
+            assertTrue(runCatching { prepareProfileScript(request.copy(profileId = id + 1), CommandTarget.localSession()) { created = true } }.isFailure)
+            assertFalse(created)
+            val session = CommandTarget.localSession()
+            CommandTarget.setRemoteServer(io.nekohasekai.sfa.database.RemoteServer(id = 99, url = "127.0.0.1:1"))
+            try {
+                assertTrue(runCatching { prepareProfileScript(request, session) { created = true } }.isFailure)
+                assertFalse(created)
+            } finally { CommandTarget.setRemoteServer(null) }
+
+            val waiting = BoxService.dashboardServer!!.newUIScriptTask("generic", 3)
+            val stopped = async(Dispatchers.IO) { JSONObject(waiting.run()) }
+            try {
+                awaitCount("waiting", 1)
+                waiting.close()
+                val cancelled = withTimeout(5_000) { stopped.await() }
+                assertEquals("null", cancelled.getString("result"))
+                assertTrue(cancelled.getString("error").contains("cancel"))
+            } finally { waiting.close(); waiting.join() }
+            assertEquals(Status.Started, activity.serviceStatus.value)
+            assertEquals(config, profiles.read(id))
+        } finally {
+            admitted?.close()
+            admitted?.awaitClosed()
+            profiles.writeContent(id, "{}", BoxProfiles.revision(profiles.read(id)))
+            storage.delete()
+        }
+    } }
 
     @Test fun independentCronUsesRoutingAndStopsWithTheService() {
         withRunningProfile { activity, profiles, id ->

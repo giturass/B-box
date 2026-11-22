@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,6 +19,8 @@ type PreparedProcessing struct {
 	scripts          *ScriptProgram
 	ca               *authority
 	cron             *cronRunner
+	tasks            *scriptTaskRunner
+	notifications    atomic.Pointer[scriptTaskRunner]
 	resources        *processingResources
 	directory        string
 	profileDirectory string
@@ -99,9 +102,15 @@ func newProcessingEngine(prepared *PreparedProcessing) *Engine {
 	return engine
 }
 
-func ActivateProcessing(prepared *PreparedProcessing, dial RewriteDialFunc, roots *x509.CertPool) {
+func ActivateProcessing(prepared *PreparedProcessing, dial RewriteDialFunc, roots *x509.CertPool, startEvents ...string) {
 	managerMu.Lock()
 	defer managerMu.Unlock()
+	if profileProcessing != nil {
+		profileProcessing.notifications.Store(nil)
+	}
+	if profileProcessing != nil && profileProcessing.tasks != nil {
+		profileProcessing.tasks.Close()
+	}
 	if profileProcessing != nil && profileProcessing.cron != nil {
 		profileProcessing.cron.Close()
 	}
@@ -131,6 +140,16 @@ func ActivateProcessing(prepared *PreparedProcessing, dial RewriteDialFunc, root
 					sources = append(sources, script.source)
 				}
 			}
+			for _, script := range prepared.scripts.event {
+				if script.source != nil {
+					sources = append(sources, script.source)
+				}
+			}
+			for _, script := range prepared.scripts.generic {
+				if script.source != nil {
+					sources = append(sources, script.source)
+				}
+			}
 		}
 		prepared.resources = newProcessingResources(next.ctx, prepared.directory, prepared.profileDirectory, dial, roots, sources)
 		next.scriptEnvironment = scriptEnvironment{dial: dial, roots: roots, gateway: prepared.gateway, resources: prepared.resources}
@@ -143,19 +162,38 @@ func ActivateProcessing(prepared *PreparedProcessing, dial RewriteDialFunc, root
 		previous.Close()
 	}
 	if prepared != nil {
-		if prepared.scripts != nil && len(prepared.scripts.cron) > 0 {
-			prepared.cron = startCron(prepared.scripts, dial, roots)
+		if prepared.scripts != nil {
+			prepared.tasks = newScriptTaskRunner(next.ctx, prepared.scripts, next.scriptEnvironment)
+			prepared.notifications.Store(prepared.tasks)
+			if len(prepared.scripts.cron) > 0 {
+				prepared.cron = startCronForTasks(prepared.tasks)
+			}
+			event := ScriptEventEngineStarted
+			if len(startEvents) > 0 {
+				event = startEvents[0]
+			}
+			if event != "" {
+				if err := prepared.tasks.notify(event); err != nil {
+					writeLog("error", "Script lifecycle event: "+err.Error())
+				}
+			}
 		}
 		writeLog("info", "Profile MITM, HTTP rewrite and script settings applied; capture recording is off")
 	}
 }
 
-// StopService ends all profile processing, scheduled jobs and manual recording.
+// StopService ends all profile processing, script invocations and manual recording.
 // Stop controls recording only; it never restarts or duplicates cron schedules.
 func StopService() {
 	managerMu.Lock()
 	defer managerMu.Unlock()
 	defer SetLogger(nil)
+	if profileProcessing != nil {
+		profileProcessing.notifications.Store(nil)
+	}
+	if profileProcessing != nil && profileProcessing.tasks != nil {
+		profileProcessing.tasks.Close()
+	}
 	if profileProcessing != nil && profileProcessing.cron != nil {
 		profileProcessing.cron.Close()
 	}
@@ -166,7 +204,7 @@ func StopService() {
 	if engine := active.Swap(nil); engine != nil {
 		engine.Close()
 		lastCaptureState = engine.captureState()
-		writeLog("info", "Service processing stopped; intercepted connections and cron jobs closed")
+		writeLog("info", "Service processing stopped; intercepted connections and script tasks closed")
 	}
 }
 

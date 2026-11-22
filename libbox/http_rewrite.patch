@@ -14,12 +14,13 @@ diff --git a/option/experimental.go b/option/experimental.go
 diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command_server.go
 --- a/experimental/libbox/command_server.go
 +++ b/experimental/libbox/command_server.go
-@@ -36,6 +36,8 @@
+@@ -36,6 +36,9 @@
  	oomRecorder       *oomkiller.Recorder
  	grpcServer        *grpc.Server
  	listener          net.Listener
 +	uiEgressProbes     uiEgressProbeSet
 +	uiProcessingRoutes *uiRouteLifecycle
++	uiProcessingState *uiProcessingState
  }
  
  type CommandServerHandler interface {
@@ -33,7 +34,7 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
  	if s.grpcServer != nil {
  		s.grpcServer.Stop()
  	}
-@@ -195,17 +197,29 @@
+@@ -195,17 +197,30 @@
  	AutoRedirect   bool
  	IncludePackage StringIterator
  	ExcludePackage StringIterator
@@ -47,6 +48,7 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
  func (s *CommandServer) StartOrReloadService(configContent string, options *OverrideOptions) error {
  	uiCaptureLifecycle.Lock()
  	defer uiCaptureLifecycle.Unlock()
++	wasRunning := s.Instance() != nil
 -	StopUICapture()
 -	saveConfigSnapshot(configContent)
 +	normalizedContent, err := RemoveUIRetiredCaptureOptions(configContent)
@@ -70,7 +72,7 @@ diff --git a/experimental/libbox/command_server.go b/experimental/libbox/command
  	if err != nil {
  		return E.Cause(err, "start or reload service")
  	}
-+	s.activateUIProcessing(preparedProcessing)
++	s.activateUIProcessing(preparedProcessing, wasRunning)
  	return nil
  }
  

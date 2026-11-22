@@ -21,6 +21,8 @@ import (
 // Runtimes do not share globals. Counts are observations, not admission quotas.
 var httpScriptsRunning atomic.Int64
 var cronScriptsRunning atomic.Int64
+var eventScriptsRunning atomic.Int64
+var genericScriptsRunning atomic.Int64
 var scriptFinished = errors.New("script called $done")
 var errScriptAbort = errors.New("HTTP processing aborted by script")
 
@@ -114,8 +116,13 @@ func executeScript(parent context.Context, program *goja.Program, label, kind st
 	ctx, cancel := scriptContext(parent, timeout)
 	defer cancel()
 	running := &httpScriptsRunning
-	if kind == "cron" {
+	switch kind {
+	case "cron":
 		running = &cronScriptsRunning
+	case "event":
+		running = &eventScriptsRunning
+	case "generic":
+		running = &genericScriptsRunning
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("%s: %w", label, err)

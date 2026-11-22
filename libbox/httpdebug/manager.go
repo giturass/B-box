@@ -102,30 +102,34 @@ func Saved() (*Store, error) {
 }
 
 type State struct {
-	Backend              string `json:"backend"`
-	Error                string `json:"error,omitempty"`
-	Active               bool   `json:"active"`
-	RewriteActive        bool   `json:"rewriteActive"`
-	RewriteRules         int    `json:"rewriteRules"`
-	MITMActive           bool   `json:"mitmActive"`
-	ScriptsActive        bool   `json:"scriptsActive"`
-	ScriptRules          int    `json:"scriptRules"`
-	CronJobs             int    `json:"cronJobs"`
-	Connections          int    `json:"connections"`
-	Skipped              int64  `json:"skipped"`
-	TLSOpened            int64  `json:"tlsOpened"`
-	TLSFailed            int64  `json:"tlsFailed"`
-	TLSNoRequest         int64  `json:"tlsNoRequest"`
-	BlockedQUIC          int64  `json:"blockedQUIC"`
-	PlaintextConnections int64  `json:"plaintextConnections"`
-	PlaintextBytes       int64  `json:"plaintextBytes"`
-	ParsedRequests       int64  `json:"parsedRequests"`
-	FilteredRequests     int64  `json:"filteredRequests"`
-	RecordedRequests     int64  `json:"recordedRequests"`
-	BodyBudgetReserved   int64  `json:"bodyBudgetReserved"`
-	BodyBudgetLimit      int64  `json:"bodyBudgetLimit"`
-	HTTPScriptsRunning   int    `json:"httpScriptsRunning"`
-	CronScriptsRunning   int    `json:"cronScriptsRunning"`
+	Backend               string `json:"backend"`
+	Error                 string `json:"error,omitempty"`
+	Active                bool   `json:"active"`
+	RewriteActive         bool   `json:"rewriteActive"`
+	RewriteRules          int    `json:"rewriteRules"`
+	MITMActive            bool   `json:"mitmActive"`
+	ScriptsActive         bool   `json:"scriptsActive"`
+	ScriptRules           int    `json:"scriptRules"`
+	CronJobs              int    `json:"cronJobs"`
+	EventJobs             int    `json:"eventJobs"`
+	GenericJobs           int    `json:"genericJobs"`
+	Connections           int    `json:"connections"`
+	Skipped               int64  `json:"skipped"`
+	TLSOpened             int64  `json:"tlsOpened"`
+	TLSFailed             int64  `json:"tlsFailed"`
+	TLSNoRequest          int64  `json:"tlsNoRequest"`
+	BlockedQUIC           int64  `json:"blockedQUIC"`
+	PlaintextConnections  int64  `json:"plaintextConnections"`
+	PlaintextBytes        int64  `json:"plaintextBytes"`
+	ParsedRequests        int64  `json:"parsedRequests"`
+	FilteredRequests      int64  `json:"filteredRequests"`
+	RecordedRequests      int64  `json:"recordedRequests"`
+	BodyBudgetReserved    int64  `json:"bodyBudgetReserved"`
+	BodyBudgetLimit       int64  `json:"bodyBudgetLimit"`
+	HTTPScriptsRunning    int    `json:"httpScriptsRunning"`
+	CronScriptsRunning    int    `json:"cronScriptsRunning"`
+	EventScriptsRunning   int    `json:"eventScriptsRunning"`
+	GenericScriptsRunning int    `json:"genericScriptsRunning"`
 }
 
 func Status() State {
@@ -149,12 +153,14 @@ func (engine *Engine) captureState() State {
 	if engine.rewrite != nil {
 		rules = engine.rewrite.count
 	}
-	scriptRules, cronJobs := 0, 0
+	scriptRules, cronJobs, eventJobs, genericJobs := 0, 0, 0, 0
 	if engine.scripts != nil {
 		scriptRules, cronJobs = len(engine.scripts.http), len(engine.scripts.cron)
+		eventJobs, genericJobs = len(engine.scripts.event), len(engine.scripts.generic)
 	}
 	return State{MITMActive: !engine.closed && engine.mitm.active(), ScriptsActive: !engine.closed && engine.scripts != nil,
-		ScriptRules: scriptRules, CronJobs: cronJobs, Active: !engine.closed && engine.recording.Load() != nil, RewriteActive: !engine.closed && engine.rewrite != nil, RewriteRules: rules, Backend: engine.backend(), Error: warning,
+		ScriptRules: scriptRules, CronJobs: cronJobs, EventJobs: eventJobs, GenericJobs: genericJobs,
+		Active: !engine.closed && engine.recording.Load() != nil, RewriteActive: !engine.closed && engine.rewrite != nil, RewriteRules: rules, Backend: engine.backend(), Error: warning,
 		Connections: len(engine.connections) + len(engine.preparing),
 		Skipped:     engine.skipped.Load(), TLSFailed: engine.tlsFailed.Load(), BlockedQUIC: engine.blockedQUIC.Load(),
 		TLSOpened:            engine.tlsOpened.Load(),
@@ -162,7 +168,8 @@ func (engine *Engine) captureState() State {
 		PlaintextConnections: engine.plaintextConnections.Load(), PlaintextBytes: engine.plaintextBytes.Load(),
 		ParsedRequests: engine.parsedRequests.Load(), FilteredRequests: engine.filteredRequests.Load(), RecordedRequests: engine.recordedRequests.Load(),
 		BodyBudgetReserved: processingBodies.used.Load(), BodyBudgetLimit: processingBodies.limit,
-		HTTPScriptsRunning: int(httpScriptsRunning.Load()), CronScriptsRunning: int(cronScriptsRunning.Load())}
+		HTTPScriptsRunning: int(httpScriptsRunning.Load()), CronScriptsRunning: int(cronScriptsRunning.Load()),
+		EventScriptsRunning: int(eventScriptsRunning.Load()), GenericScriptsRunning: int(genericScriptsRunning.Load())}
 }
 
 func (engine *Engine) backend() string {

@@ -52,7 +52,7 @@ func TestScriptCapabilitiesValidateWithoutExecuting(t *testing.T) {
 		`{"storage_namespace":"with space"}`,
 		`{"storage_namespace":"名字"}`,
 	} {
-		for _, kind := range []string{"http", "cron"} {
+		for _, kind := range []string{"http", "cron", "event", "generic"} {
 			var rule map[string]any
 			if err := json.Unmarshal([]byte(invalid), &rule); err != nil {
 				t.Fatal(err)
@@ -61,8 +61,10 @@ func TestScriptCapabilitiesValidateWithoutExecuting(t *testing.T) {
 			rule["disabled"] = true
 			if kind == "http" {
 				rule["pattern"], rule["phase"] = ".", "request"
-			} else {
+			} else if kind == "cron" {
 				rule["cron"] = "* * * * *"
+			} else if kind == "event" {
+				rule["event"] = ScriptEventNetworkChanged
 			}
 			content, _ := json.Marshal(map[string]any{kind: []any{rule}})
 			var config ScriptsConfig

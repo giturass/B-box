@@ -3,14 +3,61 @@ package libbox
 import (
 	"context"
 	"crypto"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/experimental/httpdebug"
+	"github.com/sagernet/sing/common/control"
 	M "github.com/sagernet/sing/common/metadata"
 )
+
+type uiProcessingState struct {
+	prepared   *httpdebug.PreparedProcessing
+	unregister func()
+}
+
+// UIScriptTask is tied to the processing instance whose profile the Android
+// host admitted. Run waits on IO; Close only signals cancellation.
+type UIScriptTask struct {
+	task *httpdebug.ScriptTask
+}
+
+func (s *CommandServer) NewUIScriptTask(kind string, index int32) (*UIScriptTask, error) {
+	// A reload owns this lock through preparation and activation. Waiting here
+	// could execute the same index in a different profile when that reload ends.
+	if !uiCaptureLifecycle.TryLock() {
+		return nil, errors.New("local service is changing during script execution")
+	}
+	defer uiCaptureLifecycle.Unlock()
+	if s.Instance() == nil || s.uiProcessingState == nil || s.uiProcessingRoutes == nil {
+		return nil, errors.New("local profile scripts are not running")
+	}
+	task, err := s.uiProcessingState.prepared.RunScript(s.uiProcessingRoutes.ctx, kind, int(index))
+	if err != nil {
+		return nil, err
+	}
+	return &UIScriptTask{task: task}, nil
+}
+
+func (t *UIScriptTask) Close() { t.task.Cancel() }
+func (t *UIScriptTask) Join()  { t.task.Join() }
+
+func (t *UIScriptTask) Run() (string, error) {
+	result := t.task.Wait()
+	if result.Logs == nil {
+		result.Logs = []string{}
+	}
+	encoded, err := json.Marshal(struct {
+		Result string   `json:"result"`
+		Error  string   `json:"error"`
+		Logs   []string `json:"logs"`
+	}{result.Result, result.Error, result.Logs})
+	return string(encoded), err
+}
 
 func NeedsUIMITMCA(configContent string) (bool, error) {
 	options, err := parseConfig(baseContext(nil), configContent)
@@ -48,7 +95,7 @@ func (s *CommandServer) prepareUIProcessing(configContent string, overrides *Ove
 	return prepared, nil
 }
 
-func (s *CommandServer) activateUIProcessing(prepared *httpdebug.PreparedProcessing) {
+func (s *CommandServer) activateUIProcessing(prepared *httpdebug.PreparedProcessing, reloading bool) {
 	instance := s.Instance()
 	if instance == nil {
 		httpdebug.StopService()
@@ -119,12 +166,47 @@ func (s *CommandServer) activateUIProcessing(prepared *httpdebug.PreparedProcess
 		}
 		return ""
 	})
-	httpdebug.ActivateProcessing(prepared, dial, instance.UIRootPool())
+	event := httpdebug.ScriptEventEngineStarted
+	if reloading {
+		event = httpdebug.ScriptEventProfileReloaded
+	}
+	httpdebug.ActivateProcessing(prepared, dial, instance.UIRootPool(), event)
+	state := &uiProcessingState{prepared: prepared}
+	s.uiProcessingState = state
+	if monitor := instance.Box().Network().InterfaceMonitor(); monitor != nil {
+		callback := uiProcessingNetworkCallback(routes.ctx, prepared.NotifyScriptEvent, instance.Box().Network().DefaultNetworkInterface() == nil)
+		element := monitor.RegisterCallback(callback)
+		state.unregister = func() { monitor.UnregisterCallback(element) }
+	}
+}
+
+// The core monitor publishes after updating its real default interface and
+// DNS snapshot. Initial publication precedes registration; repeated absence
+// is not a new network event. The captured prepared instance rejects a late
+// callback after reload instead of targeting the new global processor.
+func uiProcessingNetworkCallback(ctx context.Context, notify func(string) error, missing bool) func(*control.Interface, int) {
+	var access sync.Mutex
+	return func(networkInterface *control.Interface, _ int) {
+		access.Lock()
+		defer access.Unlock()
+		if ctx.Err() != nil {
+			return
+		}
+		if networkInterface == nil && missing {
+			return
+		}
+		missing = networkInterface == nil
+		_ = notify(httpdebug.ScriptEventNetworkChanged)
+	}
 }
 
 func (s *CommandServer) stopUIProcessing() {
 	s.uiProcessingRoutes.close()
+	if s.uiProcessingState != nil && s.uiProcessingState.unregister != nil {
+		s.uiProcessingState.unregister()
+	}
 	httpdebug.StopService()
 	s.uiProcessingRoutes.wait()
 	s.uiProcessingRoutes = nil
+	s.uiProcessingState = nil
 }

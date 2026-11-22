@@ -31,7 +31,7 @@ def main():
         shutil.copyfile(source, core / "experimental/libbox" / source.name)
     for source in (ROOT / "libbox/option").glob("*.go"):
         shutil.copyfile(source, core / "option" / source.name)
-    print("Installed HTTP/MITM capture, independent MITM, rewrites, scripts/cron, route hooks and libbox bindings")
+    print("Installed HTTP/MITM capture, independent MITM, rewrites, HTTP/cron/event/generic scripts, route hooks and libbox bindings")
 
 
 if __name__ == "__main__":

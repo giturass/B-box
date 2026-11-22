@@ -23,6 +23,8 @@ type ScriptsConfig struct {
 	MaxBodyBytes int64                      `json:"max_body_bytes,omitempty"`
 	HTTP         []HTTPScript               `json:"http,omitempty"`
 	Cron         []CronScript               `json:"cron,omitempty"`
+	Event        []EventScript              `json:"event,omitempty"`
+	Generic      []GenericScript            `json:"generic,omitempty"`
 	Resources    map[string]RewriteResource `json:"resources,omitempty"`
 }
 
@@ -61,6 +63,62 @@ type CronScript struct {
 	StorageNamespace     string             `json:"storage_namespace,omitempty"`
 }
 
+type EventScript struct {
+	Name                 string             `json:"name,omitempty"`
+	Disable              bool               `json:"disabled,omitempty"`
+	Event                string             `json:"event"`
+	Source               string             `json:"source,omitempty"`
+	Resource             string             `json:"resource,omitempty"`
+	ScriptPath           string             `json:"script_path,omitempty"`
+	ScriptUpdateInterval int64              `json:"script_update_interval,omitempty"`
+	Debug                bool               `json:"debug,omitempty"`
+	TimeoutMS            int                `json:"timeout_ms,omitempty"`
+	Argument             string             `json:"argument,omitempty"`
+	HTTPClient           *ScriptHTTPOptions `json:"http_client,omitempty"`
+	StorageNamespace     string             `json:"storage_namespace,omitempty"`
+}
+
+type GenericScript struct {
+	Name                 string             `json:"name,omitempty"`
+	Disable              bool               `json:"disabled,omitempty"`
+	Source               string             `json:"source,omitempty"`
+	Resource             string             `json:"resource,omitempty"`
+	ScriptPath           string             `json:"script_path,omitempty"`
+	ScriptUpdateInterval int64              `json:"script_update_interval,omitempty"`
+	Debug                bool               `json:"debug,omitempty"`
+	TimeoutMS            int                `json:"timeout_ms,omitempty"`
+	Argument             string             `json:"argument,omitempty"`
+	HTTPClient           *ScriptHTTPOptions `json:"http_client,omitempty"`
+	StorageNamespace     string             `json:"storage_namespace,omitempty"`
+}
+
+const (
+	ScriptEventNetworkChanged  = "network-changed"
+	ScriptEventEngineStarted   = "engine-started"
+	ScriptEventProfileReloaded = "profile-reloaded"
+)
+
+func validScriptEvent(event string) bool {
+	return event == ScriptEventNetworkChanged || event == ScriptEventEngineStarted || event == ScriptEventProfileReloaded
+}
+
+type scriptTaskKey struct {
+	kind  string
+	index int // Original configuration position, including preceding disabled entries.
+}
+
+type compiledTask struct {
+	key        scriptTaskKey
+	options    GenericScript
+	label      string
+	event      string
+	cron       string
+	program    *goja.Program
+	client     scriptHTTPPolicy
+	source     *processingResource
+	storageKey string
+}
+
 type compiledScript struct {
 	compiledRule[HTTPScript]
 	program    *goja.Program
@@ -70,6 +128,7 @@ type compiledScript struct {
 }
 
 type compiledCron struct {
+	index      int
 	options    CronScript
 	label      string
 	program    *goja.Program
@@ -84,6 +143,9 @@ type ScriptProgram struct {
 	limit      int64
 	http       []compiledScript
 	cron       []compiledCron
+	event      []compiledTask
+	generic    []compiledTask
+	tasks      map[scriptTaskKey]compiledTask
 	storage    *scriptStore
 	resources  *processingResources
 	needsMatch bool
@@ -145,7 +207,7 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 	if err := scope.validate(); err != nil {
 		return nil, fmt.Errorf("scripts scope: %w", err)
 	}
-	p := &ScriptProgram{scope: scope, limit: limit}
+	p := &ScriptProgram{scope: scope, limit: limit, tasks: make(map[scriptTaskKey]compiledTask)}
 	for name, resource := range c.Resources {
 		if name == "" {
 			return nil, errors.New("invalid script resource name")
@@ -203,33 +265,83 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 	}
 	for i, rule := range c.Cron {
 		label := fmt.Sprintf("scripts.cron[%d] %s", i, rule.Name)
-		if rule.TimeoutMS == 0 {
-			rule.TimeoutMS = 5000
-		}
-		if !validTimeoutMS(rule.TimeoutMS) {
-			return nil, fmt.Errorf("%s: timeout_ms must be positive and representable as a duration, or -1 for unlimited", label)
-		}
-		client, err := compileScriptHTTP(rule.HTTPClient, true)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", label, err)
-		}
-		if err = validateStorageNamespace(rule.StorageNamespace); err != nil {
-			return nil, fmt.Errorf("%s: %w", label, err)
-		}
 		schedule, err := compileCron(rule.Cron, rule.Timezone, location)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", label, err)
 		}
-		program, source, err := compileScriptResource(label, rule.Source, rule.ScriptPath, rule.Resource, c.Resources, rule.ScriptUpdateInterval, rule.Debug)
+		task, err := compileTask(scriptTaskKey{"cron", i}, cronTaskOptions(rule), c.Resources)
+		if err != nil {
+			return nil, err
+		}
+		rule.TimeoutMS = task.options.TimeoutMS
+		if !rule.Disable {
+			task.cron = rule.Cron
+			p.tasks[task.key] = task
+			p.cron = append(p.cron, compiledCron{index: i, options: rule, label: label, program: task.program, schedule: schedule, client: task.client,
+				source: task.source, storageKey: task.storageKey})
+		}
+	}
+	for i, rule := range c.Event {
+		if !validScriptEvent(rule.Event) {
+			return nil, fmt.Errorf("scripts.event[%d] %s: event must be network-changed, engine-started or profile-reloaded", i, rule.Name)
+		}
+		task, err := compileTask(scriptTaskKey{"event", i}, eventTaskOptions(rule), c.Resources)
 		if err != nil {
 			return nil, err
 		}
 		if !rule.Disable {
-			p.cron = append(p.cron, compiledCron{options: rule, label: label, program: program, schedule: schedule, client: client, source: source,
-				storageKey: scriptDefaultStorageKey(rule.Source, rule.ScriptPath, rule.Resource, c.Resources)})
+			task.event = rule.Event
+			p.tasks[task.key] = task
+			p.event = append(p.event, task)
+		}
+	}
+	for i, rule := range c.Generic {
+		task, err := compileTask(scriptTaskKey{"generic", i}, rule, c.Resources)
+		if err != nil {
+			return nil, err
+		}
+		if !rule.Disable {
+			p.tasks[task.key] = task
+			p.generic = append(p.generic, task)
 		}
 	}
 	return p, nil
+}
+
+func cronTaskOptions(rule CronScript) GenericScript {
+	return GenericScript{Name: rule.Name, Disable: rule.Disable, Source: rule.Source, Resource: rule.Resource,
+		ScriptPath: rule.ScriptPath, ScriptUpdateInterval: rule.ScriptUpdateInterval, Debug: rule.Debug,
+		TimeoutMS: rule.TimeoutMS, Argument: rule.Argument, HTTPClient: rule.HTTPClient, StorageNamespace: rule.StorageNamespace}
+}
+
+func eventTaskOptions(rule EventScript) GenericScript {
+	return GenericScript{Name: rule.Name, Disable: rule.Disable, Source: rule.Source, Resource: rule.Resource,
+		ScriptPath: rule.ScriptPath, ScriptUpdateInterval: rule.ScriptUpdateInterval, Debug: rule.Debug,
+		TimeoutMS: rule.TimeoutMS, Argument: rule.Argument, HTTPClient: rule.HTTPClient, StorageNamespace: rule.StorageNamespace}
+}
+
+func compileTask(key scriptTaskKey, rule GenericScript, resources map[string]RewriteResource) (compiledTask, error) {
+	task := compiledTask{key: key, options: rule, label: fmt.Sprintf("scripts.%s[%d] %s", key.kind, key.index, rule.Name)}
+	if task.options.TimeoutMS == 0 {
+		task.options.TimeoutMS = 5000
+	}
+	if !validTimeoutMS(task.options.TimeoutMS) {
+		return task, fmt.Errorf("%s: timeout_ms must be positive and representable as a duration, or -1 for unlimited", task.label)
+	}
+	var err error
+	task.client, err = compileScriptHTTP(rule.HTTPClient, true)
+	if err != nil {
+		return task, fmt.Errorf("%s: %w", task.label, err)
+	}
+	if err = validateStorageNamespace(rule.StorageNamespace); err != nil {
+		return task, fmt.Errorf("%s: %w", task.label, err)
+	}
+	task.program, task.source, err = compileScriptResource(task.label, rule.Source, rule.ScriptPath, rule.Resource, resources, rule.ScriptUpdateInterval, rule.Debug)
+	if err != nil {
+		return task, err
+	}
+	task.storageKey = scriptDefaultStorageKey(rule.Source, rule.ScriptPath, rule.Resource, resources)
+	return task, nil
 }
 
 func compileCron(expression, zone string, location *time.Location) (cron.Schedule, error) {

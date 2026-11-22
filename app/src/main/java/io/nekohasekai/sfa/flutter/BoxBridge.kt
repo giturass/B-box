@@ -27,6 +27,7 @@ import io.nekohasekai.sfa.backend.connections.ConnectionsViewModel
 import io.nekohasekai.sfa.backend.dashboard.DashboardViewModel
 import io.nekohasekai.sfa.backend.dashboard.groups.GroupsViewModel
 import io.nekohasekai.sfa.backend.log.LogViewModel
+import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.ProfileContent
@@ -111,6 +112,13 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
         recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
     }
     private val capture = BoxCapture(activity)
+    private val scripts = BoxScripts(
+        prepare = { request, created ->
+            val session = CommandTarget.localSession()
+            localProfiles(session) { prepareProfileScript(request, session, created) }
+        },
+        validate = { target: ScriptDebugProfile -> localProfiles(target.session) { validateProfileScript(target) } },
+    )
     private val qrScanner = BoxQrScanner(profiles::decode)
     private val preferences = activity.getSharedPreferences("flclash_ui", 0)
     private val webdav = BoxWebDAV(activity)
@@ -162,6 +170,21 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
                 when (event) {
                     is UiEvent.ErrorMessage -> reportError(event.message)
                 }
+            }
+        }
+        scope.launch {
+            var previousConfig = BoxService.dashboardConfig.value
+            var previousRemote = RemoteControlManager.remoteServer.value?.id
+            combine(activity.serviceStatus, RemoteControlManager.remoteServer, BoxService.dashboardConfig, BoxService.processingApplying) {
+                status, remote, config, applying -> ScriptServiceState(status, remote?.id, config, applying)
+            }.collect { state ->
+                if (state.status != Status.Started || state.remoteId != null || state.applying ||
+                    state.config !== previousConfig || state.remoteId != previousRemote) {
+                    scripts.cancelAll()
+                }
+                previousConfig = state.config
+                previousRemote = state.remoteId
+                emit("dashboard", dashboard.uiState.value.toWire())
             }
         }
     }
@@ -271,6 +294,7 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
             "nodes" -> invokeNodes(method, args)
             "warp" -> invokeWarp(method, args)
             "subscriptions" -> invokeSubscriptions(method, args)
+            "scripts" -> invokeScripts(method, args)
             "capture" -> invokeCapture(method, args)
             "groups", "mode", "systemProxy" -> invokeProxy(method, args)
             "connections" -> invokeConnections(method, args)
@@ -283,6 +307,12 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
             "updates" -> invokeUpdates(method, args)
             else -> invokeGeneral(method, args)
         }
+    }
+
+    private suspend fun invokeScripts(method: String, args: Map<String, Any?>): Any? = when (method) {
+        "scripts.run" -> scripts.run(ScriptRunRequest.read(args))
+        "scripts.cancel" -> scripts.cancel(args.string("requestId"))
+        else -> error("Unknown script operation")
     }
 
     private suspend fun invokeUpdates(method: String, args: Map<String, Any?>): Any? = when (method) {
@@ -967,6 +997,7 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
 
     suspend fun prepareForExit() {
         quiescing = true
+        scripts.cancelAll()
         val pending = calls.toList()
         pending.forEach { it.cancel() }
         pending.joinAll()
@@ -991,6 +1022,7 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
             runCatching(work).onFailure { Log.w("BoxBridge", "Native bridge cleanup", it) }
         }
         cleanup(warp::close)
+        cleanup(scripts::close)
         cleanup(qrScanner::close)
         cleanup { channel.setMethodCallHandler(null) }
         cleanup { events.setStreamHandler(null) }

@@ -51,13 +51,24 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.TimeZone
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 class BoxService(private val service: Service, private val platformInterface: PlatformInterface) : CommandServerHandler {
-    internal data class DashboardConfig(val server: CommandServer, val profileId: Long, val content: String)
+    internal data class DashboardConfig(
+        val server: CommandServer,
+        val profileId: Long,
+        val content: String,
+        val processingGeneration: Long,
+    )
 
     companion object {
         @Volatile private var activeService: BoxService? = null
         internal val currentStatus: Status get() = activeService?.lastStatus ?: Status.Stopped
+        internal val isApplyingProfile: Boolean get() = (activeService?.profileApplications?.get() ?: 0) != 0
+        private val _processingApplying = MutableStateFlow(false)
+        internal val processingApplying = _processingApplying.asStateFlow()
+        private val processingGenerations = AtomicLong()
         @Volatile internal var dashboardServer: CommandServer? = null
             private set
         private val _dashboardConfig = MutableStateFlow<DashboardConfig?>(null)
@@ -135,6 +146,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private var startupJob: Job? = null
     @Volatile private var stopRequested = false
     @Volatile private var serviceGeneration = 0L
+    private val profileApplications = AtomicInteger()
 
     private suspend fun readProfile() = ProfileContent.snapshotMutex.withLock {
         val profile = ProfileManager.get(Settings.selectedProfile) ?: return@withLock null
@@ -211,6 +223,17 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     suspend fun serviceReload0() {
+        profileApplications.incrementAndGet()
+        _processingApplying.value = isApplyingProfile
+        try {
+            reloadProfile()
+        } finally {
+            profileApplications.decrementAndGet()
+            _processingApplying.value = isApplyingProfile
+        }
+    }
+
+    private suspend fun reloadProfile() {
         val generation = serviceGeneration
         val snapshot = readProfile()
         if (snapshot == null) {
@@ -249,7 +272,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private suspend fun publishDashboardConfig(generation: Long, profileId: Long, content: String) = withContext(Dispatchers.Main) {
         check(!stopRequested && generation == serviceGeneration) { "Service stopped while applying configuration" }
         dashboardServer = commandServer
-        _dashboardConfig.value = DashboardConfig(commandServer, profileId, content)
+        _dashboardConfig.value = DashboardConfig(commandServer, profileId, content, processingGenerations.incrementAndGet())
     }
 
     private fun startOrReloadCore(content: String, generation: Long, profileDirectory: String) = synchronized(MitmCertificate.accessLock) {

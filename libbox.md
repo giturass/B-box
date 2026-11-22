@@ -26,7 +26,7 @@
 | 正则取消 | [regexp2-cancel.patch](libbox/regexp2-cancel.patch)、[goja-regexp-cancel.patch](libbox/goja-regexp-cancel.patch) | 将请求取消和 VM 中断传入回溯执行，不对不同请求共用可变期限 |
 | 局域网代理配置绑定 | [ui_lan.go](libbox/ui_lan.go) | 读取 mixed/http/socks 监听端点、修改 listen 或显式新增 mixed 入站 |
 | HTTP/HTTPS 请求抓取 | [httpdebug.patch](libbox/httpdebug.patch)、[httpdebug/](libbox/httpdebug/)、[route/](libbox/route/)、[ui_capture.go](libbox/ui_capture.go) | HTTP 录制、HTTPS MITM、平台签名、域名提取、记录及导出绑定 |
-| 独立配置处理 | [http_rewrite.patch](libbox/http_rewrite.patch)、[ui_processing.go](libbox/ui_processing.go)、[processing.go](libbox/option/processing.go) | 独立的 MITM、HTTP 改写、HTTP 脚本与 Cron，统一校验及服务生命周期 |
+| 独立配置处理 | [http_rewrite.patch](libbox/http_rewrite.patch)、[ui_processing.go](libbox/ui_processing.go)、[processing.go](libbox/option/processing.go) | 独立的 MITM、HTTP 改写及 HTTP/Cron/事件/Generic 脚本，统一校验及服务生命周期 |
 
 ## 新增接口与行为
 
@@ -246,7 +246,7 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 
 没有独立抓包日志页面、缓冲或读写绑定。[logging.go](libbox/httpdebug/logging.go) 将运行错误与脚本 console 输出送到当前核心的普通日志，遵守配置日志等级；停止服务后释放日志回调。正文预算不足、编码/流式跳过、ClientHello 无法解析和 MITM 范围未命中保留具体原因；请求处理日志带连接/请求 ID，错误页指向请求详情及现有服务日志。TLS 客户端/上游握手错误区分阶段；握手完成但未收到 HTTP 请求就结束另记 `tlsNoRequest`，只提示可能的 pinning 或客户端取消，不认定已证实的证书固定校验失败。正常服务取消不产生该提示。
 
-`ReadUICaptureStatus` 保留抓包状态、计数和最近错误，并报告 `bodyBudgetReserved`/`bodyBudgetLimit`、`httpScriptsRunning`/`cronScriptsRunning`，供平台确认状态；请求页不展示配置已生效横幅。
+`ReadUICaptureStatus` 保留抓包状态、计数和最近错误，并报告 `bodyBudgetReserved`/`bodyBudgetLimit`、`httpScriptsRunning`/`cronScriptsRunning`/`eventScriptsRunning`/`genericScriptsRunning`，供平台确认状态；请求页不展示配置已生效横幅。
 
 `CommandServer.StartUICapture(directory, config, certificate, signer)` 与核心重载/关闭串行；后两个参数保留生成调用兼容，解密策略及 CA 只取已启动配置的 MITM。`GenerateUICaptureCA(publicKeyDER, UICaptureSigner)` 只接收平台公钥和签名回调，不接收或导出根私钥。其他 `Open/Validate/Stop/Read/List/Clear/ExportUICapture*`、`ExtractUICaptureHosts` 提供本地访问；列表轮询传摘要，详情按需读取保存的正文。
 
@@ -390,7 +390,7 @@ URL 脚本默认按资源身份及内容 SHA-256 缓存编译结果，命中磁�
 
 ### 独立脚本与 Cron
 
-`experimental.scripts` 定义见 [script_config.go](libbox/httpdebug/script_config.go)，示例见 [examples/scripts.json](examples/scripts.json)。`enabled` 默认 false，HTTP/Cron、资源数量、源码和 JSON 不设固定配额。每条规则从 `source`、`resource`、`script_path` 中选一个：非空内联源码、字典资源引用、文件/URL 路径。校验编译内联代码和时间表达式，外部源码按[资源加载](#文件和-url-资源加载)在运行时处理。
+`experimental.scripts` 定义见 [script_config.go](libbox/httpdebug/script_config.go)，示例见 [examples/scripts.json](examples/scripts.json)。`enabled` 默认 false，分别用 `http`、`cron`、`event`、`generic` 数组配置 HTTP、定时、事件及手动脚本；任务、资源数量、源码和 JSON 不设固定配额。每条规则从 `source`、`resource`、`script_path` 中选一个：非空内联源码、字典资源引用、文件/URL 路径。包括禁用任务在内，校验编译内联代码、事件名和时间表达式，外部源码按[资源加载](#文件和-url-资源加载)在运行时处理。
 
 `ports`/`packages` 只限制被处理的 HTTP 流，默认端口同改写，不限制脚本主动请求。被拦截正文及脚本输出 `max_body_bytes` 缺省、`0` 或 `-1` 不限制，正整数按字节限制，HTTP 规则可覆盖。主动 HTTP 客户端可独立配置限额。
 
@@ -403,11 +403,29 @@ HTTP 规则指定 `pattern` 或 [复合 `match`](#json-配置中的-http-改写)
 - `full_headers: true` 以 `{field,value}` 数组保留重复头，返回值接受数组/对象，普通输入对象每字段只取首值。
 - 非空 `argument` 通过 `$argument` 提供；未配置或为空时不注入该全局，避免脚本把缺省参数当成空 JSON。`$script` 有 name/type/binaryBodyMode/startTime/sessionID，name 优先取配置名称，startTime 为 Unix 秒数，sessionID 每次执行独立生成。console.log/info/warn/error/debug 进入服务日志，对象按 JSON 输出，不设每次执行的条数或单条截断配额；HTTP 脚本 `debug: true` 还将同一内容附到请求备注。
 
-HTTP/Cron `timeout_ms` 均默认 5000，正整数使用可表示的毫秒期限，`-1` 不增加期限；资源加载、网络、定时器和执行共享调用方期限及服务取消。每次使用独立 Goja VM，不设固定解释器数量或 B-box 调用栈配额。JS 原生正则在回溯循环中检查同一 VM 的中断，不另加匹配时限；一个 VM 的取消不会影响共享编译代码的其他 VM。Goja 并非 WebView 或进程级内存隔离。
+各类脚本的 `timeout_ms` 均默认 5000，正整数使用可表示的毫秒期限，`-1` 不增加期限；资源加载、网络、定时器和执行共享调用方期限及服务取消。每次使用独立 Goja VM，不设固定解释器数量或 B-box 调用栈配额。JS 原生正则在回溯循环中检查同一 VM 的中断，不另加匹配时限；一个 VM 的取消不会影响共享编译代码的其他 VM。Goja 并非 WebView 或进程级内存隔离。
 
-Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`timeout_ms` 和源码字段。支持五段“分 时 日 月 周”或六段“秒 分 时 日 月 周”，范围、列表、步长及月份/星期名称；IANA 时区未指定时用服务启动时的 Android 时区，包含 tzdata。`$cronexp` 是原表达式，`$script.type` 为 cron，无 `$request`/`$response`。常规 HTTP 和 Cron 执行均不注入 `$trigger`。
+Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`timeout_ms` 和源码字段。支持五段“分 时 日 月 周”或六段“秒 分 时 日 月 周”，范围、列表、步长及月份/星期名称；IANA 时区未指定时用服务启动时的 Android 时区，包含 tzdata。`$cronexp` 是原表达式，`$script.type` 为 cron，无 `$request`/`$response`。常规 HTTP、自动 Cron 和自动事件执行不注入 `$trigger`。
 
 [调度器](libbox/httpdebug/script_cron.go) 只在本地服务启动成功后运行；重载/停止取消任务并等待退出，抓包启停不重置调度。不同到期任务独立开始，不经过固定 worker 配额或排队；同任务仍在运行时跳过重复到期并记日志，防止自身重叠。设备休眠错过周期不补跑、不申请系统唤醒；必须调用 `$done`，异常及用户期限超时进入日志。
+
+#### 事件与手动调试
+
+`event` 任务的 `event` 字段必填，支持下列三个名字；其他事件拒绝保存。事件与 `generic` 任务共用可选的 `name`、`disabled`、`argument`、`timeout_ms`、源码、资源刷新、`debug`、`http_client` 及 `storage_namespace` 字段，不配置 HTTP 匹配或 Cron 时间表达式。
+
+| 事件 | 触发边界 |
+| --- | --- |
+| `network-changed` | 当前核心的默认接口监控通知接口或 DNS 更新；初始接口确认在注册脚本监听器前完成，不作为切网事件 |
+| `engine-started` | 核心成功启动并激活本配置处理后触发一次；此时默认接口的首次确认已完成，缺少网络仍可能处于内核暂停网络状态 |
+| `profile-reloaded` | 已运行核心成功重载并激活新配置后触发一次；初次启动不作为重载，核心校验或启动失败不执行该配置的事件脚本 |
+
+事件注入 `$event = {name: "事件名", data: {}}`，`$script.type` 为 event。`generic` 的 `$script.type` 为 generic，只按用户请求运行，不随启服、切网或 Cron 自动运行。两类任务均无 `$request`/`$response`；源码加载、HTTP 客户端、存储和定时器复用现有实现，无须启用 MITM 或记录。
+
+[统一任务执行器](libbox/httpdebug/script_tasks.go) 按任务类别及原配置数组下标登记运行，同名或未命名任务仍可分别选择。Cron 自动调度、事件触发及手动执行共用同任务互斥：运行中收到自动触发时跳过并记录原因，手动重复请求明确失败；不同任务独立开始。停止/重载先关闭准入，再取消并等待全部调用退出，旧处理实例的迟到网络回调不能触发新配置；抓包启停不重置这些任务。
+
+`CommandServer.NewUIScriptTask(type, index)` 返回可取消的手动任务，`Run()` 等待并返回包含 `result`（`$done` 参数的 JSON 字符串）、`error` 和 `logs`（本次 console 文本数组）的 JSON；`Close()` 发出取消，`Join()` 等待源码、VM、定时器及网络清理完成。只接受当前已激活的 Cron/event/generic 任务，停服、重载、脚本未启用、任务禁用、非法下标及 HTTP 类型均拒绝。Android 对当前本地配置和修订的复核见 [应用生命周期](app.md#配置处理生命周期)。
+
+手动运行注入 `$trigger = "editor"`；Cron 仍有 `$cronexp`，事件的 `$event.name` 为 `manually`、`data` 为空对象。必须调用 `$done`，结果无法 JSON 编码时作为执行错误返回；失败和超时保留此前 console 输出。调试输出随调用返回，也继续写入现有服务日志，不保存独立调试历史。界面对字符串及 `{title, content}` 结果提供可选中、可复制的显示，空值显示“无输出”，交互见 [脚本配置](flclash.md#配置页与内核差异)。事件名、手动上下文与 Generic 语义核对 Surge 官方 [Event](https://manual.nssurge.com/scripting/event.html)、[Generic](https://manual.nssurge.com/scripting/generic.html) 及 [Cron](https://manual.nssurge.com/scripting/cron.html)，固定 FlClash 设计参考与源文件哈希见 [来源清单说明](flclash.md#参考版本与来源清单)。
 
 #### 一元 gRPC 正文脚本
 
@@ -423,11 +441,11 @@ Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`ti
 
 #### 脚本解压工具
 
-[script_utils.go](libbox/httpdebug/script_utils.go) 向 HTTP/Cron 提供 `$utils.ungzip(Uint8Array)`，支持 TypedArray 子视图，成功返回 Uint8Array，参数无效、gzip 损坏或取消返回 null。不设固定输出容量，读取计入正文缓冲统计，成功结果的登记持有至当前 VM 结束，失败立即释放。它不增加任意文件或设备控制能力。
+[script_utils.go](libbox/httpdebug/script_utils.go) 向各类脚本提供 `$utils.ungzip(Uint8Array)`，支持 TypedArray 子视图，成功返回 Uint8Array，参数无效、gzip 损坏或取消返回 null。不设固定输出容量，读取计入正文缓冲统计，成功结果的登记持有至当前 VM 结束，失败立即释放。它不增加任意文件或设备控制能力。
 
 #### 脚本 HTTP 客户端
 
-HTTP 与 Cron 共用 [script_http.go](libbox/httpdebug/script_http.go)：`$httpClient.get/post/put/patch/delete/head/options(url或选项对象, callback)`。网络在 worker 异步执行，JS 回调在本次 VM 事件循环顺序执行，网络等待期间顶层代码和定时器可继续运行。回调为 error/response/data；成功时 error 为 null，response 有 status/headers，data 默认为 UTF-8；失败时 error 为字符串、response 为 null、data 为 undefined。
+各类脚本共用 [script_http.go](libbox/httpdebug/script_http.go)：`$httpClient.get/post/put/patch/delete/head/options(url或选项对象, callback)`。网络在 worker 异步执行，JS 回调在本次 VM 事件循环顺序执行，网络等待期间顶层代码和定时器可继续运行。回调为 error/response/data；成功时 error 为 null，response 有 status/headers，data 默认为 UTF-8；失败时 error 为字符串、response 为 null、data 为 undefined。
 
 | 选项 | 行为 |
 | --- | --- |
@@ -438,7 +456,7 @@ HTTP 与 Cron 共用 [script_http.go](libbox/httpdebug/script_http.go)：`$httpC
 | `insecure` | 默认 false；true 仅关闭该客户端请求的 TLS 证书校验 |
 | `policy` | 当前实例中真实 outbound tag（含 selector）；未知 tag 回调报错，无直连回退。不支持 Surge `policy-descriptor`，会明确报错 |
 
-HTTP/Cron 默认允许经核心主动联网。`http_client.allowed_origins` 可限制精确 HTTP(S) origin：省略/null 不限制，显式 `[]` 禁止，格式化保留区别。不设条数配额，无通配符、凭据、非根路径、查询或片段；规范化大小写、末尾点及默认端口，不能用 Host 或重定向越过限制，每跳校验。允许列表与 MITM 域名独立。
+各类脚本默认允许经核心主动联网。`http_client.allowed_origins` 可限制精确 HTTP(S) origin：省略/null 不限制，显式 `[]` 禁止，格式化保留区别。不设条数配额，无通配符、凭据、非根路径、查询或片段；规范化大小写、末尾点及默认端口，不能用 Host 或重定向越过限制，每跳校验。允许列表与 MITM 域名独立。
 
 脚本不设固定并发请求数；`http_client.max_requests` 可显式设正整数限制累计调用，失败和被拒绝调用也计数。客户端 `max_body_bytes` 缺省、`0` 或 `-1` 不限制，正整数限制输入/输出，与拦截正文限额独立。准入及复制前检查见[正文记账](#json-配置中的-http-改写)，worker 与回调交接同一登记，待回调队列不按固定数量丢弃事件。`$done`、异常、超时、取消和停服结束在途网络并释放队列及登记。
 
@@ -448,9 +466,9 @@ HTTP/Cron 默认允许经核心主动联网。`http_client.allowed_origins` 可�
 
 #### 脚本持久存储
 
-[script_storage.go](libbox/httpdebug/script_storage.go) 默认共享 `default` 命名空间；`storage_namespace` 使用非空 ASCII 字母、数字、点、下划线或连字符，首字符为字母/数字。规则只能用固定命名空间，不能枚举/切换；同名空间在本机配置及 HTTP/Cron 间共享，保留原显式命名空间兼容。名称用于私有文件名，实际文件系统错误继续报告，不另设经验长度上限。
+[script_storage.go](libbox/httpdebug/script_storage.go) 默认共享 `default` 命名空间；`storage_namespace` 使用非空 ASCII 字母、数字、点、下划线或连字符，首字符为字母/数字。规则只能用固定命名空间，不能枚举/切换；同名空间在本机配置及各类脚本间共享，保留原显式命名空间兼容。名称用于私有文件名，实际文件系统错误继续报告，不另设经验长度上限。
 
-- `$persistentStore.read(key)` 返回字符串，不存在为 null，空字符串有效；`write(value,key)` 成功为 true，字符串写入，null 删除。省略 key 按脚本身份生成，同一文件/URL 的 HTTP/Cron 共享；内联源码变化改变默认 key，规则改名/排序不改变。
+- `$persistentStore.read(key)` 返回字符串，不存在为 null，空字符串有效；`write(value,key)` 成功为 true，字符串写入，null 删除。省略 key 按脚本身份生成，同一文件/URL 的各类脚本共享；内联源码变化改变默认 key，规则改名/排序不改变。
 - 读取失败抛异常；存储不可用或 I/O 写入失败为 false，首次失败记日志；非法类型抛异常。key 为非空合法 UTF-8 字符串，不用作文件路径。不设调用次数、键/命名空间数量、键/值长度或空间容量配额。
 - 写入持锁读取最新数据，同步临时文件并原子替换后才更新内存。等锁和提交前检查取消；每次调用独立原子化，read 后 write 不是事务，成功写入不因脚本异常/非法 `$done` 回滚。
 - 打开时校验版本及内容，拒绝快照/专用目录符号链接；中断写入不提升为快照。移除规则不自动删数据，删除最后一键释放空间。目录、备份和清理见[应用生命周期](app.md#配置处理生命周期)。
@@ -505,7 +523,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
   1. `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1`：Android ingress-discard map 布局兼容。
   2. `go test -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`：全部 `TestUI` 扩展回归；随后以 `-tags=with_xhttp,with_quic,with_wireguard,with_utls,with_clash_api` 单独运行 `^TestUINode`，核对随发布核心包含的节点协议。
   3. `go test -race -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m`，再以 `-tags=with_quic` 运行同一命令；随后执行 `go test -tags=with_xhttp,with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIMASQUE' -count=1` 及 `go test -race -tags=with_xhttp,with_quic,with_wireguard -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIWARP' -count=1 -timeout=3m`：WARP MASQUE/WireGuard 注册与配置、认证及 HTTP/2、HTTP/3 隧道。HTTP/3 用例只在 `with_quic` 构建中编译。
-  4. `go test -race -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(Egress|Route|HTTP|Profile)' -count=1`：路由、出口探测、HTTP 任务和订阅的数据竞争。
+  4. `go test -race -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(Egress|Route|HTTP|Profile|Processing)' -count=1`：路由、出口探测、HTTP 任务、订阅及脚本处理生命周期的数据竞争。
   5. `go test -race ./experimental/httpdebug -count=1 -timeout=5m` 与 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m`：HTTP/MITM 抓取与处理引擎的全部用例及数据竞争，以及原出站和嗅探字节保留。
 - 获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py) 以受限并发运行独立的抓取引擎测试，它不构建 Android 绑定。
 
@@ -513,7 +531,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 
 下列文件按 core job 的入口分组，描述各文件断言的行为。Linux 上的回归不能代替 Android 系统 CA 模块、Keystore/gomobile 签名或目标应用的实机验收，后者的仪器测试范围见 [app.md](app.md#android-仪器测试)；大样本越过旧阈值只证明不再因该阈值拒绝，不代表 Android 容量测量。
 
-**核心扩展（`./experimental/libbox`，步骤 2；路由、出口、HTTP 和订阅另由步骤 4 以 race 运行）**
+**核心扩展（`./experimental/libbox`，步骤 2；路由、出口、HTTP、订阅及配置处理另由步骤 4 以 race 运行）**
 
 - [ui_http_test.go](libbox/ui_http_test.go)：WebDAV 状态/内容/重定向及超过旧大小上限的传输，HTTP 任务关闭时取消等待中的响应头与正文，Release 元数据的重定向、大响应、重定向循环和共享期限。
 - [ui_profile_test.go](libbox/ui_profile_test.go)：订阅请求头保留、超过旧容量的正文、覆盖响应头与正文的期限、错误状态不读正文、重定向循环和非法地址。
@@ -525,6 +543,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 - [ui_warp_test.go](libbox/ui_warp_test.go)：MASQUE POST/PATCH 与 WireGuard 单 POST、P-256 DER/Curve25519 私钥和分配地址、peer 地址选择及 client_id reserved 数值、原生端点追加/代理组/本地标记/重复保存、完整配置校验、非法响应和错误状态、响应上限、拒绝重定向、任务单次调用及关闭/完成边界取消；步骤 3 另以 `with_quic,with_wireguard` 和 race 运行。无 `with_wireguard` 的基础检查仍验证注册请求及端点选项解码，追加/完整配置子测试在包含 WireGuard 的核心中运行。
 - [ui_capture_test.go](libbox/ui_capture_test.go) 与 [ui_capture_signer_test.go](libbox/ui_capture_signer_test.go)：本地抓包设置、schema 和退役字段迁移；平台签名接口的摘要、算法及返回签名校验。
 - [ui_processing_test.go](libbox/ui_processing_test.go)：改写 schema 校验与格式化、退役选项不激活新规则、一元 gRPC 与 reject 动作往返、迁移保留范围和端口缺省、脚本能力 schema，以及 Surge 字段格式化时不加载资源。[ui_processing_match_test.go](libbox/ui_processing_match_test.go) 检查复合条件的完整配置校验、格式化往返、递归 schema 与非法节点/阶段拒绝。
+- [ui_processing_tasks_test.go](libbox/ui_processing_tasks_test.go)：事件/Generic 的完整校验、格式化与 schema，禁用任务和原数组下标保留，停服及重载期间拒绝准入，手动结果/日志与取消等待，以及接口回调适配的缺网、恢复、DNS 更新及旧生命周期隔离。
 
 **WARP MASQUE 传输（`./transport/masque`，步骤 3）**
 
@@ -579,6 +598,7 @@ MITM 与 TLS：
 脚本：
 
 - [script_api_test.go](libbox/httpdebug/script_api_test.go)：能力校验不执行脚本、两阶段 HTTP 客户端的路由注入、未配置目标与 Host 覆写拒绝、重定向/正文/请求次数的显式限制、不回退并校验 TLS、取消后释放解释器与正文预留，以及只读头部的脚本 HTTP 不受旧全局正文配额影响。
+- [script_tasks_test.go](libbox/httpdebug/script_tasks_test.go)：事件/Generic 校验不读取或执行源码，各类手动任务的上下文、JSON 结果与错误前日志，重复/未命名任务的原下标、自动与手动共用互斥、不同任务并行，启动/重载与旧回调隔离，以及停服等待路由退出、文件刷新、HTTP、定时器和共享存储。
 - [script_admission_test.go](libbox/httpdebug/script_admission_test.go)：HTTP 准入先于正文读取和序列化、复制到宿主前检查 UTF-8 与视图长度、原生正则取消按 VM 隔离，以及 HTTP 脚本无固定 VM 栈或日志配额。
 - [script_storage_test.go](libbox/httpdebug/script_storage_test.go)：持久化、命名空间隔离与删除、超过旧配额的写入、并发写入与取消的锁等待、原子失败和中断写入恢复、损坏与符号链接拒绝且不丢数据、HTTP/Cron 共享且无调用次数配额，以及重载/清空记录后保留。
 - [script_timers_test.go](libbox/httpdebug/script_timers_test.go)：顺序、参数、interval 清理与 `$done`，延迟校验和取消，以及 Cron 定时器使用同一调用期限。

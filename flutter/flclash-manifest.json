@@ -447,6 +447,33 @@
           "changes": "Condition subjects inform B-box's structured JSON match trees and their regression tests. B-box implements recursive all/any groups, same-candidate URL matching and phase validation in its own sing-box HTTP processing engine; it does not import the complete Loon parser or Mihomo configuration."
         }
       ]
+    },
+    {
+      "name": "script-events-and-debugging",
+      "repository": "https://github.com/chen08209/FlClash",
+      "commit": "5e579c4987e50e5c68e6023cc31ff4db55d480bb",
+      "scope": "Event names and manual cron/event/generic script debugging only; maintained independently of the overall UI, Android and sing-box baselines. Local paths are relative to the repository root.",
+      "files": [
+        {
+          "source": "lib/common/mitm_module.dart",
+          "sourceSHA256": "899a423abfc1dab73a1badb7c661de8e34ac832348b45ac6583b364f745e4bc2",
+          "usage": "design-reference",
+          "localPaths": [
+            "libbox/httpdebug/script_config.go",
+            "libbox/httpdebug/script_tasks.go"
+          ],
+          "changes": "Reference for network-changed, engine-started and profile-reloaded events and runnable cron/event/generic types. B-box implements its own JSON configuration, sing-box lifecycle notifications and cancellable Goja task runner; it does not import module parsers or Mihomo configuration."
+        },
+        {
+          "source": "lib/views/config/mitm_modules.dart",
+          "sourceSHA256": "fe5514bea5fa0dbc3c21a1e88a5244774f583f40a764cfd026039649966f873f",
+          "usage": "design-reference",
+          "localPaths": [
+            "flutter/lib/pages/configuration.dart"
+          ],
+          "changes": "Reference for running cron/event/generic scripts now, preventing duplicate runs and displaying result/error/console output, including panel title/content. B-box uses its own saved profile revisions and original array indices, local service checks, per-request cancellation and Prism navigation; independent scripts do not require MITM."
+        }
+      ]
     }
   ],
   "prismUi": {

@@ -3,10 +3,9 @@ package httpdebug
 import (
 	"context"
 	"crypto/x509"
+	"errors"
 	"sync"
 	"time"
-
-	"github.com/dop251/goja"
 )
 
 // The scheduler belongs to the local service, not to a recording Engine. A
@@ -15,6 +14,8 @@ type cronRunner struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	program *ScriptProgram
+	tasks   *scriptTaskRunner
+	owned   bool
 	dial    RewriteDialFunc
 	roots   *x509.CertPool
 	mu      sync.Mutex
@@ -25,8 +26,16 @@ type cronRunner struct {
 }
 
 func startCron(program *ScriptProgram, dial RewriteDialFunc, roots *x509.CertPool) *cronRunner {
-	ctx, cancel := context.WithCancel(context.Background())
-	r := &cronRunner{ctx: ctx, cancel: cancel, program: program, dial: dial, roots: roots,
+	tasks := newScriptTaskRunner(context.Background(), program, scriptEnvironment{dial: dial, roots: roots, storage: program.storage, resources: program.resources})
+	r := startCronForTasks(tasks)
+	r.owned = true
+	return r
+}
+
+func startCronForTasks(tasks *scriptTaskRunner) *cronRunner {
+	ctx, cancel := context.WithCancel(tasks.ctx)
+	program := tasks.program
+	r := &cronRunner{ctx: ctx, cancel: cancel, program: program, tasks: tasks, dial: tasks.environment.dial, roots: tasks.environment.roots,
 		next: make([]time.Time, len(program.cron)), pending: make([]bool, len(program.cron))}
 	now := time.Now()
 	for i, job := range program.cron {
@@ -80,50 +89,31 @@ func (r *cronRunner) runDue(now time.Time) {
 		}
 		r.pending[i] = true
 		r.wg.Add(1)
-		go func(index int) {
-			defer r.wg.Done()
-			if r.ctx.Err() == nil {
-				r.run(r.program.cron[index])
-			}
+		_, err := r.tasks.start(r.ctx, cronTask(job), false, func() {
 			r.mu.Lock()
-			r.pending[index] = false
+			r.pending[i] = false
 			r.mu.Unlock()
-		}(i)
+			r.wg.Done()
+		})
+		if err != nil {
+			r.pending[i] = false
+			r.wg.Done()
+			if errors.Is(err, ErrScriptBusy) {
+				writeLog("warn", job.label+": previous invocation is still running; cron skipped")
+			}
+		}
 	}
 }
 
 func (r *cronRunner) run(job compiledCron) error {
-	ctx, cancel := scriptContext(r.ctx, job.options.TimeoutMS)
-	defer cancel()
-	writeLog("info", job.label+": cron started")
-	program := job.program
-	if job.source != nil {
-		value, sourceLease, err := r.program.resources.get(ctx, job.source)
-		if err != nil {
-			writeLog("error", job.label+": script loading: "+err.Error())
-			return err
-		}
-		defer sourceLease.release()
-		program = value.program
-	}
-	var cleanup = func() {}
-	defer func() { cleanup() }()
-	err := executeScript(ctx, program, job.label, "cron", job.options.TimeoutMS, job.options.Argument, false,
-		func(vm *goja.Runtime, ctx context.Context) {
-			_ = vm.Set("$cronexp", job.options.Cron)
-			cleanup = installScriptHTTP(vm, ctx, r.dial, r.roots, r.program.limit, job.client)
-			key := job.storageKey
-			if job.source != nil {
-				key = "script." + r.program.resources.key(job.source)
-			}
-			installScriptStorage(vm, ctx, r.program.storage, job.options.StorageNamespace, job.label, key)
-		}, func(*goja.Runtime, goja.Value) error { return nil }, scriptRunInfo{name: job.options.Name})
-	if err != nil {
-		writeLog("error", job.label+": cron failed: "+err.Error())
-	} else {
-		writeLog("info", job.label+": cron completed")
-	}
+	_, err := runTaskScript(r.ctx, cronTask(job), r.program.limit,
+		scriptEnvironment{dial: r.dial, roots: r.roots, storage: r.program.storage, resources: r.program.resources}, false)
 	return err
+}
+
+func cronTask(job compiledCron) compiledTask {
+	return compiledTask{key: scriptTaskKey{"cron", job.index}, options: cronTaskOptions(job.options), label: job.label, cron: job.options.Cron,
+		program: job.program, client: job.client, source: job.source, storageKey: job.storageKey}
 }
 
 func (r *cronRunner) Close() {
@@ -131,6 +121,9 @@ func (r *cronRunner) Close() {
 	r.closed = true
 	r.cancel()
 	r.mu.Unlock()
+	if r.owned {
+		r.tasks.Close()
+	}
 	r.wg.Wait()
 	r.mu.Lock()
 	clear(r.pending)

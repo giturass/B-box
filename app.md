@@ -143,7 +143,7 @@ XHTTP 与 VLESS Encryption 通过同一 JSON、节点导入和订阅更新入口
 
 ## 请求抓取与 MITM
 
-MITM 配置、证书设置及 HTTP 脚本/Cron 的入口见 [配置编辑](flclash.md#配置页与内核差异)。先准备并安装 CA，再在选中配置的 MITM 中开启 HTTPS，按顺序填写域名及排除项，并按需开启 TCP 解密。空域名列表不解密。配置随本地服务生效；“工具 → 连接与请求”只控制记录，从新请求/流边界开始，未被接管的旧连接需要目标应用重新建立。HTTP 明文记录不需要 CA，协议选项、默认值及匹配规则见 [libbox.md](libbox.md#独立-mitm-配置)。
+MITM 配置、证书设置及脚本的入口见 [配置编辑](flclash.md#配置页与内核差异)。先准备并安装 CA，再在选中配置的 MITM 中开启 HTTPS，按顺序填写域名及排除项，并按需开启 TCP 解密。空域名列表不解密。配置随本地服务生效；“工具 → 连接与请求”只控制记录，从新请求/流边界开始，未被接管的旧连接需要目标应用重新建立。HTTP 明文记录不需要 CA，协议选项、默认值及匹配规则见 [libbox.md](libbox.md#独立-mitm-配置)。
 
 [BoxCapture.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxCapture.kt) 提供本地请求启停、筛选、列表/详情、域名、HAR/cURL 导出以及 CA 管理。开始抓包需本地服务已 Started；记录设置准备完成后，在配置互斥区复核服务实例、运行配置和当前选择，再调用该服务的抓包绑定；解密设置与证书来自已启动配置。启动失败、返回期间取消或状态确认失败会回收本次已启动会话。切换远程会话停止本地抓包，远程会话拒绝读取或操作本机记录与证书。核心协议、路由、限额和停止行为见 [libbox.md](libbox.md#httphttps-请求调试)。
 
@@ -181,7 +181,13 @@ Root/eBPF 采集器、目标 TLS 库发现、FD 会话和手动函数偏移已�
 
 复制在配置和桥接操作锁外完成，先写同目录暂存文件并同步；取消关闭正在读取的文档流并清理暂存。提交时重新核对本地会话、配置身份和内容修订，完整校验 JSON 后重命名文件，再沿用 ProfileContent 的原子保存、服务确认及失败恢复。恢复后确认资源未被配置引用才删除新文件；无法确认恢复状态时保留文件，避免再次破坏配置。导入只登记资源，规则通过资源名称引用；分享、配置导出及 B-box 应用内备份只保存引用，不打包本地资源文件，界面明确说明这一点。Android 系统云备份与设备迁移沿用 [backup_rules.xml](app/src/main/res/xml/backup_rules.xml) 和 [data_extraction_rules.xml](app/src/main/res/xml/data_extraction_rules.xml)，配置为包含整个 `configs` 目录（含导入资源），实际执行由系统决定。
 
-libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理、启动核心，成功后才激活 MITM/改写/脚本、Cron 和外部资源刷新。脚本及资源下载使用已启动实例的路由和证书库，`policy` 查找该实例的真实出站，网关模板读取该实例默认接口的网关；配置校验和预览不读取外部源码、不联网或执行脚本。重载/停止先关闭共享路由准入，再取消在途网络及定时器，等待调度/刷新、异步路由和显式出站拨号退出后才关闭核心；手动抓包启停不会重建调度。默认联网、可选限制及失败语义见 [脚本 HTTP 客户端](libbox.md#脚本-http-客户端)。
+libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理、启动核心，成功后才激活 MITM/改写/脚本、Cron 和外部资源刷新，并通知启动或重载事件。事件表示核心已实际激活；Android 随后的 Wi-Fi 规则权限复核若失败，仍沿用停服和恢复流程，不把该次应用报告为成功。脚本及资源下载使用已启动实例的路由和证书库，`policy` 查找该实例的真实出站，网关模板读取该实例默认接口的网关；配置校验和预览不读取外部源码、不联网或执行脚本。重载/停止先关闭共享路由准入及注销网络事件监听，再取消在途网络及定时器，等待全部自动/手动任务、调度/刷新、异步路由和显式出站拨号退出后才关闭核心；手动抓包启停不会重建调度。默认联网、可选限制及失败语义见 [脚本 HTTP 客户端](libbox.md#脚本-http-客户端)。
+
+网络事件接入当前实例的 `Network().InterfaceMonitor()`，在真实默认接口/DNS 更新后通知该配置的处理实例；不从 Flutter 网络状态推断，不把初始化或旧代回调发送给新配置。接口和启动顺序的官方源码依据见 [默认网络](#开机恢复与默认网络)，三个事件及脚本上下文由 [核心文档](libbox.md#事件与手动调试) 维护。
+
+[BoxScripts.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxScripts.kt) 提供 `scripts.run` 和按 `requestId` 取消的 `scripts.cancel`，沿用默认进程的现有 MethodChannel/Binder 消息通路，不新增或重排 AIDL 方法。运行请求携带配置 ID、内容修订、任务类别及原数组下标；原生在本机会话、配置和服务快照边界内核对当前选中及实际运行配置，仅登记任务后释放锁，在 IO 协程等待输出。停服、正在应用配置、修订或目标变化、远程会话及重复运行均拒绝；任务依赖配置自身脚本启用状态，不要求 MITM 或 CA。
+
+每次成功应用配置推进 `dashboard.processingGeneration`，相同 JSON 重载也使用新代次；`processingApplying` 表示原生正在读取、应用或确认重载配置，初次启动仍以 Starting 状态阻止调试。桥接在配置应用、服务/会话变化、UI 退出及请求取消时结束相关手动任务，并等待 JNI 调用退出；不同任务可独立执行，取消只按本次请求身份操作。运行结果包含本次 `$done` 的 JSON、错误和 console 输出；实际脚本数据和输出不写入配置、备份或独立调试历史。界面的迟到结果隔离与展示见 [脚本配置](flclash.md#配置页与内核差异)。
 
 一元 gRPC 脚本的 `grpc_mode` 与空响应快捷动作使用同一 JSON 校验、格式化和保存通路，不新增平台绑定或模块导入入口。HTTP/2、消息与 trailers 处理及脚本宿主行为见 [一元 gRPC 正文脚本](libbox.md#一元-grpc-正文脚本)；脚本主动 abort 关闭当前 HTTP/1 连接或 HTTP/2 流，请求页仍保留实际错误记录。
 
@@ -189,7 +195,7 @@ libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理�
 
 所有保存继续经过 ProfileContent 修订检查、完整 Libbox.checkConfig、原子写入及失败恢复。配置应用、恢复和后台启动使用同一入口；失败不能留下部分生效的处理或被报告为启动成功。旧嵌套配置的保守迁移见 [核心说明](libbox.md#旧抓包配置清理)。
 
-`ReadUICaptureStatus` 的 active 仅表示手动记录，mitmActive/scriptsActive/rewriteActive 分别报告配置状态，scriptRules/cronJobs/rewriteRules 报告规则数量。录制策略在现有引擎中切换，启停不关闭已有连接；停止时封存记录，处理与转发继续，边界和资源状态字段见 [核心说明](libbox.md#httphttps-请求调试)。服务关闭结束全部处理；切换远程会话停止本地记录并禁止本机记录/证书操作，本地配置继续随本地服务运行，不作为远端状态展示。
+`ReadUICaptureStatus` 的 active 仅表示手动记录，mitmActive/scriptsActive/rewriteActive 分别报告配置状态，scriptRules/cronJobs/eventJobs/genericJobs/rewriteRules 报告规则数量。录制策略在现有引擎中切换，启停不关闭已有连接；停止时封存记录，处理与转发继续，边界和资源状态字段见 [核心说明](libbox.md#httphttps-请求调试)。服务关闭结束全部处理；切换远程会话停止本地记录并禁止本机记录/证书/手动脚本操作，本地配置的自动任务继续随本地服务运行，不作为远端状态展示。
 
 CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期间不能轮换密钥；活跃 MITM 或手动抓包拒绝重新生成。界面入口及状态展示见 [flclash.md](flclash.md#配置页与内核差异)。
 
@@ -265,6 +271,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 - **连接与网络刷新：** [ConnectionStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ConnectionStreamTest.kt) 检查增量计数、最终关闭计数、历史淘汰、DNS 过滤、快照隔离及 3000 条记录经过状态合并和恢复订阅后的消息内容；[NetworkRefreshTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/NetworkRefreshTest.kt) 用虚拟时间覆盖网络通知、十秒/六十秒补查、前后台/熄屏取消和突发通知合并。
 - **默认接口与开机恢复：** [DefaultInterfaceMonitorTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/DefaultInterfaceMonitorTest.kt) 覆盖网络先于核心监听器到达、开机无网及接口编号超过一秒才就绪、同网络刷新、断网恢复、切网或监听器替换后的迟到结果、异常重试及停止/取消期间的等待与结果丢弃。纯 Kotlin 调度回归不代替 Android 网络回调、系统重启或实际代理连通验收。
 - **WARP 注册：** [BoxWarpTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxWarpTest.kt) 检查注册等待时配置/会话冲突、重复提交、取消及时关闭 JNI 请求、已返回凭据在取消后留待保存、失败重试复用账号及错误消敏；WireGuard 另核对所选目标、协议传递和失败重试的协议保留，并检查非法协议在准备配置及注册之前拒绝。
+- **脚本调试：** [BoxScriptsTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxScriptsTest.kt) 覆盖等待配置锁时取消、不同请求并行、重复 ID 拒绝、阻塞 JNI 及准入后尚未等待时的取消/退出等待、配置代次变化拒绝迟到结果、宿主关闭与原下标参数校验；请求登记保留至已准入原生任务退出。
 - **UI 退出与终端回复：** [UiExitPolicyTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/UiExitPolicyTest.kt) 用虚拟时间检查连续后台闲置 5 分钟的边界、超时前不执行退出准备、多 Activity、反复前后台切换不累计时间、配置重建、外部交互打断后重新计时及恢复失败；[UiIdleTriggerTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/UiIdleTriggerTest.kt) 检查冻结期间等待系统触发、旧任务与截止时间校验、调度取消/失败、重复完成、恢复期间任务替换和系统停止，以及完成通知排队期间返回前台的退出取消。[TerminalReplyLedgerTest.kt](app/src/test/java/io/nekohasekai/sfa/terminal/TerminalReplyLedgerTest.kt) 检查输出确认、UI 断开后的回复恢复及有序等待。
 - **UI JVM 报告：** [UiJvmCrashReportsTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/UiJvmCrashReportsTest.kt) 使用真实临时文件检查 UI 报告的独立发布、主进程日志/配置保留、多个报告及失败后重试；测试不加载 Android、libbox 或 Flutter 引擎。
 
@@ -288,6 +295,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 - **路由 MITM：** `routedMITMUsesKeystoreAndTheOriginalOutbound` 将实际 Android TLS 客户端经 mixed CONNECT 入口送入本地服务，使用 Keystore CA 解密、原 selector/direct 出站与独立证书库验证测试服务器。覆盖普通 HTTPS、开启 TCP 解密但无 ALPN 的 HTTP/1.1，以及服务器先发数据的二进制 TLS/TCP；核对 URL、原路由及 TLS 元数据，HTTP 检查重复 Cookie/cURL，TCP 检查双向字节、完整性与 cURL 拒绝，并验证重载停抓。测试服务器证书由 smoke 脚本提供，见 [模拟器 smoke 矩阵](#模拟器-smoke-矩阵)；自有 CA 客户端测试不等于第三方信任库、CT/ECH 或 Root 模块的兼容性验收。
 - **HTTP 改写、资源导入与 Cron：** `profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 使用实际 gomobile、Keystore、mixed CONNECT 和 HTTP 服务器，覆盖平级 MITM/脚本与改写、HTTPS 离线 Mock、跨域映射重新匹配路由、响应改写、停记录后继续处理及应用失败恢复；复合条件检查嵌套 all/any、方法/头部及状态匹配、各阶段不匹配，以及改写方法、Host 和头部后仍使用原请求/响应快照。资源用例先通过实际 `content://` 文档流完成本地文件和脚本导入，再检查 999 状态、MIME、后查找/内部反向引用 → jq → 脚本的顺序及本地文件更新。[HTTPCompoundMatchConfigTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/HTTPCompoundMatchConfigTest.kt) 检查实际 libbox AAR 对各类条件的完整校验及格式化、非法对象和禁用请求规则中的响应条件拒绝。`localResourceImportsKeepRevisionsRecoverFailuresAndCleanCancelledCopies` 覆盖重名资源、修订冲突、应用失败恢复、文档读取失败和阻塞读取期间取消后的清理。`independentCronUsesRoutingAndStopsWithTheService` 覆盖定时路由请求、抓包启停、非法 Cron 保存拒绝及移除配置后不再请求。本地订阅/定时请求服务器按连接处理对端断开，允许服务重载或停止时取消在途 Cron 请求后继续接受新请求；监听失败及其他异常仍使测试失败，响应内容、请求次数、配置恢复和停止后的不再调度继续由原有断言检查。
 - **脚本：** `httpScriptsUseRoutedClientTimersAndPersistentNamespaces` 使用仅当前路由可解析、也匹配脚本范围的 HTTP 目标，检查异步回调及防递归、定时器、磁盘快照、规则改名/重载/清空记录后保留值、命名空间隔离、默认联网及显式空允许列表禁止联网。
+- **事件与手动脚本：** [ScriptConfigBindingTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ScriptConfigBindingTest.kt) 检查实际 AAR 的事件/Generic 格式化及 schema、禁用任务校验、非法事件/源码/路径和字段组合拒绝。`scriptLifecycleEventsAndManualDebugUseTheCurrentAndroidCore` 使用真实本地服务，核对启动与相同 JSON 重载事件、处理代次及应用中拒绝准入，手动 Cron/event/generic 的上下文、原下标、结果/日志、配置修订和本地/远程会话冲突，以及无限运行 VM 的取消；真实 Wi-Fi/蜂窝切换仍需设备验收。
 - **WARP MASQUE / WireGuard：** [WarpMasqueConfigTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpMasqueConfigTest.kt) 使用临时 ECDSA 密钥，检查实际 libbox AAR 的 HTTP/2、HTTP/3、新旧字段兼容、凭据/地址格式化及非法账号拒绝。[WarpWireGuardConfigTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpWireGuardConfigTest.kt) 检查原生 WireGuard 端点、原始密钥、地址和 reserved 字节的格式化，以及非法字段和旧出站结构拒绝。[WarpRegistrationTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/WarpRegistrationTest.kt) 以注册替身及实际 Room/libbox 验证两个协议的所选配置持久化、跨出站/端点重名、分组成员、本地标记、订阅保留、本机会话/配置修订/选择/过渡状态冲突及同账号重试；`ProfileRecoveryTest.registeredWarpAccountsSurviveFailedApplicationsAndRetryWithoutRegisteringAgain` 验证运行中 MASQUE 保存失败后恢复文件、时间与服务，以及同账号重试。上述用例不调用 Cloudflare API，核心注册和传输回归见 [libbox.md](libbox.md#cloudflare-warp-masque)。
 - **XHTTP 与 VLESS Encryption：** [XHttpVlessConfigTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/XHttpVlessConfigTest.kt) 使用临时参数检查实际 libbox AAR 的 XHTTP 模式、HTTP 版本及上下行分离配置、VLESS 加密/解密与 Vision 字段格式化、非法配置拒绝；来源测试另验证加密分享链接导入、更新及失败后内容/归属保留。模拟器配置检查不连接外部协议服务器，核心真实传输回归见 [libbox.md](libbox.md#xhttp-与-vless-encryption)。
 
@@ -308,6 +316,8 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 统一工作流的 `root-ca` job 在独立 Linux PID/mount namespace 中运行 [test_mitm_ca.py](tools/test_mitm_ca.py)，使用 BusyBox 和导出的原始脚本，覆盖 APEX 延迟就绪、旧系统缺少 APEX、hash 冲突和原证书保留、已有二级后代/隐藏模块路径、同一 namespace 的重新挂载、准备失败、service 重试和禁用退出。该测试只在 Actions 运行，不对本机 Android 做 Root 挂载，也不代表真实 Magisk/KernelSU/APatch 安装与重启已验收。
 
 ### 当前验证记录
+
+本轮事件与手动调试的功能源码尚未取得对应的 Actions 结果；下列成功记录固定于各自列出的此前源码 SHA，不包含本轮新增能力。
 
 2026-11-22 声明式复合匹配及 smoke 长等待移除后的源码 `baa5acd1bebe58b71f0f651dc4ceeb5ab0a662ac` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44987095303) 的全部 8 个作业：[核心 Go](https://github.com/giturass/B-box/actions/runs/44987095303/job/137099941545)、Root CA、Flutter、Android 和四组模拟器 smoke。核心的配置/格式化/schema 与 HTTP 改写 race 回归成功；Flutter 分析、交互/布局及 ARM64 AAR 结果由 [界面验证记录](flclash.md#当前验证记录) 维护。[Android 作业](https://github.com/giturass/B-box/actions/runs/44987095303/job/137099941203) 完成本次 libbox、Flutter Debug AAR、other/play Kotlin、AIDL 及模拟器应用/测试 APK；[JVM 报告](https://github.com/giturass/B-box/actions/runs/44987095303/artifacts/14739924613) 为 22 个套件、135 项测试，失败、错误和跳过均为 0。
 
