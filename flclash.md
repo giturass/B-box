@@ -249,7 +249,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 ### 当前验证记录
 
-2026-11-22 声明式复合匹配的功能源码 `f032d5e317b09e61c018f5bd6e24824b90dc92e9` 已通过 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44985360572/job/137094636383)：分析、721 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 均成功。两项新增用例实际经过 HTTP 改写和 HTTP 脚本规则表单，验证复合条件被拒绝后保留草稿、配置及修订，修正后重试保存；原生桥接使用替身，核心及 Android 的实际校验和执行结果见 [应用验证记录](app.md#当前验证记录)。
+2026-11-22 声明式复合匹配及 smoke 长等待移除后的源码 `baa5acd1bebe58b71f0f651dc4ceeb5ab0a662ac` 已通过 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44987095303/job/137099941409)：分析为 98 项 info、0 warning/error，721 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 均成功。两项新增用例实际经过 HTTP 改写和 HTTP 脚本规则表单，验证复合条件被拒绝后保留草稿、配置及修订，修正后重试保存；原生桥接使用替身，核心及 Android 的实际校验和执行结果见 [应用验证记录](app.md#当前验证记录)。
 
 本轮未审阅新增规则表单说明的截图，未完成 ARM64 实机视觉验收；原有截图不能作为本轮表单的视觉通过依据。本机只执行静态检查及读取 Actions 结果，验证记录提交仅补充文档。
 

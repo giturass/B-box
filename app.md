@@ -309,9 +309,22 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
+2026-11-22 声明式复合匹配及 smoke 长等待移除后的源码 `baa5acd1bebe58b71f0f651dc4ceeb5ab0a662ac` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44987095303) 的全部 8 个作业：[核心 Go](https://github.com/giturass/B-box/actions/runs/44987095303/job/137099941545)、Root CA、Flutter、Android 和四组模拟器 smoke。核心的配置/格式化/schema 与 HTTP 改写 race 回归成功；Flutter 分析、交互/布局及 ARM64 AAR 结果由 [界面验证记录](flclash.md#当前验证记录) 维护。[Android 作业](https://github.com/giturass/B-box/actions/runs/44987095303/job/137099941203) 完成本次 libbox、Flutter Debug AAR、other/play Kotlin、AIDL 及模拟器应用/测试 APK；[JVM 报告](https://github.com/giturass/B-box/actions/runs/44987095303/artifacts/14739924613) 为 22 个套件、135 项测试，失败、错误和跳过均为 0。
+
+四组 `results.json` 的源码 SHA、实际页大小及 UI/native 通过状态已核对；原生日志各记录 `OK (113 tests)`，113 次开始和完成状态均成功且无跳过。新增 `HTTPCompoundMatchConfigTest` 三项及 `profileHTTPRewritingUsesKeystoreRoutingAndReloadRecovery` 均逐项确认实际执行。每组三次后台记录均为 `requestedBackgroundSeconds=2`，只含短后台和返回阶段，UI/native PID 保持，运行时 VPN 前台服务检查通过。
+
+| 环境 | 实际页大小（字节） | 原生 / UI | 实测短后台（秒） | 报告 |
+| --- | --- | --- | --- | --- |
+| [API 24](https://github.com/giturass/B-box/actions/runs/44987095303/job/137101655521) | 4096（`smaps`） | 113 项通过 / 通过 | 2.332～2.449 | [14740841100](https://github.com/giturass/B-box/actions/runs/44987095303/artifacts/14740841100) |
+| [API 31](https://github.com/giturass/B-box/actions/runs/44987095303/job/137101655555) | 4096（`getconf`） | 113 项通过 / 通过 | 2.054～2.120 | [14740692677](https://github.com/giturass/B-box/actions/runs/44987095303/artifacts/14740692677) |
+| [API 36 / 4 KiB](https://github.com/giturass/B-box/actions/runs/44987095303/job/137101655520) | 4096（`getconf`） | 113 项通过 / 通过 | 2.052～2.133 | [14740747504](https://github.com/giturass/B-box/actions/runs/44987095303/artifacts/14740747504) |
+| [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/44987095303/job/137101655566) | 16384（`getconf`） | 113 项通过 / 通过 | 2.051～2.138 | [14741055541](https://github.com/giturass/B-box/actions/runs/44987095303/artifacts/14741055541) |
+
+本次 APK、AAR、JVM 和四组 smoke 产物的 `workflow_run.head_sha` 均与上述源码一致。本机仅执行差异空白、源码约束、Go 格式、Python 语法、JSON 示例及文档链接/标题检查，并读取 Actions 日志和报告；ARM64 实机及自然 5 分钟回收未在本轮验收。后续验证记录提交仅补充文档。
+
 2026-11-22 声明式复合匹配的功能源码 `f032d5e317b09e61c018f5bd6e24824b90dc92e9` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44985360572) 的核心 Go（含 HTTP 改写 race）、Root CA、Flutter 和 Android 编译/JVM 作业。Flutter 的 721 项交互/布局测试与 ARM64 Debug/Release AAR 成功；[JVM 报告](https://github.com/giturass/B-box/actions/runs/44985360572/artifacts/14739374815) 为 22 个套件、135 项测试，失败、错误及跳过均为 0。新增三项复合匹配仪器测试和扩展的 HTTP/HTTPS 流均已编译，但四组 smoke 在实际原生执行结果取得前按用户要求取消，整套运行结论为 `cancelled`，不能作为模拟器通过记录。
 
-日常 smoke 已移除三次真实 5 分钟闲置及额外系统调度等待，保留未完成导入、运行和停服时的 2 秒短后台往返，以及 VPN 进程和前台服务检查；更新后的模拟器结果尚待 Actions 验证。下列回收秒数和完整闲置结论对应其明确列出的此前源码 SHA。
+日常 smoke 已移除三次真实 5 分钟闲置及额外系统调度等待，保留未完成导入、运行和停服时的 2 秒短后台往返，以及 VPN 进程和前台服务检查。下列回收秒数和完整闲置结论对应其明确列出的此前源码 SHA。
 
 2026-11-22 系统任务回收与 smoke 调度调整的源码 `f6eabe313b75ef56f670e7f7a6944240ebb21f95` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44973945451) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[Flutter 作业](https://github.com/giturass/B-box/actions/runs/44973945451/job/137059541877) 的 719 项测试通过，分析为 97 项 info、0 warning/error，ARM64 Debug/Release AAR 构建成功；[Android 作业](https://github.com/giturass/B-box/actions/runs/44973945451/job/137059541742) 完成匹配核心、Flutter Debug AAR、other/play Kotlin 与 AIDL 编译及模拟器应用/测试 APK。[JVM 报告](https://github.com/giturass/B-box/actions/runs/44973945451/artifacts/14734634470) 为 22 个套件、135 项测试，包含 12 项系统任务触发回归，失败、错误及跳过均为 0。
 
