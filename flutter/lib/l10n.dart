@@ -208,7 +208,6 @@ const _zh = <String, String>{
   "View body": "查看正文",
   "Text": "文本",
   "Image": "图片",
-  "Hex": "十六进制",
   "Wrap lines": "自动折行",
   "Reset zoom": "重置缩放",
   "Copy displayed body": "复制显示内容",

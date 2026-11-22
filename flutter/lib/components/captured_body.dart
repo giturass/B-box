@@ -170,12 +170,11 @@ class _CapturedBodyState extends State<CapturedBody> {
         final count = (_content.bytes.length / _hexColumns).ceil();
         return SizedBox(height: math.min(maxHeight, count * lineHeight), child: Scrollbar(controller: _scroll,
           child: ListView.builder(controller: _scroll, primary: false, padding: EdgeInsets.zero, itemExtent: lineHeight, itemCount: count,
-            itemBuilder: (context, index) => SelectableText(
+            itemBuilder: (context, index) => Directionality(textDirection: TextDirection.ltr, child: SelectableText(
               capturedHexLine(_content.bytes, index * _hexColumns, _hexColumns, baseOffset: _offset),
               key: ValueKey('captured-body-hex-line-${_offset + index * _hexColumns}'),
-              textDirection: TextDirection.ltr, style: style, minLines: 1, maxLines: 1,
-              strutStyle: StrutStyle.fromTextStyle(style, forceStrutHeight: true),
-            )),
+              style: style, minLines: 1, maxLines: 1,
+            ))),
         ));
       }
       final text = _shownText;
@@ -186,8 +185,8 @@ class _CapturedBodyState extends State<CapturedBody> {
         width = math.max(width, measure.width + 4);
         measure.dispose();
       }
-      Widget child = SizedBox(width: width, child: SelectableText(text,
-        key: const ValueKey('captured-body-text'), textDirection: TextDirection.ltr, style: style));
+      Widget child = SizedBox(width: width, child: Directionality(textDirection: TextDirection.ltr, child: SelectableText(text,
+        key: const ValueKey('captured-body-text'), style: style)));
       if (widget._fullPage && !_wrap) child = Scrollbar(controller: _horizontal,
         child: SingleChildScrollView(controller: _horizontal, primary: false, scrollDirection: Axis.horizontal, child: child));
       return ConstrainedBox(constraints: BoxConstraints(maxHeight: maxHeight), child: Scrollbar(controller: _scroll,
