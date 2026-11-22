@@ -604,6 +604,51 @@
           "changes": "Reference for running cron/event/generic scripts now, preventing duplicate runs and displaying result/error/console output, including panel title/content. B-box uses its own saved profile revisions and original array indices, local service checks, per-request cancellation and Prism navigation; independent scripts do not require MITM."
         }
       ]
+    },
+    {
+      "name": "captured-body-viewing",
+      "repository": "https://github.com/chen08209/FlClash",
+      "commit": "5e579c4987e50e5c68e6023cc31ff4db55d480bb",
+      "scope": "Captured body classification, schema-free Protobuf/gRPC interpretation, hexadecimal rows and a separate body viewer only. Maintained independently of the overall UI, Android and sing-box baselines. Local paths are relative to the repository root.",
+      "files": [
+        {
+          "source": "lib/common/mitm_body.dart",
+          "sourceSHA256": "e764ea48e50d72d02b030ecb44f5134d6618be24cdd2495197b22fe318818803",
+          "usage": "adapted",
+          "localPaths": [
+            "flutter/lib/common/body_content.dart"
+          ],
+          "changes": "Rework text/image/binary classification and hexadecimal rows around one native 16 KiB page. Preserve original bytes and absolute byte offsets, validate canonical Base64 and UTF-8, replace only sparse display controls, and recognize supported declared charsets or BOMs. UTF-16, complete images and schema-free structures require the complete first page. Unsupported charsets and raw compression fallback keep their bytes; no Rust charset bridge or full-body allocation. Existing B-box JSON formatting preserves numbers, duplicate keys and escapes."
+        },
+        {
+          "source": "lib/common/mitm_protobuf.dart",
+          "sourceSHA256": "572124227da5e13cc9040e9a4e761523494e940a4f7fc59ae7e3192c7ab855ac",
+          "usage": "adapted",
+          "localPaths": [
+            "flutter/lib/common/body_content.dart"
+          ],
+          "changes": "Implement bounded schema-free wire parsing with unsigned BigInt values, repeated numbered fields, fixed-width hexadecimal values and inferred text/nested/opaque length-delimited fields. Support gRPC frames and gRPC-Web binary or independently padded text chunks and trailers. Compressed message frames retain bytes and their declared encoding instead of assuming gzip. Incomplete, invalid or over-budget structure falls back to page bytes, with depth, node and derived output limits independent of capture retention."
+        },
+        {
+          "source": "lib/features/connection/mitm_body.dart",
+          "sourceSHA256": "e340e6460433daa4a47b591e3acc76114998ca9dfb34e796fb9bcbb1981a3fe2",
+          "usage": "design-reference",
+          "localPaths": [
+            "flutter/lib/components/captured_body.dart",
+            "flutter/test/captured_body_test.dart"
+          ],
+          "changes": "Reference for separate text/image/hex viewing, wrapping and original byte access. B-box uses Prism cards and controls, copies raw page text/Base64 independently of the display mode, lazily builds responsive hex rows and opens a one-page snapshot with preserved pagination history/source/session. Images use aspect-preserving bounded decode dimensions, zoom/reset, error-to-hex fallback and cache eviction. No upstream editor dependencies, full-body loading or remote local-state access."
+        },
+        {
+          "source": "test/common/mitm_body_test.dart",
+          "sourceSHA256": "6ba844535f4d72b358558d5f5ec62dcca468d20de0b240cadf8e940404938132",
+          "usage": "design-reference",
+          "localPaths": [
+            "flutter/test/body_content_test.dart"
+          ],
+          "changes": "Reference edge cases for body types, declared charset, malformed/truncated text and hexadecimal layout. B-box adds native page completeness/source boundaries, exact byte preservation, responsive absolute offsets, wire-format validity and bounded schema-free interpretation cases. Tests run through the existing GitHub Actions Flutter job."
+        }
+      ]
     }
   ],
   "prismUi": {

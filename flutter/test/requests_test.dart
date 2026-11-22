@@ -702,8 +702,13 @@ void main() {
     expect(find.text('Body could not be fully decoded.'), findsOneWidget);
     data.value = {'text': 'AAECAw==', 'encoding': 'base64'};
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('captured-body-text')), findsNothing);
+    expect(tester.widget<SelectableText>(find.byKey(const ValueKey('captured-body-hex-line-0'))).data,
+      contains('00 01 02 03'));
+    await tester.tap(find.text('Base64'));
+    await tester.pumpAndSettle();
     expect(body(), 'AAECAw==');
-    expect(find.textContaining('Base64'), findsOneWidget);
+    expect(find.textContaining('Base64'), findsWidgets);
     expect(find.byTooltip('Format JSON'), findsNothing);
     expect(tester.takeException(), isNull);
   });
