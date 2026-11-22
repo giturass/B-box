@@ -592,7 +592,12 @@ void main() {
         await tester.pumpAndSettle();
         expect(position.pixels, greaterThan(0));
         expect(copy.hitTestable(), findsOneWidget);
-        if (boundaryKey != null) await _capture(tester, boundaryKey, 'output-zh-320-1.8-after-scroll');
+        if (boundaryKey != null) {
+          await Scrollable.ensureVisible(tester.element(find.byKey(const ValueKey('script-output-text'))), alignment: 0);
+          await tester.pumpAndSettle();
+          expect(copy.hitTestable(), findsOneWidget);
+          await _capture(tester, boundaryKey, 'output-zh-320-1.8-after-scroll');
+        }
         expect(harness.calls.where((call) => call.method == 'scripts.run'), isEmpty);
         expect(tester.takeException(), isNull);
       } finally { debugDefaultTargetPlatformOverride = previousPlatform; }
@@ -606,7 +611,17 @@ void main() {
       try {
         final boundaryKey = screenshots ? GlobalKey() : null;
         final harness = await _mount(tester, locale: const Locale('zh'), size: const Size(320, 568), scale: 1.8, boundaryKey: boundaryKey);
-        if (boundaryKey != null) await _capture(tester, boundaryKey, 'configuration-zh-320-1.8');
+        if (boundaryKey != null) {
+          final configScroll = find.descendant(of: find.byType(ScriptsConfigPage), matching: find.byType(Scrollable)).first;
+          final generic = find.byKey(const ValueKey('generic-scripts'));
+          await tester.scrollUntilVisible(generic, 140, scrollable: configScroll);
+          await Scrollable.ensureVisible(tester.element(generic), alignment: 1);
+          await tester.pumpAndSettle();
+          for (final type in ['http', 'cron', 'event', 'generic']) {
+            expect(find.byKey(ValueKey('$type-scripts')).hitTestable(), findsOneWidget);
+          }
+          await _capture(tester, boundaryKey, 'configuration-zh-320-1.8');
+        }
         await _openList(tester, harness, 'event');
         await tester.tap(find.text('Event task').hitTestable());
         await tester.pumpAndSettle();
@@ -627,10 +642,11 @@ void main() {
         await tester.tap(find.text('配置重载').hitTestable());
         await tester.pumpAndSettle();
         final field = find.descendant(of: find.byType(ConfigValueEditor), matching: find.byType(TextField));
+        final editorScroll = find.descendant(of: find.byType(ConfigValueEditor), matching: find.byType(Scrollable)).first;
+        await tester.scrollUntilVisible(field, 150, scrollable: editorScroll);
+        await tester.pumpAndSettle();
         expect(json(jsonDecode(tester.widget<TextField>(field).controller!.text))['event'], 'profile-reloaded');
         if (boundaryKey != null) {
-          await Scrollable.ensureVisible(tester.element(field), alignment: .5);
-          await tester.pumpAndSettle();
           await _capture(tester, boundaryKey, 'event-json-zh-320-1.8');
         }
         final save = find.byTooltip('保存').hitTestable();
