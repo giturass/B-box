@@ -317,7 +317,20 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-本轮事件与手动调试的功能源码尚未取得对应的 Actions 结果；下列成功记录固定于各自列出的此前源码 SHA，不包含本轮新增能力。
+2026-11-22 事件与手动调试的功能源码 `390abf9eadcf795af84d2a6f5203cc3708fb0671` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44999778401) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[核心作业](https://github.com/giturass/B-box/actions/runs/44999778401/job/137138547300) 实际执行 13 条 Go 测试命令，其中 8 条启用 race，全部使用 `-count=1`；包含真实服务下探测/记录/脚本并行准入、重载/停服写锁拒绝及旧处理下标隔离。Flutter 分析、交互/布局、ARM64 AAR 和本次六张中文截图由 [界面验证记录](flclash.md#当前验证记录) 维护。
+
+[Android 作业](https://github.com/giturass/B-box/actions/runs/44999778401/job/137138547285) 完成本次 x86_64 libbox、Flutter Debug AAR、other/play Kotlin、AIDL 及 [模拟器应用/测试 APK](https://github.com/giturass/B-box/actions/runs/44999778401/artifacts/14745383142)。[JVM 报告](https://github.com/giturass/B-box/actions/runs/44999778401/artifacts/14745637159) 实际为 23 个套件、143 项测试，失败、错误和跳过均为 0；新增 `BoxScriptsTest` 为 8/8。
+
+逐份核对四组 `results.json` 的源码 SHA、设备实际页大小及 UI/native 成功状态；原生日志各有 116 个不同用例开始并成功完成，仅状态 `1→0`，末尾为 `OK (116 tests)`，无失败或跳过。新增两项 `ScriptConfigBindingTest` 及 `scriptLifecycleEventsAndManualDebugUseTheCurrentAndroidCore` 均逐项执行成功，覆盖真实校验/格式化绑定、核心启动和同 JSON 重载事件、手动 Cron/event/generic、取消等待，以及修订/会话/处理代次复核。
+
+| 环境 | 实际页大小（字节） | 原生 / UI | 报告 |
+| --- | --- | --- | --- |
+| [API 24](https://github.com/giturass/B-box/actions/runs/44999778401/job/137140443069) | 4096（`smaps`） | 116 项通过 / 通过 | [14745423660](https://github.com/giturass/B-box/actions/runs/44999778401/artifacts/14745423660) |
+| [API 31](https://github.com/giturass/B-box/actions/runs/44999778401/job/137140442924) | 4096（`getconf`） | 116 项通过 / 通过 | [14746170748](https://github.com/giturass/B-box/actions/runs/44999778401/artifacts/14746170748) |
+| [API 36 / 4 KiB](https://github.com/giturass/B-box/actions/runs/44999778401/job/137140442892) | 4096（`getconf`） | 116 项通过 / 通过 | [14746240668](https://github.com/giturass/B-box/actions/runs/44999778401/artifacts/14746240668) |
+| [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/44999778401/job/137140442951) | 16384（`getconf`） | 116 项通过 / 通过 | [14745733001](https://github.com/giturass/B-box/actions/runs/44999778401/artifacts/14745733001) |
+
+本次 APK、AAR、JVM、截图及四组 smoke 产物的 `workflow_run.head_sha` 均与上述源码一致。网络事件发布时序及旧回调隔离由核心 Go/race 回归检查，模拟器未主动切换物理网络；真实 Wi-Fi/蜂窝切换和 ARM64 实机行为/视觉未验收。本机仅执行差异空白、源码约束、Go 格式、JSON 和文档链接/标题检查，并读取 Actions 日志、报告与截图；未触发签名 Release 或发布。后续验证记录提交仅补充文档，下列记录只适用于其中明确列出的此前源码 SHA。
 
 2026-11-22 声明式复合匹配及 smoke 长等待移除后的源码 `baa5acd1bebe58b71f0f651dc4ceeb5ab0a662ac` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44987095303) 的全部 8 个作业：[核心 Go](https://github.com/giturass/B-box/actions/runs/44987095303/job/137099941545)、Root CA、Flutter、Android 和四组模拟器 smoke。核心的配置/格式化/schema 与 HTTP 改写 race 回归成功；Flutter 分析、交互/布局及 ARM64 AAR 结果由 [界面验证记录](flclash.md#当前验证记录) 维护。[Android 作业](https://github.com/giturass/B-box/actions/runs/44987095303/job/137099941203) 完成本次 libbox、Flutter Debug AAR、other/play Kotlin、AIDL 及模拟器应用/测试 APK；[JVM 报告](https://github.com/giturass/B-box/actions/runs/44987095303/artifacts/14739924613) 为 22 个套件、135 项测试，失败、错误和跳过均为 0。
 
@@ -386,6 +399,10 @@ APK、AAR、JVM 报告和四组 smoke 产物的 `workflow_run.head_sha` 及设�
 
 | 日期 | 主题 | 验证源码 | Actions | 范围与备注 |
 | --- | --- | --- | --- | --- |
+| 2026-11-22 | 脚本调试首轮 | `3669e7f86bd877a8c2b1827f375c8e49b2bbdc73` | [44992556782](https://github.com/giturass/B-box/actions/runs/44992556782) | 核心、Root CA、Android/JVM 通过，四组 UI smoke 通过；Flutter 四项脚本回归失败，原生生命周期夹具持有配置快照锁后调用需同一锁的应用预检而超时，整套失败 |
+| 2026-11-22 | 脚本截图字体与查找 | `7af1019e74e6d881bc3481076acc4433f9f27aca` | [44994399341](https://github.com/giturass/B-box/actions/runs/44994399341) | 核心、Root CA、Android/JVM 通过；Flutter 截图查找失败，后续修正推送取消未完成 smoke，整套为 cancelled，具体界面结果见 [界面历史](flclash.md#历史验证记录) |
+| 2026-11-22 | 脚本截图字段定位 | `94f122ced99f0c54e77b6da0043ca26937f945d9` | [44995309984](https://github.com/giturass/B-box/actions/runs/44995309984) | 核心、Root CA、Android/JVM 通过；Flutter 截图误用 Key，后续修正推送取消未完成 smoke，整套为 cancelled，具体界面结果见 [界面历史](flclash.md#历史验证记录) |
+| 2026-11-22 | 脚本生命周期并发准入 | `a4d6e9132a6bd02e1cbbd8fdf8f29efd90198550` | [44996187416](https://github.com/giturass/B-box/actions/runs/44996187416) | 核心、Root CA、Flutter、Android/JVM 通过，四组 UI smoke 通过；API 24 原生 116 项通过，其余三组各 115/116，脚本与普通出口探测共用生命周期互斥锁，稳定引擎下手动事件仍误报服务变化，整套失败；后续改用共享读锁并保留重载/停服立即拒绝，不扩大测试重试 |
 | 2026-11-20 | Prism UI SDK 导入修复 | `6d9fac605557ff27067b03a01b47a4765954300c` | [44690773881](https://github.com/giturass/B-box/actions/runs/44690773881) | 核心、Root CA、JVM 及模拟器 APK 构建通过；Flutter 两项失败，ARM64 AAR 跳过；配置卡宽度与日志测试 Key 修正后推送取消四组 smoke，整套为 cancelled；具体失败由 [界面历史](flclash.md#历史验证记录) 维护 |
 | 2026-11-20 | Prism UI 0.1.3 首轮同步 | `b5927256036a156b918063adcf873a49122aed2a` | [44689944833](https://github.com/giturass/B-box/actions/runs/44689944833) | 核心与 Root CA 通过；Flutter 分析因固定 SDK 不通过 widgets 导出 ScrollCacheExtent 而有 4 项错误，Android debug Flutter AAR 同类编译失败；Flutter 测试、ARM64 AAR、JVM 和 smoke 未运行，整套失败；两处显式导入修复由 [界面说明](flclash.md#参考版本与来源清单) 记录 |
 | 2026-11-19 | 应用独立版本与更新下载/安装 | `556a8716e0f7152ae2c3b012145127bcd1fea6d2` | [44489197911](https://github.com/giturass/B-box/actions/runs/44489197911)、[ARM64 Release 44489951496/attempts/3](https://github.com/giturass/B-box/actions/runs/44489951496/attempts/3) | 8 个作业通过；100 项 JVM，四组各 74 项原生及 UI smoke 通过；应用 `1.0.1` / `749` 的签名 ARM64 构建、元数据和既有签名证书核对通过，`publish_release=false`；设备覆盖安装与实机视觉未验收，包含替换前的图标 |

@@ -256,11 +256,15 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 
 ### 当前验证记录
 
-本轮事件与手动调试的界面分析、交互和布局尚无对应源码的 Actions 结果；下列记录仅适用于明确列出的此前源码 SHA。
+2026-11-22 事件与手动调试的功能源码 `390abf9eadcf795af84d2a6f5203cc3708fb0671` 已通过 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44999778401/job/137138547132)：分析为 105 项 info、0 warning/error，757 项测试全部成功，包含 36 项脚本回归（2 项普通测试、34 项 widget 测试）；ARM64 Debug/Release Flutter AAR 均构建成功。[AAR 产物](https://github.com/giturass/B-box/actions/runs/44999778401/artifacts/14745337923) 和 [截图产物](https://github.com/giturass/B-box/actions/runs/44999778401/artifacts/14745507431) 的 `workflow_run.head_sha` 均与上述源码一致。核心、JVM 和 Android 结果由 [应用验证记录](app.md#当前验证记录) 维护。
+
+实际逐张查看本次 `build/screenshots/scripts/` 下中文 320×568、1.8 倍字号的六张截图：`configuration-zh-320-1.8.png`、`event-editor-zh-320-1.8.png`、`event-triggers-zh-320-1.8.png`、`event-json-zh-320-1.8.png` 及 `output-zh-320-1.8-before-scroll.png` / `output-zh-320-1.8-after-scroll.png`。四种脚本入口、三个事件选项、保存的 `profile-reloaded` JSON、长结果/日志的滚动内容和固定复制/关闭按钮可读。
+
+这些是 Linux widget 截图，使用 [测试字体](flutter/test/support/fonts/README.md) 与 Android 桥接替身；不作为 ARM64 实机视觉或与上游逐像素一致的验收。本机仅静态检查并读取 Actions 日志、报告和截图，后续验证记录提交仅补充文档。下列记录只适用于其中明确列出的此前源码 SHA。
 
 2026-11-22 声明式复合匹配及 smoke 长等待移除后的源码 `baa5acd1bebe58b71f0f651dc4ceeb5ab0a662ac` 已通过 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44987095303/job/137099941409)：分析为 98 项 info、0 warning/error，721 项交互/布局测试及 ARM64 Debug/Release Flutter AAR 均成功。两项新增用例实际经过 HTTP 改写和 HTTP 脚本规则表单，验证复合条件被拒绝后保留草稿、配置及修订，修正后重试保存；原生桥接使用替身，核心及 Android 的实际校验和执行结果见 [应用验证记录](app.md#当前验证记录)。
 
-本轮未审阅新增规则表单说明的截图，未完成 ARM64 实机视觉验收；原有截图不能作为本轮表单的视觉通过依据。本机只执行静态检查及读取 Actions 结果，验证记录提交仅补充文档。
+该次未审阅新增规则表单说明的截图，未完成 ARM64 实机视觉验收；原有截图不能作为该次表单的视觉通过依据。本机只执行静态检查及读取 Actions 结果，验证记录提交仅补充文档。
 
 UI 进程拆分、状态重连及后台回收时机调整的验证结果与覆盖范围由 [应用文档](app.md#当前验证记录) 维护。下列截图与 Actions 结果对应各自列出的此前源码 SHA。
 
@@ -286,6 +290,10 @@ UI 进程拆分、状态重连及后台回收时机调整的验证结果与覆�
 
 | 日期 | 主题 | 验证源码 | Actions | 测试 / info | 当时实际查看的截图 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-11-22 | 脚本调试首轮 | `3669e7f86bd877a8c2b1827f375c8e49b2bbdc73` | [44992556782](https://github.com/giturass/B-box/actions/runs/44992556782) | 751 通过、4 失败 / 105 | 脚本交互/布局回归失败，不能作为通过依据；整套结果见 [应用历史](app.md#历史验证记录) |
+| 2026-11-22 | 脚本截图字体与查找 | `7af1019e74e6d881bc3481076acc4433f9f27aca` | [44994399341](https://github.com/giturass/B-box/actions/runs/44994399341) | 756 通过、1 失败 / 105 | 截图用例在滚动前访问尚未构建的 JSON 字段，后续修正推送取消未完成 smoke |
+| 2026-11-22 | 脚本截图字段定位 | `94f122ced99f0c54e77b6da0043ca26937f945d9` | [44995309984](https://github.com/giturass/B-box/actions/runs/44995309984) | 756 通过、1 失败 / 105 | 用例误用不存在的 `http-scripts` Key，后续修正推送取消未完成 smoke |
+| 2026-11-22 | 脚本截图回归修正 | `a4d6e9132a6bd02e1cbbd8fdf8f29efd90198550` | [44996187416](https://github.com/giturass/B-box/actions/runs/44996187416) | 757 / 105 | Flutter 与 ARM64 AAR 成功，实际查看上述六种脚本截图；Android 三组暴露探测与脚本准入锁冲突，整套失败原因见 [应用历史](app.md#历史验证记录) |
 | 2026-11-20 | Prism UI SDK 导入修复 | `6d9fac605557ff27067b03a01b47a4765954300c` | [44690773881](https://github.com/giturass/B-box/actions/runs/44690773881) | 695 通过、2 失败 / 95 | Prism 374 项全部通过；配置卡更新时间在大字号下溢出约 1.1 px，日志测试 Key 类型与生产组件不匹配；ARM64 AAR 跳过，修正推送取消运行，截图不作为当前通过依据 |
 | 2026-11-20 | Prism UI 0.1.3 首轮同步 | `b5927256036a156b918063adcf873a49122aed2a` | [44689944833](https://github.com/giturass/B-box/actions/runs/44689944833) | 未运行 / 95（4 error） | ScrollCacheExtent 显式导入删除与固定 SDK 导出不兼容；测试和 AAR 跳过，无本轮截图结论；修复原始来源及实际补丁已记录 |
 | 2026-11-19 | 应用独立版本与更新弹窗 | `556a8716e0f7152ae2c3b012145127bcd1fea6d2` | [44489197911](https://github.com/giturass/B-box/actions/runs/44489197911) | 320 / 95 | ARM64 AAR 通过；实际查看中英文 320×568、1.4 倍字号下载、未知来源授权和签名错误六张更新弹窗截图，无重叠/遮挡/溢出；采用测试字体与桥接替身，早于本轮品牌图标及组件更新；设备安装与实机视觉未验收 |
