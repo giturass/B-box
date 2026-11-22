@@ -4,8 +4,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import java.io.Closeable
 import java.util.Collections
 import java.util.IdentityHashMap
@@ -25,6 +28,8 @@ internal class UiExitPolicy(
     private val exit: () -> Unit,
     private val onFailure: (Exception) -> Unit = {},
     private val idleTimeoutMillis: Long = 5 * 60 * 1_000L,
+    private val awaitIdle: suspend (Long) -> Closeable = { delay(it); Closeable {} },
+    private val awaitExitDispatch: suspend () -> Unit = { yield() },
 ) : Closeable {
     private val access = Any()
     private val started = Collections.newSetFromMap(IdentityHashMap<Any, Boolean>())
@@ -76,11 +81,19 @@ internal class UiExitPolicy(
         val expectedGeneration = generation
         val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
-                delay(idleTimeoutMillis)
-                synchronized(access) {
-                    if (generation != expectedGeneration || !canExit()) return@launch
+                val execution = awaitIdle(idleTimeoutMillis)
+                try {
+                    synchronized(access) {
+                        if (generation != expectedGeneration || !canExit()) return@launch
+                    }
+                    beforeExit()
+                } finally {
+                    execution.close()
                 }
-                beforeExit()
+                // JobService posts jobFinished to its main Handler. Let that message notify
+                // Android before killing this process, then recheck any foreground return.
+                awaitExitDispatch()
+                currentCoroutineContext().ensureActive()
                 // Draining the bridge may suspend. Recheck foreground, leases and process identity.
                 synchronized(access) {
                     if (generation == expectedGeneration && canExit()) exit()

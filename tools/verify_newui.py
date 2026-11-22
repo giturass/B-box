@@ -46,6 +46,12 @@ else:
             errors.append(f"{name} must remain in the default process")
         if name in ipc_services and (node is None or node.get(android + "exported") != "false"):
             errors.append(f"{name} must be private to this application")
+    idle_service = services.get(".flutter.UiIdleJobService")
+    if idle_service is None or idle_service.get(android + "process") != ":ui":
+        errors.append("UI idle jobs must run in the separate :ui process")
+    if (idle_service is None or idle_service.get(android + "permission") != "android.permission.BIND_JOB_SERVICE"
+            or idle_service.get(android + "exported") != "true"):
+        errors.append("UI idle jobs must be accessible only to Android's protected JobScheduler binding")
 root_aidl = (ROOT / "app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl").read_text()
 if re.search(r"=\s*(?:2|3|10|11)\s*;", root_aidl):
     errors.append("Retired Root transactions 2, 3, 10 and 11 must not be reused")

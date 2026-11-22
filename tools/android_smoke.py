@@ -642,7 +642,8 @@ def diagnostics(name, sdk=0):
                                    if re.search(r"\bE BoxService\s*:", line))
         (OUT / f"{name}-service-errors.txt").write_text(service_errors + "\n" if service_errors else "")
     dumps = {"activities": ("activity", "activities"),
-             "services": ("activity", "services", PACKAGE), "memory": ("meminfo",)}
+             "services": ("activity", "services", PACKAGE), "memory": ("meminfo",),
+             "jobs": ("jobscheduler",), "processes": ("activity", "processes")}
     if sdk >= 30:
         dumps["exit-info"] = ("activity", "exit-info", PACKAGE)
     for suffix, arguments in dumps.items():

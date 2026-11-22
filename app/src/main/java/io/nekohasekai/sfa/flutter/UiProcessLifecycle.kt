@@ -11,19 +11,24 @@ import androidx.annotation.MainThread
 import androidx.core.app.ActivityCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.util.IdentityHashMap
 import java.util.UUID
 
 /** Installed only in :ui. Services and native operations live in the application's default process. */
 class UiProcessLifecycle private constructor(application: Application, beforeExit: suspend () -> Unit) {
+    private val idleTrigger = UiIdleJobService.createTrigger(application)
     private val policy = UiExitPolicy(
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
         isUiProcess = { UiProcess.isUiProcess(application) },
-        beforeExit = beforeExit,
+        beforeExit = { withContext(NonCancellable) { beforeExit() } },
         exit = { Process.killProcess(Process.myPid()) },
         onFailure = { Log.w("UiProcessLifecycle", "UI shutdown deferred", it) },
+        awaitIdle = idleTrigger::awaitIdle,
+        awaitExitDispatch = UiIdleJobService::awaitCompletionDispatch,
     )
     private val activityIdentities = IdentityHashMap<Activity, String>()
     private val permissionLeases = IdentityHashMap<Activity, MutableMap<Int, Closeable>>()
@@ -96,6 +101,11 @@ class UiProcessLifecycle private constructor(application: Application, beforeExi
 
     /** Hold across an external document, permission or installer result; close in the caller's finally. */
     fun acquireLease(): Closeable = policy.acquireLease()
+
+    internal fun startIdleJob(token: String?, deadlineMillis: Long, finish: () -> Unit): Boolean =
+        idleTrigger.start(token, deadlineMillis, finish)
+
+    internal fun stopIdleJob(token: String?, deadlineMillis: Long) = idleTrigger.stop(token, deadlineMillis)
 
     /** Take before dispatching the permission result, then close after callbacks finish. */
     @MainThread
