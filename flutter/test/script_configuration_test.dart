@@ -617,7 +617,8 @@ void main() {
           await tester.scrollUntilVisible(generic, 140, scrollable: configScroll);
           await Scrollable.ensureVisible(tester.element(generic), alignment: 1);
           await tester.pumpAndSettle();
-          for (final type in ['http', 'cron', 'event', 'generic']) {
+          expect(find.descendant(of: find.byType(ScriptsConfigPage), matching: find.text('HTTP 脚本')).hitTestable(), findsOneWidget);
+          for (final type in ['cron', 'event', 'generic']) {
             expect(find.byKey(ValueKey('$type-scripts')).hitTestable(), findsOneWidget);
           }
           await _capture(tester, boundaryKey, 'configuration-zh-320-1.8');
