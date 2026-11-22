@@ -22,9 +22,7 @@ from pathlib import Path
 
 PACKAGE = "io.ericlee.bfa"
 UI_PROCESS = PACKAGE + ":ui"
-UI_IDLE_TIMEOUT_SECONDS = 5 * 60
-# JobScheduler deadlines can be delivered late through batched system alarms.
-UI_IDLE_SCHEDULER_ALLOWANCE_SECONDS = 5 * 60
+BACKGROUND_VISIT_SECONDS = 2
 COMPONENT = PACKAGE + "/io.nekohasekai.sfa.compose.MainActivity"
 TEST_RUNNER = PACKAGE + ".test/androidx.test.runner.AndroidJUnitRunner"
 GESTURE_COMPONENT = PACKAGE + ".test/io.nekohasekai.sfa.flutter.SmokeGestureInstrumentation"
@@ -53,7 +51,8 @@ def process_pids(name):
     return sorted(int(pid) for pid in result.split())
 
 
-def background_ui_exit(name, service_running, restored_label=None):
+def background_ui_round_trip(name, service_running, restored_label=None):
+    """Check process and UI state across a short background visit."""
     backend = process_pids(PACKAGE)
     ui = process_pids(UI_PROCESS)
     assert len(backend) == len(ui) == 1 and backend != ui, \
@@ -63,7 +62,7 @@ def background_ui_exit(name, service_running, restored_label=None):
     try:
         short_started = time.monotonic()
         adb("shell", "input", "keyevent", "3")
-        time.sleep(2)
+        time.sleep(BACKGROUND_VISIT_SECONDS)
         retained_backend = process_pids(PACKAGE)
         retained_ui = process_pids(UI_PROCESS)
         timeline.append({"phase": "short-background", "elapsed": round(time.monotonic() - short_started, 3),
@@ -71,57 +70,25 @@ def background_ui_exit(name, service_running, restored_label=None):
         assert retained_ui == ui, "A short background visit reclaimed or restarted the Flutter UI"
         if service_running:
             assert retained_backend == backend, "Backgrounding the UI restarted or stopped the VPN process"
-        launch_activity()
-        wait_for(label, whole_window=True)
-        resumed_ui = process_pids(UI_PROCESS)
-        timeline.append({"phase": "short-return", "ui": resumed_ui})
-        assert resumed_ui == ui, "Returning before five minutes created a fresh UI process"
-
-        started = time.monotonic()
-        adb("shell", "input", "keyevent", "3")
-        observation_seconds = UI_IDLE_TIMEOUT_SECONDS + UI_IDLE_SCHEDULER_ALLOWANCE_SECONDS
-        deadline = started + observation_seconds
-        print(f"{name}: observing UI idle exit for up to {observation_seconds}s "
-              f"(minimum idle {UI_IDLE_TIMEOUT_SECONDS}s)", flush=True)
-        while time.monotonic() < deadline:
-            current_backend = process_pids(PACKAGE)
-            current_ui = process_pids(UI_PROCESS)
-            elapsed = time.monotonic() - started
-            timeline.append({"phase": "idle-background", "elapsed": round(elapsed, 3),
-                             "native": current_backend, "ui": current_ui})
-            if service_running:
-                assert current_backend == backend, "Backgrounding the UI restarted or stopped the VPN process"
-            if not current_ui:
-                assert elapsed >= UI_IDLE_TIMEOUT_SECONDS, "Flutter UI exited before five minutes of background idle"
-                print(f"{name}: UI exited after {elapsed:.3f}s", flush=True)
-                break
-            assert current_ui == ui, "Flutter UI restarted during the background idle period"
-            time.sleep(1)
-        else:
-            raise AssertionError(f"Flutter UI process did not exit within {observation_seconds}s "
-                                 f"({UI_IDLE_TIMEOUT_SECONDS}s idle plus "
-                                 f"{UI_IDLE_SCHEDULER_ALLOWANCE_SECONDS}s system scheduling allowance)")
-        services = adb("shell", "dumpsys", "activity", "services", PACKAGE)
-        (OUT / f"{name}-services.txt").write_text(services)
-        if service_running:
+            services = adb("shell", "dumpsys", "activity", "services", PACKAGE)
+            (OUT / f"{name}-services.txt").write_text(services)
             assert "io.nekohasekai.sfa.bg.VPNService" in services and "isForeground=true" in services, \
-                "VPN foreground service disappeared after UI exit"
+                "VPN foreground service disappeared in the background"
         launch_activity()
         current = wait_for(label, whole_window=True)
+        resumed_ui = process_pids(UI_PROCESS)
+        timeline.append({"phase": "short-return", "ui": resumed_ui})
+        assert resumed_ui == ui, "A short background return created a fresh UI process"
         if restored_label is None:
-            assert matching("Profile file", current), "UI restart lost the selected configuration"
-            assert not matching("Save", current), "UI restart replayed an already completed import"
-        replacement_ui = process_pids(UI_PROCESS)
-        assert len(replacement_ui) == 1 and replacement_ui != ui, "Reopening did not create a fresh UI process"
+            assert matching("Profile file", current), "Returning to the UI lost the selected configuration"
+            assert not matching("Save", current), "Returning to the UI replayed an already completed import"
         if service_running:
             assert process_pids(PACKAGE) == backend, "Reopening the UI restarted the VPN process"
         capture(name)
     finally:
         (OUT / f"{name}-processes.json").write_text(json.dumps({
             "nativeBefore": backend, "uiBefore": ui, "serviceRunning": service_running,
-            "restoredLabel": restored_label, "requiredIdleSeconds": UI_IDLE_TIMEOUT_SECONDS,
-            "schedulerAllowanceSeconds": UI_IDLE_SCHEDULER_ALLOWANCE_SECONDS,
-            "maximumObservationSeconds": UI_IDLE_TIMEOUT_SECONDS + UI_IDLE_SCHEDULER_ALLOWANCE_SECONDS,
+            "restoredLabel": restored_label, "requestedBackgroundSeconds": BACKGROUND_VISIT_SECONDS,
             "observations": timeline,
         }, indent=2) + "\n")
 
@@ -429,7 +396,7 @@ def ui_smoke():
             # ADB's shell parses the encoded URI a second time.
             launch_activity("-a", "android.intent.action.VIEW", "-d", "'" + uri + "'")
             wait_for("Save", stable=True)
-            background_ui_exit("01-pending-import-restored", service_running=False, restored_label="Save")
+            background_ui_round_trip("01-pending-import-background", service_running=False, restored_label="Save")
             # Prism's form sheet can expose semantics before it stops moving.
             # Confirm the button's position, then require the form to close;
             # its prefilled name alone does not establish a successful import.
@@ -477,7 +444,7 @@ def ui_smoke():
             else:
                 current = wait_for("Running", whole_window=True)
             capture("03-vpn-running")
-            background_ui_exit("03-background-vpn", service_running=True)
+            background_ui_round_trip("03-background-vpn", service_running=True)
             current = wait_for("Running", whole_window=True)
             # Reuse the window that confirmed Running. A second UIAutomator
             # idle wait can time out on the continuously updating dashboard.
@@ -510,7 +477,7 @@ def ui_smoke():
             click("Dashboard")
             click("Stop")
             wait_for("Not running")
-            background_ui_exit("05-background-stopped", service_running=False)
+            background_ui_round_trip("05-background-stopped", service_running=False)
             adb("shell", "am", "force-stop", PACKAGE)
             launch_activity()
             wait_for("Profile file")

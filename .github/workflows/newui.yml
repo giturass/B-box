@@ -146,7 +146,7 @@ jobs:
   smoke:
     needs: android
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:

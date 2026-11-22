@@ -295,7 +295,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 模拟器镜像名称依据 [Google SDK 系统镜像清单](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml)；16 KiB 测试方式见 [Android 官方文档](https://developer.android.com/guide/practices/page-sizes)。smoke 读取设备实际页大小，普通镜像要求 4096、`ps16k` 要求 16384，不能仅凭镜像名称记录通过。页大小优先使用 `getconf PAGE_SIZE`；旧系统缺少该命令时从 `/proc/self/smaps` 的 `KernelPageSize` 读取，并在结果中记录采集来源，不按 Android 版本猜测。所有矩阵均为临时 x86_64 模拟器，不代表 ARM64 实机或系统 CA 模块安装已验收。
 
-统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、Base64 混合 URL 订阅导入所选默认文件、未完成导入在后台退出后的恢复、跳过报告、VPN 授权、启停、配置文件与实际内核分组同页、底栏设置入口及进程重启后配置保留；在未完成导入、运行和停服三种状态分别按 Home，先核对短暂后台及返回时沿用原 UI PID，再持续观察完整 5 分钟后台闲置，拒绝过早回收，核对 UI PID 消失和重开后的新 UI PID，以及运行时 VPN 主进程 PID 与前台服务持续存在，保存分阶段进程时间线。每次另留最多 5 分钟给 JobScheduler 的系统批处理延迟，总观察上限为 600 秒；该上限用于当前模拟器，不代表 Doze 或实际设备的准时保证。测试不关闭进程冻结，也不强制触发任务。smoke 作业时限为 50 分钟，包含三次真实闲置及系统调度等待。原生组运行全部仪器测试并拒绝零测试结果。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
+统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、Base64 混合 URL 订阅导入所选默认文件、未完成导入的短后台往返、跳过报告、VPN 授权、启停、配置文件与实际内核分组同页、底栏设置入口及进程重启后配置保留；在未完成导入、运行和停服三种状态分别按 Home 等待 2 秒，核对后台及返回时沿用原 UI PID、导入表单或配置状态保留，以及运行时 VPN 主进程 PID 与前台服务持续存在，保存分阶段进程时间线。日常 smoke 不再等待自然 5 分钟回收及 JobScheduler 调度，作业时限为 25 分钟；退出策略的时间边界继续由上述 JVM 虚拟时间回归检查。原生组运行全部仪器测试并拒绝零测试结果。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
 
 - **结果与日志：** `build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。每组测试在应用启动前持续采集 main/system/crash/events 日志，结束后保存 Activity、服务、JobScheduler、进程冻结和内存状态，API 30+ 另保存该应用的系统退出记录；`am start -W` 的输出单独保存，避免启动过程被末尾日志截断。当前代次的服务启动/重载失败由 `BoxService` 记录原始异常及堆栈，smoke 另提取为各组的 `service-errors.txt`，用于定位来不及在界面观察的错误；服务状态确认及失败恢复流程不变。
 - **启动与导入：** 首次仪表盘等待允许截图后分别关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 或预装 Messenger 崩溃弹窗，再重新打开 B-box。Messenger 专例须匹配系统包 `android`、标题 `Messenger has stopped` 和 `android:id/aerr_close`，另保存弹窗窗口 XML；重复或其他弹窗、B-box 自身错误仍使测试失败。导入 smoke 等待弹层保存按钮在连续两次窗口观察中位置稳定后点击，记录实际点击边界；保存后须返回保持原配置名称的仪表盘，在来源页确认一个受支持节点及一个不支持的 KCP 节点的跳过原因已持久化，并检查实际核心节点及原分组。CI 通过 loopback SOCKS5 和 ADB reverse 提供可用节点，保存 `subscription-proxy.json` 连接诊断；默认规则集及探测目标仍需 runner 能联网访问。
@@ -308,6 +308,10 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 统一工作流的 `root-ca` job 在独立 Linux PID/mount namespace 中运行 [test_mitm_ca.py](tools/test_mitm_ca.py)，使用 BusyBox 和导出的原始脚本，覆盖 APEX 延迟就绪、旧系统缺少 APEX、hash 冲突和原证书保留、已有二级后代/隐藏模块路径、同一 namespace 的重新挂载、准备失败、service 重试和禁用退出。该测试只在 Actions 运行，不对本机 Android 做 Root 挂载，也不代表真实 Magisk/KernelSU/APatch 安装与重启已验收。
 
 ### 当前验证记录
+
+2026-11-22 声明式复合匹配的功能源码 `f032d5e317b09e61c018f5bd6e24824b90dc92e9` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44985360572) 的核心 Go（含 HTTP 改写 race）、Root CA、Flutter 和 Android 编译/JVM 作业。Flutter 的 721 项交互/布局测试与 ARM64 Debug/Release AAR 成功；[JVM 报告](https://github.com/giturass/B-box/actions/runs/44985360572/artifacts/14739374815) 为 22 个套件、135 项测试，失败、错误及跳过均为 0。新增三项复合匹配仪器测试和扩展的 HTTP/HTTPS 流均已编译，但四组 smoke 在实际原生执行结果取得前按用户要求取消，整套运行结论为 `cancelled`，不能作为模拟器通过记录。
+
+日常 smoke 已移除三次真实 5 分钟闲置及额外系统调度等待，保留未完成导入、运行和停服时的 2 秒短后台往返，以及 VPN 进程和前台服务检查；更新后的模拟器结果尚待 Actions 验证。下列回收秒数和完整闲置结论对应其明确列出的此前源码 SHA。
 
 2026-11-22 系统任务回收与 smoke 调度调整的源码 `f6eabe313b75ef56f670e7f7a6944240ebb21f95` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44973945451) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[Flutter 作业](https://github.com/giturass/B-box/actions/runs/44973945451/job/137059541877) 的 719 项测试通过，分析为 97 项 info、0 warning/error，ARM64 Debug/Release AAR 构建成功；[Android 作业](https://github.com/giturass/B-box/actions/runs/44973945451/job/137059541742) 完成匹配核心、Flutter Debug AAR、other/play Kotlin 与 AIDL 编译及模拟器应用/测试 APK。[JVM 报告](https://github.com/giturass/B-box/actions/runs/44973945451/artifacts/14734634470) 为 22 个套件、135 项测试，包含 12 项系统任务触发回归，失败、错误及跳过均为 0。
 
