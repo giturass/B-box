@@ -309,9 +309,24 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
+2026-11-22 系统任务回收与 smoke 调度调整的源码 `f6eabe313b75ef56f670e7f7a6944240ebb21f95` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44973945451) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[Flutter 作业](https://github.com/giturass/B-box/actions/runs/44973945451/job/137059541877) 的 719 项测试通过，分析为 97 项 info、0 warning/error，ARM64 Debug/Release AAR 构建成功；[Android 作业](https://github.com/giturass/B-box/actions/runs/44973945451/job/137059541742) 完成匹配核心、Flutter Debug AAR、other/play Kotlin 与 AIDL 编译及模拟器应用/测试 APK。[JVM 报告](https://github.com/giturass/B-box/actions/runs/44973945451/artifacts/14734634470) 为 22 个套件、135 项测试，包含 12 项系统任务触发回归，失败、错误及跳过均为 0。
+
+四组 `results.json` 的源码 SHA、实际页大小及 UI/native 通过状态已核对；原生日志各记录 `OK (110 tests)`，逐项结束状态均为成功且无跳过。下表为进程时间线采样得到的 UI 回收秒数，均满足至少 300 秒闲置并在 600 秒观察窗口内完成。
+
+| 环境 | 实际页大小 | 未完成导入（秒） | VPN 运行（秒） | 停服（秒） |
+| --- | --- | --- | --- | --- |
+| [API 24](https://github.com/giturass/B-box/actions/runs/44973945451/job/137061454527) | 4096 | 382.606 | 318.393 | 308.487 |
+| [API 31](https://github.com/giturass/B-box/actions/runs/44973945451/job/137061454514) | 4096 | 320.351 | 378.849 | 301.016 |
+| [API 36 / 4 KiB](https://github.com/giturass/B-box/actions/runs/44973945451/job/137061454529) | 4096 | 309.774 | 390.339 | 392.110 |
+| [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/44973945451/job/137061454535) | 16384 | 341.164 | 435.033 | 338.953 |
+
+12 次回收均记录对应旧 UI PID 的 `UI idle deadline reached` 及 UI 自身发送 `SIG: 9`，API 30+ 的系统记录均为 `SIGNALED`；API 36 两组的 6 次回收还逐项观察到 UI 冻结、任务绑定后解冻，以及 JobScheduler 的 `app called jobFinished` 完成记录。重新打开产生新 UI PID，未完成导入恢复和保存后不再重放通过。四组运行 VPN 时默认 PID 与前台服务均持续保持。16 KiB 在未运行 VPN 的导入阶段仍出现默认缓存进程 `4033` 于约 108 秒被系统以 `LOW_MEMORY` 回收，约 3 秒后自动重建为 `6231`，UI 与待完成导入恢复成功；该次默认进程不是由 UI 退出路径结束，不能记录为所有后台场景均保持默认 PID，也不代表低内存压力行为已全面验收。该组 job 日志确认模拟器 RAM 为 `6144M`，主机总内存为 15 GiB。
+
+本次 APK、AAR、JVM 和四组 smoke 产物的 `workflow_run.head_sha` 均与上述源码一致。本机仅执行 `git diff --check`、`python3 tools/verify_newui.py`、Python/Manifest 语法及文档链接/标题检查，并读取 Actions 日志和产物；ARM64 实机、Doze 与任务配额延迟未验收。后续验证记录提交仅补充文档；下列结果对应各自列出的此前源码 SHA。
+
 2026-11-22 后台闲置 5 分钟调整的源码 `4828522fdffaa1cf15a2fe6c58bcaee72c9d4604` 在 [统一工作流](https://github.com/giturass/B-box/actions/runs/44964909521) 通过核心、Root CA、Flutter、Android JVM/编译及 API 24/31 smoke；API 36 的 4 KiB/16 KiB UI 检查均在未完成导入场景失败。两组日志确认 Android 同时冻结 UI 和默认进程，进程内协程到 330 秒仍无法执行退出；两组原生回归均为 `OK (110 tests)`。
 
-系统 JobService 修复源码 `4c7d88e304e245361955cc89fe38bfa5521a34bb` 的 [统一工作流](https://github.com/giturass/B-box/actions/runs/44969760043) 通过核心、Root CA、Flutter 与 Android JVM/编译；135 项 JVM（含 12 项任务触发回归）及四组各 110 项原生测试通过。API 24/31/36 的 4 KiB 导入场景分别在约 310/321/317 秒完成 UI 回收及恢复，API 36 日志确认系统任务解冻 UI 和默认进程。随后三组运行 VPN 的 UI 检查仍在 330 秒超时，诊断显示已到期的系统任务等待批处理闹钟；16 KiB 的 UI 和默认进程在约 60 秒因 `LOW_MEMORY` 被系统杀掉。整套仍为失败，不能记录为验收通过。本次为 smoke 增加系统调度等待并将 16 KiB 模拟器 RAM 调整为 6 GiB，尚待新源码的 Actions 验证；下列成功运行仅对应各自列出的源码 SHA，ARM64 实机和 Doze/任务配额行为未验收。
+系统 JobService 修复源码 `4c7d88e304e245361955cc89fe38bfa5521a34bb` 的 [统一工作流](https://github.com/giturass/B-box/actions/runs/44969760043) 通过核心、Root CA、Flutter 与 Android JVM/编译；135 项 JVM（含 12 项任务触发回归）及四组各 110 项原生测试通过。API 24/31/36 的 4 KiB 导入场景分别在约 310/321/317 秒完成 UI 回收及恢复，API 36 日志确认系统任务解冻 UI 和默认进程。随后三组运行 VPN 的 UI 检查在 330 秒超时，诊断显示已到期的系统任务等待批处理闹钟；16 KiB 的 UI 和默认进程在约 60 秒因 `LOW_MEMORY` 被系统杀掉。该次整套结果为失败；后续调度等待和模拟器内存调整的验证见本节最新记录。
 
 2026-11-22 UI 进程拆分的功能源码 `b9a6edd109ea955c82f3fa822da87fa2c676db0f` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44937203265) 的全部 8 个作业：核心 Go、Root CA、Flutter 分析/交互/布局与 ARM64 AAR、Android JVM/编译，以及四组模拟器 UI/native 回归。[Flutter 作业](https://github.com/giturass/B-box/actions/runs/44937203265/job/136946338170) 记录 719 项测试全部通过，分析为 97 项 info、0 warning/error，ARM64 Debug/Release AAR 均构建成功；[Android 作业](https://github.com/giturass/B-box/actions/runs/44937203265/job/136946338177) 完成匹配核心与 Flutter Debug AAR、应用和测试 APK、other/play Kotlin 及 AIDL 编译，21 个 JVM 套件的 121 项测试全部通过，失败、错误和跳过均为 0。
 
