@@ -23,6 +23,8 @@ from pathlib import Path
 PACKAGE = "io.ericlee.bfa"
 UI_PROCESS = PACKAGE + ":ui"
 UI_IDLE_TIMEOUT_SECONDS = 5 * 60
+# JobScheduler deadlines can be delivered late through batched system alarms.
+UI_IDLE_SCHEDULER_ALLOWANCE_SECONDS = 5 * 60
 COMPONENT = PACKAGE + "/io.nekohasekai.sfa.compose.MainActivity"
 TEST_RUNNER = PACKAGE + ".test/androidx.test.runner.AndroidJUnitRunner"
 GESTURE_COMPONENT = PACKAGE + ".test/io.nekohasekai.sfa.flutter.SmokeGestureInstrumentation"
@@ -77,7 +79,10 @@ def background_ui_exit(name, service_running, restored_label=None):
 
         started = time.monotonic()
         adb("shell", "input", "keyevent", "3")
-        deadline = started + UI_IDLE_TIMEOUT_SECONDS + 30
+        observation_seconds = UI_IDLE_TIMEOUT_SECONDS + UI_IDLE_SCHEDULER_ALLOWANCE_SECONDS
+        deadline = started + observation_seconds
+        print(f"{name}: observing UI idle exit for up to {observation_seconds}s "
+              f"(minimum idle {UI_IDLE_TIMEOUT_SECONDS}s)", flush=True)
         while time.monotonic() < deadline:
             current_backend = process_pids(PACKAGE)
             current_ui = process_pids(UI_PROCESS)
@@ -88,11 +93,14 @@ def background_ui_exit(name, service_running, restored_label=None):
                 assert current_backend == backend, "Backgrounding the UI restarted or stopped the VPN process"
             if not current_ui:
                 assert elapsed >= UI_IDLE_TIMEOUT_SECONDS, "Flutter UI exited before five minutes of background idle"
+                print(f"{name}: UI exited after {elapsed:.3f}s", flush=True)
                 break
             assert current_ui == ui, "Flutter UI restarted during the background idle period"
             time.sleep(1)
         else:
-            raise AssertionError("Flutter UI process did not exit after five minutes of background idle")
+            raise AssertionError(f"Flutter UI process did not exit within {observation_seconds}s "
+                                 f"({UI_IDLE_TIMEOUT_SECONDS}s idle plus "
+                                 f"{UI_IDLE_SCHEDULER_ALLOWANCE_SECONDS}s system scheduling allowance)")
         services = adb("shell", "dumpsys", "activity", "services", PACKAGE)
         (OUT / f"{name}-services.txt").write_text(services)
         if service_running:
@@ -112,6 +120,8 @@ def background_ui_exit(name, service_running, restored_label=None):
         (OUT / f"{name}-processes.json").write_text(json.dumps({
             "nativeBefore": backend, "uiBefore": ui, "serviceRunning": service_running,
             "restoredLabel": restored_label, "requiredIdleSeconds": UI_IDLE_TIMEOUT_SECONDS,
+            "schedulerAllowanceSeconds": UI_IDLE_SCHEDULER_ALLOWANCE_SECONDS,
+            "maximumObservationSeconds": UI_IDLE_TIMEOUT_SECONDS + UI_IDLE_SCHEDULER_ALLOWANCE_SECONDS,
             "observations": timeline,
         }, indent=2) + "\n")
 

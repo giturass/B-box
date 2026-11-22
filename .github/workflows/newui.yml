@@ -163,7 +163,7 @@ jobs:
           - api: '36'
             target: google_apis_ps16k
             page-size: 16384
-            ram-size: 4096M
+            ram-size: 6144M
     steps:
       - uses: actions/checkout@v5
       - name: Make room for emulator data
@@ -172,6 +172,7 @@ jobs:
           # System images plus userdata can exceed some runners' free disk.
           sudo rm -rf -- "${ANDROID_HOME:?}/ndk"
           df -h "$ANDROID_HOME"
+          free -h
       - uses: actions/download-artifact@v5
         with:
           name: emulator-apk
