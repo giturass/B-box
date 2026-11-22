@@ -325,6 +325,21 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
+2026-11-23 正文查看增强及脚本关闭取消修正的功能/测试源码 `14639a98899f14e4e4613311558e0c66ff004efa` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45059030530) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[核心作业](https://github.com/giturass/B-box/actions/runs/45059030530/job/137320599630) 实际执行 13 条 Go 测试命令，其中 8 条启用 race，全部使用 `-count=1` 并成功；[Root CA 作业](https://github.com/giturass/B-box/actions/runs/45059030530/job/137320599588) 的 15 项发布元数据、6 项 mount/boot 测试及 shellcheck 通过。Flutter 分析、交互/布局、ARM64 AAR 和本次正文截图审阅由 [界面验证记录](flclash.md#当前验证记录) 维护。
+
+[Android 作业](https://github.com/giturass/B-box/actions/runs/45059030530/job/137320599291) 完成本次 x86_64 libbox、Flutter Debug AAR、other/play Kotlin、AIDL 及 [模拟器应用/测试 APK](https://github.com/giturass/B-box/actions/runs/45059030530/artifacts/14768578962)。[JVM 报告](https://github.com/giturass/B-box/actions/runs/45059030530/artifacts/14769026874) 实际为 23 个套件、145 项测试，失败、错误及跳过均为 0；`BoxScriptsTest` 为 10/10，包含两个取消 gate 回归，分别核对已附着及宿主关闭期间才附着的任务先取消协程再关闭原生任务，防止释放结果抢先成为成功。
+
+逐份核对四组 smoke 的源码 SHA、实际 SDK、页大小、镜像及 UI/native 成功状态；原生日志各有 116 个不同用例开始并成功完成，结束为 `OK (116 tests)`，失败或跳过均为 0。API 36 / 16 KiB 实际使用 `android-36;google_apis_ps16k;x86_64` 镜像。
+
+| 环境 | 实际页大小（字节） | 原生 / UI | 报告 |
+| --- | --- | --- | --- |
+| [API 24](https://github.com/giturass/B-box/actions/runs/45059030530/job/137322878080) | 4096（`/proc/self/smaps`） | 116 项通过 / 通过 | [14768948111](https://github.com/giturass/B-box/actions/runs/45059030530/artifacts/14768948111) |
+| [API 31](https://github.com/giturass/B-box/actions/runs/45059030530/job/137322878104) | 4096（`getconf`） | 116 项通过 / 通过 | [14768429011](https://github.com/giturass/B-box/actions/runs/45059030530/artifacts/14768429011) |
+| [API 36 / 4 KiB](https://github.com/giturass/B-box/actions/runs/45059030530/job/137322878109) | 4096（`getconf`） | 116 项通过 / 通过 | [14769048872](https://github.com/giturass/B-box/actions/runs/45059030530/artifacts/14769048872) |
+| [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/45059030530/job/137322878088) | 16384（`getconf`） | 116 项通过 / 通过 | [14769615964](https://github.com/giturass/B-box/actions/runs/45059030530/artifacts/14769615964) |
+
+本次 APK、AAR、JVM、截图及四组 smoke 产物的 `workflow_run.head_sha`、四份设备结果的源码 SHA 均与上述提交一致。全部设备为 x86_64 模拟器；正文界面的截图范围与未覆盖内容见 [界面验证记录](flclash.md#当前验证记录)，ARM64 实机行为及视觉未验收。本机仅执行差异空白、源码与来源约束、文档链接/标题检查，并读取本次 Actions 日志和产物；未触发签名 Release 或发布。后续验证记录提交仅补充文档，功能及测试源码保持与本次 Actions 一致；下列记录只适用于各自列出的此前源码 SHA。
+
 2026-11-22 “忽略电池优化”授权行的功能及测试源码 `fa694fb01444a3f6309c353fadef054b4402306a` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45013769449) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[核心作业](https://github.com/giturass/B-box/actions/runs/45013769449/job/137181589383) 的既定协议、扩展和 race 回归全部成功；[Root CA 作业](https://github.com/giturass/B-box/actions/runs/45013769449/job/137181589448) 的 15 项发布元数据、6 项实际 mount/boot 测试及 shellcheck 通过。Flutter 分析、交互/布局、ARM64 AAR 与授权行的零差异像素比较由 [界面验证记录](flclash.md#当前验证记录)维护。
 
 [Android 作业](https://github.com/giturass/B-box/actions/runs/45013769449/job/137181589439) 完成本次 x86_64 libbox、Flutter Debug AAR、other/play Kotlin、AIDL 及 [模拟器应用/测试 APK](https://github.com/giturass/B-box/actions/runs/45013769449/artifacts/14750614648)。[JVM 报告](https://github.com/giturass/B-box/actions/runs/45013769449/artifacts/14751322286) 实际为 23 个套件、143 项测试，失败、错误及跳过均为 0。逐份核对四组 `results.json` 的源码 SHA、设备实际页大小和 UI/native 成功状态；原生日志各为 `OK (116 tests)`，116 项均成功且无失败或跳过。
@@ -420,6 +435,9 @@ APK、AAR、JVM 报告和四组 smoke 产物的 `workflow_run.head_sha` 及设�
 
 | 日期 | 主题 | 验证源码 | Actions | 范围与备注 |
 | --- | --- | --- | --- | --- |
+| 2026-11-23 | 正文查看 SDK 接口修正前 | `3b2df5f9ebac0bdb1a2942ce979673f2bdbb8786` | [45055280397](https://github.com/giturass/B-box/actions/runs/45055280397) | Flutter 分析 4 error，测试及 ARM64 AAR 未执行；后续修正推送取消未完成作业，整套 cancelled，界面失败见 [界面历史](flclash.md#历史验证记录) |
+| 2026-11-23 | 正文查看取消排序修正前 | `5fab9392dd924eed8a64c4bd016e1aa50fe9cbab` | [45055750463](https://github.com/giturass/B-box/actions/runs/45055750463) | 核心与 Root CA 通过；JVM 143 项中 1 失败，关闭原生脚本任务先释放结果、后取消协程的排序存在竞态，不能当作测试噪声；Flutter 图片等待超时，smoke skipped，整套 failure |
+| 2026-11-23 | 正文查看关闭附着窗口补齐前 | `7cd74db2e86f892cc1e2d96f060c0419a3bd45bd` | [45057968879](https://github.com/giturass/B-box/actions/runs/45057968879) | 核心、Root CA、Flutter/AAR、Android/JVM 通过；后续补齐宿主关闭期间才附着任务的取消顺序及决定性回归，推送取消未完成四组 smoke，整套 cancelled，不能作为最终源码验证 |
 | 2026-11-22 | 电池授权测试清理修复前 | `2d092f7bd5459862a97f43a4ee475f481c9664a8` | [45012453322](https://github.com/giturass/B-box/actions/runs/45012453322) | 核心、Root CA、Android/JVM 与 API 24 smoke 通过；Flutter 测试夹具清理失败，后续修正推送取消其余未完成作业；界面错误与旧截图由 [UI 历史](flclash.md#历史验证记录)维护 |
 | 2026-11-22 | 电池授权参考测试首轮 | `01fce644e524363c8d07e4123a07b07aa7261b0a` | [45011527017](https://github.com/giturass/B-box/actions/runs/45011527017) | Flutter 分析失败，测试/AAR 跳过；后续修正推送取消未完成作业，整套为 cancelled；具体错误由 [UI 历史](flclash.md#历史验证记录)维护 |
 | 2026-11-22 | 脚本调试首轮 | `3669e7f86bd877a8c2b1827f375c8e49b2bbdc73` | [44992556782](https://github.com/giturass/B-box/actions/runs/44992556782) | 核心、Root CA、Android/JVM 通过，四组 UI smoke 通过；Flutter 四项脚本回归失败，原生生命周期夹具持有配置快照锁后调用需同一锁的应用预检而超时，整套失败 |

@@ -268,6 +268,12 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 
 ### 当前验证记录
 
+2026-11-23 正文查看的功能及测试源码 `14639a98899f14e4e4613311558e0c66ff004efa` 已通过 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45059030530/job/137320599646)：分析为 139 项 info、0 warning/error，858 项测试全部成功，包括新增 19 项正文解读及 17 项查看交互测试；ARM64 Debug/Release Flutter AAR 均构建成功。[AAR 产物](https://github.com/giturass/B-box/actions/runs/45059030530/artifacts/14768743191) 与 [截图产物](https://github.com/giturass/B-box/actions/runs/45059030530/artifacts/14768758084) 的 `workflow_run.head_sha` 均已核对与该源码一致。核心、脚本取消及 Android 结果由 [应用验证记录](app.md#当前验证记录) 维护。
+
+实际逐张查看本次 `build/screenshots/body/` 的八张截图：320×568 浅色的 `320-1.8-light-hex.png`、`320-1.8-light-hex-end.png`、`320-1.8-light-base64.png`，360×568 深色的 `360-1.4-dark-hex.png`、`360-1.4-dark-hex-end.png`、`360-1.4-dark-base64.png`，以及 360×800 的 `360-light-image-inline.png` / `360-light-image-viewer.png`。320 的系统字号输入为 1.8，组件使用应用上限 1.4；360 窄屏的系统及组件字号均为 1.4，布局测试另核对了实际缩放值。Hex 按剩余宽度使用每行 2/4 字节，地址、字节和 ASCII 列没有水平溢出；Base64 自然折行，工具栏固定于顶部。Hex 尾页截图只表示内部列表已滚至末端，卡片下部仍参与页面纵向滚动，不将未出现在截图视口内的尾字节作为视觉结论。
+
+两张图片截图中，完整 32×24 PNG 已成功解码并按比例展示，详情入口及查看页的重置、复制和显示方式可见；图片解码失败不能通过该有效图片用例。缩放/重置、坏图回退、页码/原字节复制、迟到会话结果及横向滚动由同轮 widget 断言覆盖。截图采用英文、SDK Roboto、实际 JetBrainsMono 与 Android 桥接替身，未覆盖中文正文界面、真实远程数据、所有图片格式或 ARM64 实机视觉；本轮没有上游逐像素比较结论。本机仅运行静态检查并读取本次 Actions 日志、报告和截图，后续验证记录提交仅补充文档。下列记录只适用于各自列出的此前源码 SHA。
+
 2026-11-22 “忽略电池优化”授权行的功能及测试源码 `fa694fb01444a3f6309c353fadef054b4402306a` 已通过 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45013769449/job/137181589422)：分析为 125 项 info、0 warning/error，822 项测试全部成功，其中新增 65 项电池授权交互、状态、布局及参考比较测试；ARM64 Debug/Release Flutter AAR 均构建成功。[AAR 产物](https://github.com/giturass/B-box/actions/runs/45013769449/artifacts/14751108134) 和 [截图产物](https://github.com/giturass/B-box/actions/runs/45013769449/artifacts/14751336977) 的 `workflow_run.head_sha` 均与该源码一致。核心、JVM 与 Android 验证由 [应用记录](app.md#当前验证记录)维护。
 
 逐份核对 `build/screenshots/battery-optimization/` 下的 50 个比较 JSON 和 102 张 PNG，并独立解码全部 50 对图片：共 1,734,944 个 RGBA 像素，差异像素数及允许差异数均为 0，图片尺寸与各自报告一致。该结果覆盖测试文件声明的中英文、字号、主题、四种状态及原版分组首行情景；对照保留固定 FlClash 子模块的原始行渲染器，字体、主题与动画输入相同。
@@ -308,6 +314,9 @@ UI 进程拆分、状态重连及后台回收时机调整的验证结果与覆�
 
 | 日期 | 主题 | 验证源码 | Actions | 测试 / info | 当时实际查看的截图 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-11-23 | 正文查看 SDK 接口修正前 | `3b2df5f9ebac0bdb1a2942ce979673f2bdbb8786` | [45055280397](https://github.com/giturass/B-box/actions/runs/45055280397) | 未执行 / 139（4 error） | Prism SelectableText 参数及重复本地化键不兼容；后续修正推送取消未完成作业，无通过或视觉结论 |
+| 2026-11-23 | 正文查看图片等待修正前 | `5fab9392dd924eed8a64c4bd016e1aa50fe9cbab` | [45055750463](https://github.com/giturass/B-box/actions/runs/45055750463) | 857 通过、1 超时 / 139 | 有效图片用例在 fakeAsync/real zone 之间等待解码而超时；ARM64 AAR 跳过，窄屏 Hex/Base64 仅作预检查，Android 同轮失败见 [应用历史](app.md#历史验证记录) |
+| 2026-11-23 | 正文查看取消窗口补齐前 | `7cd74db2e86f892cc1e2d96f060c0419a3bd45bd` | [45057968879](https://github.com/giturass/B-box/actions/runs/45057968879) | 858 / 139 | Flutter 与 ARM64 Debug/Release AAR 通过；关闭期间才附着任务的取消回归及图片成功断言补齐后推送，未完成 smoke 被取消，整套为 cancelled，不作为最终源码通过依据 |
 | 2026-11-22 | 电池授权测试清理修复前 | `2d092f7bd5459862a97f43a4ee475f481c9664a8` | [45012453322](https://github.com/giturass/B-box/actions/runs/45012453322) | 757 通过、65 失败 / 124 | 50 对共 1,734,944 像素零差异、102 PNG 齐全；64 项测试结束时未恢复平台变量、1 项未释放语义句柄，AAR 跳过，后续修正推送取消未完成的作业；该轮不能作为测试通过记录 |
 | 2026-11-22 | 电池授权参考测试首轮 | `01fce644e524363c8d07e4123a07b07aa7261b0a` | [45011527017](https://github.com/giturass/B-box/actions/runs/45011527017) | 未执行 / 124 | 分析为 1 error、12 warning：消息控制器订阅接口错误及冻结参考私有参数告警；测试和 AAR 跳过，无截图产物，后续修正推送取消未完成的作业 |
 | 2026-11-22 | 脚本调试首轮 | `3669e7f86bd877a8c2b1827f375c8e49b2bbdc73` | [44992556782](https://github.com/giturass/B-box/actions/runs/44992556782) | 751 通过、4 失败 / 105 | 脚本交互/布局回归失败，不能作为通过依据；整套结果见 [应用历史](app.md#历史验证记录) |
