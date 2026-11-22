@@ -9,9 +9,10 @@ import (
 	"github.com/sagernet/sing-box/experimental/httpdebug"
 )
 
-// Serialize capture start with core reload/stop. All read methods are bounded
-// and available with the local service stopped; capture itself never auto-starts.
-var uiCaptureLifecycle sync.Mutex
+// Core reload/stop exclusively own the lifecycle. Capture settings, probe and
+// script admission share a stable instance; their own locks serialize mutations.
+// All read methods remain available with the local service stopped.
+var uiCaptureLifecycle sync.RWMutex
 
 func ValidateUICaptureConfig(configJSON string) (string, error) {
 	return httpdebug.Validate(configJSON)
@@ -20,8 +21,8 @@ func ValidateUICaptureConfig(configJSON string) (string, error) {
 func OpenUICapture(directory string) error { return httpdebug.Open(directory) }
 
 func (s *CommandServer) StartUICapture(directory, configJSON, certificate string, signer UICaptureSigner) error {
-	uiCaptureLifecycle.Lock()
-	defer uiCaptureLifecycle.Unlock()
+	uiCaptureLifecycle.RLock()
+	defer uiCaptureLifecycle.RUnlock()
 	if s.Instance() == nil {
 		return os.ErrClosed
 	}

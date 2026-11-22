@@ -425,6 +425,8 @@ Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`ti
 
 `CommandServer.NewUIScriptTask(type, index)` 返回可取消的手动任务，`Run()` 等待并返回包含 `result`（`$done` 参数的 JSON 字符串）、`error` 和 `logs`（本次 console 文本数组）的 JSON；`Close()` 发出取消，`Join()` 等待源码、VM、定时器及网络清理完成。只接受当前已激活的 Cron/event/generic 任务，停服、重载、脚本未启用、任务禁用、非法下标及 HTTP 类型均拒绝。Android 对当前本地配置和修订的复核见 [应用生命周期](app.md#配置处理生命周期)。
 
+手动任务、出口探测及记录开始共享稳定实例的生命周期读锁，普通探测或记录操作不会误报服务变化；重载、停服的写锁已排队或正在持有时立即拒绝脚本准入，不等待后按新配置的相同下标执行。记录设置和探测成员仍由各自的锁串行维护。
+
 手动运行注入 `$trigger = "editor"`；Cron 仍有 `$cronexp`，事件的 `$event.name` 为 `manually`、`data` 为空对象。必须调用 `$done`，结果无法 JSON 编码时作为执行错误返回；失败和超时保留此前 console 输出。调试输出随调用返回，也继续写入现有服务日志，不保存独立调试历史。界面对字符串及 `{title, content}` 结果提供可选中、可复制的显示，空值显示“无输出”，交互见 [脚本配置](flclash.md#配置页与内核差异)。事件名、手动上下文与 Generic 语义核对 Surge 官方 [Event](https://manual.nssurge.com/scripting/event.html)、[Generic](https://manual.nssurge.com/scripting/generic.html) 及 [Cron](https://manual.nssurge.com/scripting/cron.html)，固定 FlClash 设计参考与源文件哈希见 [来源清单说明](flclash.md#参考版本与来源清单)。
 
 #### 一元 gRPC 正文脚本
@@ -543,7 +545,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 - [ui_warp_test.go](libbox/ui_warp_test.go)：MASQUE POST/PATCH 与 WireGuard 单 POST、P-256 DER/Curve25519 私钥和分配地址、peer 地址选择及 client_id reserved 数值、原生端点追加/代理组/本地标记/重复保存、完整配置校验、非法响应和错误状态、响应上限、拒绝重定向、任务单次调用及关闭/完成边界取消；步骤 3 另以 `with_quic,with_wireguard` 和 race 运行。无 `with_wireguard` 的基础检查仍验证注册请求及端点选项解码，追加/完整配置子测试在包含 WireGuard 的核心中运行。
 - [ui_capture_test.go](libbox/ui_capture_test.go) 与 [ui_capture_signer_test.go](libbox/ui_capture_signer_test.go)：本地抓包设置、schema 和退役字段迁移；平台签名接口的摘要、算法及返回签名校验。
 - [ui_processing_test.go](libbox/ui_processing_test.go)：改写 schema 校验与格式化、退役选项不激活新规则、一元 gRPC 与 reject 动作往返、迁移保留范围和端口缺省、脚本能力 schema，以及 Surge 字段格式化时不加载资源。[ui_processing_match_test.go](libbox/ui_processing_match_test.go) 检查复合条件的完整配置校验、格式化往返、递归 schema 与非法节点/阶段拒绝。
-- [ui_processing_tasks_test.go](libbox/ui_processing_tasks_test.go)：事件/Generic 的完整校验、格式化与 schema，禁用任务和原数组下标保留，停服及重载期间拒绝准入，手动结果/日志与取消等待，以及接口回调适配的缺网、恢复、DNS 更新及旧生命周期隔离。
+- [ui_processing_tasks_test.go](libbox/ui_processing_tasks_test.go)：事件/Generic 的完整校验、格式化与 schema，禁用任务和原数组下标保留，真实服务下脚本/出口探测/记录并行准入及记录串行化，排队或持有重载/停服写锁时立即拒绝、旧处理和下标隔离，手动结果/日志与取消等待，以及接口回调适配的缺网、恢复、DNS 更新及旧生命周期隔离。
 
 **WARP MASQUE 传输（`./transport/masque`，步骤 3）**
 

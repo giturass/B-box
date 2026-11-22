@@ -27,12 +27,13 @@ type UIScriptTask struct {
 }
 
 func (s *CommandServer) NewUIScriptTask(kind string, index int32) (*UIScriptTask, error) {
-	// A reload owns this lock through preparation and activation. Waiting here
-	// could execute the same index in a different profile when that reload ends.
-	if !uiCaptureLifecycle.TryLock() {
+	// A reload owns the writer through preparation and activation. Never wait
+	// through it and resolve this index against its replacement profile. Ordinary
+	// probe and recording admission are readers and keep the same instance stable.
+	if !uiCaptureLifecycle.TryRLock() {
 		return nil, errors.New("local service is changing during script execution")
 	}
-	defer uiCaptureLifecycle.Unlock()
+	defer uiCaptureLifecycle.RUnlock()
 	if s.Instance() == nil || s.uiProcessingState == nil || s.uiProcessingRoutes == nil {
 		return nil, errors.New("local profile scripts are not running")
 	}

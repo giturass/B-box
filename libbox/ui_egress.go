@@ -55,8 +55,8 @@ type UIEgressProbe struct {
 
 type uiEgressRequestContextKey struct{}
 
-// Creation and service teardown hold uiCaptureLifecycle. Individual callers
-// can close their own probe independently, so membership has its own lock.
+// Creation shares uiCaptureLifecycle; service teardown holds it exclusively.
+// Callers can close probes independently, so membership has its own lock.
 type uiEgressProbeSet struct {
 	access sync.Mutex
 	probes map[*UIEgressProbe]struct{}
@@ -99,8 +99,8 @@ func NewUIDirectEgressProbe() *UIEgressProbe {
 }
 
 func (s *CommandServer) NewUIEgressProbe() (*UIEgressProbe, error) {
-	uiCaptureLifecycle.Lock()
-	defer uiCaptureLifecycle.Unlock()
+	uiCaptureLifecycle.RLock()
+	defer uiCaptureLifecycle.RUnlock()
 	instance := s.Instance()
 	if instance == nil {
 		return nil, fmt.Errorf("service is not running")

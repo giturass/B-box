@@ -4,13 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
+	"os"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/sagernet/sing-box/daemon"
 	"github.com/sagernet/sing-box/experimental/httpdebug"
+	"github.com/sagernet/sing-box/service/powerreport"
 	"github.com/sagernet/sing/common/control"
+	"github.com/sagernet/sing/service/filemanager"
 )
 
 func TestUIProcessingTaskSchemaPreservesEventAndGenericSourceIdentity(t *testing.T) {
@@ -63,16 +69,15 @@ func TestUIProcessingTaskAdmissionRejectsReloadAndStoppedService(t *testing.T) {
 	func() {
 		uiCaptureLifecycle.Lock()
 		defer uiCaptureLifecycle.Unlock()
-		if _, err := server.NewUIScriptTask("generic", 0); err == nil || !strings.Contains(err.Error(), "changing") {
-			t.Fatal("manual script admission waited through a reload", err)
-		}
+		uiProcessingTaskTestRejectWriter(t, server)
 	}()
 }
 
 func TestUIProcessingManualBindingReturnsJSONLogsAndJoinsCancellation(t *testing.T) {
 	httpdebug.StopService()
 	t.Cleanup(httpdebug.StopService)
-	prepared, err := httpdebug.PrepareProcessing(t.TempDir(), nil, nil, &httpdebug.ScriptsConfig{
+	directory := t.TempDir()
+	prepared, err := httpdebug.PrepareProcessing(directory, nil, nil, &httpdebug.ScriptsConfig{
 		Enabled: true,
 		Generic: []httpdebug.GenericScript{
 			{Name: "same", Disable: true, Source: "$done('disabled');"},
@@ -133,6 +138,270 @@ func TestUIProcessingManualBindingReturnsJSONLogsAndJoinsCancellation(t *testing
 	if err != nil || !strings.Contains(text, "cancel") {
 		t.Fatal("cancelled binding did not return a structured invocation error", text, err)
 	}
+
+	// The processing manager owns one store path for this process. These service
+	// regressions reuse that path while replacing the actual daemon instance.
+	profile := `{"outbounds":[{"type":"direct","tag":"direct"}],"experimental":{"scripts":{"enabled":true,"generic":[{"disabled":true,"source":"$done('disabled');"},{"source":"$done('old-profile');"},{"source":"while(true){}","timeout_ms":-1}]}}}`
+	t.Run("egress-and-recording-readers-admit-manual-scripts", func(t *testing.T) {
+		server := uiProcessingTaskTestServer(t)
+		if err := server.StartOrReloadService(profile, &OverrideOptions{ProcessingDirectory: directory, ScriptTimezone: "UTC"}); err != nil {
+			t.Fatal(err)
+		}
+		uiCaptureLifecycle.RLock()
+		defer uiCaptureLifecycle.RUnlock()
+		probeCreated := make(chan error, 1)
+		go func() {
+			probe, err := server.NewUIEgressProbe()
+			if probe != nil {
+				probe.Close()
+			}
+			probeCreated <- err
+		}()
+		select {
+		case err := <-probeCreated:
+			if err != nil {
+				t.Fatal("a stable lifecycle reader prevented real egress admission", err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("real egress admission waited for another lifecycle reader")
+		}
+		captureStarted := make(chan error, 2)
+		for range 2 {
+			go func() { captureStarted <- server.StartUICapture(directory, `{}`, "", nil) }()
+		}
+		task, err := server.NewUIScriptTask("generic", 1)
+		if err != nil {
+			t.Fatal("egress or recording admission was mistaken for a service change", err)
+		}
+		defer func() { task.Close(); task.Join() }()
+		result, invocationError := uiProcessingTaskTestOutput(t, task)
+		if result != `"old-profile"` || invocationError != "" {
+			t.Fatal("manual admission changed its current profile or original array index", result, invocationError)
+		}
+		started := 0
+		for range 2 {
+			select {
+			case err := <-captureStarted:
+				if err == nil {
+					started++
+				} else if !strings.Contains(err.Error(), "stop capture before changing its settings") {
+					t.Fatal("concurrent recording start returned an unrelated error", err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("recording settings waited for an ordinary lifecycle reader")
+			}
+		}
+		if started != 1 || !httpdebug.Status().Active {
+			t.Fatal("shared lifecycle readers bypassed recording's own serialization", started)
+		}
+	})
+	t.Run("pending-and-active-service-writers-reject-stale-script-indices", func(t *testing.T) {
+		server := uiProcessingTaskTestServer(t)
+		overrides := &OverrideOptions{ProcessingDirectory: directory, ScriptTimezone: "UTC"}
+		if err := server.StartOrReloadService(profile, overrides); err != nil {
+			t.Fatal(err)
+		}
+		oldInstance, oldPrepared, oldRoutes := server.Instance(), server.uiProcessingState.prepared, server.uiProcessingRoutes
+		oldTask, err := server.NewUIScriptTask("generic", 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { oldTask.Close(); oldTask.Join() })
+		cancelled, release := uiProcessingTaskTestEgressDrain(t, server)
+		uiCaptureLifecycle.RLock()
+		releaseReader := sync.OnceFunc(uiCaptureLifecycle.RUnlock)
+		defer releaseReader()
+		reloaded := make(chan error, 1)
+		go func() {
+			reloaded <- server.StartOrReloadService(strings.Replace(profile, "old-profile", "new-profile", 1), overrides)
+		}()
+		deadline := time.Now().Add(3 * time.Second)
+		for uiCaptureLifecycle.TryRLock() {
+			uiCaptureLifecycle.RUnlock()
+			if time.Now().After(deadline) {
+				t.Fatal("real reload did not queue its lifecycle writer")
+			}
+			runtime.Gosched()
+		}
+		uiProcessingTaskTestRejectWriter(t, server)
+		releaseReader()
+		select {
+		case <-cancelled:
+		case <-time.After(3 * time.Second):
+			t.Fatal("real reload did not cancel the prior egress operation")
+		}
+		uiProcessingTaskTestRejectWriter(t, server)
+		release()
+		select {
+		case err := <-reloaded:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("real reload did not join egress and script cleanup")
+		}
+		if server.Instance() == oldInstance || server.uiProcessingState.prepared == oldPrepared || oldRoutes.ctx.Err() == nil {
+			t.Fatal("reload retained an old instance, processor or routing lifetime")
+		}
+		if _, err := oldPrepared.RunScript(context.Background(), "generic", 1); !errors.Is(err, httpdebug.ErrScriptsInactive) {
+			t.Fatal("a captured prior processor resolved its index after replacement", err)
+		}
+		if _, invocationError := uiProcessingTaskTestOutput(t, oldTask); !strings.Contains(invocationError, "cancel") {
+			t.Fatal("real reload left the prior binding worker running", invocationError)
+		}
+		newTask, err := server.NewUIScriptTask("generic", 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { newTask.Close(); newTask.Join() })
+		result, invocationError := uiProcessingTaskTestOutput(t, newTask)
+		if result != `"new-profile"` || invocationError != "" {
+			t.Fatal("a fresh request failed to resolve the replacement's original index", result, invocationError)
+		}
+		stoppingTask, err := server.NewUIScriptTask("generic", 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { stoppingTask.Close(); stoppingTask.Join() })
+		cancelled, release = uiProcessingTaskTestEgressDrain(t, server)
+		closed := make(chan error, 1)
+		go func() { closed <- server.CloseService() }()
+		select {
+		case <-cancelled:
+		case <-time.After(3 * time.Second):
+			t.Fatal("real service close did not cancel egress routing")
+		}
+		uiProcessingTaskTestRejectWriter(t, server)
+		release()
+		select {
+		case err := <-closed:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("real service close did not join script and egress cleanup")
+		}
+		if _, invocationError := uiProcessingTaskTestOutput(t, stoppingTask); !strings.Contains(invocationError, "cancel") {
+			t.Fatal("service close left its binding worker running", invocationError)
+		}
+		if task, err := server.NewUIScriptTask("generic", 1); task != nil || err == nil || !strings.Contains(err.Error(), "not running") {
+			if task != nil {
+				task.Close()
+				task.Join()
+			}
+			t.Fatal("stopped service admitted an index from its prior profile", err)
+		}
+	})
+}
+
+func uiProcessingTaskTestServer(t *testing.T) *CommandServer {
+	t.Helper()
+	directory := t.TempDir()
+	basePath := sBasePath
+	sBasePath = directory
+	t.Cleanup(func() { sBasePath = basePath })
+	ctx := filemanager.WithDefault(baseContext(nil), directory, directory, os.Getuid(), os.Getgid())
+	server := &CommandServer{
+		StartedService: daemon.NewStartedService(daemon.ServiceOptions{Context: ctx, LogMaxLines: 32}),
+		ctx:            ctx,
+		powerManager:   powerreport.NewManager(),
+	}
+	t.Cleanup(func() {
+		if err := server.CloseService(); err != nil {
+			t.Error(err)
+		}
+		server.StartedService.Close()
+	})
+	return server
+}
+
+func uiProcessingTaskTestRejectWriter(t *testing.T, server *CommandServer) {
+	t.Helper()
+	completed := make(chan error, 1)
+	go func() {
+		task, err := server.NewUIScriptTask("generic", 1)
+		if task != nil {
+			task.Close()
+			task.Join()
+		}
+		completed <- err
+	}()
+	select {
+	case err := <-completed:
+		if err == nil || err.Error() != "local service is changing during script execution" {
+			t.Fatal("script admission did not reject the lifecycle writer", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("script admission waited through a lifecycle writer")
+	}
+}
+
+func uiProcessingTaskTestOutput(t *testing.T, task *UIScriptTask) (string, string) {
+	t.Helper()
+	completed := make(chan string, 1)
+	go func() {
+		text, err := task.Run()
+		if err != nil {
+			text = err.Error()
+		}
+		task.Join()
+		completed <- text
+	}()
+	select {
+	case text := <-completed:
+		var output struct {
+			Result string `json:"result"`
+			Error  string `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(text), &output); err != nil {
+			t.Fatal("binding output was not structured JSON", text, err)
+		}
+		return output.Result, output.Error
+	case <-time.After(3 * time.Second):
+		t.Fatal("binding Run and Join did not finish after script completion or cancellation")
+		return "", ""
+	}
+}
+
+func uiProcessingTaskTestEgressDrain(t *testing.T, server *CommandServer) (<-chan struct{}, func()) {
+	t.Helper()
+	probe, err := server.NewUIEgressProbe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entered, cancelled, release, drained := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
+	releaseRouting := sync.OnceFunc(func() { close(release) })
+	var drainError error
+	go func() {
+		_, drainError = probe.routes.dial(probe.ctx, func(ctx context.Context) (net.Conn, error) {
+			close(entered)
+			<-ctx.Done()
+			close(cancelled)
+			// DNS/dial cleanup can outlive request cancellation. The real service
+			// writer must hold the instance until that admitted operation exits.
+			<-release
+			return nil, ctx.Err()
+		})
+		close(drained)
+	}()
+	t.Cleanup(func() {
+		releaseRouting()
+		probe.Close()
+		select {
+		case <-drained:
+			if !errors.Is(drainError, context.Canceled) {
+				t.Error("service teardown did not cancel the admitted egress operation", drainError)
+			}
+		case <-time.After(3 * time.Second):
+			t.Error("cancelled egress operation did not leave its routing lifetime")
+		}
+	})
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("real egress probe did not admit its routing operation")
+	}
+	return cancelled, releaseRouting
 }
 
 func TestUIProcessingNetworkEventsStartAfterPublicationAndEndWithLifecycle(t *testing.T) {
