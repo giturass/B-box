@@ -129,13 +129,16 @@ List<SelectableText> _hexRows(WidgetTester tester, Finder scope) => tester.widge
   _in(scope, find.byWidgetPredicate((widget) => widget is SelectableText &&
     widget.key is ValueKey<String> && (widget.key! as ValueKey<String>).value.startsWith('captured-body-hex-line-')))).toList();
 
-Future<void> _decodeImage(WidgetTester tester, Finder imageFinder) async {
+Future<void> _decodeImage(WidgetTester tester, Finder imageFinder, {bool expectSuccess = true}) async {
   final image = tester.widget<Image>(imageFinder);
   final stream = image.image.resolve(createLocalImageConfiguration(tester.element(imageFinder)));
   var decoded = false;
-  final listener = ImageStreamListener((_, _) {
+  Object? decodeError;
+  final listener = ImageStreamListener((info, _) {
+    info.dispose();
     decoded = true;
   }, onError: (Object error, StackTrace? stack) {
+    decodeError = error;
     decoded = true;
   });
   stream.addListener(listener);
@@ -147,6 +150,7 @@ Future<void> _decodeImage(WidgetTester tester, Finder imageFinder) async {
       await tester.pump();
     }
     expect(decoded, isTrue, reason: 'The captured image did not finish decoding.');
+    if (expectSuccess) expect(decodeError, isNull, reason: 'The PNG fixture must decode successfully.');
   } finally {
     stream.removeListener(listener);
   }
@@ -377,7 +381,7 @@ void main() {
     const original = 'AAECAw==';
     final harness = await _mount(tester, message: _message(type: 'image/png', saved: 4),
       page: _page(original, encoding: 'base64'));
-    await _decodeImage(tester, _in(_inline, find.byKey(const ValueKey('captured-body-image'))));
+    await _decodeImage(tester, _in(_inline, find.byKey(const ValueKey('captured-body-image'))), expectSuccess: false);
     expect(_in(_inline, find.text('Image preview unavailable')), findsOneWidget);
     await _tap(tester, _in(_inline, find.text('Show hexadecimal')));
     expect(_in(_inline, find.byKey(const ValueKey('captured-body-image'))), findsNothing);

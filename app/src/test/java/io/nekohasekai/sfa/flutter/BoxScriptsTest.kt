@@ -254,6 +254,78 @@ class BoxScriptsTest {
         } finally { exit.countDown(); scripts.close() }
     }
 
+    @Test fun aTaskAttachedDuringHostClosureCancelsItsOwnerBeforeReleasingItsResult() = runBlocking {
+        val firstCloseEntered = CompletableDeferred<Unit>()
+        val firstCloseRelease = CountDownLatch(1)
+        val firstExit = CountDownLatch(1)
+        val secondPreparing = CompletableDeferred<Unit>()
+        val secondAttach = CompletableDeferred<Unit>()
+        val secondExit = CountDownLatch(1)
+        val secondOwner = AtomicReference<Job>()
+        val secondCancelledAtClose = CompletableDeferred<Boolean>()
+        val firstTask = Task(output, CountDownLatch(1), firstExit, onClose = {
+            firstCloseEntered.complete(Unit)
+            check(firstCloseRelease.await(5, TimeUnit.SECONDS))
+        })
+        val secondTask = Task(output, CountDownLatch(1), secondExit,
+            onClose = { secondCancelledAtClose.complete(secondOwner.get().isCancelled); Unit })
+        val scripts = BoxScripts(
+            prepare = { request: ScriptRunRequest, created: (ScriptDebugTask) -> Unit ->
+                if (request.index == 1) {
+                    created(firstTask)
+                } else {
+                    secondOwner.set(currentCoroutineContext().job)
+                    secondPreparing.complete(Unit)
+                    secondAttach.await()
+                    created(secondTask)
+                }
+                Unit
+            },
+            validate = { _: Unit -> fail("A task attached to a closed host must not publish a result") },
+        )
+        try {
+            val first = async(Dispatchers.Default) { scripts.run(request("blocking-close", 1)) }
+            withTimeout(5_000) { firstTask.entered.await() }
+            val second = async(Dispatchers.Default) { scripts.run(request("late-attach", 2)) }
+            withTimeout(5_000) { secondPreparing.await() }
+            // close marks the host closed, then visits the first registration.
+            // Its synchronous native close cannot reach the second registration
+            // until this test releases the independent close gate.
+            val closing = async(Dispatchers.IO) { scripts.close() }
+            withTimeout(5_000) { firstCloseEntered.await() }
+            assertFalse(closing.isCompleted)
+            assertTrue(secondOwner.get().isActive)
+            secondAttach.complete(Unit)
+            assertTrue(withTimeout(5_000) { secondCancelledAtClose.await() })
+            withTimeout(5_000) { secondTask.joining.await() }
+            assertTrue(secondOwner.get().isCancelled)
+            assertTrue(secondTask.closing.isCompleted)
+            assertFalse(secondTask.entered.isCompleted)
+            assertFalse(second.isCompleted)
+            assertTrue(scripts.cancel("late-attach"))
+            secondExit.countDown()
+            withTimeout(5_000) { second.join() }
+            assertTrue(second.isCancelled)
+            assertFalse(scripts.cancel("late-attach"))
+            assertFalse(closing.isCompleted)
+            assertTrue(runCatching { scripts.run(request("after-late-attach")) }.exceptionOrNull() is IllegalStateException)
+            firstCloseRelease.countDown()
+            withTimeout(5_000) { closing.await() }
+            assertTrue(firstTask.closing.isCompleted)
+            assertFalse(first.isCompleted)
+            firstExit.countDown()
+            withTimeout(5_000) { first.join() }
+            assertTrue(first.isCancelled)
+            assertFalse(scripts.cancel("blocking-close"))
+        } finally {
+            secondAttach.complete(Unit)
+            firstCloseRelease.countDown()
+            firstExit.countDown()
+            secondExit.countDown()
+            scripts.close()
+        }
+    }
+
     @Test fun requestParsingRejectsFractionalOrOverflowingOriginalArrayIndexes() {
         val args = mapOf("requestId" to "index", "profileId" to 1L, "revision" to revision, "type" to "generic", "index" to 3)
         assertEquals(3, ScriptRunRequest.read(args).index)

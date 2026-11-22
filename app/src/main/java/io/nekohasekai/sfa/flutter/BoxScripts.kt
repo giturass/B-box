@@ -79,7 +79,7 @@ internal class BoxScripts<T>(
             operation.task = task
             closed || !operation.job.isActive
         }
-        if (cancelled) task.close()
+        if (cancelled) cancel(operation)
     }
 
     suspend fun run(request: ScriptRunRequest): Map<String, Any?> = coroutineScope {
