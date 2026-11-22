@@ -248,6 +248,12 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 `publish_release` 默认开启；设为 `false` 时仍构建、校验并上传包含更新元数据的 Actions Artifact，仅跳过发布。[publish_release.py](tools/publish_release.py) 在任何远端写入前复核元数据身份及 APK 大小/SHA-256，要求 Release tag 严格等于 `v${VERSION_NAME}` 且指向本次源码 SHA；已有 tag 指向其他提交时失败，不移动版本标签。同一提交重跑可重传 APK 和 `B-box-version-metadata.json`。带预发布后缀的应用版本标为预发布；Release 不使用核心版本命名。
 
+### Actions 运行记录清理
+
+[cleanup-actions.yml](.github/workflows/cleanup-actions.yml) 仅通过 `workflow_dispatch` 手动触发。进入仓库 **Actions → Cleanup Actions runs (keep 24 hours) → Run workflow** 执行；工作流文件需进入默认分支后才会显示手动入口。使用仓库自带 `GITHUB_TOKEN` 的 `actions: write` 权限，无需新增 Secret。
+
+清理按 `created_at` 判断，删除创建时间早于本次清理开始前 24 小时的所有已结束运行，覆盖全部分支、工作流及成功/失败/取消等结果；保留最近 24 小时、尚未结束及本次清理运行。先分页收集全部待删记录，再逐条删除，摘要记录截止时间、删除数量和跳过的未结束数量。删除运行会一并删除其日志和 Actions Artifacts，因此清理后超过期限的历史 Actions 链接可能失效，Artifact 的保留天数也受本次清理限制。
+
 ## 验证与历史记录
 
 本节依次维护验证入口、已配置的检查、当前源码的实际结果和历史运行索引。已配置的检查不是通过声明；记录实际结果时附源码 SHA、Actions 链接和未验证范围，不能沿用旧裁剪 APK、旧 Compose 或其他提交的验证记录。核心回归文件的覆盖范围见 [libbox.md](libbox.md#回归文件覆盖)，Flutter 测试与视觉验证见 [flclash.md](flclash.md#验证与升级参考版本)。

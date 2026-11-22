@@ -1,0 +1,75 @@
+name: Cleanup Actions runs (keep 24 hours)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+concurrency:
+  group: cleanup-actions-runs
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Delete workflow runs older than 24 hours
+        uses: actions/github-script@v8
+        with:
+          retries: 3
+          script: |
+            const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+            const candidates = new Map();
+            const unfinished = new Set();
+            core.info(`Keep runs created at or after ${new Date(cutoff).toISOString()}`);
+
+            // Unfiltered pagination avoids the API's 1,000-result search limit.
+            // Collect all candidates before deletion so pages do not shift.
+            for (let page = 1; ; page++) {
+              const { data } = await github.rest.actions.listWorkflowRunsForRepo({
+                ...context.repo,
+                per_page: 100,
+                page,
+              });
+              for (const run of data.workflow_runs) {
+                if (run.id === context.runId || !(Date.parse(run.created_at) < cutoff)) {
+                  continue;
+                }
+                if (run.status !== 'completed') {
+                  unfinished.add(run.id);
+                  continue;
+                }
+                candidates.set(run.id, run);
+              }
+              if (data.workflow_runs.length < 100) break;
+            }
+
+            core.info(`Found ${candidates.size} old completed runs; skipped ${unfinished.size} unfinished runs.`);
+            let deleted = 0;
+            for (const run of candidates.values()) {
+              try {
+                await github.rest.actions.deleteWorkflowRun({
+                  ...context.repo,
+                  run_id: run.id,
+                });
+                deleted++;
+                core.info(`Deleted run ${run.id} (${run.name}, ${run.created_at})`);
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                core.info(`Run ${run.id} was already deleted.`);
+              }
+              // Space out write requests to reduce secondary rate limiting.
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
+            await core.summary
+              .addHeading('Actions run cleanup')
+              .addTable([
+                [{ data: 'Item', header: true }, { data: 'Value', header: true }],
+                ['Keep runs created at or after (UTC)', new Date(cutoff).toISOString()],
+                ['Deleted runs', String(deleted)],
+                ['Skipped unfinished runs older than 24 hours', String(unfinished.size)],
+              ])
+              .write();
