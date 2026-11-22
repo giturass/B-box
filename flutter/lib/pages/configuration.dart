@@ -175,10 +175,10 @@ class ProfileConfigStore extends ChangeNotifier {
   }
 
   @override void dispose() {
+    _disposed = true;
     for (final requestId in _runningScripts.values.toList()) {
       unawaited(cancelScript(requestId).then<void>((_) {}, onError: (Object _) {}));
     }
-    _disposed = true;
     super.dispose();
   }
 }
@@ -670,9 +670,10 @@ class _ConfigListPageState extends State<ConfigListPage> with WidgetsBindingObse
   }
 
   @override void dispose() {
-    _invalidateRuns();
+    _visible = false;
     _unlisten(store);
     WidgetsBinding.instance.removeObserver(this);
+    _invalidateRuns();
     _outputInvalidation.dispose();
     super.dispose();
   }
@@ -760,7 +761,9 @@ class _ConfigListPageState extends State<ConfigListPage> with WidgetsBindingObse
     if (context.box.remote) return BoxPage(title: title, children: const [EmptyState('Disconnect remote session to edit local profiles')]);
     final entries = store.entries(path);
     final blocked = !store.ready || store.saving || store.loading || _editing;
-    return Scaffold(title: context.tr(title), isLoading: store.saving || store.loading,
+    return PopScope(onPopInvokedWithResult: (didPop, _) {
+      if (didPop) { _visible = false; _invalidateRuns(); }
+    }, child: Scaffold(title: context.tr(title), isLoading: store.saving || store.loading,
       primaryAction: IconButtonData(glyph: AppGlyphs.add, tooltip: context.tr('Add'), onPressed: blocked ? null : () => _edit(context)),
       iconActions: [
         IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Reload'), onPressed: blocked ? null : store.load),
@@ -805,7 +808,7 @@ class _ConfigListPageState extends State<ConfigListPage> with WidgetsBindingObse
               )));
             },
           ),
-    );
+    ));
   }
 }
 

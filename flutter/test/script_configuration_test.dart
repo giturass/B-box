@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/pages/configuration.dart';
 import 'package:b_box_ui/widgets.dart';
+import 'package:flutter/foundation.dart' show TargetPlatform, debugDefaultTargetPlatformOverride;
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/errors.dart';
@@ -41,7 +45,8 @@ class _ScriptsHarness {
 
 Future<_ScriptsHarness> _mount(WidgetTester tester, {Json config = _scriptConfig,
   Json dashboard = const {}, Size size = const Size(360, 800), double scale = 1,
-  Locale locale = const Locale('en'), Future<dynamic> Function(MethodCall)? handler}) async {
+  Locale locale = const Locale('en'), GlobalKey? boundaryKey,
+  Future<dynamic> Function(MethodCall)? handler}) async {
   reportFlutterErrors();
   tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
   tester.binding.platformDispatcher.localesTestValue = [locale];
@@ -79,7 +84,8 @@ Future<_ScriptsHarness> _mount(WidgetTester tester, {Json config = _scriptConfig
   harness.box = BoxController(channel: channel, events: harness.events.stream);
   harness.store = ProfileConfigStore(harness.box, {'id': 7, 'name': 'Profile'});
   await harness.store.load();
-  await tester.pumpWidget(BoxApp(controller: harness.box));
+  final app = BoxApp(controller: harness.box);
+  await tester.pumpWidget(boundaryKey == null ? app : RepaintBoundary(key: boundaryKey, child: app));
   await tester.pumpAndSettle();
   addTearDown(() async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
@@ -123,8 +129,34 @@ Future<void> _runFromMenu(WidgetTester tester, {int index = 0, bool settle = tru
   else { await tester.pump(const Duration(milliseconds: 400)); }
 }
 
+Future<void> _capture(WidgetTester tester, GlobalKey key, String label) async {
+  await tester.runAsync(() async {
+    final boundary = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+    final bitmap = await boundary.toImage();
+    try {
+      final data = await bitmap.toByteData(format: ui.ImageByteFormat.png);
+      final file = File('build/screenshots/scripts/$label.png');
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(data!.buffer.asUint8List());
+    } finally { bitmap.dispose(); }
+  });
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() async {
+    final cjk = await File('test/support/fonts/NotoSansSC-scripts.ttf').readAsBytes();
+    await (FontLoader('Ubuntu')..addFont(Future.value(ByteData.sublistView(cjk)))).load();
+    final mono = await File('assets/fonts/JetBrainsMono-Regular.ttf').readAsBytes();
+    await (FontLoader('JetBrainsMono')..addFont(Future.value(ByteData.sublistView(mono)))).load();
+    final root = Platform.environment['FLUTTER_ROOT'];
+    if (root == null) return;
+    final font = File('$root/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf');
+    if (font.existsSync()) {
+      await (FontLoader('Roboto')..addFont(Future.value(ByteData.sublistView(await font.readAsBytes())))).load();
+    }
+  });
 
   test('script output preserves errors and logs, decodes panels and treats empty results as no output', () {
     for (final result in ['', 'null', '""', '{}']) {
@@ -212,14 +244,14 @@ void main() {
         draft = json(jsonDecode(tester.widget<TextField>(field).controller!.text));
         expect(draft['event'], 'engine-started');
         harness.rejectWrite = true;
-        await tester.tap(find.text('Save').last);
+        await tester.tap(find.byTooltip('Save').hitTestable());
         await tester.pumpAndSettle();
         expect(find.text('Unsupported script event'), findsOneWidget);
         expect(json(jsonDecode(tester.widget<TextField>(field).controller!.text)), draft);
         expect(harness.writes, isEmpty);
         harness.rejectWrite = false;
       }
-      await tester.tap(find.text('Save').last);
+      await tester.tap(find.byTooltip('Save').hitTestable());
       await tester.pumpAndSettle();
       expect(harness.store.entries([...ScriptsConfigPage.path, type]), [draft]);
       expect(_items(tester).where((item) => item.label == 'Run script'), isEmpty, reason: 'New scripts remain disabled after saving.');
@@ -345,11 +377,14 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.text('Cancel script').hitTestable());
     await tester.pump(const Duration(milliseconds: 400));
+    // Popup actions run after their returning animation completes.
+    await tester.pump();
     final request = json(harness.calls.singleWhere((call) => call.method == 'scripts.run').arguments);
     final canceled = harness.calls.where((call) => call.method == 'scripts.cancel').toList();
     expect(canceled, hasLength(1));
     expect(json(canceled.single.arguments), {'requestId': request['requestId']});
     expect(harness.store.isScriptRunning('generic', 0), isTrue);
+    expect(harness.store.isScriptCanceling('generic', 0), isTrue);
     expect(find.byKey(const ValueKey('script-running-0')), findsOneWidget);
     expect(_items(tester).where((item) => item.label == 'Run script' || item.label == 'Cancel script'), isEmpty);
     first.complete({'result': '"canceled result"', 'error': '', 'logs': []});
@@ -506,6 +541,7 @@ void main() {
           _items(tester).singleWhere((item) => item.label == 'Edit').onPressed!();
         case 'page':
           Navigator.pop(tester.element(find.byType(ConfigListPage)));
+          await tester.pump();
       }
       await tester.pump(const Duration(milliseconds: 400));
       final cancellations = harness.calls.where((call) => call.method == 'scripts.cancel').toList();
@@ -520,55 +556,90 @@ void main() {
     });
   }
 
-  for (final (locale, size, scale) in [
-    (const Locale('en'), const Size(320, 568), 1.5),
-    (const Locale('zh'), const Size(320, 568), 1.8),
-    (const Locale('en'), const Size(800, 600), 2.0),
+  for (final (locale, size, scale, screenshots) in [
+    (const Locale('en'), const Size(320, 568), 1.5, false),
+    (const Locale('zh'), const Size(320, 568), 1.8, false),
+    (const Locale('en'), const Size(800, 600), 2.0, false),
+    (const Locale('zh'), const Size(320, 568), 1.8, true),
   ]) {
-    testWidgets('long script output scrolls inside fixed Prism actions at $locale $size $scale', (tester) async {
-      final harness = await _mount(tester, locale: locale, size: size, scale: scale);
-      final text = List.generate(200, (index) => '日志 $index: a long line of script output and details').join('\n');
-      showBoxDialog<void>(context: tester.element(find.byType(ScriptsConfigPage)), builder: (_) => ScriptOutputDialog(
-        name: List.filled(12, 'A long script name 很长的脚本名称').join(' '),
-        output: {'result': jsonEncode({'title': 'Report 报告', 'content': text}), 'error': '', 'logs': []},
-      ));
-      await tester.pumpAndSettle();
-      final dialog = find.byKey(const ValueKey('script-output-dialog'));
-      final copy = find.byKey(const ValueKey('copy-script-output'));
-      expect(copy.hitTestable(), findsOneWidget);
-      final rect = tester.getRect(dialog);
-      expect(rect.width, lessThanOrEqualTo(size.width));
-      expect(rect.height, lessThanOrEqualTo(size.height));
-      final scroller = find.descendant(of: dialog, matching: find.byType(Scrollable)).first;
-      final position = tester.state<ScrollableState>(scroller).position;
-      expect(position.maxScrollExtent, greaterThan(0));
-      await tester.drag(scroller, const Offset(0, -180));
-      await tester.pumpAndSettle();
-      expect(position.pixels, greaterThan(0));
-      expect(copy.hitTestable(), findsOneWidget);
-      expect(harness.calls.where((call) => call.method == 'scripts.run'), isEmpty);
-      expect(tester.takeException(), isNull);
+    testWidgets('long script output scrolls inside fixed Prism actions at $locale $size $scale${screenshots ? ' with readable CI fonts' : ''}', (tester) async {
+      final previousPlatform = debugDefaultTargetPlatformOverride;
+      debugDefaultTargetPlatformOverride = screenshots ? TargetPlatform.linux : TargetPlatform.android;
+      try {
+        final boundaryKey = screenshots ? GlobalKey() : null;
+        final harness = await _mount(tester, locale: locale, size: size, scale: scale, boundaryKey: boundaryKey);
+        final text = List.generate(200, (index) => '日志 $index: a long line of script output and details').join('\n');
+        showBoxDialog<void>(context: tester.element(find.byType(ScriptsConfigPage)), builder: (_) => ScriptOutputDialog(
+          name: List.filled(12, 'A long script name 很长的脚本名称').join(' '),
+          output: {'result': jsonEncode({'title': 'Report 报告', 'content': text}), 'error': '', 'logs': []},
+        ));
+        await tester.pumpAndSettle();
+        final dialog = find.byKey(const ValueKey('script-output-dialog'));
+        final copy = find.byKey(const ValueKey('copy-script-output'));
+        expect(copy.hitTestable(), findsOneWidget);
+        final rect = tester.getRect(dialog);
+        expect(rect.width, lessThanOrEqualTo(size.width));
+        expect(rect.height, lessThanOrEqualTo(size.height));
+        if (boundaryKey != null) {
+          final dialogContext = tester.element(find.byType(ScriptOutputDialog));
+          expect(Theme.of(dialogContext).bodyTextStyle.fontFamilyFallback?.first, 'Ubuntu');
+          await _capture(tester, boundaryKey, 'output-zh-320-1.8-before-scroll');
+        }
+        final scroller = find.descendant(of: dialog, matching: find.byType(Scrollable)).first;
+        final position = tester.state<ScrollableState>(scroller).position;
+        expect(position.maxScrollExtent, greaterThan(0));
+        await tester.drag(scroller, const Offset(0, -180));
+        await tester.pumpAndSettle();
+        expect(position.pixels, greaterThan(0));
+        expect(copy.hitTestable(), findsOneWidget);
+        if (boundaryKey != null) await _capture(tester, boundaryKey, 'output-zh-320-1.8-after-scroll');
+        expect(harness.calls.where((call) => call.method == 'scripts.run'), isEmpty);
+        expect(tester.takeException(), isNull);
+      } finally { debugDefaultTargetPlatformOverride = previousPlatform; }
     });
   }
 
-  testWidgets('event editor keeps the trigger and saved JSON accessible on a narrow screen with large Chinese text', (tester) async {
-    final harness = await _mount(tester, locale: const Locale('zh'), size: const Size(320, 568), scale: 1.8);
-    await _openList(tester, harness, 'event');
-    await tester.tap(find.text('Event task').hitTestable());
-    await tester.pumpAndSettle();
-    final trigger = find.byKey(const ValueKey('script-event-trigger'));
-    await tester.ensureVisible(trigger);
-    await tester.pumpAndSettle();
-    await tester.tap(find.descendant(of: trigger, matching: find.text('网络变化')).hitTestable());
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('配置重载').hitTestable());
-    await tester.pumpAndSettle();
-    final field = find.descendant(of: find.byType(ConfigValueEditor), matching: find.byType(TextField));
-    expect(json(jsonDecode(tester.widget<TextField>(field).controller!.text))['event'], 'profile-reloaded');
-    expect(find.text('保存').last.hitTestable(), findsOneWidget);
-    await tester.tap(find.text('保存').last.hitTestable());
-    await tester.pumpAndSettle();
-    expect(harness.store.entries([...ScriptsConfigPage.path, 'event']).single['event'], 'profile-reloaded');
-    expect(tester.takeException(), isNull);
-  });
+  for (final screenshots in [false, true]) {
+    testWidgets('event editor keeps the trigger and saved JSON accessible on a narrow screen with large Chinese text${screenshots ? ' with readable CI fonts' : ''}', (tester) async {
+      final previousPlatform = debugDefaultTargetPlatformOverride;
+      debugDefaultTargetPlatformOverride = screenshots ? TargetPlatform.linux : TargetPlatform.android;
+      try {
+        final boundaryKey = screenshots ? GlobalKey() : null;
+        final harness = await _mount(tester, locale: const Locale('zh'), size: const Size(320, 568), scale: 1.8, boundaryKey: boundaryKey);
+        if (boundaryKey != null) await _capture(tester, boundaryKey, 'configuration-zh-320-1.8');
+        await _openList(tester, harness, 'event');
+        await tester.tap(find.text('Event task').hitTestable());
+        await tester.pumpAndSettle();
+        final trigger = find.byKey(const ValueKey('script-event-trigger'));
+        final triggerTitle = find.descendant(of: trigger, matching: find.text('触发事件'));
+        await Scrollable.ensureVisible(tester.element(triggerTitle), alignment: .5);
+        await tester.pumpAndSettle();
+        expect(triggerTitle.hitTestable(), findsOneWidget);
+        if (boundaryKey != null) {
+          final editorContext = tester.element(find.byType(ConfigValueEditor));
+          expect(Theme.of(editorContext).bodyTextStyle.fontFamilyFallback?.first, 'Ubuntu');
+          await _capture(tester, boundaryKey, 'event-editor-zh-320-1.8');
+        }
+        // The whole options row opens its menu, including its readable title.
+        await tester.tap(triggerTitle.hitTestable());
+        await tester.pumpAndSettle();
+        if (boundaryKey != null) await _capture(tester, boundaryKey, 'event-triggers-zh-320-1.8');
+        await tester.tap(find.text('配置重载').hitTestable());
+        await tester.pumpAndSettle();
+        final field = find.descendant(of: find.byType(ConfigValueEditor), matching: find.byType(TextField));
+        expect(json(jsonDecode(tester.widget<TextField>(field).controller!.text))['event'], 'profile-reloaded');
+        if (boundaryKey != null) {
+          await Scrollable.ensureVisible(tester.element(field), alignment: .5);
+          await tester.pumpAndSettle();
+          await _capture(tester, boundaryKey, 'event-json-zh-320-1.8');
+        }
+        final save = find.byTooltip('保存').hitTestable();
+        expect(save, findsOneWidget);
+        await tester.tap(save);
+        await tester.pumpAndSettle();
+        expect(harness.store.entries([...ScriptsConfigPage.path, 'event']).single['event'], 'profile-reloaded');
+        expect(tester.takeException(), isNull);
+      } finally { debugDefaultTargetPlatformOverride = previousPlatform; }
+    });
+  }
 }

@@ -541,10 +541,11 @@ class ProfileRecoveryTest {
             val target = prepareProfileScript(request, CommandTarget.localSession()) { admitted = it }
             admitted!!.awaitClosed()
 
-            // Hold only the startup snapshot lock to observe a real command-server
-            // reload before it reads/activates the same JSON. Status stays Started.
+            // Invoke the real command used by BoxHost's reload branch. Holding
+            // this lock before applyProfile would block its service-mode preflight
+            // instead of the native handler's profile read. Status stays Started.
             ProfileContent.snapshotMutex.lock()
-            val reloading = async { withContext(Dispatchers.Main) { activity.applyProfile() } }
+            val reloading = async(Dispatchers.IO) { Libbox.newStandaloneCommandClient().serviceReload() }
             try {
                 withTimeout(5_000) { BoxService.processingApplying.first { it } }
                 assertEquals(Status.Started, BoxService.currentStatus)
