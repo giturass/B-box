@@ -20,6 +20,9 @@
 // their actual revision and source hashes are recorded in the provenance manifest.
 // Licenses: ../../packages/prism_ui/LICENSE and ../../assets/licenses/LICENSE.
 
+// Preserve the original constructors after isolating upstream types as private.
+// ignore_for_file: unused_element_parameter
+
 import 'dart:math' as math;
 
 import 'package:b_box_ui/widgets.dart' hide ListRow, ListRowAlignment;

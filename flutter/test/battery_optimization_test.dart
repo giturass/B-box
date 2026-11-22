@@ -145,7 +145,7 @@ Future<_BatteryFixture> _fixture(WidgetTester tester, _Scenario scenario, {
   final fixture = _BatteryFixture(BoxController(channel: channel, events: events.stream), events, exempt)
     ..statusReply = statusReply
     ..requestReply = requestReply;
-  final messages = fixture.box.messages.listen(fixture.messages.add);
+  final messages = fixture.box.messages.stream.listen(fixture.messages.add);
   final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   messenger.setMockMethodCallHandler(channel, (call) async {
     fixture.calls.add(call);
