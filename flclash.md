@@ -258,6 +258,12 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 
 ### 当前验证记录
 
+2026-11-22 “忽略电池优化”授权行的功能及测试源码 `fa694fb01444a3f6309c353fadef054b4402306a` 已通过 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45013769449/job/137181589422)：分析为 125 项 info、0 warning/error，822 项测试全部成功，其中新增 65 项电池授权交互、状态、布局及参考比较测试；ARM64 Debug/Release Flutter AAR 均构建成功。[AAR 产物](https://github.com/giturass/B-box/actions/runs/45013769449/artifacts/14751108134) 和 [截图产物](https://github.com/giturass/B-box/actions/runs/45013769449/artifacts/14751336977) 的 `workflow_run.head_sha` 均与该源码一致。核心、JVM 与 Android 验证由 [应用记录](app.md#当前验证记录)维护。
+
+逐份核对 `build/screenshots/battery-optimization/` 下的 50 个比较 JSON 和 102 张 PNG，并独立解码全部 50 对图片：共 1,734,944 个 RGBA 像素，差异像素数及允许差异数均为 0，图片尺寸与各自报告一致。该结果覆盖测试文件声明的中英文、字号、主题、四种状态及原版分组首行情景；对照保留固定 FlClash 子模块的原始行渲染器，字体、主题与动画输入相同。
+
+实际查看两张完整服务页 `zh-360-light-1.0-service-unauthorized.png`、`zh-320-dark-1.4-service-authorized.png`，以及中文首次加载、请求等待、英文窄屏未授权与纯黑已授权行：按钮文字、颜色、宽度及占位符合参考；320 dp / 1.4 倍字号的中文标题自然换行，英文长标题遵循原版两行省略规则，授权按钮完整展示。桥接替身、受控字体及固定指示器输入不覆盖系统授权页面、完整动画过程或 ARM64 实机视觉；原生适配差异见 [应用文档](app.md#配置服务应用与备份)。本机仅执行静态检查并读取本次 Actions 日志和产物；后续验证记录提交仅补充文档，下列记录只适用于各自列出的此前源码 SHA。
+
 2026-11-22 事件与手动调试的功能源码 `390abf9eadcf795af84d2a6f5203cc3708fb0671` 已通过 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/44999778401/job/137138547132)：分析为 105 项 info、0 warning/error，757 项测试全部成功，包含 36 项脚本回归（2 项普通测试、34 项 widget 测试）；ARM64 Debug/Release Flutter AAR 均构建成功。[AAR 产物](https://github.com/giturass/B-box/actions/runs/44999778401/artifacts/14745337923) 和 [截图产物](https://github.com/giturass/B-box/actions/runs/44999778401/artifacts/14745507431) 的 `workflow_run.head_sha` 均与上述源码一致。核心、JVM 和 Android 结果由 [应用验证记录](app.md#当前验证记录) 维护。
 
 实际逐张查看本次 `build/screenshots/scripts/` 下中文 320×568、1.8 倍字号的六张截图：`configuration-zh-320-1.8.png`、`event-editor-zh-320-1.8.png`、`event-triggers-zh-320-1.8.png`、`event-json-zh-320-1.8.png` 及 `output-zh-320-1.8-before-scroll.png` / `output-zh-320-1.8-after-scroll.png`。四种脚本入口、三个事件选项、保存的 `profile-reloaded` JSON、长结果/日志的滚动内容和固定复制/关闭按钮可读。
@@ -292,6 +298,8 @@ UI 进程拆分、状态重连及后台回收时机调整的验证结果与覆�
 
 | 日期 | 主题 | 验证源码 | Actions | 测试 / info | 当时实际查看的截图 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-11-22 | 电池授权测试清理修复前 | `2d092f7bd5459862a97f43a4ee475f481c9664a8` | [45012453322](https://github.com/giturass/B-box/actions/runs/45012453322) | 757 通过、65 失败 / 124 | 50 对共 1,734,944 像素零差异、102 PNG 齐全；64 项测试结束时未恢复平台变量、1 项未释放语义句柄，AAR 跳过，后续修正推送取消未完成的作业；该轮不能作为测试通过记录 |
+| 2026-11-22 | 电池授权参考测试首轮 | `01fce644e524363c8d07e4123a07b07aa7261b0a` | [45011527017](https://github.com/giturass/B-box/actions/runs/45011527017) | 未执行 / 124 | 分析为 1 error、12 warning：消息控制器订阅接口错误及冻结参考私有参数告警；测试和 AAR 跳过，无截图产物，后续修正推送取消未完成的作业 |
 | 2026-11-22 | 脚本调试首轮 | `3669e7f86bd877a8c2b1827f375c8e49b2bbdc73` | [44992556782](https://github.com/giturass/B-box/actions/runs/44992556782) | 751 通过、4 失败 / 105 | 脚本交互/布局回归失败，不能作为通过依据；整套结果见 [应用历史](app.md#历史验证记录) |
 | 2026-11-22 | 脚本截图字体与查找 | `7af1019e74e6d881bc3481076acc4433f9f27aca` | [44994399341](https://github.com/giturass/B-box/actions/runs/44994399341) | 756 通过、1 失败 / 105 | 截图用例在滚动前访问尚未构建的 JSON 字段，后续修正推送取消未完成 smoke |
 | 2026-11-22 | 脚本截图字段定位 | `94f122ced99f0c54e77b6da0043ca26937f945d9` | [44995309984](https://github.com/giturass/B-box/actions/runs/44995309984) | 756 通过、1 失败 / 105 | 用例误用不存在的 `http-scripts` Key，后续修正推送取消未完成 smoke |
