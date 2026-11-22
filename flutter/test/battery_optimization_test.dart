@@ -6,7 +6,7 @@ import 'dart:ui' as ui;
 import 'package:b_box_ui/components/battery_optimization.dart';
 import 'package:b_box_ui/pages/settings.dart';
 import 'package:b_box_ui/widgets.dart';
-import 'package:flutter/foundation.dart' show TargetPlatform, debugDefaultTargetPlatformOverride;
+import 'package:flutter/foundation.dart' show TargetPlatform;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -130,9 +130,6 @@ Future<_BatteryFixture> _fixture(WidgetTester tester, _Scenario scenario, {
   Completer<Object?>? requestReply,
 }) async {
   reportFlutterErrors();
-  final previousPlatform = debugDefaultTargetPlatformOverride;
-  debugDefaultTargetPlatformOverride = TargetPlatform.android;
-  addTearDown(() => debugDefaultTargetPlatformOverride = previousPlatform);
   tester.view.physicalSize = Size(scenario.viewport.width, scenario.viewport.height);
   tester.view.devicePixelRatio = 1;
   tester.binding.platformDispatcher.localesTestValue = [Locale(scenario.locale)];
@@ -256,6 +253,10 @@ Future<void> _expectPixels(WidgetTester tester, ui.Image actual, ui.Image expect
   expect(differentPixels, 0, reason: 'The complete RGBA images must match with zero tolerance');
 }
 
+// Restore Android's platform override before the binding checks its invariants.
+void _androidTest(String description, Future<void> Function(WidgetTester) body) =>
+  testWidgets(description, body, variant: const TargetPlatformVariant({TargetPlatform.android}));
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
@@ -267,7 +268,7 @@ void main() {
     await (FontLoader('Roboto')..addFont(Future.value(ByteData.sublistView(await font.readAsBytes())))).load();
   });
 
-  testWidgets('only the authorization button requests Android permission', (tester) async {
+  _androidTest('only the authorization button requests Android permission', (tester) async {
     final reply = Completer<Object?>();
     final fixture = await _mountRow(tester, requestReply: reply);
     final row = tester.widget<DecorationListItem>(find.descendant(of: _row,
@@ -301,7 +302,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('initial status loading retains the button space and right aligned indicator', (tester) async {
+  _androidTest('initial status loading retains the button space and right aligned indicator', (tester) async {
     final reply = Completer<Object?>();
     final fixture = await _mountRow(tester, statusReply: reply);
     expect(fixture.count('battery.status'), 1);
@@ -325,7 +326,7 @@ void main() {
   });
 
   for (final failure in [false, true]) {
-    testWidgets('authorization ${failure ? 'failure' : 'cancellation'} preserves the denied state and allows retry', (tester) async {
+    _androidTest('authorization ${failure ? 'failure' : 'cancellation'} preserves the denied state and allows retry', (tester) async {
       final reply = Completer<Object?>();
       final fixture = await _mountRow(tester, requestReply: reply);
       await tester.tap(_button);
@@ -352,7 +353,7 @@ void main() {
     });
   }
 
-  testWidgets('confirmed grant changes label and color without resizing or repeating the request', (tester) async {
+  _androidTest('confirmed grant changes label and color without resizing or repeating the request', (tester) async {
     final reply = Completer<Object?>();
     final fixture = await _mountRow(tester, requestReply: reply);
     final before = tester.getSize(_button);
@@ -378,7 +379,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('already authorized button stays enabled and is a no-op', (tester) async {
+  _androidTest('already authorized button stays enabled and is a no-op', (tester) async {
     final fixture = await _mountRow(tester, exempt: true);
     expect(_label(tester), 'Authorized');
     expect(tester.widget<FilledButton>(_button).onPressed, isNotNull);
@@ -388,20 +389,21 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('only the foreground authorization label enters button semantics', (tester) async {
+  _androidTest('only the foreground authorization label enters button semantics', (tester) async {
     final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
-    final fixture = await _mountRow(tester);
-    expect(find.bySemanticsLabel('Tap to authorize'), findsOneWidget);
-    expect(find.bySemanticsLabel('Authorized'), findsNothing);
-    fixture.emitSettings(true);
-    await _pump(tester);
-    expect(find.bySemanticsLabel('Authorized'), findsOneWidget);
-    expect(find.bySemanticsLabel('Tap to authorize'), findsNothing);
-    expect(tester.takeException(), isNull);
+    try {
+      final fixture = await _mountRow(tester);
+      expect(find.bySemanticsLabel('Tap to authorize'), findsOneWidget);
+      expect(find.bySemanticsLabel('Authorized'), findsNothing);
+      fixture.emitSettings(true);
+      await _pump(tester);
+      expect(find.bySemanticsLabel('Authorized'), findsOneWidget);
+      expect(find.bySemanticsLabel('Tap to authorize'), findsNothing);
+      expect(tester.takeException(), isNull);
+    } finally { semantics.dispose(); }
   });
 
-  testWidgets('a settings event wins over a late authorization result and can revoke the grant', (tester) async {
+  _androidTest('a settings event wins over a late authorization result and can revoke the grant', (tester) async {
     final reply = Completer<Object?>();
     final fixture = await _mountRow(tester, requestReply: reply);
     await tester.tap(_button);
@@ -420,7 +422,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a settings event wins over a late initial status read', (tester) async {
+  _androidTest('a settings event wins over a late initial status read', (tester) async {
     final reply = Completer<Object?>();
     final fixture = await _mountRow(tester, statusReply: reply);
     fixture.emitSettings(true);
@@ -433,7 +435,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a settings snapshot during the prompt cannot hide a later real grant', (tester) async {
+  _androidTest('a settings snapshot during the prompt cannot hide a later real grant', (tester) async {
     final reply = Completer<Object?>();
     final fixture = await _mountRow(tester, requestReply: reply);
     await tester.tap(_button);
@@ -452,7 +454,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a reconnected backend snapshot wins over a pending old status read', (tester) async {
+  _androidTest('a reconnected backend snapshot wins over a pending old status read', (tester) async {
     final reply = Completer<Object?>();
     final fixture = await _mountRow(tester, statusReply: reply);
     fixture.nativeExempt = true;
@@ -468,7 +470,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('returning to foreground refreshes the real state without a new loading appearance', (tester) async {
+  _androidTest('returning to foreground refreshes the real state without a new loading appearance', (tester) async {
     final fixture = await _mountRow(tester);
     final reply = Completer<Object?>();
     fixture.statusReply = reply;
@@ -485,7 +487,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('returning during a system request waits for its confirmed response', (tester) async {
+  _androidTest('returning during a system request waits for its confirmed response', (tester) async {
     final reply = Completer<Object?>();
     final fixture = await _mountRow(tester, requestReply: reply);
     await tester.tap(_button);
@@ -514,7 +516,7 @@ void main() {
     ]) {
       for (final state in _PixelState.values) {
         final scenario = _Scenario('$locale-${viewport.name}-${state.name}', locale: locale, viewport: viewport);
-        testWidgets('battery row matches frozen FlClash pixels: ${scenario.name}', (tester) async {
+        _androidTest('battery row matches frozen FlClash pixels: ${scenario.name}', (tester) async {
           final statusReply = state == _PixelState.initialLoading ? Completer<Object?>() : null;
           final requestReply = state == _PixelState.requestPending ? Completer<Object?>() : null;
           final fixture = await _fixture(tester, scenario,
@@ -555,7 +557,7 @@ void main() {
   }
 
   for (final locale in ['zh', 'en']) {
-    testWidgets('battery row also preserves the upstream first-row decoration: $locale', (tester) async {
+    _androidTest('battery row also preserves the upstream first-row decoration: $locale', (tester) async {
       final scenario = _Scenario('$locale-360-light-1.0-upstream-first',
         locale: locale, position: ItemPosition.start);
       final fixture = await _fixture(tester, scenario);
@@ -581,7 +583,7 @@ void main() {
   ]) {
     final scenario = _Scenario('zh-${viewport.name}-service-${exempt ? 'authorized' : 'unauthorized'}',
       locale: 'zh', viewport: viewport);
-    testWidgets('service page keeps the upstream row in context: ${scenario.name}', (tester) async {
+    _androidTest('service page keeps the upstream row in context: ${scenario.name}', (tester) async {
       final fixture = await _fixture(tester, scenario, exempt: exempt);
       final boundary = GlobalKey();
       await tester.pumpWidget(RepaintBoundary(key: boundary,
