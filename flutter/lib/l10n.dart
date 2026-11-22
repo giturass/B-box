@@ -86,6 +86,7 @@ const _zh = <String, String>{
   "Enable HTTP rewriting": "启用 HTTP 改写",
   "Rules belong to this JSON profile and run with the local service. Request recording is controlled separately.": "规则保存在此 JSON 配置中，随本地服务生效。请求记录单独控制。",
   "New example rules are disabled. Edit their pattern and content, then set disabled to false.": "新增示例规则默认禁用。修改匹配条件和内容后，将 disabled 设为 false。",
+  "Use pattern, match, or both (AND). In match, all requires every condition and any requires at least one; groups can nest. Each condition sets subject and either equals or regex. Subjects: url, request.method, request.header; response rules also allow response.status and response.header. Header conditions need header; status equals is an integer.": "规则可填写 pattern、match，或同时填写（AND）。match 中 all 需全部条件符合，any 需至少一个条件符合，条件组可以嵌套。每个条件填写 subject 和 equals 或 regex。subject 支持 url、request.method、request.header，响应规则还支持 response.status、response.header。头部条件需填写 header；状态码的 equals 使用整数。",
   "Edit HTTP rewrite options": "编辑 HTTP 改写配置",
   "Stop capture and the local service before changing the MITM certificate": "请停止抓包和本地服务后再修改 MITM 证书",
   "Original outbound": "原连接出站",

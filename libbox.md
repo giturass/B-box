@@ -317,7 +317,42 @@ HTTPS MITM 需准备并安装 CA，入口见 [配置编辑](flclash.md#配置页
 | `max_body_bytes` | 兼容旧配置，作为未指定方向的共同值；正整数按字节限制，`0` / `-1` 不限制，方向字段优先 |
 | `resources` | 资源字典，值包含 `data_type`、`data`，文件/URL 资源可设 `update_interval`，见[资源加载](#文件和-url-资源加载) |
 
-规则、资源数量及扩展 JSON 不设固定容量配额。规则有必填 `pattern`、可选 `name`/`disabled`（默认 false）。匹配依次尝试原始完整 URL（含查询参数）、替换为可见 Host 的 URL、替换为底层连接域名的 URL，任一命中即可；请求和响应使用相同候选，URL 替换基于实际命中的候选。HTTP 脚本同样使用这些候选。HTTP/1 absolute-form 的 Host 可见性受 Go HTTP 解析器约束：以请求目标的 authority 填充 Host 时，独立的原始 Host 头无法再作为另一候选恢复。
+规则、资源数量及扩展 JSON 不设固定容量配额。规则的 `pattern` 与 `match` 至少填写一个，同时填写时两者都须满足；`name`/`disabled` 可选，`disabled` 默认 false。匹配依次尝试原始完整 URL（含查询参数）、替换为可见 Host 的 URL、替换为底层连接域名的 URL，任一候选完整满足规则即可；同一规则中的全部 URL 条件必须在同一候选上成立，不能把不同 Host 候选的命中拼接。请求和响应使用相同候选，URL 替换基于实际命中的候选，捕获仅来自顶层 `pattern`；省略 `pattern` 的 URL Rewrite / Map Remote 替换完整 URL，`match` 内的捕获不传给替换模板。HTTP 脚本同样使用这些条件和候选。HTTP/1 absolute-form 的 Host 可见性受 Go HTTP 解析器约束：以请求目标的 authority 填充 Host 时，独立的原始 Host 头无法再作为另一候选恢复。
+
+声明式复合条件定义见 [rewrite_match.go](libbox/httpdebug/rewrite_match.go)，五类改写和 `scripts.http` 共用。`match` 是一个条件对象：组节点只包含非空的 `all`（全部满足）或 `any`（任一满足）数组，子节点可以继续嵌套；叶节点包含 `subject` 和 `equals` 或 `regex`，二者互斥。按数组顺序短路判断，支持跨字段的 AND/OR。条件及分组不设额外条数或深度配额。
+
+| `subject` | 比较值 |
+| --- | --- |
+| `url` | 完整 URL 候选；`equals` 为字符串 |
+| `request.method` | 原请求方法；`equals` 为字符串 |
+| `request.header` | 另填 `header` 头名；`equals` 为字符串 |
+| `response.status` | 原响应状态；`equals` 为 100～999 的整数，`regex` 比较十进制文本 |
+| `response.header` | 另填 `header` 头名；`equals` 为字符串 |
+
+`equals` 精确比较且区分值的大小写，头名不区分大小写；重复头任一值命中即可，缺失头不等同于存在但为空的值。请求 `Host` 取 HTTP 请求的真实 Host 字段。`regex` 使用下述同一正则引擎，支持 `(?i)`、`(?m)`、`(?s)` 等内联选项并遵守请求取消。条件只读取 URL、方法、状态和头部，不读取正文或执行代码；显式 `match: null`、空组、混合节点、未知字段及非法正则拒绝保存，禁用规则同样校验。生成 schema 描述递归节点、字段和比较类型，非空组仍由完整 `CheckConfig` 检查。
+
+请求方法和头部在请求改写前固定，响应状态和头部在响应改写前固定；后续 Header、URL、正文或脚本的修改不会改变本次匹配结果。响应规则可以引用原请求条件；URL Rewrite、Map Remote、Map Local 及其他请求阶段规则不能引用尚不存在的响应条件。未命中的正文规则或需正文脚本不触发缓冲；正文可处理范围仍遵守现有流式及编码检查。例如，以下响应规则只处理 POST 请求的成功 JSON 响应，`X-Client` 两种值满足其一即可：
+
+```json
+{
+  "pattern": "^https://api\\.example\\.test/",
+  "match": {
+    "all": [
+      {"subject": "request.method", "equals": "POST"},
+      {"any": [
+        {"subject": "request.header", "header": "X-Client", "equals": "mobile"},
+        {"subject": "request.header", "header": "X-Client", "equals": "desktop"}
+      ]},
+      {"subject": "response.status", "equals": 200},
+      {"subject": "response.header", "header": "Content-Type", "regex": "(?i)^application/json\\b"}
+    ]
+  },
+  "phase": "response",
+  "jq": ".debug = true"
+}
+```
+
+该对象放入 `experimental.http_rewrite.body_rewrite`。条件主体的固定 FlClash 设计参考由 [来源说明](flclash.md#参考版本与来源清单) 维护；上述结构化 `match` 是 B-box 的 JSON 接口。
 
 [正则实现](libbox/httpdebug/rewrite_regex.go) 对普通表达式使用 Go RE2，对扩展语法回退 regexp2，支持正向/负向前查找 `(?=…)`/`(?!…)`、正向/负向后查找 `(?<=…)`/`(?<!…)`，以及正则内部数字和命名反向引用。替换模板保留 `$1`、`${name}`、`$$`，中文和 emoji 按字节位置正确切片；正文 `^`/`$` 按行匹配，索引按实际捕获组数量分配。表达式、捕获组、替换次数、回溯栈和并发不设 B-box 配额；输出遵守用户正文限额。回溯执行持续检查当前请求取消，每次调用使用独立 runner 缓存，不修改共享表达式的期限；不支持从右向左模式。
 
@@ -326,7 +361,7 @@ HTTPS MITM 需准备并安装 CA，入口见 [配置编辑](flclash.md#配置页
 | Header Rewrite / `header_rewrite` | `phase`: request/response；`operation`: add、delete、replace、replace_regex；指定 `header`，普通操作用 `value`，正则用 `regex`/`replacement`。add 保留重复字段；replace 仅替换已存在字段，新增或覆盖可依次 delete/add。请求 Host 仅允许 replace/replace_regex |
 | URL Rewrite / `url_rewrite` | `action`: header 透明改写并更新 Host，302/307 返回重定向，reject 返回 403；`reject-200` 返回 200 空正文，`reject-dict` 返回 200 和 `{}`（application/json），用于迁移模块时保留空响应语义，不改变已有 reject。`replacement` 为绝对 HTTP(S) URL 模板，header 另支持 `ws://`，保留原 Upgrade 头并使用 HTTP 传输。302/307 支持 `{{{GATEWAY_ADDRESS}}}`，取运行中核心默认接口的真实网关，IPv6 加方括号，无网关时跳过。首条命中处理，展开后非法目标丢弃并保留当前目标 |
 | Map Remote / `map_remote` | `replacement` 为绝对 HTTP(S) URL，默认更新 Host，`preserve_host: true` 保留 Host；首条命中生效。与 URL header 同时匹配时决定最终目标 |
-| Body Rewrite / `body_rewrite` | `phase`、URL `pattern`，使用正文 `regex`/`replacement` 或 `jq`，二者互斥；匹配规则依次执行 |
+| Body Rewrite / `body_rewrite` | `phase`、`pattern`/`match`，使用正文 `regex`/`replacement` 或 `jq`，二者互斥；匹配规则依次执行 |
 | Map Local / `map_local` | 首条匹配返回本地响应，`status` 默认 200，接受 200～999；`headers` 为 `{name,value}` 数组；`data_type` 支持 text、base64、tiny-gif、file，`data` 为内容或路径/URL；可用 `resource` 引用资源，与 data/data_type 互斥。为兼容已有 B-box JSON，省略类型仍按 text 处理 |
 
 [jq](libbox/httpdebug/rewrite_json.go) 支持请求和响应的完整 JSON 值、保留大整数，多个输出值以换行连接。非法 JSON/表达式、执行失败、取消或超过用户输出限额时跳过该规则并告警；无输出（如 `empty`）保持原文。表达式、输出值数量和输出嵌套不设 B-box 配额，执行使用当前请求的 context；无外部模块、文件、输入和环境变量加载器。gojq 与原版 jq 并非逐项完全等价。
@@ -359,7 +394,7 @@ URL 脚本默认按资源身份及内容 SHA-256 缓存编译结果，命中磁�
 
 `ports`/`packages` 只限制被处理的 HTTP 流，默认端口同改写，不限制脚本主动请求。被拦截正文及脚本输出 `max_body_bytes` 缺省、`0` 或 `-1` 不限制，正整数按字节限制，HTTP 规则可覆盖。主动 HTTP 客户端可独立配置限额。
 
-HTTP 规则指定 `pattern`、`phase`（request/response）、可选 `name`/`disabled`，每个方向只执行首条匹配脚本，失败不尝试下一条。HTTPS 必须另启 MITM 并匹配域名。[script.go](libbox/httpdebug/script.go) 提供：
+HTTP 规则指定 `pattern` 或 [复合 `match`](#json-配置中的-http-改写)、`phase`（request/response）、可选 `name`/`disabled`，每个方向只执行首条完整匹配脚本，失败不尝试下一条。HTTPS 必须另启 MITM 并匹配域名。[script.go](libbox/httpdebug/script.go) 提供：
 
 - `$request` 有 url/method/headers/id；请求阶段 `requires_body: true` 且正文非空时有 body，响应阶段 request 不带正文；URL 是前序规则处理后的值。
 - `$response` 有 status/headers，`requires_body: true` 且正文非空时有 body，包含前序正文规则和 jq 的结果。空正文不注入 body 属性。
@@ -489,7 +524,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 - [ui_masque_test.go](libbox/ui_masque_test.go)：WARP 配置校验/格式化、非法账号拒绝、VPN 示例，以及真实 IP 栈经 HTTP/2 出站传输 UDP 和网络重置；步骤 3 另在 `with_quic` 构建中运行。
 - [ui_warp_test.go](libbox/ui_warp_test.go)：MASQUE POST/PATCH 与 WireGuard 单 POST、P-256 DER/Curve25519 私钥和分配地址、peer 地址选择及 client_id reserved 数值、原生端点追加/代理组/本地标记/重复保存、完整配置校验、非法响应和错误状态、响应上限、拒绝重定向、任务单次调用及关闭/完成边界取消；步骤 3 另以 `with_quic,with_wireguard` 和 race 运行。无 `with_wireguard` 的基础检查仍验证注册请求及端点选项解码，追加/完整配置子测试在包含 WireGuard 的核心中运行。
 - [ui_capture_test.go](libbox/ui_capture_test.go) 与 [ui_capture_signer_test.go](libbox/ui_capture_signer_test.go)：本地抓包设置、schema 和退役字段迁移；平台签名接口的摘要、算法及返回签名校验。
-- [ui_processing_test.go](libbox/ui_processing_test.go)：改写 schema 校验与格式化、退役选项不激活新规则、一元 gRPC 与 reject 动作往返、迁移保留范围和端口缺省、脚本能力 schema，以及 Surge 字段格式化时不加载资源。
+- [ui_processing_test.go](libbox/ui_processing_test.go)：改写 schema 校验与格式化、退役选项不激活新规则、一元 gRPC 与 reject 动作往返、迁移保留范围和端口缺省、脚本能力 schema，以及 Surge 字段格式化时不加载资源。[ui_processing_match_test.go](libbox/ui_processing_match_test.go) 检查复合条件的完整配置校验、格式化往返、递归 schema 与非法节点/阶段拒绝。
 
 **WARP MASQUE 传输（`./transport/masque`，步骤 3）**
 
@@ -535,6 +570,7 @@ MITM 与 TLS：
 改写、资源与 Surge 兼容：
 
 - [rewrite_test.go](libbox/httpdebug/rewrite_test.go)：配置校验、改写管线与记录内容、HTTPS 离线 Mock 及停止记录后继续处理、映射地址拨号与 TLS 校验、超限和流式响应保持原样、脚本隔离/二进制/错误、正文上限与 HTTP 分帧、Upgrade 保留协议并跳过正文、替换与分组，以及跨目标改写保留原始连接 ID。
+- [rewrite_match_test.go](libbox/httpdebug/rewrite_match_test.go)：嵌套 all/any、方法/状态/重复及空头/Host 条件、同 URL 候选及顶层捕获、所有改写和 HTTP 脚本的原报文快照、未命中不读正文、短路/取消/并发隔离、HTTP/1 与 HTTP/2 离线 Mock，以及非法条件与请求阶段响应条件拒绝。
 - [surge_rewrite_test.go](libbox/httpdebug/surge_rewrite_test.go)：四种前后查找、数字/命名反向引用及 Unicode 替换位置，原生正则的取消与并发使用，URL 候选、WebSocket、网关重定向和非法目标，jq 正文规则及失败时保留原报文，jq 先于脚本执行，正文大小缺省值与非标准 Mock 状态码。
 - [surge_compatibility_test.go](libbox/httpdebug/surge_compatibility_test.go)：空正文与参数缺省、会话信息、`$utils.ungzip` 的子视图/失败/预留释放、调试备注、空响应快捷动作，以及 HTTP/1 和 HTTP/2 的脚本 abort；HTTP/2 中核对后续请求仍复用连接。
 - [surge_resources_test.go](libbox/httpdebug/surge_resources_test.go)：内嵌资源的内容类型，配置校验不加载文件或下载资源，Map Local 读取配置目录内文件并拒绝目录逃逸、FIFO 等非普通文件，URL 资源缓存、并发去重和离线重载，远程脚本自动刷新并保留上次可用版本，本地脚本的 `debug` 重载及加载失败时透传上游，刷新随服务停止。

@@ -8,6 +8,12 @@ import '../components/form.dart';
 
 const configEncoder = JsonEncoder.withIndent('  ');
 
+const _httpRuleMatchGuidance = 'Use pattern, match, or both (AND). In match, all requires every condition and any requires at least one; groups can nest. Each condition sets subject and either equals or regex. Subjects: url, request.method, request.header; response rules also allow response.status and response.header. Header conditions need header; status equals is an integer.';
+const _httpRuleMatchExample = r'''"match": {"all": [
+  {"subject": "request.method", "equals": "GET"},
+  {"subject": "request.header", "header": "X-Client", "regex": "(?i)^mobile$"}
+]}''';
+
 /// Removes only the leading B-box node metadata before Dart's strict JSON parser.
 dynamic decodeConfigJson(String content) {
   final marker = RegExp(r'^\s*// b-box-local-nodes: (\[[^\r\n]*\])\r?\n').firstMatch(content);
@@ -215,7 +221,8 @@ class HttpRewriteConfigPage extends StatelessWidget {
       generateSection(items: [
         for (final (title, key, initial) in sections)
           ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(title), subtitle: Text('${store.entries([...path, key]).length}'),
-            widget: ConfigListPage(store: store, title: title, path: [...path, key], initial: {'pattern': pattern, 'disabled': true, ...initial})),
+            widget: ConfigListPage(store: store, title: title, path: [...path, key], initial: {'pattern': pattern, 'disabled': true, ...initial},
+              showHttpMatchHelp: true)),
       ], footer: context.tr('New example rules are disabled. Edit their pattern and content, then set disabled to false.')),
       generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Rewrite resources')),
@@ -339,7 +346,7 @@ class ScriptsConfigPage extends StatelessWidget {
           widget: ConfigListPage(store: store, title: 'HTTP scripts', path: [...path, 'http'], initial: const {
             'name': 'HTTP script', 'disabled': true, 'pattern': r'^https?://example\.com/', 'phase': 'response',
             'requires_body': true, 'source': r'$done({body: $response.body});',
-          })),
+          }, showHttpMatchHelp: true)),
         ListItem.open(key: const ValueKey('cron-scripts'), leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Cron tasks')),
           subtitle: Text('${store.entries([...path, 'cron']).length}'),
           widget: ConfigListPage(store: store, title: 'Cron tasks', path: [...path, 'cron'], initial: const {
@@ -495,11 +502,13 @@ class LogConfigPage extends StatelessWidget {
 }
 
 class ConfigListPage extends StatelessWidget {
-  const ConfigListPage({super.key, required this.store, required this.title, required this.path, required this.initial});
+  const ConfigListPage({super.key, required this.store, required this.title, required this.path, required this.initial,
+    this.showHttpMatchHelp = false});
   final ProfileConfigStore store;
   final String title;
   final List<String> path;
   final Json initial;
+  final bool showHttpMatchHelp;
 
   Future<void> _edit(BuildContext context, [int? index]) async {
     final entries = List<Json>.of(store.entries(path));
@@ -510,7 +519,8 @@ class ConfigListPage extends StatelessWidget {
       var suffix = 2;
       while (tags.contains(value['tag'])) { value['tag'] = '$base-${suffix++}'; }
     }
-    await openForm(context, ConfigValueEditor(title: index == null ? 'Add' : 'Edit', initial: value, onSave: (value) async {
+    await openForm(context, ConfigValueEditor(title: index == null ? 'Add' : 'Edit', initial: value,
+      showHttpMatchHelp: showHttpMatchHelp, onSave: (value) async {
       if (value is! Map) throw const FormatException('JSON object required');
       final next = List<Json>.of(entries);
       if (index == null) next.add(json(value)); else next[index] = json(value);
@@ -599,10 +609,12 @@ class _ConfigOrderPageState extends State<ConfigOrderPage> {
 }
 
 class ConfigValueEditor extends StatefulWidget {
-  const ConfigValueEditor({super.key, required this.title, required this.initial, required this.onSave});
+  const ConfigValueEditor({super.key, required this.title, required this.initial, required this.onSave,
+    this.showHttpMatchHelp = false});
   final String title;
   final dynamic initial;
   final Future<bool> Function(dynamic value) onSave;
+  final bool showHttpMatchHelp;
   @override State<ConfigValueEditor> createState() => _ConfigValueEditorState();
 }
 class _ConfigValueEditorState extends State<ConfigValueEditor> {
@@ -638,6 +650,11 @@ class _ConfigValueEditorState extends State<ConfigValueEditor> {
         textAlignVertical: TextAlignVertical.top,
         style: const TextStyle(fontFamily: 'JetBrainsMono', fontSize: 13, height: 1.6),
       )),
+      if (widget.showHttpMatchHelp) ...[
+        ListFooter(text: context.tr(_httpRuleMatchGuidance)),
+        Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 0), child: SelectableText(_httpRuleMatchExample,
+          style: const TextStyle(fontFamily: 'JetBrainsMono', fontSize: 12, height: 1.5))),
+      ],
     ],
   ));
 }

@@ -227,6 +227,118 @@ void main() {
     await events.close();
   });
 
+  for (final (title, section, key) in [
+    ('Body Rewrite', 'http_rewrite', 'body_rewrite'),
+    ('HTTP scripts', 'scripts', 'http'),
+  ]) {
+    testWidgets('$title compound match JSON survives a rejected save and keeps other profile settings', (tester) async {
+      reportFlutterErrors();
+      final channel = MethodChannel('test.compound-match-$section');
+      final events = StreamController<dynamic>.broadcast();
+      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final original = <String, dynamic>{
+        'outbounds': [{'type': 'direct', 'tag': 'kept'}],
+        'experimental': {
+          'cache_file': {'enabled': true},
+          'mitm': {'enabled': true, 'hosts': ['example.com']},
+          'http_rewrite': {'enabled': false, 'header_rewrite': [
+            {'pattern': '.', 'phase': 'request', 'operation': 'add', 'header': 'X-Kept', 'value': '1'},
+          ]},
+          'scripts': {'enabled': false, 'cron': [{'cron': '0 2 * * *', 'source': r'$done();'}]},
+        },
+      };
+      var content = jsonEncode(original), revision = 'before', reject = true;
+      final attempts = <Json>[], writes = <Json>[];
+      Json wire() => {'formatted': content, 'content': content, 'revision': revision};
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'ready') return {
+          'version': 'test', 'coreVersion': 'test', 'preferences': {'locale': 'en'}, 'dashboard': {'status': 'Stopped'},
+        };
+        if (call.method == 'profiles.config') return wire();
+        if (call.method == 'profiles.write') {
+          final args = json(call.arguments);
+          expect(args['id'], 7);
+          expect(args['revision'], revision);
+          attempts.add(args);
+          if (reject) throw PlatformException(code: 'config', message: 'Invalid compound match');
+          content = args['content'] as String;
+          writes.add(json(jsonDecode(content)));
+          revision = 'after-${writes.length}';
+          return wire();
+        }
+        return null;
+      });
+      final box = BoxController(channel: channel, events: events.stream);
+      final store = ProfileConfigStore(box, {'id': 7, 'name': 'Profile'});
+      await store.load();
+      await tester.pumpWidget(BoxApp(controller: box));
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox());
+        store.dispose();
+        await events.close();
+        messenger.setMockMethodCallHandler(channel, null);
+      });
+      await tester.pumpAndSettle();
+      openPage(tester.element(find.byType(HomePage)), section == 'http_rewrite'
+        ? HttpRewriteConfigPage(store: store) : ScriptsConfigPage(store: store));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text(title));
+      await tester.tap(find.text(title));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Add').last);
+      await tester.pumpAndSettle();
+      final field = find.descendant(of: find.byType(ConfigValueEditor), matching: find.byType(TextField));
+      final initial = json(jsonDecode(tester.widget<TextField>(field).controller!.text));
+      expect(initial['disabled'], isTrue);
+      expect(initial['pattern'], isA<String>());
+      final rule = <String, dynamic>{...initial, 'name': 'Compound rule', 'match': {
+        'all': [
+          {'subject': 'request.method', 'equals': 'GET'},
+          {'any': [
+            {'all': [
+              {'subject': 'url', 'regex': r'/api\?v=1$'},
+              {'subject': 'request.header', 'header': 'X-Client', 'regex': r'(?i)^mobile$'},
+            ]},
+            {'subject': 'response.status', 'equals': 201},
+          ]},
+          {'subject': 'response.header', 'header': 'Content-Type', 'regex': r'^application/json\b'},
+        ],
+      }};
+      final rejectedRule = <String, dynamic>{...rule, 'match': {'all': []}};
+      final rejectedDraft = configEncoder.convert(rejectedRule);
+      await tester.enterText(field, rejectedDraft);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save').last);
+      await tester.pumpAndSettle();
+      expect(find.descendant(of: find.byType(ConfigValueEditor), matching: find.text('Invalid compound match')), findsOneWidget);
+      expect(find.byType(ConfigValueEditor), findsOneWidget);
+      expect(tester.widget<TextField>(field).controller!.text, rejectedDraft);
+      expect(tester.widget<BoxEditGuard>(find.byType(BoxEditGuard)).dirty, isTrue);
+      expect(store.root, original);
+      expect(store.revision, 'before');
+      expect(writes, isEmpty);
+      final submitted = json(jsonDecode(attempts.single['content'] as String));
+      expect(json(json(submitted['experimental'])[section])[key], [rejectedRule]);
+      reject = false;
+      await tester.enterText(field, configEncoder.convert(rule));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save').last);
+      await tester.pumpAndSettle();
+      expect(find.byType(ConfigValueEditor), findsNothing);
+      expect(store.entries(['experimental', section, key]), [rule]);
+      expect(store.revision, 'after-1');
+      expect(attempts, hasLength(2));
+      expect(attempts.map((args) => args['revision']), everyElement('before'));
+      final expected = <String, dynamic>{...original, 'experimental': {
+        ...json(original['experimental']),
+        section: {...json(json(original['experimental'])[section]), key: [rule]},
+      }};
+      expect(writes.single, expected);
+      expect(store.root, expected);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('raw editing writes content with a revision without changing profile metadata', (tester) async {
     const channel = MethodChannel('test.raw-config');
     final events = StreamController<dynamic>.broadcast();

@@ -34,9 +34,10 @@ type RewriteConfig struct {
 }
 
 type RewriteMatch struct {
-	Name    string `json:"name,omitempty"`
-	Pattern string `json:"pattern"`
-	Disable bool   `json:"disabled,omitempty"`
+	Name    string     `json:"name,omitempty"`
+	Pattern string     `json:"pattern,omitempty"`
+	Match   *HTTPMatch `json:"match,omitempty"`
+	Disable bool       `json:"disabled,omitempty"`
 }
 
 type HeaderRewrite struct {
@@ -95,6 +96,9 @@ func (c *RewriteConfig) UnmarshalJSON(data []byte) error {
 	if err := decoder.Decode(&value); err != nil {
 		return err
 	}
+	if err := validateHTTPMatchObjects(data, "header_rewrite", "url_rewrite", "map_remote", "body_rewrite", "map_local"); err != nil {
+		return err
+	}
 	*c = RewriteConfig(value)
 	_, err := CompileRewrite(c)
 	return err
@@ -103,6 +107,7 @@ func (c *RewriteConfig) UnmarshalJSON(data []byte) error {
 type compiledRule[T any] struct {
 	options T
 	pattern *rewriteRegexp
+	match   *compiledHTTPMatch
 	regex   *rewriteRegexp
 	label   string
 	jq      *gojq.Code
@@ -122,6 +127,7 @@ type RewriteProgram struct {
 	data         [][]byte
 	sources      []*processingResource
 	count        int
+	needsMatch   bool
 }
 
 func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
@@ -173,7 +179,7 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 		resources[name] = data
 	}
 	for i, rule := range c.HeaderRewrite {
-		item, err := compileRewriteRule(rule, rule.RewriteMatch, "header_rewrite", i)
+		item, err := compileRewriteRule(rule, rule.RewriteMatch, "header_rewrite", i, rule.Phase)
 		if err != nil {
 			return nil, err
 		}
@@ -195,10 +201,11 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 		}
 		if !rule.Disable {
 			p.headers = append(p.headers, item)
+			p.needsMatch = p.needsMatch || item.match != nil
 		}
 	}
 	for i, rule := range c.URLRewrite {
-		item, err := compileRewriteRule(rule, rule.RewriteMatch, "url_rewrite", i)
+		item, err := compileRewriteRule(rule, rule.RewriteMatch, "url_rewrite", i, "request")
 		if err != nil {
 			return nil, err
 		}
@@ -213,10 +220,11 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 		}
 		if !rule.Disable {
 			p.urls = append(p.urls, item)
+			p.needsMatch = p.needsMatch || item.match != nil
 		}
 	}
 	for i, rule := range c.MapRemote {
-		item, err := compileRewriteRule(rule, rule.RewriteMatch, "map_remote", i)
+		item, err := compileRewriteRule(rule, rule.RewriteMatch, "map_remote", i, "request")
 		if err != nil {
 			return nil, err
 		}
@@ -225,10 +233,11 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 		}
 		if !rule.Disable {
 			p.remote = append(p.remote, item)
+			p.needsMatch = p.needsMatch || item.match != nil
 		}
 	}
 	for i, rule := range c.BodyRewrite {
-		item, err := compileRewriteRule(rule, rule.RewriteMatch, "body_rewrite", i)
+		item, err := compileRewriteRule(rule, rule.RewriteMatch, "body_rewrite", i, rule.Phase)
 		if err != nil {
 			return nil, err
 		}
@@ -254,10 +263,11 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 		}
 		if !rule.Disable {
 			p.bodies = append(p.bodies, item)
+			p.needsMatch = p.needsMatch || item.match != nil
 		}
 	}
 	for i, rule := range c.MapLocal {
-		item, err := compileRewriteRule(rule, rule.RewriteMatch, "map_local", i)
+		item, err := compileRewriteRule(rule, rule.RewriteMatch, "map_local", i, "request")
 		if err != nil {
 			return nil, err
 		}
@@ -296,6 +306,7 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 		}
 		if !rule.Disable {
 			p.local = append(p.local, item)
+			p.needsMatch = p.needsMatch || item.match != nil
 			p.data = append(p.data, data)
 			p.sources = append(p.sources, source)
 		}
@@ -304,19 +315,29 @@ func CompileRewrite(c *RewriteConfig) (*RewriteProgram, error) {
 	return p, nil
 }
 
-func compileRewriteRule[T any](options T, match RewriteMatch, kind string, index int) (compiledRule[T], error) {
+func compileRewriteRule[T any](options T, match RewriteMatch, kind string, index int, phase string) (compiledRule[T], error) {
 	label := fmt.Sprintf("%s[%d]", kind, index)
 	if match.Name != "" {
 		label += " " + match.Name
 	}
-	if match.Pattern == "" {
-		return compiledRule[T]{}, fmt.Errorf("%s: URL pattern is required", label)
+	if match.Pattern == "" && match.Match == nil {
+		return compiledRule[T]{}, fmt.Errorf("%s: URL pattern or match is required", label)
 	}
-	pattern, err := compileRewritePattern(match.Pattern)
+	urlPattern := match.Pattern
+	if urlPattern == "" {
+		// Match-only mappings replace the complete URL, while explicit patterns
+		// retain their original replacement captures and candidate behavior.
+		urlPattern = "(?s)^.*$"
+	}
+	pattern, err := compileRewritePattern(urlPattern)
 	if err != nil {
 		return compiledRule[T]{}, fmt.Errorf("%s: %w", label, err)
 	}
-	return compiledRule[T]{options: options, pattern: pattern, label: label}, nil
+	condition, err := compileHTTPMatch(match.Match, phase)
+	if err != nil {
+		return compiledRule[T]{}, fmt.Errorf("%s: match: %w", label, err)
+	}
+	return compiledRule[T]{options: options, pattern: pattern, match: condition, label: label}, nil
 }
 
 func rewritePhase(phase string) bool { return phase == "request" || phase == "response" }

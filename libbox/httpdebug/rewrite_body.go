@@ -225,7 +225,7 @@ func (p *httpProgram) rewriteBody(phase, address string, data []byte, note func(
 		if rule.options.Phase != phase {
 			continue
 		}
-		matched, err := p.match(rule.pattern, address)
+		matched, err := p.match(rule.pattern, rule.match, address)
 		if err != nil {
 			return nil, false, err
 		}

@@ -103,7 +103,8 @@ class ProfileRecoveryTest {
                 val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(trustStore) }
                 val ssl = SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, SecureRandom()) }
                 val proxyPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
-                fun request(host: String, port: Int, path: String, secure: Boolean): String = Socket("127.0.0.1", proxyPort).use { tunnel ->
+                fun request(host: String, port: Int, path: String, secure: Boolean,
+                    method: String = "GET", headers: Map<String, String> = emptyMap()): String = Socket("127.0.0.1", proxyPort).use { tunnel ->
                     tunnel.soTimeout = 10_000
                     tunnel.getOutputStream().write("CONNECT $host:$port HTTP/1.1\r\nHost: $host:$port\r\n\r\n".toByteArray())
                     val reply = StringBuilder()
@@ -120,7 +121,8 @@ class ProfileRecoveryTest {
                         (session.peerCertificates[0] as X509Certificate).verify(certificate.publicKey)
                     } else tunnel
                     client.use {
-                        it.getOutputStream().write("GET $path HTTP/1.1\r\nHost: $host:$port\r\nConnection: close\r\n\r\n".toByteArray())
+                        val extraHeaders = headers.entries.joinToString("") { (name, value) -> "$name: $value\r\n" }
+                        it.getOutputStream().write("$method $path HTTP/1.1\r\nHost: $host:$port\r\n${extraHeaders}Content-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
                         it.getInputStream().readBytes().toString(Charsets.UTF_8)
                     }
                 }
@@ -147,6 +149,64 @@ class ProfileRecoveryTest {
                         .put(JSONObject().put("pattern", "/file$").put("phase", "response").put("requires_body", true)
                             .put("resource", scriptName).put("debug", true)))
                         .put("resources", imported.getJSONObject("scripts").getJSONObject("resources"))
+                    fun requestMatch(path: String, method: String = "GET", host: String = "offline.test:443"): JSONObject = JSONObject()
+                        .put("all", JSONArray()
+                            .put(JSONObject().put("subject", "url").put("regex", path))
+                            .put(JSONObject().put("subject", "request.method").put("equals", method))
+                            .put(JSONObject().put("subject", "request.header").put("header", "HOST").put("equals", host))
+                            .put(JSONObject().put("any", JSONArray()
+                                .put(JSONObject().put("subject", "request.header").put("header", "x-gate").put("regex", "(?i)^allow$"))
+                                .put(JSONObject().put("subject", "request.header").put("header", "X-Preview").put("equals", "yes")))))
+                    fun responseMatch(): JSONObject = requestMatch("/compound-remote$", host = "source.test:80").apply {
+                        getJSONArray("all")
+                            .put(JSONObject().put("subject", "response.status").put("equals", 200))
+                            .put(JSONObject().put("subject", "response.header").put("header", "content-type").put("equals", "application/json"))
+                    }
+                    extension.put("url_rewrite", JSONArray().put(JSONObject()
+                        .put("pattern", "^https://offline\\.test(?::443)?/compound-redirect$")
+                        .put("match", requestMatch("/compound-redirect$")).put("action", "307")
+                        .put("replacement", "https://offline.test/static")))
+                    extension.getJSONArray("map_remote").put(JSONObject()
+                        .put("pattern", "^http://source\\.test:80/compound-remote$")
+                        .put("match", requestMatch("/compound-remote$", host = "source.test:80"))
+                        .put("replacement", "http://mapped.test:$originPort/profile.json"))
+                    extension.getJSONArray("map_local")
+                        .put(JSONObject().put("match", requestMatch("/compound-local$", method = "POST"))
+                            .put("status", 201).put("data", "compound-local"))
+                        .put(JSONObject().put("pattern", "/compound-(local|script|redirect)$").put("data", "condition-unmatched"))
+                        .put(JSONObject().put("pattern", "/compound-remote$")
+                            .put("match", JSONObject().put("subject", "request.header").put("header", "X-Origin-Status").put("equals", "418"))
+                            .put("status", 418).put("data", "old")
+                            .put("headers", JSONArray().put(JSONObject().put("name", "Content-Type").put("value", "application/json"))))
+                        .put(JSONObject().put("pattern", "/compound-remote$")
+                            .put("match", JSONObject().put("subject", "request.header").put("header", "X-Origin-Type").put("equals", "plain"))
+                            .put("data", "old").put("headers", JSONArray().put(JSONObject().put("name", "Content-Type").put("value", "text/plain"))))
+                        .put(JSONObject().put("pattern", "/compound-remote$")
+                            .put("match", JSONObject("""{"any":[
+                                {"subject":"request.method","equals":"POST"},
+                                {"subject":"request.header","header":"X-Gate","equals":"deny"}
+                            ]}""")).put("data", "remote-unmatched"))
+                    extension.put("header_rewrite", JSONArray()
+                        .put(JSONObject().put("match", requestMatch("/compound-remote$", host = "source.test:80"))
+                            .put("phase", "request").put("operation", "replace").put("header", "X-Gate").put("value", "rewritten"))
+                        .put(JSONObject().put("match", requestMatch("/compound-remote$", host = "source.test:80"))
+                            .put("phase", "request").put("operation", "replace").put("header", "Host").put("value", "altered.test:80"))
+                        .put(JSONObject().put("match", responseMatch()).put("phase", "response")
+                            .put("operation", "replace").put("header", "Content-Type").put("value", "text/plain")))
+                    extension.getJSONArray("body_rewrite").put(JSONObject().put("match", responseMatch())
+                        .put("phase", "response").put("regex", "old").put("replacement", "compound-body"))
+                    scripts.getJSONArray("http")
+                        .put(JSONObject().put("match", requestMatch("/compound-script$")).put("phase", "request")
+                            .put("source", "${'$'}done({response:{status:202,body:'compound-script-mock'}});"))
+                        .put(JSONObject().put("match", requestMatch("/compound-remote$", host = "source.test:80")).put("phase", "request")
+                            .put("source", "${'$'}done({method:'POST'});"))
+                        .put(JSONObject().put("match", responseMatch()).put("phase", "response").put("requires_body", true)
+                            .put("source", """
+                                if (${'$'}request.method !== 'POST' || ${'$'}request.headers['X-Gate'] !== 'rewritten'
+                                    || ${'$'}request.headers['Host'] !== 'mapped.test:$originPort'
+                                    || ${'$'}response.headers['Content-Type'] !== 'text/plain') throw Error('wrong rewritten message');
+                                ${'$'}done({status:203,body:${'$'}response.body.replace('compound-body','compound-script')});
+                            """.trimIndent()))
                     val config = JSONObject("""{
                         "inbounds":[{"type":"mixed","tag":"rewrite-in","listen":"127.0.0.1","listen_port":$proxyPort}],
                         "outbounds":[{"type":"direct","tag":"original"},{"type":"direct","tag":"mapped"}],
@@ -170,6 +230,25 @@ class ProfileRecoveryTest {
                     assertTrue(fileMock.endsWith("""{"message":"from-file-script"}"""))
                     fileResource.writeText("""{"message":"fresh"}""")
                     assertTrue(request("offline.test", 443, "/file", true).endsWith("""{"message":"fresh-jq"}"""))
+                    val allowed = mapOf("x-gate" to "AlLoW")
+                    val denied = mapOf("X-Gate" to "deny")
+                    val local = request("offline.test", 443, "/compound-local", true, "POST", allowed)
+                    assertTrue(local.startsWith("HTTP/1.1 201"))
+                    assertTrue(local.endsWith("compound-local"))
+                    assertTrue(request("offline.test", 443, "/compound-local", true, "GET", allowed).endsWith("condition-unmatched"))
+                    assertTrue(request("offline.test", 443, "/compound-local", true, "POST", denied).endsWith("condition-unmatched"))
+                    val conditionalScript = request("offline.test", 443, "/compound-script", true, headers = allowed)
+                    assertTrue(conditionalScript.startsWith("HTTP/1.1 202"))
+                    assertTrue(conditionalScript.endsWith("compound-script-mock"))
+                    assertTrue(request("offline.test", 443, "/compound-script", true, headers = denied).endsWith("condition-unmatched"))
+                    assertTrue(request("offline.test", 443, "/compound-script", true, "POST", allowed).endsWith("condition-unmatched"))
+                    val redirected = request("offline.test", 443, "/compound-redirect", true, headers = allowed)
+                    assertTrue(redirected.startsWith("HTTP/1.1 307"))
+                    assertTrue(redirected.contains("Location: https://offline.test/static", ignoreCase = true))
+                    assertTrue(request("offline.test", 443, "/compound-redirect", true, headers = denied).endsWith("condition-unmatched"))
+                    assertTrue(request("offline.test", 443, "/compound-redirect", true, "POST", allowed).endsWith("condition-unmatched"))
+                    assertTrue(request("offline.test", 443, "/compound-script", true,
+                        headers = mapOf("X-Gate" to "deny", "X-Preview" to "yes")).endsWith("compound-script-mock"))
                     assertEquals(0, origin.requests.get())
 
                     val captures = File(activity.noBackupFilesDir, "http-debug/captures")
@@ -178,6 +257,24 @@ class ProfileRecoveryTest {
                     BoxService.dashboardServer!!.startUICapture(captures.absolutePath, "{}", "", null)
                     assertTrue(request("source.test", 80, "/remote", false).contains("\"message\":\"script\""))
                     assertEquals(1, origin.requests.get())
+                    // Header changes and cross-domain mapping affect the actual
+                    // message, while every condition uses its original phase snapshot.
+                    val compoundRemote = request("source.test", 80, "/compound-remote", false, headers = allowed)
+                    assertTrue(compoundRemote.startsWith("HTTP/1.1 203"))
+                    assertTrue(compoundRemote.contains("Content-Type: text/plain", ignoreCase = true))
+                    assertTrue(compoundRemote.contains("\"message\":\"compound-script\""))
+                    assertEquals(2, origin.requests.get())
+                    assertTrue(request("source.test", 80, "/compound-remote", false, headers = denied).endsWith("remote-unmatched"))
+                    assertTrue(request("source.test", 80, "/compound-remote", false, "POST", allowed).endsWith("remote-unmatched"))
+                    val wrongStatus = request("source.test", 80, "/compound-remote", false, headers = allowed + ("X-Origin-Status" to "418"))
+                    assertTrue(wrongStatus.startsWith("HTTP/1.1 418"))
+                    assertTrue(wrongStatus.contains("Content-Type: application/json", ignoreCase = true))
+                    assertTrue(wrongStatus.endsWith("old"))
+                    val wrongType = request("source.test", 80, "/compound-remote", false, headers = allowed + ("X-Origin-Type" to "plain"))
+                    assertTrue(wrongType.startsWith("HTTP/1.1 200"))
+                    assertTrue(wrongType.contains("Content-Type: text/plain", ignoreCase = true))
+                    assertTrue(wrongType.endsWith("old"))
+                    assertEquals(2, origin.requests.get())
                     Libbox.stopUICapture()
                     assertTrue(JSONObject(Libbox.readUICaptureStatus()).getBoolean("rewriteActive"))
                     assertFalse(JSONObject(Libbox.readUICaptureStatus()).getBoolean("active"))

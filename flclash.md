@@ -14,11 +14,13 @@ FlClash 应用层固定参考 [chen08209/FlClash v0.9.3](https://github.com/chen
 | `adaptedFiles` | 仪表盘、配置/代理、外观、备份、选项列表行、IP 质量查询及参考测试等适配文件；记录原始来源哈希和实际改动说明 |
 | `adaptedNativeFiles` | `libbox/ui_egress.go` 对 FlClash IP 查询的适配来源；独立保留 v0.9.2 的 `7fd417fb9a9a277c6a9339a8ac87f907df7c25f7` 参考，不随界面升级改写原生查询 |
 | `prismUi` | 独立组件提交与 FlClash 子模块参考、191 个原样导入文件、两个 SDK 导入兼容补丁、B-box 导航栏与日志流适配及应用内许可资源；共 193 个本地包文件，包含源码、生成模型、两个 shader、包配置、许可、说明和 39 个上游测试及辅助文件 |
-| `supplementalReferences` | 独立于整体 UI 基线的 MITM dev 补充参考，按原样导入、改写或设计参考记录源文件哈希；本地路径相对仓库根目录 |
+| `supplementalReferences` | 独立于整体 UI 基线的 MITM dev 与声明式复合匹配补充参考，按原样导入、改写或设计参考记录源文件哈希；本地路径相对仓库根目录 |
 
 清单中 `files` 和 `adaptedFiles` 的本地路径相对 `flutter/`，`adaptedNativeFiles` 的本地路径相对仓库根目录；`source`/`sources` 指向各自固定参考提交内的上游路径。`prismUi.files` 相对其 `localPath`，记录实际本地文件哈希；其中的适配文件和许可资源相对 `flutter/`，适配条目单独保留原始上游 `sourceSHA256`。清单记录逐文件哈希和改动来源，本文维护使用说明，两者一并保留。
 
 请求/MITM 功能独立参考 FlClash `dev` 的 [`63aa150e23288558074d877f745a6d3b5f6418f6`](https://github.com/chen08209/FlClash/tree/63aa150e23288558074d877f745a6d3b5f6418f6)，相关提交为 [`f54486102172566e7342d7f5c138663c3c5dec0b`](https://github.com/chen08209/FlClash/commit/f54486102172566e7342d7f5c138663c3c5dec0b) 的 MITM 应用侧设计和 [`1a7556d30a38707f39abfba4b7d6a6b8f57774ed`](https://github.com/chen08209/FlClash/commit/1a7556d30a38707f39abfba4b7d6a6b8f57774ed) 的请求/连接整合。该 dev 源码的 `FEATURE_MITM` 默认关闭，公开 core 不提供完整 MITM 实现；B-box 自行实现 sing-box 路由上的 TLS 接管，不能把上游页面当成可用核心。采用证书信任、报文展示和 CA 模块设计；统一请求查看器的交互参考 Surge [近期请求说明](https://kb.nssurge.com/surge-knowledge-base/zh/guidelines/troubleshooting)及[近期/活动请求 API](https://manual.nssurge.com/tools/http-api.html)，以 B-box 的真实连接和抓取记录实现。该补充参考与 v0.9.3 UI、Android 上游和核心基线分别维护。
+
+声明式复合匹配独立参考 FlClash [`5e579c4987e50e5c68e6023cc31ff4db55d480bb` 的 loon_rewrite.dart](https://github.com/chen08209/FlClash/blob/5e579c4987e50e5c68e6023cc31ff4db55d480bb/lib/common/loon_rewrite.dart#L247) 中的 URL、方法、请求/响应头及状态条件。清单单独记录源文件哈希和设计参考用途；B-box 在自身 HTTP 处理引擎中实现结构化 JSON 条件和嵌套 all/any，不导入整套 Loon 解析器。语法及运行语义见 [HTTP 改写配置](libbox.md#json-配置中的-http-改写)，整体 UI 参考提交不变。
 
 FlClash 应用层组件位于 [flutter/lib/ui](flutter/lib/ui)，共享控件以本地包 [flutter/packages/prism_ui](flutter/packages/prism_ui) 使用，保留原始源码与 shader，不再依赖旧 `material_ui`/`cupertino_ui`。原始许可见 [FlClash GPL](flutter/assets/licenses/LICENSE)、[prism_ui LICENSE](flutter/packages/prism_ui/LICENSE) 和 [NOTICE](flutter/packages/prism_ui/NOTICE)。Prism 内置的 shapes、sliver list、resizable navigator 的 MIT 声明另从源文件头提取至 [应用许可资源](flutter/assets/licenses)，与 HCT/Flutter 的 Apache/BSD 及 SDK、插件许可一起在 [许可证页](flutter/lib/pages/licenses.dart) 展示。该页面按包名列出、搜索并打开可选中的完整正文。
 
@@ -150,7 +152,7 @@ XHTTP 与 VLESS Encryption 使用现有节点链接、订阅及 sing-box JSON �
 
 配置“编辑”页依次直接提供“日志”、“网络”、“DNS”、“路由规则”、“规则集”、“MITM”、“HTTP 改写”和“脚本”，末尾单独保留一个“打开配置内容”入口，元数据表单仅保留元数据字段和更新时间。各分项打开时读取该配置的最新内容，由 [configuration.dart](flutter/lib/pages/configuration.dart) 复用共享分组、规则列表、排序及 JSON 表单；原始 JSON 入口独立于分项加载。内网详情的“编辑”入口复用同一配置编辑页。
 
-MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、服务器证书校验、“解密TCP”和 QUIC 回退设置；证书入口独立于配置加载。页面顶部不显示配置名或解密说明，TCP 和 QUIC 开关仅显示标题。域名入口只显示标题，完整域名及排除项在二级编辑器查看和修改，保留输入顺序及通配符、端口后缀，新增抓取域名追加在列表末尾。端口、应用等额外筛选通过同页 JSON 编辑入口修改，见 [MITM 配置](libbox.md#独立-mitm-配置)。HTTP 改写页面依次显示 URL Rewrite、Header Rewrite、Body Rewrite（含 jq）、Map Local / API Mock、Map Remote，下方提供资源及完整 JSON 编辑入口；脚本独立编辑启用状态、HTTP、Cron 和资源。脚本及改写资源页提供“导入本地资源”、已有资源的 JSON 编辑及整个资源字典编辑；导入期间禁用重复提交，取消保留原配置，成功后显示可供规则引用的资源名，失败显示原因。文件位置、修订检查和备份边界见 [Android 导入流程](app.md#配置处理生命周期)。前后查找/反向引用、URL 资源及独立正文限额通过完整 JSON 表单配置，字段及运行行为见 [libbox.md](libbox.md#json-配置中的-http-改写)。新建规则/任务示例默认禁用。
+MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、服务器证书校验、“解密TCP”和 QUIC 回退设置；证书入口独立于配置加载。页面顶部不显示配置名或解密说明，TCP 和 QUIC 开关仅显示标题。域名入口只显示标题，完整域名及排除项在二级编辑器查看和修改，保留输入顺序及通配符、端口后缀，新增抓取域名追加在列表末尾。端口、应用等额外筛选通过同页 JSON 编辑入口修改，见 [MITM 配置](libbox.md#独立-mitm-配置)。HTTP 改写页面依次显示 URL Rewrite、Header Rewrite、Body Rewrite（含 jq）、Map Local / API Mock、Map Remote，下方提供资源及完整 JSON 编辑入口；脚本独立编辑启用状态、HTTP、Cron 和资源。改写规则和 HTTP 脚本的 JSON 表单提供复合匹配字段说明及可选中的示例，条件由原生完整配置校验，不在界面重复实现语义校验。脚本及改写资源页提供“导入本地资源”、已有资源的 JSON 编辑及整个资源字典编辑；导入期间禁用重复提交，取消保留原配置，成功后显示可供规则引用的资源名，失败显示原因。文件位置、修订检查和备份边界见 [Android 导入流程](app.md#配置处理生命周期)。复合匹配、前后查找/反向引用、URL 资源及独立正文限额通过 JSON 表单配置，字段及运行行为见 [libbox.md](libbox.md#json-配置中的-http-改写)。新建规则/任务示例默认禁用。
 
 字段修改通过 ProfileConfigStore.set，本地资源导入通过独立桥接；二者均保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
 
@@ -213,7 +215,7 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 扫码页回归模拟相机权限被拒绝、取消选图、图片无二维码和选图成功，验证订阅预览接收识别结果并等待用户确认。测试使用识别结果替身。[profiles_test.dart](flutter/test/profiles_test.dart)
 
 - [profiles_test.dart](flutter/test/profiles_test.dart)：新建与二进制导入的内容/元数据、URL 节点导入当前选中文件而不创建配置、失败后保留输入重试、读取修订期间切换配置及冲突后的原目标保留、来源单独编辑/更新/移除、原生元数据事件刷新来源列表及远程会话隔离；覆盖迟到列表响应、来源写操作串行化、退出管理页后的迟到更新、详情页连续更新点击、会话切换后停止单文件/全部更新、草稿取消不写入及保存期间禁止退出。添加菜单与取消导入、菜单能力、原始订阅链接、相对时间边界、本地时间未知占位、自动更新校验和选中配置定位继续覆盖。横向滑动不切页或选择配置，卡片与列表两种代理样式仍能测速并通过原生确认切换配置，卡片样式从工具栏按钮测速。停服时的“添加节点”空状态、当前配置的对号选中态、所选配置分组、迟到快照隔离和菜单节点编辑，以及收纳菜单的全部更新同时处理本地/默认文件来源和已有远程配置均有覆盖。新增节点和仅节点导入携带目标配置修订，冲突保留预览，删除确认期间切换配置保留原目标；默认文件在已有配置旁显示、不可删除或转远端，以及手机/大字号/宽屏下配置卡片边框与代理区域对齐均有用例。列表及弹层在启停期间禁止切换与状态稳定后恢复、切换失败、通过右上角收纳菜单进入配置排序后的冲突恢复，以及远程分组选择及本机配置隔离继续覆盖。
-- [configuration_test.dart](flutter/test/configuration_test.dart)：MITM、HTTP 改写、脚本三种配置及 Cron 草稿通过独立路径保存，HTTP/2、证书校验及 QUIC 显式关闭选项正确保存，关闭改写保留 MITM/脚本，校验失败保留内容，原始编辑按修订写入内容且不改动配置元数据。带本地节点注释的格式化内容可加载和保存后回读，原始编辑保留注释，JSON 字符串中的 URL/注释样式文字及其他注释不被统一剥除。
+- [configuration_test.dart](flutter/test/configuration_test.dart)：MITM、HTTP 改写、脚本三种配置及 Cron 草稿通过独立路径保存，HTTP/2、证书校验及 QUIC 显式关闭选项正确保存，关闭改写保留 MITM/脚本，校验失败保留内容，原始编辑按修订写入内容且不改动配置元数据。HTTP 改写和 HTTP 脚本经实际规则表单提交复合条件，原生校验拒绝后保留草稿、原配置及修订，修正后保存嵌套 all/any 和原有其他扩展；桥接替身只验证编辑及传输流程。带本地节点注释的格式化内容可加载和保存后回读，原始编辑保留注释，JSON 字符串中的 URL/注释样式文字及其他注释不被统一剥除。
 - [code_editor_test.dart](flutter/test/code_editor_test.dart)：加载应用实际的等宽字体，对照 `RenderEditable` 检查行号在折行、宽度/字号变化及滚动后的对齐，覆盖空行、末尾换行和替换内容。选区用例在 0.8、1.0、1.4 倍字号下实际拖动两端手柄，检查跨行选择、折行文档滚动后的定位，以及通过复制菜单取得的原文范围。
 - [backup_test.dart](flutter/test/backup_test.dart)：取消本地选择器不报告成功也不恢复数据，导出使用紧凑 JSON；恢复传递范围与策略，失败后可重试；WebDAV 上传等待服务器确认且不打开本地选择器；WebDAV 表单校验目录 URL，保存失败和取消关闭后保留长输入。
 

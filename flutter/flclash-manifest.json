@@ -429,6 +429,24 @@
           "changes": "FEATURE_MITM is disabled by default in this reference. The public FlClash core is not used as an MITM backend."
         }
       ]
+    },
+    {
+      "name": "declarative-compound-matching",
+      "repository": "https://github.com/chen08209/FlClash",
+      "commit": "5e579c4987e50e5c68e6023cc31ff4db55d480bb",
+      "scope": "URL, method, request/response header and status condition subjects only; maintained independently of the overall UI, Android and sing-box baselines. Local paths are relative to the repository root.",
+      "files": [
+        {
+          "source": "lib/common/loon_rewrite.dart",
+          "sourceSHA256": "b3f3c8cf1b0e493b8a38b4e7102b8db4fc0761c6d7e29a7d8a60f82eb1a5dc10",
+          "usage": "design-reference",
+          "localPaths": [
+            "libbox/httpdebug/rewrite_match.go",
+            "libbox/httpdebug/rewrite_match_test.go"
+          ],
+          "changes": "Condition subjects inform B-box's structured JSON match trees and their regression tests. B-box implements recursive all/any groups, same-candidate URL matching and phase validation in its own sing-box HTTP processing engine; it does not import the complete Loon parser or Mihomo configuration."
+        }
+      ]
     }
   ],
   "prismUi": {

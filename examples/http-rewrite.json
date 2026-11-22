@@ -121,6 +121,24 @@
           "phase": "response",
           "regex": "(?<=token=)([a-z]+)-\\1(?=&|$)",
           "replacement": "checked"
+        },
+        {
+          "name": "Successful JSON response from selected clients",
+          "disabled": true,
+          "pattern": "^https?://api\\.example\\.test/json$",
+          "match": {
+            "all": [
+              {"subject": "request.method", "equals": "POST"},
+              {"any": [
+                {"subject": "request.header", "header": "X-Client", "equals": "mobile"},
+                {"subject": "request.header", "header": "X-Client", "equals": "desktop"}
+              ]},
+              {"subject": "response.status", "equals": 200},
+              {"subject": "response.header", "header": "Content-Type", "regex": "(?i)^application/json\\b"}
+            ]
+          },
+          "phase": "response",
+          "jq": ".clientMatched = true"
         }
       ],
       "map_local": [
@@ -153,6 +171,23 @@
           "disabled": true,
           "pattern": "^https?://api\\.example\\.test/cached-file$",
           "resource": "remote-json"
+        },
+        {
+          "name": "Compound request mock",
+          "disabled": true,
+          "match": {
+            "all": [
+              {"subject": "url", "regex": "^https?://api\\.example\\.test/compound$"},
+              {"subject": "request.method", "equals": "POST"},
+              {"any": [
+                {"subject": "request.header", "header": "X-Preview", "equals": "1"},
+                {"subject": "request.header", "header": "User-Agent", "regex": "(?i)^example-app/"}
+              ]}
+            ]
+          },
+          "status": 200,
+          "resource": "mock.json",
+          "headers": [{"name": "Content-Type", "value": "application/json"}]
         }
       ],
       "resources": {

@@ -22,9 +22,15 @@ type httpProgram struct {
 	environment    scriptEnvironment
 	regex          *regexContext
 	candidates     []string
-	matched        map[*rewriteRegexp]string
+	matched        map[httpRuleMatch]string
+	message        httpMatchMessage
 	connectionHost string
 	connectionPort uint16
+}
+
+type httpRuleMatch struct {
+	pattern   *rewriteRegexp
+	condition *compiledHTTPMatch
 }
 
 func (e *Engine) httpProgram(metadata Metadata) *httpProgram {
@@ -51,7 +57,16 @@ func (p *httpProgram) prepareMatcher(request *http.Request, address string) {
 		return
 	}
 	p.regex = newRegexContext(request.Context())
-	p.matched = make(map[*rewriteRegexp]string)
+	p.matched = make(map[httpRuleMatch]string)
+	p.message = httpMatchMessage{}
+	if p.needsMatch || p.scripts != nil && p.scripts.needsMatch {
+		p.message.method = request.Method
+		p.message.requestHeaders = snapshotMatchHeaders(request.Header)
+		p.message.requestHeaders.Del("Host")
+		if request.Host != "" {
+			p.message.requestHeaders.Set("Host", request.Host)
+		}
+	}
 	p.candidates = []string{address}
 	base := *request.URL
 	for _, host := range []string{request.Host, p.connectionHost} {
@@ -74,8 +89,12 @@ func (p *httpProgram) prepareMatcher(request *http.Request, address string) {
 	}
 }
 
-func (p *httpProgram) matchURL(pattern *rewriteRegexp, address string) (string, error) {
-	if result, found := p.matched[pattern]; found {
+func (p *httpProgram) matchURL(pattern *rewriteRegexp, condition *compiledHTTPMatch, address string) (string, error) {
+	if p.regex != nil && p.regex.ctx.Err() != nil {
+		return "", p.regex.ctx.Err()
+	}
+	key := httpRuleMatch{pattern, condition}
+	if result, found := p.matched[key]; found {
 		return result, nil
 	}
 	candidates := p.candidates
@@ -87,21 +106,27 @@ func (p *httpProgram) matchURL(pattern *rewriteRegexp, address string) (string, 
 		if err != nil {
 			return "", err
 		}
+		if matched && condition != nil {
+			matched, err = condition.matches(candidate, &p.message, p.regex)
+			if err != nil {
+				return "", err
+			}
+		}
 		if matched {
 			if p.matched != nil {
-				p.matched[pattern] = candidate
+				p.matched[key] = candidate
 			}
 			return candidate, nil
 		}
 	}
 	if p.matched != nil {
-		p.matched[pattern] = ""
+		p.matched[key] = ""
 	}
 	return "", nil
 }
 
-func (p *httpProgram) match(pattern *rewriteRegexp, address string) (bool, error) {
-	matched, err := p.matchURL(pattern, address)
+func (p *httpProgram) match(pattern *rewriteRegexp, condition *compiledHTTPMatch, address string) (bool, error) {
+	matched, err := p.matchURL(pattern, condition, address)
 	return matched != "", err
 }
 
@@ -143,7 +168,7 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 		return nil, err
 	}
 	for _, rule := range p.urls {
-		matched, err := p.matchURL(rule.pattern, address)
+		matched, err := p.matchURL(rule.pattern, rule.match, address)
 		if err != nil {
 			return nil, err
 		}
@@ -198,7 +223,7 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 		break
 	}
 	for _, rule := range p.remote {
-		matched, err := p.matchURL(rule.pattern, address)
+		matched, err := p.matchURL(rule.pattern, rule.match, address)
 		if err != nil {
 			return nil, err
 		}
@@ -310,7 +335,7 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 		}
 	}
 	for i, rule := range p.local {
-		matched, err := p.match(rule.pattern, address)
+		matched, err := p.match(rule.pattern, rule.match, address)
 		if err != nil {
 			return nil, err
 		}
@@ -364,6 +389,11 @@ func (p *httpProgram) request(request *http.Request, id, address string, note fu
 
 func (p *httpProgram) response(request *http.Request, response *http.Response, id, address string, note func(string)) (err error) {
 	p.prepareMatcher(request, address)
+	if p.needsMatch || p.scripts != nil && p.scripts.needsMatch {
+		p.message.status = strconv.Itoa(response.StatusCode)
+		p.message.responseHeaders = snapshotMatchHeaders(response.Header)
+		p.matched = make(map[httpRuleMatch]string)
+	}
 	var lease *bodyLease
 	defer func() {
 		if lease != nil {
@@ -486,7 +516,7 @@ func (p *httpProgram) rewriteHeader(phase, address string, header http.Header, h
 		if rule.options.Phase != phase {
 			continue
 		}
-		matched, err := p.match(rule.pattern, address)
+		matched, err := p.match(rule.pattern, rule.match, address)
 		if err != nil {
 			return err
 		}
@@ -540,7 +570,7 @@ func (p *httpProgram) script(phase, address string) (*compiledScript, error) {
 	for i := range p.scripts.http {
 		script := &p.scripts.http[i]
 		if script.options.Phase == phase {
-			matched, err := p.match(script.pattern, address)
+			matched, err := p.match(script.pattern, script.match, address)
 			if err != nil {
 				return nil, err
 			}
@@ -555,7 +585,7 @@ func (p *httpProgram) script(phase, address string) (*compiledScript, error) {
 func (p *httpProgram) hasBodyRules(phase, address string) (bool, error) {
 	for _, rule := range p.bodies {
 		if rule.options.Phase == phase {
-			matched, err := p.match(rule.pattern, address)
+			matched, err := p.match(rule.pattern, rule.match, address)
 			if err != nil {
 				return false, err
 			}

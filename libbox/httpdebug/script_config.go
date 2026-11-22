@@ -80,12 +80,13 @@ type compiledCron struct {
 }
 
 type ScriptProgram struct {
-	scope     Config
-	limit     int64
-	http      []compiledScript
-	cron      []compiledCron
-	storage   *scriptStore
-	resources *processingResources
+	scope      Config
+	limit      int64
+	http       []compiledScript
+	cron       []compiledCron
+	storage    *scriptStore
+	resources  *processingResources
+	needsMatch bool
 }
 
 func (c *ScriptsConfig) UnmarshalJSON(data []byte) error {
@@ -97,6 +98,9 @@ func (c *ScriptsConfig) UnmarshalJSON(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	if err := validateHTTPMatchObjects(data, "http"); err != nil {
 		return err
 	}
 	*c = ScriptsConfig(value)
@@ -157,7 +161,7 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 		}
 	}
 	for i, rule := range c.HTTP {
-		item, err := compileRewriteRule(rule, rule.RewriteMatch, "scripts.http", i)
+		item, err := compileRewriteRule(rule, rule.RewriteMatch, "scripts.http", i, rule.Phase)
 		if err != nil {
 			return nil, err
 		}
@@ -192,6 +196,7 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 			return nil, err
 		}
 		if !rule.Disable {
+			p.needsMatch = p.needsMatch || item.match != nil
 			p.http = append(p.http, compiledScript{compiledRule: item, program: program, client: client, source: source,
 				storageKey: scriptDefaultStorageKey(rule.Source, rule.ScriptPath, rule.Resource, c.Resources)})
 		}
