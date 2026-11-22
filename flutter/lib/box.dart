@@ -79,6 +79,8 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
   bool _startupInterrupted = false;
   bool _refreshingBackend = false;
   bool _takingIntents = false, _takeIntentsAgain = false;
+  bool _requestingBatteryOptimization = false;
+  int _batteryReadRevision = 0;
   bool ready = false;
   bool lanChanging = false;
   bool serviceSettingsChanging = false;
@@ -257,6 +259,7 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _refreshBackend() async {
     final refresh = ++_backendRefresh;
+    ++_batteryReadRevision;
     final recovery = _nativeRecovery;
     var retryAfterRecovery = false;
     _startupInterrupted = false;
@@ -346,6 +349,43 @@ class BoxController extends ChangeNotifier with WidgetsBindingObserver {
       report(error);
       return false;
     }
+  }
+
+  void _acceptBatteryOptimization(Object? value, int revision, int? settingsRevision) {
+    if (_disposed || value is! bool || revision != _batteryReadRevision ||
+        _eventRevisions['settings'] != settingsRevision || settings['batteryExempt'] == value) return;
+    settings = {...settings, 'batteryExempt': value};
+    _notify([BoxAspect.state]);
+  }
+
+  Future<void> refreshBatteryOptimization() async {
+    // The pending request reads the allowlist after its Activity result.
+    if (_disposed || _refreshingBackend || _requestingBatteryOptimization) return;
+    final revision = ++_batteryReadRevision;
+    final settingsRevision = _eventRevisions['settings'];
+    try {
+      _acceptBatteryOptimization(await call('battery.status'), revision, settingsRevision);
+    } catch (error) { report(error); }
+  }
+
+  Future<void> requestIgnoreBatteryOptimization() async {
+    if (_disposed || _refreshingBackend || _requestingBatteryOptimization || settings['batteryExempt'] == true) return;
+    _requestingBatteryOptimization = true;
+    final revision = ++_batteryReadRevision;
+    final settingsRevision = _eventRevisions['settings'];
+    var refreshNeeded = false;
+    try {
+      // Android returns its actual allowlist state after the user leaves the
+      // system prompt. Starting that prompt alone never authorizes the app.
+      final value = await call('battery.open');
+      refreshNeeded = value is! bool || revision != _batteryReadRevision ||
+          _eventRevisions['settings'] != settingsRevision;
+      _acceptBatteryOptimization(value, revision, settingsRevision);
+    } catch (error) { refreshNeeded = true; report(error); }
+    finally { _requestingBatteryOptimization = false; }
+    // A settings snapshot received while the system prompt was open may
+    // precede the grant. Re-read instead of applying a potentially stale reply.
+    if (refreshNeeded) await refreshBatteryOptimization();
   }
 
   Future<bool> setPreference(String key, dynamic value) => setPreferences({key: value});

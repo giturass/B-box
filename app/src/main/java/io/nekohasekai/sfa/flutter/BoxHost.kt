@@ -183,6 +183,10 @@ internal class BoxHost(
         requestUi("activity.start", IpcPayload.marshalIntent(intent))
     }
 
+    suspend fun requestIgnoreBatteryOptimization() {
+        requestUi("permission.battery", null)
+    }
+
     suspend fun pickDocument(saveName: String? = null, mimeType: String = "*/*"): Uri? =
         (requestUi("document.pick", mapOf("name" to saveName, "mimeType" to mimeType)) as? String)?.let(Uri::parse)
 

@@ -13,10 +13,10 @@ FlClash 应用层固定参考 [chen08209/FlClash v0.9.3](https://github.com/chen
 | `files` | 直接导入的 14 个 FlClash 应用层 UI 文件及两个字体；哈希对应将 Dart 包引用从 `fl_clash` 机械改名为 `b_box_ui` 后的文件 |
 | `adaptedFiles` | 仪表盘、配置/代理、外观、备份、选项列表行、IP 质量查询及参考测试等适配文件；记录原始来源哈希和实际改动说明 |
 | `adaptedNativeFiles` | `libbox/ui_egress.go` 对 FlClash IP 查询的适配来源；独立保留 v0.9.2 的 `7fd417fb9a9a277c6a9339a8ac87f907df7c25f7` 参考，不随界面升级改写原生查询 |
-| `prismUi` | 独立组件提交与 FlClash 子模块参考、191 个原样导入文件、两个 SDK 导入兼容补丁、B-box 导航栏与日志流适配及应用内许可资源；共 193 个本地包文件，包含源码、生成模型、两个 shader、包配置、许可、说明和 39 个上游测试及辅助文件 |
+| `prismUi` | 独立组件提交与 FlClash 子模块参考、189 个原样导入文件、两个 SDK 导入兼容补丁、两个授权列表宽度适配、B-box 导航栏与日志流适配及应用内许可资源；共 193 个本地包文件，包含源码、生成模型、两个 shader、包配置、许可、说明和 39 个上游测试及辅助文件 |
 | `supplementalReferences` | 独立于整体 UI 基线的 MITM dev、声明式复合匹配及脚本事件/调试补充参考，按原样导入、改写或设计参考记录源文件哈希；本地路径相对仓库根目录 |
 
-清单中 `files` 和 `adaptedFiles` 的本地路径相对 `flutter/`，`adaptedNativeFiles` 的本地路径相对仓库根目录；`source`/`sources` 指向各自固定参考提交内的上游路径。`prismUi.files` 相对其 `localPath`，记录实际本地文件哈希；其中的适配文件和许可资源相对 `flutter/`，适配条目单独保留原始上游 `sourceSHA256`。清单记录逐文件哈希和改动来源，本文维护使用说明，两者一并保留。
+清单中 `files` 和 `adaptedFiles` 的本地路径相对 `flutter/`，`adaptedNativeFiles` 的本地路径相对仓库根目录；`source`/`sources` 指向各自固定参考提交内的上游路径。跨仓库的 `supportingSources` 单独标注 `repository` 和 `commit`，未标注的沿用所属清单参考。`prismUi.files` 相对其 `localPath`，记录实际本地文件哈希；其中的适配文件和许可资源相对 `flutter/`，适配条目单独保留原始上游 `sourceSHA256`。清单记录逐文件哈希和改动来源，本文维护使用说明，两者一并保留。
 
 请求/MITM 功能独立参考 FlClash `dev` 的 [`63aa150e23288558074d877f745a6d3b5f6418f6`](https://github.com/chen08209/FlClash/tree/63aa150e23288558074d877f745a6d3b5f6418f6)，相关提交为 [`f54486102172566e7342d7f5c138663c3c5dec0b`](https://github.com/chen08209/FlClash/commit/f54486102172566e7342d7f5c138663c3c5dec0b) 的 MITM 应用侧设计和 [`1a7556d30a38707f39abfba4b7d6a6b8f57774ed`](https://github.com/chen08209/FlClash/commit/1a7556d30a38707f39abfba4b7d6a6b8f57774ed) 的请求/连接整合。该 dev 源码的 `FEATURE_MITM` 默认关闭，公开 core 不提供完整 MITM 实现；B-box 自行实现 sing-box 路由上的 TLS 接管，不能把上游页面当成可用核心。采用证书信任、报文展示和 CA 模块设计；统一请求查看器的交互参考 Surge [近期请求说明](https://kb.nssurge.com/surge-knowledge-base/zh/guidelines/troubleshooting)及[近期/活动请求 API](https://manual.nssurge.com/tools/http-api.html)，以 B-box 的真实连接和抓取记录实现。该补充参考与 v0.9.3 UI、Android 上游和核心基线分别维护。
 
@@ -28,7 +28,7 @@ FlClash 应用层组件位于 [flutter/lib/ui](flutter/lib/ui)，共享控件以
 
 [组件 pubspec](flutter/packages/prism_ui/pubspec.yaml) 要求 Dart 3.10+、Flutter 3.47+；0.1.3 的 SDK 要求和依赖与此前固定版本相同。应用继续使用 [setup-flutter](.github/actions/setup-flutter/action.yml) 固定的 Flutter 3.47.6，[锁文件](flutter/pubspec.lock) 仅更新本地 Prism 包的版本。
 
-0.1.3 删除了 `prism_list.dart` 与 `route_motion_hold.dart` 的显式 rendering 导入，但 Flutter 3.47.6 的 [`widgets/viewport.dart`](https://github.com/flutter/flutter/blob/3.47.6/packages/flutter/lib/src/widgets/viewport.dart#L19) 不导出这两个文件使用的 [`ScrollCacheExtent`](https://github.com/flutter/flutter/blob/3.47.6/packages/flutter/lib/src/rendering/viewport.dart#L42)。本地仅恢复 `import 'package:flutter/rendering.dart' show ScrollCacheExtent;`，兼容补丁及原始来源哈希列入 `prismUi.adaptedFiles`，其余 191 个包文件原样保留。
+0.1.3 删除了 `prism_list.dart` 与 `route_motion_hold.dart` 的显式 rendering 导入，但 Flutter 3.47.6 的 [`widgets/viewport.dart`](https://github.com/flutter/flutter/blob/3.47.6/packages/flutter/lib/src/widgets/viewport.dart#L19) 不导出这两个文件使用的 [`ScrollCacheExtent`](https://github.com/flutter/flutter/blob/3.47.6/packages/flutter/lib/src/rendering/viewport.dart#L42)。这两份文件仅恢复 `import 'package:flutter/rendering.dart' show ScrollCacheExtent;`。另在 `list_selected.dart` 与 `list_row.dart` 增加缺省开启的 `constrainTrailing` 参数；仅[忽略电池优化项](flutter/lib/components/battery_optimization.dart)关闭它，恢复 FlClash 参考子模块的尾部完整宽度与文字继承规则，避免英文及大字号授权按钮被 0.1.3 的长值限宽压缩。四份适配的原始来源哈希列入 `prismUi.adaptedFiles`，其余 189 个包文件原样保留。
 
 字体归属见 [JetBrainsMono-OFL.txt](flutter/assets/licenses/JetBrainsMono-OFL.txt) 和 [Twemoji-LICENSE.md](flutter/assets/licenses/Twemoji-LICENSE.md)。Twemoji 原始图形来自 Twitter，字体转换由 Mozilla 提供，图形未修改；字体许可同样用于应用内许可证页。
 
@@ -84,7 +84,8 @@ Android UI 生命周期、后台退出及原生状态恢复的约定见 [UI 与�
 - 抓包设置只提供记录应用、原始目标端口、正文保留方式和可见域名提取。正文可选择“保存完整正文”，或填写每方向的正整数字节限制；既有自定义值原样保留，不限定为 KiB 预设。记录保留到清空，页面不显示固定磁盘总配额。保存检查本机修订，失败保留草稿。MITM 独立提供配置及证书设置，默认关闭；域名、排除项及协议选项遵循 [MITM 配置](libbox.md#独立-mitm-配置)。证书页显示有效期、公钥 SHA-256、用户/系统信任和私钥可用性，提供 CRT/系统模块导出与 Android 设置入口；打开页面不生成证书，生成是明确操作，重新生成需确认，返回前台可刷新信任。远程会话隔离与平台边界见 [app.md](app.md#请求抓取与-mitm)。
 - 请求菜单提供排序、关闭全部活动连接、抓包设置、当前筛选结果的 HAR 导出和清空抓取记录。HAR 将当前筛选条件交给原生层，在打开文件选择器前固定所有匹配 HTTP 记录的 ID，包含尚未展开的分页；这些 ID 不传回 Flutter。普通连接、仅域名或 TLS/TCP 不作为 HTTP 导出。关闭连接、停止录制和清空抓取记录分别调用各自操作，清空不关闭连接。页面只显示录制状态；运行错误和脚本 console 输出进入应用现有日志，见 [libbox.md](libbox.md#httphttps-请求调试)。
 - 请求详情保留重复头部、Cookie、正文状态及 trailers，显示出站/规则、应用及来源/目标地址，字段支持复制。已有记录中保存过的 PID/socket 字段仍可读，缺失值保持未知。域名观察与握手失败标为“仅域名”，不能导出 cURL；请求正文/头部不完整、截断或含 trailers 也不能导出 cURL。TLS/TCP 详情分别显示两个方向的原始字节，不显示 HTTP 状态、头部和 Cookies，禁用 cURL；正常完成的流显示“已完成”。页面复用现有共享组件，没有修改 FlClash 直接导入文件。
-- 服务设置页的 VPN 绕过、自动重定向和动态通知开关即时应用，保存和重启期间显示进度并禁用这些开关，底部没有“应用服务设置”按钮；启动确认及失败恢复见 [app.md](app.md#配置服务应用与备份)。动态通知与电池优化之间显示“剪贴板节点导入提示”，沿用 `clipboardImport` 界面偏好，缺省开启并保留已保存的关闭值；切换只保存偏好，不重启服务。前台剪贴板提示及手动节点导入仍使用现有流程。
+- 服务设置页的 VPN 绕过、自动重定向和动态通知开关即时应用，保存和重启期间显示进度并禁用这些开关，底部没有“应用服务设置”按钮；启动确认及失败恢复见 [app.md](app.md#配置服务应用与备份)。动态通知与“忽略电池优化”之间显示“剪贴板节点导入提示”，沿用 `clipboardImport` 界面偏好，缺省开启并保留已保存的关闭值；切换只保存偏好，不重启服务。前台剪贴板提示及手动节点导入仍使用现有流程。
+- [忽略电池优化项](flutter/lib/components/battery_optimization.dart)采用固定参考版 [on_demand.dart](https://github.com/chen08209/FlClash/blob/be84736605527034689c95bf27828ff27d912c5e/lib/views/config/on_demand.dart#L255) 的前置条件行：`DecorationListItem`、两行上限的 `TooltipLabel` 和右侧授权按钮，没有图标、副标题或整行点击。未授权按钮使用错误容器色及“点击授权”，已授权使用缺省主题色及“已授权”；保留 `MinFilledButtonTheme`、`ElasticButton`、12 dp 水平内边距、名义 80×40 dp 最小尺寸，以及不可见反态文字保证两种状态宽度相同。密度及文字测量由原组件处理，不将名义尺寸强制为实际尺寸。首次状态读取隐藏按钮但保留占位，在尾部右侧显示 24 dp 指示器；授权请求只防重入，继续显示原按钮，已授权点击无操作。进入页面和返回前台读取本机真实系统状态，完成、取消及失败不乐观改为已授权；Android 交互见 [应用文档](app.md#配置服务应用与备份)。该项继续位于 B-box 服务页原有分组末行，分组位置决定圆角，不引入参考版按需运行的其他选项。
 - 日志页默认选择“跟随配置”，显示内核上报的日志级别及更严重的记录；菜单同时显示当前级别，仍可手动选择“全部”或单一级别，手动筛选不会被后续状态更新覆盖。搜索、暂停和导出沿用同一筛选结果；默认级别尚未收到时保留已接收记录。日志来源及本地重载同步见 [app.md](app.md#配置服务应用与备份)。
 - 应用始终跟随系统语言并响应运行时变化；旧偏好的兼容处理见 [app.md](app.md#配置服务应用与备份)。
 - 代理列表保留圆角吸顶分组标题、固定高度的懒加载行、折叠动效及填充/普通/隐藏分组图标。折叠状态按选中配置保存，定位节点通过行偏移实现，不要求节点预先进入视口。
@@ -237,6 +238,7 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 **服务设置与日志**
 
 - [service_settings_test.dart](flutter/test/service_settings_test.dart) 与 [box_test.dart](flutter/test/box_test.dart)：三个服务开关的即时应用、等待原生确认期间禁用开关及移除手动应用按钮；重复编辑、停止/远程会话、启停过渡及失败后的原生设置恢复。
+- [battery_optimization_test.dart](flutter/test/battery_optimization_test.dart)：授权按钮独立点击与语义、初始加载占位、取消/失败后的重试、确认授权及固定宽度、已授权无操作、重复请求、设置事件与后端重连的迟到结果保护、授权等待中较早快照后的真实状态回读，以及返回前台刷新。与冻结的 [flclash_battery_reference.dart](flutter/test/support/flclash_battery_reference.dart) 在中英文、320/360/412 dp、0.8/1.0/1.4 字号比例、浅色/深色/纯黑及未授权/已授权/首次加载/请求等待的 48 个组合和两种原版分组首行情景比较完整 RGBA，允许差异像素数为零；参考独立保留原 FlClash 子模块的行渲染器、装饰及分隔线，双方 PNG 与差异计数生成在 `battery-optimization/`。两项完整服务页测试另生成中文浅色及窄屏大字号深色截图。中文采用有许可的 [测试字体](flutter/test/support/fonts/README.md)，加载器保留原实现并固定双方相同的动画输入；桥接替身及受控字体不证明系统授权页或 ARM64 实机视觉一致。
 - [logs_test.dart](flutter/test/logs_test.dart)：本地/远程日志状态的默认阈值、保留更严重的记录、手动筛选及恢复跟随配置，以及暂停、搜索、导出和清空。
 
 **数据订阅、刷新与缓存**

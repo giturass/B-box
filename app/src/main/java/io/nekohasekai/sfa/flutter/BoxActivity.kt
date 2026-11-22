@@ -163,6 +163,12 @@ open class BoxActivity : FlutterFragmentActivity() {
         "permission.notification" -> permission(Manifest.permission.POST_NOTIFICATIONS)
         "permission.localNetwork" -> permission(Manifest.permission.ACCESS_LOCAL_NETWORK)
         "permission.vpn" -> activityResult(IpcPayload.unmarshalIntent(args as? ByteArray ?: error("Missing VPN request"))) == RESULT_OK
+        "permission.battery" -> {
+            activityResult(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                Uri.parse("package:$packageName")))
+            // This action has no authorization result; the backend reads PowerManager afterward.
+            null
+        }
         "permission.location" -> locationPermissions()
         "permission.usb" -> usbPermission(args as? String ?: error("Missing USB device"))
         "permission.shizuku" -> externalResult {

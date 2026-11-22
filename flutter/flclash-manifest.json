@@ -157,7 +157,7 @@
     "lib/pages/settings.dart": {
       "source": "lib/views/tools.dart",
       "sourceSHA256": "aa81cb38649ba5f4c7f48c5a29ad4993fac0362ad1857e937af77f4093d572f9",
-      "changes": "Settings is a primary navigation destination with shared navigation rows, listing Appearance, Service, Core, Access control, Backup and restore, and About. Service and Core are direct entries with their own option pages, without the General wrapper. Network diagnostics is provided by Tools. The power report switch is omitted, while native settings, service restart confirmation and failure recovery remain unchanged. Service places the clipboard node import prompt between Dynamic notification and Battery optimization, using the existing clipboardImport interface preference with a default of enabled and preserving an explicit disabled value. Changing this prompt preference saves it without restarting the service."
+      "changes": "Settings is a primary navigation destination with shared navigation rows, listing Appearance, Service, Core, Access control, Backup and restore, and About. Service and Core are direct entries with their own option pages, without the General wrapper. Network diagnostics is provided by Tools. The power report switch is omitted, while native settings, service restart confirmation and failure recovery remain unchanged. Service places the clipboard node import prompt between Dynamic notification and Ignore battery optimization, using the existing clipboardImport interface preference with a default of enabled and preserving an explicit disabled value. Changing this prompt preference saves it without restarting the service. The battery prerequisite is rendered by lib/components/battery_optimization.dart using the pinned on-demand authorization row, rather than the previous subtitle and whole-row action."
     },
     "lib/pages/about.dart": {
       "source": "lib/views/about.dart",
@@ -283,6 +283,136 @@
       "source": "lib/ui/list_item.dart",
       "sourceSHA256": "e3e71e418d72ab423732b00dd412e87ce5633ceeb9f5ac2b0c9ea0e56d2e0afb",
       "changes": "FlClash v0.9.3 list item behavior retained. Wrap the options value in Flexible while preserving its 160 dp maximum, so Prism UI 0.1.3 ListRow trailing constraints leave the title and picker visible for long values on narrow or scaled layouts. Popup selection and the full value passed to B-box actions remain unchanged."
+    },
+    "lib/components/battery_optimization.dart": {
+      "source": "lib/views/config/on_demand.dart",
+      "sourceSHA256": "ff0589492b45c088fc5af13e52a43879280506ecdf2cd7e6b2994168cda5011f",
+      "supportingSources": [
+        {
+          "source": "lib/providers/on_demand.dart",
+          "sourceSHA256": "84543aec46c8a62bdece3c57ad1777dc5418a4d94907dfd7d323088ddd4364bf"
+        },
+        {
+          "source": "arb/intl_en.arb",
+          "sourceSHA256": "df1944a2f56803cb934be3488140fbb3c499e2e08ef5d4c622c814f076ab3659"
+        },
+        {
+          "source": "arb/intl_zh_CN.arb",
+          "sourceSHA256": "a468bdd94f3f4d7917413dc4c746150b136982c738254c04b11e5831663e0080"
+        }
+      ],
+      "changes": "Extract the battery prerequisite row and authorization button with the original TooltipLabel, error-container and default-authorized colors, MinFilledButtonTheme, ElasticButton, 12 dp horizontal padding, nominal 80 by 40 dp minimum, opposite-label invisible width reservation and 24 dp initial-state indicator. Initial reads alone hide the button; requests remain visually unchanged while native and controller guards prevent duplicate prompts. Android-backed status reads on entry, foreground return and awaited prompt completion replace Riverpod and the FlClash plugin. Authorized presses are no-ops. B-box retains its existing Service section position. Opt out of the independently pinned Prism UI 0.1.3 trailing limit only for this row to preserve the FlClash submodule width and inherited text wrapping."
+    },
+    "test/support/flclash_battery_reference.dart": {
+      "source": "lib/views/config/on_demand.dart",
+      "sourceSHA256": "ff0589492b45c088fc5af13e52a43879280506ecdf2cd7e6b2994168cda5011f",
+      "supportingSources": [
+        {
+          "source": "arb/intl_en.arb",
+          "sourceSHA256": "df1944a2f56803cb934be3488140fbb3c499e2e08ef5d4c622c814f076ab3659"
+        },
+        {
+          "source": "arb/intl_zh_CN.arb",
+          "sourceSHA256": "a468bdd94f3f4d7917413dc4c746150b136982c738254c04b11e5831663e0080"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185",
+          "source": "lib/list_row.dart",
+          "sourceSHA256": "d0668749464cf24a59691de7b3a89b45468a137bce3a95aa80031f384ef548fa"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185",
+          "source": "lib/list_selected.dart",
+          "sourceSHA256": "4a1c3e10bb2ef62949fe9fb16e1e0a79683c6389d5fc73e8f230d1c2ccb2d07c"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185",
+          "source": "lib/list_row_separator.dart",
+          "sourceSHA256": "b1c09367c59536a0e213d61d2c0f01d3eedf26a3a7ca35eaec26d702abbc8853"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "source": "lib/common_button.dart",
+          "sourceSHA256": "fff6795c7b5dde539cb7e81135594aa3ca14e07bd8aecb6d36808a507b5c44a7"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "source": "lib/button.dart",
+          "sourceSHA256": "c309ab70f2c330ab4ce384e28dc57a415f5c106b19723462585c9332a9c49cd9"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "source": "lib/text.dart",
+          "sourceSHA256": "f75c9e4009fe95f7fa9b1ebefd269b29ce0b3dbd973d2f6c9091ee502468cf78"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "source": "lib/theme.dart",
+          "sourceSHA256": "73669d3c7f9f2384323ba17a4236cccdb2476f4a067b5a524d40c74a7a2ae775"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "source": "lib/context.dart",
+          "sourceSHA256": "1ef8a07775cc5b6700e53a8ea750d10194ea8496b60942a732f5fa5874ee49df"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "source": "lib/loading.dart",
+          "sourceSHA256": "0039e9492ee31af4af4f0ab223c0ef52c7736d1f3627785da3d9948d9bc4d0f8"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "source": "lib/typography.dart",
+          "sourceSHA256": "2911e41b4f3a934ed584de823ee32aace107401501a58040e2972b7004d0fa3a"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "source": "lib/card.dart",
+          "sourceSHA256": "92037c4b518d6d4fa8d7622e59560e0e1003d0c64e8c4318812476f009409bc2"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "source": "lib/card_surface.dart",
+          "sourceSHA256": "252260e9f8ce0d58b0b51cf87f04780233429ca5ae9d637bff2183315ba34f89"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "source": "lib/press_surface.dart",
+          "sourceSHA256": "3ec0fa44403ca12680b1b356bcd022adb9c7c7ab6c8ec94851ab4c165978d394"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "source": "lib/shape.dart",
+          "sourceSHA256": "2d8a73ab0dd6c1622153b5002840c2582b91b8020251b2f5b169ba9a1d5f6edf"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "source": "lib/theme_data.dart",
+          "sourceSHA256": "693a2b1c3684f22e3275c1ccc21615ea4227c2fa10d688eed3e34fe340e81649"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "source": "lib/metrics.dart",
+          "sourceSHA256": "df5e8b4979415de530ac1ff1d80bc9ec48ae276ab4e7a4777305e57f143285f0"
+        }
+      ],
+      "changes": "Frozen zero-tolerance battery-row comparison oracle. Preserve the extracted on-demand authorization item, tooltip title, opposite-label width reservation and initial-state indicator; provider/action/localization reads use independent fixtures and literal upstream labels. Freeze the complete original ListRow renderer, DecorationListItem and row separator from the FlClash reference submodule, retaining their geometry and text rules with only private class renaming/import isolation. Shared runtime button, surface, typography and indicator dependencies retain the independently pinned Prism UI 0.1.3 revision; their rendering declarations used by this row were checked against the reference submodule. The new unused typography emphasis helper and corrected press-cancel callback remain shared-library changes. Supporting sources distinguish the frozen submodule renderer from these current runtime dependencies. The oracle does not import the B-box battery component or the adapted ListRow implementation. Tests use the same Android theme, viewport, text scale and readable fonts; repeating indicator input is frozen at the same progress for both images, and complete raw RGBA equality is required."
     }
   },
   "adaptedNativeFiles": {
@@ -483,7 +613,7 @@
     "flclashSubmodule": "plugins/prism_ui",
     "flclashSubmoduleCommit": "63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185",
     "localPath": "packages/prism_ui",
-    "changes": "Runtime source, generated models, shaders, pubspec, license, notices, documentation, analysis settings and upstream tests from the independently pinned Prism UI 0.1.3 revision. The two explicit ScrollCacheExtent rendering imports needed by Flutter 3.47.6 are recorded in adaptedFiles; the other 191 package files are unmodified. files records local hashes, while adaptedFiles retains original upstream source hashes. The FlClash v0.9.3 submodule reference stays at flclashSubmoduleCommit. Package paths below are relative to localPath; app adaptations and license assets are relative to flutter/.",
+    "changes": "Runtime source, generated models, shaders, pubspec, license, notices, documentation, analysis settings and upstream tests from the independently pinned Prism UI 0.1.3 revision. The two explicit ScrollCacheExtent rendering imports needed by Flutter 3.47.6 and two scoped authorization-row trailing-width adaptations are recorded in adaptedFiles; the other 189 package files are unmodified. files records local hashes, while adaptedFiles retains original upstream source hashes. The FlClash v0.9.3 submodule reference stays at flclashSubmoduleCommit. Package paths below are relative to localPath; app adaptations and license assets are relative to flutter/.",
     "files": {
       "CHANGELOG.md": "27cc0ed4b6cee8c09f36b200c724d419e3f1da24b948c65460699de7c545dde4",
       "LICENSE": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
@@ -558,9 +688,9 @@
       "lib/liquid_glass.dart": "e71b88315f590dc4e3b0908727c08897cf9f4763a33e7def1d00e4093efcb66d",
       "lib/liquid_glass_capture.dart": "6abd0b2f5fae7f748d32fe39457d9f624da398e42da49c0f4f67d6adb290e4b6",
       "lib/list.dart": "651ce5d8d617887ea776ea7c40491b4d9d8dc10ef0301f15a34a9a57ae247a1c",
-      "lib/list_row.dart": "3f779a16ff8a0c9b18eb65e511dd03d8d88e82637afca2dd4203844187f9040b",
+      "lib/list_row.dart": "94cc9b09511a0e609a2e2c43bf7866ab79ccebb91f124dc2514f74c8a5d60022",
       "lib/list_row_separator.dart": "b1c09367c59536a0e213d61d2c0f01d3eedf26a3a7ca35eaec26d702abbc8853",
-      "lib/list_selected.dart": "4a1c3e10bb2ef62949fe9fb16e1e0a79683c6389d5fc73e8f230d1c2ccb2d07c",
+      "lib/list_selected.dart": "9ab53f47a66b5fd3fd157ab7f8acb0366c515f1923412606f8ffd0b826c72e10",
       "lib/loading.dart": "0039e9492ee31af4af4f0ab223c0ef52c7736d1f3627785da3d9948d9bc4d0f8",
       "lib/measure.dart": "42bebf51cb2a21df29c86ed9bdf8f22ab7618546eea04899d29b4a2647570a94",
       "lib/metrics.dart": "df5e8b4979415de530ac1ff1d80bc9ec48ae276ab4e7a4777305e57f143285f0",
@@ -699,6 +829,16 @@
         "source": "lib/route_motion_hold.dart",
         "sourceSHA256": "118ab8b482090f89dcd8589bebfa6bb9cff942d09364cd61f0e08856da418d1d",
         "changes": "Restore the explicit rendering import of ScrollCacheExtent required by the pinned Flutter 3.47.6 SDK. The upstream 0.1.3 revision removed its rendering import, but this SDK does not re-export the type through widgets.dart. All remaining source is unmodified."
+      },
+      "packages/prism_ui/lib/list_row.dart": {
+        "source": "lib/list_row.dart",
+        "sourceSHA256": "3f779a16ff8a0c9b18eb65e511dd03d8d88e82637afca2dd4203844187f9040b",
+        "changes": "Add constrainTrailing, enabled by default, through the row render object. When disabled, retain the full side constraints and inherited trailing text wrapping used by the FlClash v0.9.3 submodule (63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185). B-box disables it only for the battery authorization prerequisite; all other rows retain Prism UI 0.1.3 truncation."
+      },
+      "packages/prism_ui/lib/list_selected.dart": {
+        "source": "lib/list_selected.dart",
+        "sourceSHA256": "4a1c3e10bb2ef62949fe9fb16e1e0a79683c6389d5fc73e8f230d1c2ccb2d07c",
+        "changes": "Forward an optional constrainTrailing flag from DecorationListItem to ListRow, enabled by default. Only the B-box battery prerequisite disables it to preserve the pinned FlClash authorization button width. Card surfaces, separators, section corners and all remaining source are unchanged."
       }
     },
     "licenseAssets": {

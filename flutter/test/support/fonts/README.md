@@ -34,3 +34,26 @@ the subset under the Linux theme's `Ubuntu` fallback for readable script output
 and event editor screenshots, alongside the SDK's Roboto and the application's
 JetBrains Mono. Separate Android cases retain interaction and layout coverage.
 The subset is only a test resource and is not bundled as an application asset.
+
+`NotoSansSC-battery.ttf` is a Noto Sans SC v41 regular (weight 400) subset
+obtained on 2026-11-22 using this exact [Google Fonts request](https://fonts.googleapis.com/css?family=Noto+Sans+SC&text=%E5%BF%BD%E7%95%A5%E7%94%B5%E6%B1%A0%E4%BC%98%E5%8C%96%E7%82%B9%E5%87%BB%E6%8E%88%E6%9D%83%E5%B7%B2%E6%8E%88%E6%9D%83%E6%9C%8D%E5%8A%A1%E5%85%81%E8%AE%B8%E7%BB%95%E8%BF%87VPN%E8%87%AA%E5%8A%A8%E9%87%8D%E5%AE%9A%E5%90%91%E5%8A%A8%E6%80%81%E9%80%9A%E7%9F%A5%E5%89%AA%E8%B4%B4%E6%9D%BF%E8%8A%82%E7%82%B9%E5%AF%BC%E5%85%A5%E6%8F%90%E7%A4%BA%E8%AE%BE%E7%BD%AE%E5%A4%96%E8%A7%82%E5%86%85%E6%A0%B8%E8%AE%BF%E9%97%AE%E6%8E%A7%E5%88%B6%E5%A4%87%E4%BB%BD%E4%B8%8E%E6%81%A2%E5%A4%8D%E5%85%B3%E4%BA%8E)
+with the `Mozilla/5.0` user agent. The returned TrueType font is 14,548 bytes;
+its Unicode cmap was checked to contain all requested battery and service-page
+labels, with 54 mapped Unicode characters. The exact requested text is:
+
+忽略电池优化点击授权已授权服务允许绕过VPN自动重定向动态通知剪贴板节点导入提示设置外观内核访问控制备份与恢复关于
+
+SHA256: `69b2765861750a04c060ccb3a1c46c3e6a744ba254d02063918b722d1c4110e0`.
+The same [SIL Open Font License](OFL.txt) covers this unchanged subset.
+[battery_optimization_test.dart](../../battery_optimization_test.dart) registers
+it as `BboxBatteryCJK`, using the SDK's Roboto for Latin text. Both renderers
+use an Android theme and the same explicit CJK fallback; no Linux visual-density
+substitution is needed. The SDK font must be present, so the tests fail instead
+of silently using Ahem. The font is a test resource and is not an app asset.
+
+Battery screenshots freeze the existing activity indicator's animation input
+at the same progress in both renderers because its reduced-motion ring still
+breathes. Paired row images require exactly zero different RGBA pixels and save
+their PNGs and comparison counts in `build/screenshots/battery-optimization/`.
+These controlled Flutter raster comparisons and service-page screenshots do
+not measure device fonts, system permission-screen visuals, or ARM64 behavior.

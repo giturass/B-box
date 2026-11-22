@@ -3,6 +3,7 @@ import 'appearance.dart';
 import 'access.dart';
 import 'about.dart';
 import 'backup.dart';
+import '../components/battery_optimization.dart';
 
 export 'appearance.dart';
 export 'access.dart';
@@ -47,9 +48,7 @@ class ServiceSettingsPage extends StatelessWidget {
       ListItem.toggle(title: Text(context.tr('Clipboard node import prompt')),
         value: context.box.preferences['clipboardImport'] != false,
         onChanged: (value) => context.box.setPreference('clipboardImport', value)),
-      ListItem(title: Text(context.tr('Battery optimization')),
-        subtitle: Text(context.tr(context.box.settings['batteryExempt'] == true ? 'Unrestricted' : 'Allow background operation')),
-        onTap: () => context.box.act('battery.open')),
+      const BatteryOptimizationItem(),
     ]),
   ]);
 }

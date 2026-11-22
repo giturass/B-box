@@ -78,6 +78,7 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
     private val operations = Mutex()
     private val calls = mutableSetOf<Job>()
     private var quiescing = false
+    private var batteryRequestPending = false
     private var profileCallbackRegistered = false
     private var packageListenersRegistered = false
     private val apps = AppListCache {
@@ -376,9 +377,15 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
                 }
                 activity.openActivity(Intent.createChooser(send, null))
             }
+            "battery.status" -> return batteryExempt()
             "battery.open" -> {
-                val action = android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
-                activity.openActivity(Intent(action, Uri.parse("package:" + activity.packageName)))
+                val exempt = batteryExempt()
+                if (exempt || batteryRequestPending) return exempt
+                batteryRequestPending = true
+                try {
+                    activity.requestIgnoreBatteryOptimization()
+                    return batteryExempt()
+                } finally { batteryRequestPending = false }
             }
             "url.open" -> {
                 val uri = Uri.parse(args.string("url"))
@@ -912,6 +919,9 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
         BoxPreferences.validate(jsonObject(JSONObject(preferences.getString("value", "{}")!!)))
     }.getOrDefault(emptyMap())
 
+    private fun batteryExempt(): Boolean =
+        activity.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(activity.packageName) == true
+
     private fun settings(): Map<String, Any?> = mapOf(
         "perAppEnabled" to Settings.perAppProxyEnabled, "perAppMode" to Settings.perAppProxyMode,
         "perAppList" to Settings.perAppProxyList.toList(), "perAppManaged" to Settings.perAppProxyManagedMode,
@@ -921,7 +931,7 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
         "oomKillerEnabled" to Settings.oomKillerEnabled, "oomKillerDisabled" to Settings.oomKillerDisabled,
         "oomMemoryLimitMB" to Settings.oomMemoryLimitMB, "powerReportEnabled" to Settings.powerReportEnabled,
         "queryMode" to Settings.perAppProxyPackageQueryMode,
-        "batteryExempt" to (activity.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(activity.packageName) == true),
+        "batteryExempt" to batteryExempt(),
     )
 
     private suspend fun saveSettings(args: Map<String, Any?>) {

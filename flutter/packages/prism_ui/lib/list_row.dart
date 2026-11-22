@@ -25,6 +25,7 @@ class ListRow extends StatelessWidget {
     this.minVerticalPadding = listRowVerticalPadding,
     this.minHeight = listRowMinHeight,
     this.alignment = ListRowAlignment.center,
+    this.constrainTrailing = true,
   });
 
   final Widget? leading;
@@ -36,6 +37,10 @@ class ListRow extends StatelessWidget {
   final double minVerticalPadding;
   final double minHeight;
   final ListRowAlignment alignment;
+
+  /// Keep the full trailing width and inherited text wrapping when false.
+  /// B-box uses this for FlClash v0.9.3's authorization prerequisite buttons.
+  final bool constrainTrailing;
 
   static const _defaultTitleGap = 16.0;
 
@@ -83,6 +88,7 @@ class ListRow extends StatelessWidget {
           minVerticalPadding: minVerticalPadding,
           minHeight: minHeight,
           alignment: alignment,
+          constrainTrailing: constrainTrailing,
           leading: leading == null
               ? null
               : DefaultTextStyle(style: sideStyle, child: leading),
@@ -92,6 +98,8 @@ class ListRow extends StatelessWidget {
               : DefaultTextStyle(style: subtitleStyle, child: subtitle),
           trailing: trailing == null
               ? null
+              : !constrainTrailing
+              ? DefaultTextStyle(style: sideStyle, child: trailing)
               : DefaultTextStyle(
                   style: sideStyle,
                   maxLines: 1,
@@ -118,6 +126,7 @@ class _ListRowLayout
     required this.minVerticalPadding,
     required this.minHeight,
     required this.alignment,
+    required this.constrainTrailing,
     this.leading,
     required this.title,
     this.subtitle,
@@ -133,6 +142,7 @@ class _ListRowLayout
   final double minVerticalPadding;
   final double minHeight;
   final ListRowAlignment alignment;
+  final bool constrainTrailing;
   final Widget? leading;
   final Widget title;
   final Widget? subtitle;
@@ -160,6 +170,7 @@ class _ListRowLayout
     minVerticalPadding: minVerticalPadding,
     minHeight: minHeight,
     alignment: alignment,
+    constrainTrailing: constrainTrailing,
   );
 
   @override
@@ -173,7 +184,8 @@ class _ListRowLayout
       ..horizontalTitleGap = horizontalTitleGap
       ..minVerticalPadding = minVerticalPadding
       ..minHeight = minHeight
-      ..alignment = alignment;
+      ..alignment = alignment
+      ..constrainTrailing = constrainTrailing;
   }
 }
 
@@ -192,6 +204,7 @@ class _RenderListRow extends RenderBox
     required double minVerticalPadding,
     required double minHeight,
     required ListRowAlignment alignment,
+    required bool constrainTrailing,
   }) : _padding = padding,
        _visualDensity = visualDensity,
        _textDirection = textDirection,
@@ -200,7 +213,8 @@ class _RenderListRow extends RenderBox
        _horizontalTitleGap = horizontalTitleGap,
        _minVerticalPadding = minVerticalPadding,
        _minHeight = minHeight,
-       _alignment = alignment;
+       _alignment = alignment,
+       _constrainTrailing = constrainTrailing;
 
   static const _minLeadingWidth = 24.0;
   static const _minTrailingWidth = 32.0;
@@ -208,6 +222,14 @@ class _RenderListRow extends RenderBox
   static const _titleMaxWidthFactor = 0.5;
   static const _titleBaselineY = 32.0;
   static const _subtitleBaselineY = 52.0;
+
+  bool _constrainTrailing;
+
+  set constrainTrailing(bool value) {
+    if (_constrainTrailing == value) return;
+    _constrainTrailing = value;
+    markNeedsLayout();
+  }
 
   RenderBox? get _leading => childForSlot(_Slot.leading);
   RenderBox get _title => childForSlot(_Slot.title)!;
@@ -419,6 +441,8 @@ class _RenderListRow extends RenderBox
         : math.max(_minLeadingWidth, leadingSize.width) + _titleGap;
     final trailingSize = trailing == null
         ? null
+        : !_constrainTrailing
+        ? layoutChild(trailing, sideConstraints)
         : _layoutTrailing(
             trailing,
             layoutChild,

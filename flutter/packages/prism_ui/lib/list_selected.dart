@@ -22,6 +22,7 @@ class DecorationListItem extends StatefulWidget {
   final EdgeInsetsGeometry? contentPadding;
   final VoidCallback? onPressed;
   final double? minVerticalPadding;
+  final bool constrainTrailing;
   final bool invalid;
 
   const DecorationListItem({
@@ -35,6 +36,7 @@ class DecorationListItem extends StatefulWidget {
     this.onPressed,
     this.horizontalTitleGap,
     this.minVerticalPadding,
+    this.constrainTrailing = true,
     this.invalid = false,
   });
 
@@ -89,6 +91,7 @@ class _DecorationListItemState extends State<DecorationListItem> {
               trailing: sortable == null
                   ? widget.trailing
                   : SortableTrailing(item: sortable, child: widget.trailing),
+              constrainTrailing: widget.constrainTrailing,
             );
             if (constraints.maxHeight >= double.infinity) {
               return tile;
