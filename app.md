@@ -44,7 +44,7 @@
 
 [AndroidManifest.xml](app/src/main/AndroidManifest.xml) 将两个稳定 Flutter Activity 放入 `${applicationId}:ui`。默认进程运行 Room、Settings、配置事务、libbox、VPN/代理服务、订阅更新、Taildrop/USBIP 和终端连接；UI 的 Application 安装独立 JVM 崩溃记录入口，初始化相机所需的 ML Kit 与 [UiProcessLifecycle.kt](app/src/main/java/io/nekohasekai/sfa/flutter/UiProcessLifecycle.kt)。
 
-全部 UI Activity 不可见后，[UiExitPolicy.kt](app/src/main/java/io/nekohasekai/sfa/flutter/UiExitPolicy.kt) 等待 700 ms，再通过原生宿主取消在途 UI 请求，等待配置的失败恢复、设置刷盘和 Intent 快照完成。退出前再次核对前台状态、外部交互和进程名，仅结束当前 `:ui` PID。返回前台会取消退出；配置重建以及等待文档选择、VPN/系统权限、USB/Shizuku 授权或安装器结果时暂缓退出。恢复或落盘失败会保留 UI 进程并记录错误。
+全部 UI Activity 不可见且没有配置重建或待处理外部交互时，[UiExitPolicy.kt](app/src/main/java/io/nekohasekai/sfa/flutter/UiExitPolicy.kt) 开始后台闲置计时，连续闲置 5 分钟后才通过原生宿主取消在途 UI 请求，等待配置的失败恢复、设置刷盘和 Intent 快照完成。计时期间保留 UI 进程，返回前台会取消计时和退出；再次进入后台重新等待完整 5 分钟。配置重建以及等待文档选择、VPN/系统权限、USB/Shizuku 授权或安装器结果时取消计时，条件解除且仍在后台后重新计时。退出前再次核对前台状态、外部交互和进程名，仅结束当前 `:ui` PID。恢复或落盘失败会保留 UI 进程并记录错误。
 
 `BoxUiService` 与 `BoxTerminalService` 均为默认进程的非导出绑定服务，新增 AIDL 独立于既有服务与 Root Binder。应用通道沿用 Flutter 编码，跨 Binder 只传匿名文件描述符，配置正文、备份和日志大消息不会占用 Binder 的整块消息缓冲。UI 与原生连接断开后，在途请求失败；重连恢复 Activity 身份、前台状态与事件订阅，并重新取得当前后端快照。
 
@@ -263,7 +263,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 - **连接与网络刷新：** [ConnectionStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ConnectionStreamTest.kt) 检查增量计数、最终关闭计数、历史淘汰、DNS 过滤、快照隔离及 3000 条记录经过状态合并和恢复订阅后的消息内容；[NetworkRefreshTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/NetworkRefreshTest.kt) 用虚拟时间覆盖网络通知、十秒/六十秒补查、前后台/熄屏取消和突发通知合并。
 - **默认接口与开机恢复：** [DefaultInterfaceMonitorTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/DefaultInterfaceMonitorTest.kt) 覆盖网络先于核心监听器到达、开机无网及接口编号超过一秒才就绪、同网络刷新、断网恢复、切网或监听器替换后的迟到结果、异常重试及停止/取消期间的等待与结果丢弃。纯 Kotlin 调度回归不代替 Android 网络回调、系统重启或实际代理连通验收。
 - **WARP 注册：** [BoxWarpTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxWarpTest.kt) 检查注册等待时配置/会话冲突、重复提交、取消及时关闭 JNI 请求、已返回凭据在取消后留待保存、失败重试复用账号及错误消敏；WireGuard 另核对所选目标、协议传递和失败重试的协议保留，并检查非法协议在准备配置及注册之前拒绝。
-- **UI 退出与终端回复：** [UiExitPolicyTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/UiExitPolicyTest.kt) 用虚拟时间检查多 Activity、快速前后台切换、配置重建、外部结果和恢复失败；[TerminalReplyLedgerTest.kt](app/src/test/java/io/nekohasekai/sfa/terminal/TerminalReplyLedgerTest.kt) 检查输出确认、UI 断开后的回复恢复及有序等待。
+- **UI 退出与终端回复：** [UiExitPolicyTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/UiExitPolicyTest.kt) 用虚拟时间检查连续后台闲置 5 分钟的边界、超时前不执行退出准备、多 Activity、反复前后台切换不累计时间、配置重建、外部交互打断后重新计时及恢复失败；[TerminalReplyLedgerTest.kt](app/src/test/java/io/nekohasekai/sfa/terminal/TerminalReplyLedgerTest.kt) 检查输出确认、UI 断开后的回复恢复及有序等待。
 - **UI JVM 报告：** [UiJvmCrashReportsTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/UiJvmCrashReportsTest.kt) 使用真实临时文件检查 UI 报告的独立发布、主进程日志/配置保留、多个报告及失败后重试；测试不加载 Android、libbox 或 Flutter 引擎。
 
 ### Android 仪器测试
@@ -293,7 +293,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 模拟器镜像名称依据 [Google SDK 系统镜像清单](https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-1.xml)；16 KiB 测试方式见 [Android 官方文档](https://developer.android.com/guide/practices/page-sizes)。smoke 读取设备实际页大小，普通镜像要求 4096、`ps16k` 要求 16384，不能仅凭镜像名称记录通过。页大小优先使用 `getconf PAGE_SIZE`；旧系统缺少该命令时从 `/proc/self/smaps` 的 `KernelPageSize` 读取，并在结果中记录采集来源，不按 Android 版本猜测。所有矩阵均为临时 x86_64 模拟器，不代表 ARM64 实机或系统 CA 模块安装已验收。
 
-统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、Base64 混合 URL 订阅导入所选默认文件、未完成导入在后台退出后的恢复、跳过报告、VPN 授权、启停、配置文件与实际内核分组同页、底栏设置入口及进程重启后配置保留；在运行和停服状态分别按 Home，核对 UI PID 消失、重开后的新 UI PID，以及运行时 VPN 主进程 PID 与前台服务持续存在，保存进程时间线。原生组运行全部仪器测试并拒绝零测试结果。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
+统一入口为 [android_smoke.py](tools/android_smoke.py)：安装应用和仪器测试 APK，分别重置应用数据后运行 UI smoke 与原生回归，前一组失败不跳过后一组。UI 覆盖首次启动、Base64 混合 URL 订阅导入所选默认文件、未完成导入在后台退出后的恢复、跳过报告、VPN 授权、启停、配置文件与实际内核分组同页、底栏设置入口及进程重启后配置保留；在未完成导入、运行和停服三种状态分别按 Home，先核对短暂后台及返回时沿用原 UI PID，再持续观察完整 5 分钟后台闲置，拒绝过早回收，核对超时后的 UI PID 消失和重开后的新 UI PID，以及运行时 VPN 主进程 PID 与前台服务持续存在，保存分阶段进程时间线。smoke 作业时限为 50 分钟，包含三次真实的 5 分钟等待。原生组运行全部仪器测试并拒绝零测试结果。脚本仅用于 CI 模拟器，不能对保有用户数据的设备执行。
 
 - **结果与日志：** `build/android-smoke/` 保存截图、logcat、失败堆栈、仪器测试输出及带源码 SHA、实际 SDK/版本/构建指纹/页大小的 `results.json`，超时也保留日志。每组测试在应用启动前持续采集 main/system/crash/events 日志，结束后保存 Activity、服务和内存状态，API 30+ 另保存该应用的系统退出记录；`am start -W` 的输出单独保存，避免启动过程被末尾日志截断。当前代次的服务启动/重载失败由 `BoxService` 记录原始异常及堆栈，smoke 另提取为各组的 `service-errors.txt`，用于定位来不及在界面观察的错误；服务状态确认及失败恢复流程不变。
 - **启动与导入：** 首次仪表盘等待允许截图后分别关闭一次 Google APIs 模拟器的 Pixel Launcher ANR 或预装 Messenger 崩溃弹窗，再重新打开 B-box。Messenger 专例须匹配系统包 `android`、标题 `Messenger has stopped` 和 `android:id/aerr_close`，另保存弹窗窗口 XML；重复或其他弹窗、B-box 自身错误仍使测试失败。导入 smoke 等待弹层保存按钮在连续两次窗口观察中位置稳定后点击，记录实际点击边界；保存后须返回保持原配置名称的仪表盘，在来源页确认一个受支持节点及一个不支持的 KCP 节点的跳过原因已持久化，并检查实际核心节点及原分组。CI 通过 loopback SOCKS5 和 ADB reverse 提供可用节点，保存 `subscription-proxy.json` 连接诊断；默认规则集及探测目标仍需 runner 能联网访问。
@@ -306,6 +306,8 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 统一工作流的 `root-ca` job 在独立 Linux PID/mount namespace 中运行 [test_mitm_ca.py](tools/test_mitm_ca.py)，使用 BusyBox 和导出的原始脚本，覆盖 APEX 延迟就绪、旧系统缺少 APEX、hash 冲突和原证书保留、已有二级后代/隐藏模块路径、同一 namespace 的重新挂载、准备失败、service 重试和禁用退出。该测试只在 Actions 运行，不对本机 Android 做 Root 挂载，也不代表真实 Magisk/KernelSU/APatch 安装与重启已验收。
 
 ### 当前验证记录
+
+2026-11-22 后台闲置回收调整基于 `a9d637e6f68080f46a01e9143ffe37e0950d1f7c`，同步更新退出策略、JVM 虚拟时间断言、模拟器进程检查及 smoke 作业时限。本机实际通过 `git diff --check`、`python3 tools/verify_newui.py`、smoke Python 语法和文档本地链接/标题片段检查，代码推送由 [统一工作流](.github/workflows/newui.yml) 自动验证。目前尚未取得更新后的 JVM 回归、三种状态下真实 5 分钟回收及 ARM64 实机行为的验证结果。下列成功运行仅对应各自列出的源码 SHA。
 
 2026-11-22 UI 进程拆分的功能源码 `b9a6edd109ea955c82f3fa822da87fa2c676db0f` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/44937203265) 的全部 8 个作业：核心 Go、Root CA、Flutter 分析/交互/布局与 ARM64 AAR、Android JVM/编译，以及四组模拟器 UI/native 回归。[Flutter 作业](https://github.com/giturass/B-box/actions/runs/44937203265/job/136946338170) 记录 719 项测试全部通过，分析为 97 项 info、0 warning/error，ARM64 Debug/Release AAR 均构建成功；[Android 作业](https://github.com/giturass/B-box/actions/runs/44937203265/job/136946338177) 完成匹配核心与 Flutter Debug AAR、应用和测试 APK、other/play Kotlin 及 AIDL 编译，21 个 JVM 套件的 121 项测试全部通过，失败、错误和跳过均为 0。
 

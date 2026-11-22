@@ -14,70 +14,146 @@ import org.junit.Test
 class UiExitPolicyTest {
     @Test fun stopsOnlyAfterAllActivitiesAreInvisibleAndReturningCancelsTheTimer() = runTest {
         var exits = 0
-        val policy = UiExitPolicy(this, { true }, {}, { exits++ })
+        var drains = 0
+        val policy = UiExitPolicy(this, { true }, { drains++ }, { exits++ })
         val main = Any()
         val share = Any()
         policy.activityStarted(main, "Main")
         policy.activityStarted(share, "Share")
         policy.activityStopped(main)
-        advanceTimeBy(2_000)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS + 1)
         runCurrent()
+        assertEquals(0, drains)
         assertEquals(0, exits)
         policy.activityStopped(share)
-        advanceTimeBy(500)
-        policy.activityStarted(main, "Main")
-        advanceTimeBy(2_000)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS - 1)
         runCurrent()
+        assertEquals(0, drains)
+        assertEquals(0, exits)
+        policy.activityStarted(main, "Main")
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS + 1)
+        runCurrent()
+        assertEquals(0, drains)
         assertEquals(0, exits)
         policy.activityStopped(main)
-        advanceTimeBy(699)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS - 1)
         runCurrent()
+        assertEquals(0, drains)
         assertEquals(0, exits)
         advanceTimeBy(1)
         runCurrent()
+        assertEquals(1, drains)
+        assertEquals(1, exits)
+        policy.close()
+    }
+
+    @Test fun repeatedBackgroundVisitsDoNotAccumulateIdleTime() = runTest {
+        var exits = 0
+        var drains = 0
+        val policy = UiExitPolicy(this, { true }, { drains++ }, { exits++ })
+        val activity = Any()
+        policy.activityStarted(activity, "Main")
+        repeat(3) {
+            policy.activityStopped(activity)
+            advanceTimeBy(120_000)
+            runCurrent()
+            assertEquals(0, drains)
+            assertEquals(0, exits)
+            policy.activityStarted(activity, "Main")
+            advanceTimeBy(10_000)
+            runCurrent()
+        }
+        // Total background time already exceeds five minutes, but each return resets it.
+        policy.activityStopped(activity)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS - 1)
+        runCurrent()
+        assertEquals(0, drains)
+        assertEquals(0, exits)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(1, drains)
         assertEquals(1, exits)
         policy.close()
     }
 
     @Test fun externalResultsKeepTheProcessAliveAndClosingALeaseIsIdempotent() = runTest {
         var exits = 0
-        val policy = UiExitPolicy(this, { true }, {}, { exits++ })
+        var drains = 0
+        val policy = UiExitPolicy(this, { true }, { drains++ }, { exits++ })
         val activity = Any()
         policy.activityStarted(activity, "Main")
         val document = policy.acquireLease()
         val permission = policy.acquireLease()
         policy.activityStopped(activity)
-        advanceTimeBy(10_000)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS + 1)
         runCurrent()
+        assertEquals(0, drains)
         assertEquals(0, exits)
         document.close()
         document.close()
-        advanceTimeBy(10_000)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS + 1)
         runCurrent()
+        assertEquals(0, drains)
         assertEquals(0, exits)
         permission.close()
-        advanceTimeBy(700)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS - 1)
         runCurrent()
+        assertEquals(0, drains)
+        assertEquals(0, exits)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(1, drains)
+        assertEquals(1, exits)
+        policy.close()
+    }
+
+    @Test fun anExternalRequestInterruptsTheTimerAndItsCompletionStartsAFullIdlePeriod() = runTest {
+        var exits = 0
+        var drains = 0
+        val policy = UiExitPolicy(this, { true }, { drains++ }, { exits++ })
+        val activity = Any()
+        policy.activityStarted(activity, "Main")
+        policy.activityStopped(activity)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS - 1)
+        runCurrent()
+        assertEquals(0, drains)
+        assertEquals(0, exits)
+        val request = policy.acquireLease()
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS + 1)
+        runCurrent()
+        assertEquals(0, drains)
+        assertEquals(0, exits)
+        request.close()
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS - 1)
+        runCurrent()
+        assertEquals(0, drains)
+        assertEquals(0, exits)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(1, drains)
         assertEquals(1, exits)
         policy.close()
     }
 
     @Test fun aSlowConfigurationReplacementIsNotTreatedAsBackgrounding() = runTest {
         var exits = 0
-        val policy = UiExitPolicy(this, { true }, {}, { exits++ })
+        var drains = 0
+        val policy = UiExitPolicy(this, { true }, { drains++ }, { exits++ })
         val original = Any()
         policy.activityStarted(original, "Main")
         policy.activityStopped(original, "Main")
-        advanceTimeBy(10_000)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS + 1)
         runCurrent()
+        assertEquals(0, drains)
         assertEquals(0, exits)
         val replacement = Any()
         policy.activityStarted(replacement, "Main")
         // An old instance's delayed destroy callback cannot restore an already satisfied gate.
         policy.activityStopped(original, "Main")
         policy.activityStopped(replacement)
-        advanceTimeBy(700)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS)
         runCurrent()
+        assertEquals(1, drains)
         assertEquals(1, exits)
         policy.close()
     }
@@ -85,7 +161,8 @@ class UiExitPolicyTest {
     @Test fun simultaneousRecreationsOfTheSameActivityClassKeepIndependentGates() = runTest {
         class ShareWindow
         var exits = 0
-        val policy = UiExitPolicy(this, { true }, {}, { exits++ })
+        var drains = 0
+        val policy = UiExitPolicy(this, { true }, { drains++ }, { exits++ })
         val first = ShareWindow()
         val second = ShareWindow()
         val firstIdentity = "00000000-0000-0000-0000-000000000001"
@@ -95,16 +172,18 @@ class UiExitPolicyTest {
         policy.activityStarted(second, secondIdentity)
         policy.activityStopped(first, firstIdentity)
         policy.activityStopped(second, secondIdentity)
-        advanceTimeBy(2_000)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS + 1)
         runCurrent()
+        assertEquals(0, drains)
         assertEquals(0, exits)
 
         val firstReplacement = ShareWindow()
         policy.activityStarted(firstReplacement, firstIdentity)
         policy.activityStopped(firstReplacement)
         // Completing the first recreation cannot clear the second window's gate.
-        advanceTimeBy(2_000)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS + 1)
         runCurrent()
+        assertEquals(0, drains)
         assertEquals(0, exits)
         // A destroyed old instance cannot add its already satisfied gate again.
         policy.activityStopped(first, firstIdentity)
@@ -112,8 +191,9 @@ class UiExitPolicyTest {
         val secondReplacement = ShareWindow()
         policy.activityStarted(secondReplacement, secondIdentity)
         policy.activityStopped(secondReplacement)
-        advanceTimeBy(700)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS)
         runCurrent()
+        assertEquals(1, drains)
         assertEquals(1, exits)
         policy.close()
     }
@@ -129,7 +209,7 @@ class UiExitPolicyTest {
         val activity = Any()
         policy.activityStarted(activity, "Main")
         policy.activityStopped(activity)
-        advanceTimeBy(700)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS)
         runCurrent()
         assertTrue(draining.isCompleted)
         policy.activityStarted(activity, "Main")
@@ -148,14 +228,17 @@ class UiExitPolicyTest {
         val activity = Any()
         policy.activityStarted(activity, "Main")
         policy.activityStopped(activity)
-        advanceTimeBy(700)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS)
         runCurrent()
         val request = policy.acquireLease()
         drained.complete(Unit)
         runCurrent()
         assertEquals(0, exits)
         request.close()
-        advanceTimeBy(700)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS - 1)
+        runCurrent()
+        assertEquals(0, exits)
+        advanceTimeBy(1)
         runCurrent()
         assertEquals(1, exits)
         policy.close()
@@ -173,16 +256,16 @@ class UiExitPolicyTest {
         val activity = Any()
         policy.activityStarted(activity, "Main")
         policy.activityStopped(activity)
-        advanceTimeBy(700)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS + 1)
         runCurrent()
         assertEquals(0, drains)
         assertEquals(0, exits)
         uiProcess = true
         policy.activityStarted(activity, "Main")
         policy.activityStopped(activity)
-        advanceTimeBy(500)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS - 1)
         uiProcess = false
-        advanceTimeBy(200)
+        advanceTimeBy(1)
         runCurrent()
         assertEquals(0, drains)
         assertEquals(0, exits)
@@ -196,10 +279,18 @@ class UiExitPolicyTest {
         val activity = Any()
         policy.activityStarted(activity, "Main")
         policy.activityStopped(activity)
-        advanceTimeBy(10_000)
+        advanceTimeBy(IDLE_TIMEOUT_MILLIS - 1)
+        runCurrent()
+        assertEquals(0, exits)
+        assertEquals(0, failures)
+        advanceTimeBy(10_001)
         runCurrent()
         assertEquals(0, exits)
         assertEquals(1, failures)
         policy.close()
+    }
+
+    companion object {
+        private const val IDLE_TIMEOUT_MILLIS = 5 * 60 * 1_000L
     }
 }

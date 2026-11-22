@@ -14,14 +14,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal fun isUiProcessName(packageName: String, processName: String?): Boolean =
     processName == "$packageName:ui"
 
-/** A stopped Activity alone cannot distinguish backgrounding from an external result or recreation. */
+/**
+ * Keep the UI alive for five minutes of continuous background idle.
+ * A stopped Activity alone cannot distinguish backgrounding from an external result or recreation.
+ */
 internal class UiExitPolicy(
     private val scope: CoroutineScope,
     private val isUiProcess: () -> Boolean,
     private val beforeExit: suspend () -> Unit,
     private val exit: () -> Unit,
     private val onFailure: (Exception) -> Unit = {},
-    private val graceMillis: Long = 700,
+    private val idleTimeoutMillis: Long = 5 * 60 * 1_000L,
 ) : Closeable {
     private val access = Any()
     private val started = Collections.newSetFromMap(IdentityHashMap<Any, Boolean>())
@@ -73,7 +76,7 @@ internal class UiExitPolicy(
         val expectedGeneration = generation
         val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
-                delay(graceMillis)
+                delay(idleTimeoutMillis)
                 synchronized(access) {
                     if (generation != expectedGeneration || !canExit()) return@launch
                 }

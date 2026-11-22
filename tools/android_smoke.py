@@ -22,6 +22,7 @@ from pathlib import Path
 
 PACKAGE = "io.ericlee.bfa"
 UI_PROCESS = PACKAGE + ":ui"
+UI_IDLE_TIMEOUT_SECONDS = 5 * 60
 COMPONENT = PACKAGE + "/io.nekohasekai.sfa.compose.MainActivity"
 TEST_RUNNER = PACKAGE + ".test/androidx.test.runner.AndroidJUnitRunner"
 GESTURE_COMPONENT = PACKAGE + ".test/io.nekohasekai.sfa.flutter.SmokeGestureInstrumentation"
@@ -56,29 +57,49 @@ def background_ui_exit(name, service_running, restored_label=None):
     assert len(backend) == len(ui) == 1 and backend != ui, \
         f"Expected separate native and Flutter processes: native={backend}, ui={ui}"
     timeline = []
-    started = time.monotonic()
-    adb("shell", "input", "keyevent", "3")
-    deadline = started + 20
+    label = restored_label or ("Running" if service_running else "Not running")
     try:
+        short_started = time.monotonic()
+        adb("shell", "input", "keyevent", "3")
+        time.sleep(2)
+        retained_backend = process_pids(PACKAGE)
+        retained_ui = process_pids(UI_PROCESS)
+        timeline.append({"phase": "short-background", "elapsed": round(time.monotonic() - short_started, 3),
+                         "native": retained_backend, "ui": retained_ui})
+        assert retained_ui == ui, "A short background visit reclaimed or restarted the Flutter UI"
+        if service_running:
+            assert retained_backend == backend, "Backgrounding the UI restarted or stopped the VPN process"
+        launch_activity()
+        wait_for(label, whole_window=True)
+        resumed_ui = process_pids(UI_PROCESS)
+        timeline.append({"phase": "short-return", "ui": resumed_ui})
+        assert resumed_ui == ui, "Returning before five minutes created a fresh UI process"
+
+        started = time.monotonic()
+        adb("shell", "input", "keyevent", "3")
+        deadline = started + UI_IDLE_TIMEOUT_SECONDS + 30
         while time.monotonic() < deadline:
             current_backend = process_pids(PACKAGE)
             current_ui = process_pids(UI_PROCESS)
-            timeline.append({"elapsed": round(time.monotonic() - started, 3),
+            elapsed = time.monotonic() - started
+            timeline.append({"phase": "idle-background", "elapsed": round(elapsed, 3),
                              "native": current_backend, "ui": current_ui})
             if service_running:
                 assert current_backend == backend, "Backgrounding the UI restarted or stopped the VPN process"
             if not current_ui:
+                assert elapsed >= UI_IDLE_TIMEOUT_SECONDS, "Flutter UI exited before five minutes of background idle"
                 break
-            time.sleep(0.25)
+            assert current_ui == ui, "Flutter UI restarted during the background idle period"
+            time.sleep(1)
         else:
-            raise AssertionError("Flutter UI process did not exit in the background")
+            raise AssertionError("Flutter UI process did not exit after five minutes of background idle")
         services = adb("shell", "dumpsys", "activity", "services", PACKAGE)
         (OUT / f"{name}-services.txt").write_text(services)
         if service_running:
             assert "io.nekohasekai.sfa.bg.VPNService" in services and "isForeground=true" in services, \
                 "VPN foreground service disappeared after UI exit"
         launch_activity()
-        current = wait_for(restored_label or ("Running" if service_running else "Not running"), whole_window=True)
+        current = wait_for(label, whole_window=True)
         if restored_label is None:
             assert matching("Profile file", current), "UI restart lost the selected configuration"
             assert not matching("Save", current), "UI restart replayed an already completed import"
@@ -90,7 +111,7 @@ def background_ui_exit(name, service_running, restored_label=None):
     finally:
         (OUT / f"{name}-processes.json").write_text(json.dumps({
             "nativeBefore": backend, "uiBefore": ui, "serviceRunning": service_running,
-            "restoredLabel": restored_label,
+            "restoredLabel": restored_label, "requiredIdleSeconds": UI_IDLE_TIMEOUT_SECONDS,
             "observations": timeline,
         }, indent=2) + "\n")
 
