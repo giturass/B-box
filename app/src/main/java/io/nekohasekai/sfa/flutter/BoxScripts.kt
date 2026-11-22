@@ -122,8 +122,10 @@ internal class BoxScripts<T>(
 
     private fun cancel(operation: Active) {
         val task = synchronized(access) { operation.task }
-        task?.close()
+        // Native cancellation can immediately release awaitResult. Mark the
+        // owner first so that result cannot pass the active-state checks.
         operation.job.cancel(CancellationException("Script debugging cancelled"))
+        task?.close()
     }
 
     fun cancelAll() {

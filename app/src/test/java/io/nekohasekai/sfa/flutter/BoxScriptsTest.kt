@@ -2,8 +2,11 @@ package io.nekohasekai.sfa.flutter
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
@@ -11,6 +14,7 @@ import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 class BoxScriptsTest {
     private val revision = "a".repeat(64)
@@ -21,12 +25,14 @@ class BoxScriptsTest {
         private val output: Map<String, Any?>,
         private val resultGate: CountDownLatch = CountDownLatch(0),
         private val exitGate: CountDownLatch = CountDownLatch(0),
+        private val onClose: () -> Unit = {},
     ) : ScriptDebugTask {
         val entered = CompletableDeferred<Unit>()
         val closing = CompletableDeferred<Unit>()
         val joining = CompletableDeferred<Unit>()
         val waits = AtomicInteger()
         override fun close() {
+            onClose()
             closing.complete(Unit)
             resultGate.countDown()
         }
@@ -197,6 +203,55 @@ class BoxScriptsTest {
         withTimeout(5_000) { running.join() }
         assertTrue(running.isCancelled)
         assertTrue(runCatching { scripts.run(request("new")) }.exceptionOrNull() is IllegalStateException)
+    }
+
+    @Test fun closingAHostCancelsJobsBeforeUnblockingNativeResults() = runBlocking {
+        val exit = CountDownLatch(1)
+        val firstOwner = AtomicReference<Job>()
+        val secondOwner = AtomicReference<Job>()
+        val firstCancelledAtClose = CompletableDeferred<Boolean>()
+        val secondCancelledAtClose = CompletableDeferred<Boolean>()
+        // Each native worker stays behind its own result gate until it is
+        // closed. Record cancellation before close releases that gate.
+        val firstTask = Task(output, CountDownLatch(1), exit,
+            onClose = { firstCancelledAtClose.complete(firstOwner.get().isCancelled); Unit })
+        val secondTask = Task(output, CountDownLatch(1), exit,
+            onClose = { secondCancelledAtClose.complete(secondOwner.get().isCancelled); Unit })
+        val scripts = BoxScripts(
+            prepare = { request: ScriptRunRequest, created: (ScriptDebugTask) -> Unit ->
+                val first = request.index == 1
+                // prepare runs in the same coroutineScope as the registered job.
+                (if (first) firstOwner else secondOwner).set(currentCoroutineContext().job)
+                created(if (first) firstTask else secondTask)
+                Unit
+            },
+            validate = { _: Unit -> fail("A closed host must not publish a native result") },
+        )
+        try {
+            val first = async(Dispatchers.Default) { scripts.run(request("first-close", 1)) }
+            val second = async(Dispatchers.Default) { scripts.run(request("second-close", 2)) }
+            withTimeout(5_000) { firstTask.entered.await(); secondTask.entered.await() }
+            scripts.close()
+            assertTrue(withTimeout(5_000) { firstCancelledAtClose.await() })
+            assertTrue(withTimeout(5_000) { secondCancelledAtClose.await() })
+            assertTrue(firstTask.closing.isCompleted)
+            assertTrue(secondTask.closing.isCompleted)
+            assertTrue(firstOwner.get().isCancelled)
+            assertTrue(secondOwner.get().isCancelled)
+            // Cancellation signals the workers; their registration and caller
+            // remain pending until the actual native exit barrier opens.
+            assertFalse(first.isCompleted)
+            assertFalse(second.isCompleted)
+            assertTrue(scripts.cancel("first-close"))
+            assertTrue(scripts.cancel("second-close"))
+            assertTrue(runCatching { scripts.run(request("after-close")) }.exceptionOrNull() is IllegalStateException)
+            exit.countDown()
+            withTimeout(5_000) { first.join(); second.join() }
+            assertTrue(first.isCancelled)
+            assertTrue(second.isCancelled)
+            assertFalse(scripts.cancel("first-close"))
+            assertFalse(scripts.cancel("second-close"))
+        } finally { exit.countDown(); scripts.close() }
     }
 
     @Test fun requestParsingRejectsFractionalOrOverflowingOriginalArrayIndexes() {

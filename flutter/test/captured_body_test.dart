@@ -132,15 +132,21 @@ List<SelectableText> _hexRows(WidgetTester tester, Finder scope) => tester.widge
 Future<void> _decodeImage(WidgetTester tester, Finder imageFinder) async {
   final image = tester.widget<Image>(imageFinder);
   final stream = image.image.resolve(createLocalImageConfiguration(tester.element(imageFinder)));
-  final decoded = Completer<void>();
+  var decoded = false;
   final listener = ImageStreamListener((_, _) {
-    if (!decoded.isCompleted) decoded.complete();
+    decoded = true;
   }, onError: (Object error, StackTrace? stack) {
-    if (!decoded.isCompleted) decoded.complete();
+    decoded = true;
   });
   stream.addListener(listener);
   try {
-    await tester.runAsync(() => decoded.future);
+    // The widget started loading in fakeAsync. Let the engine finish in real
+    // time, then pump its continuation instead of waiting across both zones.
+    for (var attempt = 0; !decoded && attempt < 100; attempt++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pump();
+    }
+    expect(decoded, isTrue, reason: 'The captured image did not finish decoding.');
   } finally {
     stream.removeListener(listener);
   }
@@ -326,13 +332,17 @@ void main() {
   });
 
   testWidgets('complete captured images open a zoomable viewer with bounded decode dimensions', (tester) async {
-    await _mount(tester, message: _message(type: 'image/png', saved: base64Decode(_png).length),
+    final harness = await _mount(tester, message: _message(type: 'image/png', saved: base64Decode(_png).length),
       page: _page(_png, encoding: 'base64'));
     final inlineImage = _in(_inline, find.byKey(const ValueKey('captured-body-image')));
     await _decodeImage(tester, inlineImage);
+    await _capture(tester, harness, '360-light-image-inline');
     await _tap(tester, inlineImage);
     expect(_viewer, findsOneWidget);
-    final image = tester.widget<Image>(_in(_viewer, find.byKey(const ValueKey('captured-body-image'))));
+    final viewerImage = _in(_viewer, find.byKey(const ValueKey('captured-body-image')));
+    await _decodeImage(tester, viewerImage);
+    await _capture(tester, harness, '360-light-image-viewer');
+    final image = tester.widget<Image>(viewerImage);
     expect(image.image, isA<ResizeImage>());
     final provider = image.image as ResizeImage;
     expect(provider.policy, ResizeImagePolicy.fit);
@@ -450,12 +460,13 @@ void main() {
   });
 
   for (final layout in [(320.0, 1.8, false), (360.0, 1.4, true)]) {
-    testWidgets('body viewing fits ${layout.$1.toInt()} wide with ${layout.$2} text scaling', (tester) async {
+    testWidgets('body viewing fits ${layout.$1.toInt()} wide with ${layout.$2} system text scaling', (tester) async {
       final data = Uint8List.fromList(List.generate(256, (index) => index));
       final harness = await _mount(tester, size: Size(layout.$1, 568), scale: layout.$2, dark: layout.$3,
         message: _message(type: 'application/octet-stream', saved: data.length),
         page: _page(base64Encode(data), encoding: 'base64', source: 'raw'));
       await _openViewer(tester);
+      expect(MediaQuery.textScalerOf(tester.element(_viewer)).scale(1), closeTo(1.4, 0.0001));
       final offsets = _hexRows(tester, _viewer).map((row) => int.parse((row.key! as ValueKey<String>).value.split('-').last)).toList()..sort();
       expect(offsets.length, greaterThan(1));
       expect(offsets[1] - offsets[0], lessThanOrEqualTo(4));

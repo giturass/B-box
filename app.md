@@ -189,7 +189,7 @@ libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理�
 
 [BoxScripts.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxScripts.kt) 提供 `scripts.run` 和按 `requestId` 取消的 `scripts.cancel`，沿用默认进程的现有 MethodChannel/Binder 消息通路，不新增或重排 AIDL 方法。运行请求携带配置 ID、内容修订、任务类别及原数组下标；原生在本机会话、配置和服务快照边界内核对当前选中及实际运行配置，仅登记任务后释放锁，在 IO 协程等待输出。停服、正在应用配置、修订或目标变化、远程会话及重复运行均拒绝；任务依赖配置自身脚本启用状态，不要求 MITM 或 CA。
 
-每次成功应用配置推进 `dashboard.processingGeneration`，相同 JSON 重载也使用新代次；`processingApplying` 表示原生正在读取、应用或确认重载配置，初次启动仍以 Starting 状态阻止调试。桥接在配置应用、服务/会话变化、UI 退出及请求取消时结束相关手动任务，并等待 JNI 调用退出；不同任务可独立执行，取消只按本次请求身份操作。运行结果包含本次 `$done` 的 JSON、错误和 console 输出；实际脚本数据和输出不写入配置、备份或独立调试历史。界面的迟到结果隔离与展示见 [脚本配置](flclash.md#配置页与内核差异)。
+每次成功应用配置推进 `dashboard.processingGeneration`，相同 JSON 重载也使用新代次；`processingApplying` 表示原生正在读取、应用或确认重载配置，初次启动仍以 Starting 状态阻止调试。桥接在配置应用、服务/会话变化、UI 退出及请求取消时结束相关手动任务，并等待 JNI 调用退出；不同任务可独立执行，取消只按本次请求身份操作。取消先标记运行协程，再关闭原生任务，避免关闭唤醒结果等待者后被误报为正常完成；请求登记保留至原生任务实际退出。运行结果包含本次 `$done` 的 JSON、错误和 console 输出；实际脚本数据和输出不写入配置、备份或独立调试历史。界面的迟到结果隔离与展示见 [脚本配置](flclash.md#配置页与内核差异)。
 
 一元 gRPC 脚本的 `grpc_mode` 与空响应快捷动作使用同一 JSON 校验、格式化和保存通路，不新增平台绑定或模块导入入口。HTTP/2、消息与 trailers 处理及脚本宿主行为见 [一元 gRPC 正文脚本](libbox.md#一元-grpc-正文脚本)；脚本主动 abort 关闭当前 HTTP/1 连接或 HTTP/2 流，请求页仍保留实际错误记录。
 
@@ -279,7 +279,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 - **连接与网络刷新：** [ConnectionStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ConnectionStreamTest.kt) 检查增量计数、最终关闭计数、历史淘汰、DNS 过滤、快照隔离及 3000 条记录经过状态合并和恢复订阅后的消息内容；[NetworkRefreshTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/NetworkRefreshTest.kt) 用虚拟时间覆盖网络通知、十秒/六十秒补查、前后台/熄屏取消和突发通知合并。
 - **默认接口与开机恢复：** [DefaultInterfaceMonitorTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/DefaultInterfaceMonitorTest.kt) 覆盖网络先于核心监听器到达、开机无网及接口编号超过一秒才就绪、同网络刷新、断网恢复、切网或监听器替换后的迟到结果、异常重试及停止/取消期间的等待与结果丢弃。纯 Kotlin 调度回归不代替 Android 网络回调、系统重启或实际代理连通验收。
 - **WARP 注册：** [BoxWarpTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxWarpTest.kt) 检查注册等待时配置/会话冲突、重复提交、取消及时关闭 JNI 请求、已返回凭据在取消后留待保存、失败重试复用账号及错误消敏；WireGuard 另核对所选目标、协议传递和失败重试的协议保留，并检查非法协议在准备配置及注册之前拒绝。
-- **脚本调试：** [BoxScriptsTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxScriptsTest.kt) 覆盖等待配置锁时取消、不同请求并行、重复 ID 拒绝、阻塞 JNI 及准入后尚未等待时的取消/退出等待、配置代次变化拒绝迟到结果、宿主关闭与原下标参数校验；请求登记保留至已准入原生任务退出。
+- **脚本调试：** [BoxScriptsTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxScriptsTest.kt) 覆盖等待配置锁时取消、不同请求并行、重复 ID 拒绝、阻塞 JNI 及准入后尚未等待时的取消/退出等待、配置代次变化拒绝迟到结果、宿主关闭与原下标参数校验；双任务 gate 另核对关闭释放结果前协程已取消、关闭后拒绝新准入及请求登记保留至原生任务退出。
 - **UI 退出与终端回复：** [UiExitPolicyTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/UiExitPolicyTest.kt) 用虚拟时间检查连续后台闲置 5 分钟的边界、超时前不执行退出准备、多 Activity、反复前后台切换不累计时间、配置重建、外部交互打断后重新计时及恢复失败；[UiIdleTriggerTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/UiIdleTriggerTest.kt) 检查冻结期间等待系统触发、旧任务与截止时间校验、调度取消/失败、重复完成、恢复期间任务替换和系统停止，以及完成通知排队期间返回前台的退出取消。[TerminalReplyLedgerTest.kt](app/src/test/java/io/nekohasekai/sfa/terminal/TerminalReplyLedgerTest.kt) 检查输出确认、UI 断开后的回复恢复及有序等待。
 - **UI JVM 报告：** [UiJvmCrashReportsTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/UiJvmCrashReportsTest.kt) 使用真实临时文件检查 UI 报告的独立发布、主进程日志/配置保留、多个报告及失败后重试；测试不加载 Android、libbox 或 Flutter 引擎。
 
