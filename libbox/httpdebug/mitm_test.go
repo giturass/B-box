@@ -339,7 +339,9 @@ func TestMITMHTTP2ConcurrentStreamsCancellationAndAuthority(t *testing.T) {
 	entered, release := make(chan struct{}, parallel), make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 	defer unblock()
+	var originCalls atomic.Int32
 	origin := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		originCalls.Add(1)
 		if r.URL.Path == "/waiting" {
 			w.Header().Set("Content-Type", "text/event-stream")
 			io.WriteString(w, "data: partial\n\n")
@@ -362,7 +364,7 @@ func TestMITMHTTP2ConcurrentStreamsCancellationAndAuthority(t *testing.T) {
 	defer origin.Close()
 	e, store, ca := mitmEngine(t, Config{})
 	e.mitm.H2 = true
-	client, _ := mitmClient(t, e, origin.Listener.Addr().String(), ca, roots, true)
+	client, dials := mitmClient(t, e, origin.Listener.Addr().String(), ca, roots, true)
 	client.Transport.(*http.Transport).MaxConnsPerHost = 1
 	client.Timeout = 10 * time.Second
 	ctx, cancel := context.WithCancel(context.Background())
@@ -408,21 +410,43 @@ func TestMITMHTTP2ConcurrentStreamsCancellationAndAuthority(t *testing.T) {
 	group.Wait()
 	cancel()
 	response.Body.Close()
+	dialsBeforeReject := dials.Load()
 	request, _ = http.NewRequest("GET", "https://origin.test/private", nil)
 	request.Host = "excluded.test"
 	result, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	io.Copy(io.Discard, result.Body)
+	rejectedBody, err := io.ReadAll(result.Body)
 	result.Body.Close()
-	if result.StatusCode != http.StatusMisdirectedRequest {
+	if err != nil || result.StatusCode != http.StatusMisdirectedRequest || result.ProtoMajor != 2 {
 		t.Fatal("unrelated authority sent through decrypted tunnel")
 	}
-	if store.Page(1, "excluded.test").Total != 0 {
-		t.Fatal("cross-origin request recorded")
+	if originCalls.Load() != parallel+1 || dials.Load() != dialsBeforeReject {
+		t.Fatal("rejected authority reached the origin or opened another upstream connection")
 	}
-	items := waitComplete(t, store, parallel+1)
+	items := waitComplete(t, store, parallel+2)
+	rejectedPage := store.Page(1, "excluded.test")
+	if rejectedPage.Total != 1 || len(rejectedPage.Items) != 1 || rejectedPage.Items[0].Status != http.StatusMisdirectedRequest {
+		t.Fatalf("rejected authority did not retain its local response: %+v", rejectedPage)
+	}
+	rejected, err := store.detailWithBodies(rejectedPage.Items[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected.Metadata.Host != "excluded.test" || rejected.Metadata.Port != 443 ||
+		rejected.Metadata.TLS == nil || rejected.Metadata.TLS.ServerName != "origin.test" ||
+		rejected.Request.Method != http.MethodGet || rejected.Request.URL != "https://excluded.test/private" ||
+		rejected.Request.Protocol != result.Proto || headerValue(rejected.Request, "Host") != "excluded.test" ||
+		rejected.Request.BodyBytes != 0 || len(rejected.RequestBody) != 0 ||
+		rejected.Response.Status != http.StatusMisdirectedRequest || rejected.Response.Protocol != result.Proto ||
+		!rejected.Complete || !rejected.Response.BodyComplete || rejected.Response.BodyTruncated ||
+		rejected.Response.BodyBytes != int64(len(rejectedBody)) || rejected.Response.CapturedBytes != int64(len(rejectedBody)) ||
+		string(rejected.ResponseBody) != string(rejectedBody) ||
+		headerValue(rejected.Response, "Content-Type") != result.Header.Get("Content-Type") ||
+		!strings.Contains(string(rejectedBody), "own TLS connection") || !strings.Contains(rejected.Error, "authority differs") {
+		t.Fatalf("rejected authority changed its request, TLS origin or returned response: %+v", rejected)
+	}
 	ids := make(map[string]bool)
 	for _, item := range items {
 		detail, err := store.detailWithBodies(item.ID)

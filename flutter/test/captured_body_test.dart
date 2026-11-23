@@ -861,11 +861,15 @@ void main() {
     await _tap(tester, _in(_viewer, find.text('Next page')));
     expect(_text(tester, _viewer), '1: 2');
     final reader = json(harness.calls.lastWhere((call) => call.method == 'capture.body.view').arguments)['readerId'];
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pumpAndSettle();
     expect(harness.calls.where((call) => call.method == 'capture.body.close' && json(call.arguments)['readerId'] == reader), hasLength(1));
     await tester.pump(const Duration(seconds: 4));
     expect(harness.calls.where((call) => call.method == 'capture.body.view'), hasLength(1));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
     expect(_text(tester, _viewer), '1: 2');

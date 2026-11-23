@@ -106,8 +106,14 @@ func TestLocalHTTPErrorsRecordTheResponseReturnedToHTTP1AndHTTP2(t *testing.T) {
 						t.Fatalf("capture differs from the returned response: %+v error=%v", detail, err)
 					}
 					for _, name := range []string{"Content-Type", "X-Content-Type-Options", "Connection"} {
-						if got := recordedErrorHeader(detail.Response, name); got != response.Header.Get(name) {
-							t.Fatalf("response header %s was not recorded: got %q want %q", name, got, response.Header.Get(name))
+						want := response.Header.Get(name)
+						// Go's HTTP/1 client removes Connection: close from Header
+						// and exposes it through Close. The capture keeps the header.
+						if name == "Connection" && wantProtocol == 1 && response.Close {
+							want = "close"
+						}
+						if got := recordedErrorHeader(detail.Response, name); got != want {
+							t.Fatalf("response header %s was not recorded: got %q want %q", name, got, want)
 						}
 					}
 					if recordedErrorHeader(detail.Response, "X-Upstream") != "" {
