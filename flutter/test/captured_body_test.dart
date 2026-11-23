@@ -1275,13 +1275,17 @@ void main() {
         if (call.method == 'capture.detail') return {'complete': message['bodyComplete'], 'response': message, 'responsePreview': first};
         if (call.method == 'capture.body') return {...(json(call.arguments)['offset'] == 0 ? first : last), 'message': message};
         if (call.method == 'capture.body.view') return {'format': format, 'message': message, 'page': derivedFirst};
-        if (call.method == 'capture.body.view.page') {
-          expect(json(call.arguments)['offset'], next);
-          return derivedLast;
-        }
+        if (call.method == 'capture.body.view.page') return derivedLast;
         return null;
       });
+      String bodyState() => jsonEncode({
+        'calls': [for (final call in harness.calls.where((call) => call.method.startsWith('capture.')))
+          {'method': call.method, 'arguments': call.arguments}],
+        'bodyLabels': tester.widgetList<Text>(_in(_body, find.byType(Text)))
+          .map((text) => text.data).whereType<String>().take(12).toList(),
+      });
       expect(harness.calls.where((call) => call.method == 'capture.body.view'), hasLength(1));
+      final firstReader = json(harness.calls.lastWhere((call) => call.method == 'capture.body.view').arguments)['readerId'];
       expect(_text(tester, _body), shownFirst);
       _expectCopyOnlyMenu(tester);
       await _tap(tester, _in(_body, find.text('Base64')));
@@ -1294,6 +1298,10 @@ void main() {
       expect(_text(tester, _body), shownFirst);
       expect(_in(_body, find.text('Derived body page: 1')), findsOneWidget);
       await _tap(tester, _in(_body, find.text('Next page')));
+      expect(harness.calls.where((call) => call.method == 'capture.body.view.page')
+        .map((call) => json(call.arguments)).toList(), [
+        {'readerId': firstReader, 'offset': next},
+      ], reason: bodyState());
       expect(_text(tester, _body), shownLast);
       expect(_in(_body, find.text('Derived body page: 2')), findsOneWidget);
       expect(_in(_body, find.textContaining('${bytes(body.length)} / ${bytes(body.length)}')), findsOneWidget);
@@ -1316,19 +1324,29 @@ void main() {
       if (mime.isEmpty) {
         await _tap(tester, _in(_body, find.text('JSON')));
         final reader = json(harness.calls.lastWhere((call) => call.method == 'capture.body.view').arguments)['readerId'];
+        final beforeResumeState = bodyState();
         tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
         tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
         tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
         await tester.pumpAndSettle();
         expect(harness.calls.where((call) => call.method == 'capture.body.close' &&
-          json(call.arguments)['readerId'] == reader), hasLength(1));
+          json(call.arguments)['readerId'] == reader), hasLength(1), reason: beforeResumeState);
         tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
         tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
         tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
         await tester.pumpAndSettle();
-        expect(_text(tester, _body), shownLast);
-        expect(_in(_body, find.text('Derived body page: 2')), findsOneWidget);
-        expect(json(harness.calls.lastWhere((call) => call.method == 'capture.body.view').arguments)['readerId'], isNot(reader));
+        final resumeState = 'Before resume: $beforeResumeState\nAfter resume: ${bodyState()}';
+        expect(harness.calls.where((call) => call.method == 'capture.body.view'), hasLength(2),
+          reason: resumeState);
+        final resumedReader = json(harness.calls.lastWhere((call) => call.method == 'capture.body.view').arguments)['readerId'];
+        expect(harness.calls.where((call) => call.method == 'capture.body.view.page')
+          .map((call) => json(call.arguments)).toList(), [
+          {'readerId': firstReader, 'offset': next},
+          {'readerId': resumedReader, 'offset': next},
+        ], reason: resumeState);
+        expect(_text(tester, _body), shownLast, reason: resumeState);
+        expect(_in(_body, find.text('Derived body page: 2')), findsOneWidget, reason: resumeState);
+        expect(resumedReader, isNot(reader), reason: resumeState);
         _expectCopyOnlyMenu(tester);
         await _action(tester, _body, 'Copy current body page');
         expect(harness.copied.last, last['text']);
