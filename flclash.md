@@ -274,7 +274,13 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 
 ### 当前验证记录
 
-当前工作树的活动正文读取、跨页字符集及完整文件/派生分页改动尚未运行 Actions。本机仅执行来源清单与源码约束、`git diff --check` 和文档本地链接检查；新增测试的存在不代表已通过运行验收。以下正文查看成功记录固定于所列旧源码 SHA，不覆盖本次工作树的新读取器、完整派生视图和取消行为。
+2026-11-23 大正文完整文件读取、字符集分页、活动尾页刷新及派生视图取消恢复的功能/测试源码 `60c56dc182e1a655928aec6c7d3934a1eff34462` 已通过 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45141151663/job/137579236128)：分析为 153 项 info、0 warning/error，880 项测试全部成功；ARM64 Debug/Release Flutter AAR 均构建成功。[AAR 产物](https://github.com/giturass/B-box/actions/runs/45141151663/artifacts/14801733797) 与 [截图产物](https://github.com/giturass/B-box/actions/runs/45141151663/artifacts/14802910862) 的 `workflow_run.head_sha` 均已核对与该源码一致。后台恢复用例在异步操作完成后校验原/新读取器及相同派生页偏移，正文、页码历史、会话及取消断言全部保留。
+
+实际逐张查看本轮 `build/screenshots/body/` 的九张截图：320×568 浅色的 `320-1.8-light-hex.png`、`320-1.8-light-hex-end.png`、`320-1.8-light-base64.png`，360×568 深色的 `360-1.4-dark-hex.png`、`360-1.4-dark-hex-end.png`、`360-1.4-dark-base64.png`，以及 360×800 的 `360-light-image-inline.png`、`360-light-image-viewer.png`、`360-light-large-image-viewer.png`。Hex 在两组宽度下分别使用每行 2/4 字节，地址、字节和 ASCII 列可读，Base64 正常换行，未见横向溢出；尾页图仅代表已滚至当前内部列表末端的视口。
+
+两张蓝图展示完整 32×24 PNG；大图展示保存/总量均为 72.3 KB、超过 64 KiB 的完整 128×192 PNG，全宽、全高按比例可见，无解码错误。大图用例的原页只含前 16 KiB，查看页按完整文件路径使用 `FileImage`/`ResizeImage`；解码成功、尺寸限制、原页复制、切回 Hex 后再显示图片的断言均通过。完整 JSON/Protobuf/gRPC 的原字节与派生分页、字符集、活动末页和取消行为由同轮自动断言覆盖，这九张图未另拍派生文本视图。
+
+截图采用英文、SDK Roboto、JetBrainsMono 与 Android 桥接替身；实际 Android 绑定、模拟器覆盖和未覆盖的 ARM64 实机行为由 [应用验证记录](app.md#当前验证记录) 维护。本机仅执行源码/来源约束、`git diff --check` 和文档本地链接检查，并读取本轮 Actions 日志及产物。后续验证记录提交仅更新文档，以下既有记录只适用于各自列出的此前源码 SHA。
 
 2026-11-23 正文查看的功能及测试源码 `14639a98899f14e4e4613311558e0c66ff004efa` 已通过 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45059030530/job/137320599646)：分析为 139 项 info、0 warning/error，858 项测试全部成功，包括新增 19 项正文解读及 17 项查看交互测试；ARM64 Debug/Release Flutter AAR 均构建成功。[AAR 产物](https://github.com/giturass/B-box/actions/runs/45059030530/artifacts/14768743191) 与 [截图产物](https://github.com/giturass/B-box/actions/runs/45059030530/artifacts/14768758084) 的 `workflow_run.head_sha` 均已核对与该源码一致。核心、脚本取消及 Android 结果由 [应用验证记录](app.md#当前验证记录) 维护。
 
@@ -322,6 +328,9 @@ UI 进程拆分、状态重连及后台回收时机调整的验证结果与覆�
 
 | 日期 | 主题 | 验证源码 | Actions | 测试 / info | 当时实际查看的截图 |
 | --- | --- | --- | --- | --- | --- |
+| 2026-11-23 | 大正文恢复生命周期修正前 | `174fa0dfdec9f1bc35bcc46a61dddada9b7531c0` | [45133726683](https://github.com/giturass/B-box/actions/runs/45133726683) | 879 通过、1 失败 / 152 | 九张正文截图已预检查，跨页 PNG 文件解码成功；恢复测试非法生命周期过渡，AAR 跳过，后续推送取消未完成作业，不能作为整套通过依据 |
+| 2026-11-23 | 大正文恢复失败定位前 | `9a812b7896fc33e071dccdd73a3f5165336389e3` | [45136164614](https://github.com/giturass/B-box/actions/runs/45136164614) | 879 通过、1 失败 / 152 | 恢复后无正文文本元素，AAR 跳过；本轮未完成独立视觉验收，核心和模拟器结果见 [应用历史](app.md#历史验证记录) |
+| 2026-11-23 | 大正文恢复异步断言修正前 | `4056b906b9518c665a7039cc626ed4bff860c070` | [45139786594](https://github.com/giturass/B-box/actions/runs/45139786594) | 879 通过、1 失败 / 153 | 诊断确认新读取器及恢复页偏移正确，异步桥接回调中的 expect 与 pumpAndSettle 的测试保护冲突；AAR 跳过，后续推送取消未完成作业，无最终视觉结论 |
 | 2026-11-23 | 正文查看 SDK 接口修正前 | `3b2df5f9ebac0bdb1a2942ce979673f2bdbb8786` | [45055280397](https://github.com/giturass/B-box/actions/runs/45055280397) | 未执行 / 139（4 error） | Prism SelectableText 参数及重复本地化键不兼容；后续修正推送取消未完成作业，无通过或视觉结论 |
 | 2026-11-23 | 正文查看图片等待修正前 | `5fab9392dd924eed8a64c4bd016e1aa50fe9cbab` | [45055750463](https://github.com/giturass/B-box/actions/runs/45055750463) | 857 通过、1 超时 / 139 | 有效图片用例在 fakeAsync/real zone 之间等待解码而超时；ARM64 AAR 跳过，窄屏 Hex/Base64 仅作预检查，Android 同轮失败见 [应用历史](app.md#历史验证记录) |
 | 2026-11-23 | 正文查看取消窗口补齐前 | `7cd74db2e86f892cc1e2d96f060c0419a3bd45bd` | [45057968879](https://github.com/giturass/B-box/actions/runs/45057968879) | 858 / 139 | Flutter 与 ARM64 Debug/Release AAR 通过；关闭期间才附着任务的取消回归及图片成功断言补齐后推送，未完成 smoke 被取消，整套为 cancelled，不作为最终源码通过依据 |

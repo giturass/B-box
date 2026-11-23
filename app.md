@@ -330,7 +330,20 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
-2026-11-23 本轮大正文完整解读、图片文件读取、字符集分页、活动尾页刷新及本地错误响应录制的修复，当前已完成 `git diff --check`、`python3 tools/verify_newui.py`、Go 语法格式和文档链接静态检查；新增真实 Go 绑定与 JVM 生命周期回归由统一工作流运行，正文绑定同时加入 race 范围。Actions 尚待本轮源码运行，下面记录的结果只适用于各自列出的历史 SHA。本机没有执行编译、Go/Flutter/Android 动态测试或签名 Release。
+2026-11-23 大正文完整解读、图片文件读取、字符集分页、活动尾页刷新、本地错误响应录制及脚本拨号退出等待的功能/测试源码 `60c56dc182e1a655928aec6c7d3934a1eff34462` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45141151663) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[核心作业](https://github.com/giturass/B-box/actions/runs/45141151663/job/137579236546) 实际执行 13 条 Go 命令，其中 8 条启用 race，全部使用 `-count=1` 并成功；包含正文真实绑定及生命周期、全量 httpdebug race、脚本取消后路由与迟到连接清理等待，以及后续 `TestBboxHTTPDebug` 路由命令。[Root CA 作业](https://github.com/giturass/B-box/actions/runs/45141151663/job/137579236429) 的 15 项发布元数据、6 项 mount/boot 测试及 ShellCheck 通过。Flutter 分析、880 项交互/布局测试、ARM64 AAR 和九张正文截图的审阅由 [界面验证记录](flclash.md#当前验证记录) 维护。
+
+[Android 作业](https://github.com/giturass/B-box/actions/runs/45141151663/job/137579236609) 完成本轮 x86_64 libbox、Flutter Debug AAR、Other/Play Kotlin、AIDL 及 [模拟器应用/测试 APK](https://github.com/giturass/B-box/actions/runs/45141151663/artifacts/14802537019)。[JVM 报告](https://github.com/giturass/B-box/actions/runs/45141151663/artifacts/14802511858) 实际为 24 个套件、153 项测试，失败、错误及跳过均为 0；`CaptureBodyReadersTest` 为 8/8，覆盖取消排序、排队/并发、读取器复用、关闭和文件清理。
+
+四份 smoke 结果的源码 SHA、实际 SDK、页大小、镜像及 UI/native 状态已逐项核对。各原生日志均有 116 个用例开始并成功完成，`current` 完整覆盖 1–116，结束为 `OK (116 tests)`，失败、错误及跳过均为 0；合计 464 次原生测试执行全部通过。API 36 / 16 KiB 使用实际 `android-36;google_apis_ps16k;x86_64` 镜像。本轮 APK、JVM 及四组 smoke 产物的 `workflow_run.head_sha`、四份 `results.json.sha` 均与上述功能/测试提交一致。
+
+| 环境 | 实际页大小（字节） | 原生 / UI | 报告 |
+| --- | --- | --- | --- |
+| [API 24](https://github.com/giturass/B-box/actions/runs/45141151663/job/137582483102) | 4096（`/proc/self/smaps`） | 116 项通过 / 通过 | [14802866942](https://github.com/giturass/B-box/actions/runs/45141151663/artifacts/14802866942) |
+| [API 31](https://github.com/giturass/B-box/actions/runs/45141151663/job/137582482923) | 4096（`getconf`） | 116 项通过 / 通过 | [14802199553](https://github.com/giturass/B-box/actions/runs/45141151663/artifacts/14802199553) |
+| [API 36 / 4 KiB](https://github.com/giturass/B-box/actions/runs/45141151663/job/137582482752) | 4096（`getconf`） | 116 项通过 / 通过 | [14803560873](https://github.com/giturass/B-box/actions/runs/45141151663/artifacts/14803560873) |
+| [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/45141151663/job/137582482771) | 16384（`getconf`） | 116 项通过 / 通过 | [14802619113](https://github.com/giturass/B-box/actions/runs/45141151663/artifacts/14802619113) |
+
+本轮模拟器均为 x86_64；既有 smoke 没有直接调用新增 `capture.body.view` / `capture.body.view.page` 完整正文接口。完整正文、字符集、派生分页和图片由 Go 真实 HTTP/绑定回归及 Flutter 桥接替身测试验证，Android 已核对生成绑定及实际 Kotlin 编译，不能据此声明 ARM64 实机完整正文或视觉已验收。本机仅执行差异、源码/来源约束、Go 格式和文档本地链接检查，并读取本轮 Actions 日志及产物；未执行本机动态测试、签名 Release 或发布。后续验证记录提交只修改文档，功能及测试源码与本轮 Actions 一致；以下既有记录只适用于各自列出的此前源码 SHA。
 
 2026-11-23 正文查看增强及脚本关闭取消修正的功能/测试源码 `14639a98899f14e4e4613311558e0c66ff004efa` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45059030530) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[核心作业](https://github.com/giturass/B-box/actions/runs/45059030530/job/137320599630) 实际执行 13 条 Go 测试命令，其中 8 条启用 race，全部使用 `-count=1` 并成功；[Root CA 作业](https://github.com/giturass/B-box/actions/runs/45059030530/job/137320599588) 的 15 项发布元数据、6 项 mount/boot 测试及 shellcheck 通过。Flutter 分析、交互/布局、ARM64 AAR 和本次正文截图审阅由 [界面验证记录](flclash.md#当前验证记录) 维护。
 
@@ -442,6 +455,9 @@ APK、AAR、JVM 报告和四组 smoke 产物的 `workflow_run.head_sha` 及设�
 
 | 日期 | 主题 | 验证源码 | Actions | 范围与备注 |
 | --- | --- | --- | --- | --- |
+| 2026-11-23 | 大正文完整读取首次回归 | `174fa0dfdec9f1bc35bcc46a61dddada9b7531c0` | [45133726683](https://github.com/giturass/B-box/actions/runs/45133726683) | 正文绑定及 lifecycle race、Android/JVM 通过；HTTP/1 关闭连接与 421 响应录制的旧断言不符，Flutter 恢复测试存在非法生命周期过渡；后续推送取消未完成 smoke，整套 cancelled，界面结果见 [UI 历史](flclash.md#历史验证记录) |
+| 2026-11-23 | 大正文恢复与脚本等待定位 | `9a812b7896fc33e071dccdd73a3f5165336389e3` | [45136164614](https://github.com/giturass/B-box/actions/runs/45136164614) | Android/JVM 及四组 smoke 通过；全量 httpdebug race 发现脚本 HTTP 在取消路由退出前结束，Flutter 恢复用例仍失败，整套 failure；后续修复实际拨号等待并定位测试异步断言冲突 |
+| 2026-11-23 | 脚本拨号退出与正文恢复诊断 | `4056b906b9518c665a7039cc626ed4bff860c070` | [45139786594](https://github.com/giturass/B-box/actions/runs/45139786594) | 核心全部通过，包含全量 httpdebug race 和后续 route；Flutter 诊断确认恢复请求正确，但桥接替身的异步 expect 与 pumpAndSettle 冲突，AAR 跳过；后续推送取消未完成 smoke，整套 cancelled |
 | 2026-11-23 | 正文查看 SDK 接口修正前 | `3b2df5f9ebac0bdb1a2942ce979673f2bdbb8786` | [45055280397](https://github.com/giturass/B-box/actions/runs/45055280397) | Flutter 分析 4 error，测试及 ARM64 AAR 未执行；后续修正推送取消未完成作业，整套 cancelled，界面失败见 [界面历史](flclash.md#历史验证记录) |
 | 2026-11-23 | 正文查看取消排序修正前 | `5fab9392dd924eed8a64c4bd016e1aa50fe9cbab` | [45055750463](https://github.com/giturass/B-box/actions/runs/45055750463) | 核心与 Root CA 通过；JVM 143 项中 1 失败，关闭原生脚本任务先释放结果、后取消协程的排序存在竞态，不能当作测试噪声；Flutter 图片等待超时，smoke skipped，整套 failure |
 | 2026-11-23 | 正文查看关闭附着窗口补齐前 | `7cd74db2e86f892cc1e2d96f060c0419a3bd45bd` | [45057968879](https://github.com/giturass/B-box/actions/runs/45057968879) | 核心、Root CA、Flutter/AAR、Android/JVM 通过；后续补齐宿主关闭期间才附着任务的取消顺序及决定性回归，推送取消未完成四组 smoke，整套 cancelled，不能作为最终源码验证 |
