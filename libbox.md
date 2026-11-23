@@ -472,6 +472,8 @@ Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`ti
 
 脚本不设固定并发请求数；`http_client.max_requests` 可显式设正整数限制累计调用，失败和被拒绝调用也计数。客户端 `max_body_bytes` 缺省、`0` 或 `-1` 不限制，正整数限制输入/输出，与拦截正文限额独立。准入及复制前检查见[正文记账](#json-配置中的-http-改写)，worker 与回调交接同一登记，待回调队列不按固定数量丢弃事件。`$done`、异常、超时、取消和停服结束在途网络并释放队列及登记。
 
+每次 HTTP 调用独立登记 Transport 的完整拨号回调。请求结束时先取消单次上下文、关闭新拨号准入并关闭空闲连接，再等待已准入的路由及其取消后的连接清理；脚本 Join 和停服不能把 `client.Do` 已返回当作实际路由退出。此等待不阻塞其他脚本的 HTTP 调用。
+
 响应按 Content-Encoding 解码，传输字节及各层解码结果分别检查客户端限额，编码/层数/完整性见[共用解码器](#httphttps-请求调试)。未知、损坏、截断编码、超限或非 UTF-8（未设 binary-mode）回调报错，不返回部分正文。客户端不添加 Accept-Encoding，保留脚本显式值；解压成功移除 Content-Encoding/旧 Content-Length。HEAD/204/304 返回空正文并保留表示元数据。
 
 无 policy 时以 `b-box-scripts` 入站上下文重新匹配当前实例路由、使用其证书库，不新增监听器、不回退设备直连、不递归改写/脚本/记录。指定 policy 由同一实例的对应出站拨号；两种路径都在[共享路由生命周期](#出口-ip-和质量查询传输)登记，核心关闭前等待其退出。
@@ -613,6 +615,7 @@ MITM 与 TLS：
 脚本：
 
 - [script_api_test.go](libbox/httpdebug/script_api_test.go)：能力校验不执行脚本、两阶段 HTTP 客户端的路由注入、未配置目标与 Host 覆写拒绝、重定向/正文/请求次数的显式限制、不回退并校验 TLS、取消后释放解释器与正文预留，以及只读头部的脚本 HTTP 不受旧全局正文配额影响。
+- [script_http_lifecycle_test.go](libbox/httpdebug/script_http_lifecycle_test.go)：单次 HTTP 请求期限取消实际路由，脚本等待路由退出和迟到连接的关闭；等待期间其他脚本仍可完成 HTTP 调用，结束后释放正文登记。
 - [script_tasks_test.go](libbox/httpdebug/script_tasks_test.go)：事件/Generic 校验不读取或执行源码，各类手动任务的上下文、JSON 结果与错误前日志，重复/未命名任务的原下标、自动与手动共用互斥、不同任务并行，启动/重载与旧回调隔离，以及停服等待路由退出、文件刷新、HTTP、定时器和共享存储。
 - [script_admission_test.go](libbox/httpdebug/script_admission_test.go)：HTTP 准入先于正文读取和序列化、复制到宿主前检查 UTF-8 与视图长度、原生正则取消按 VM 隔离，以及 HTTP 脚本无固定 VM 栈或日志配额。
 - [script_storage_test.go](libbox/httpdebug/script_storage_test.go)：持久化、命名空间隔离与删除、超过旧配额的写入、并发写入与取消的锁等待、原子失败和中断写入恢复、损坏与符号链接拒绝且不丢数据、HTTP/Cron 共享且无调用次数配额，以及重载/清空记录后保留。

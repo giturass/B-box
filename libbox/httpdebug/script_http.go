@@ -112,6 +112,37 @@ type scriptHTTPRequestOptions struct {
 	fullHeaders bool
 }
 
+// Transport may finish RoundTrip while its DialContext is still running. Keep
+// the complete callback (including bound lifetime cleanup) inside this call's
+// worker lifetime, and close admission before waiting for callbacks to exit.
+type scriptHTTPDialGate struct {
+	mu      sync.Mutex
+	closed  bool
+	workers sync.WaitGroup
+	dial    func(context.Context, string, string) (net.Conn, error)
+}
+
+func (g *scriptHTTPDialGate) dialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	g.mu.Lock()
+	if g.closed {
+		g.mu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return nil, context.Canceled
+	}
+	g.workers.Add(1)
+	g.mu.Unlock()
+	defer g.workers.Done()
+	return g.dial(ctx, network, address)
+}
+
+func (g *scriptHTTPDialGate) close() {
+	g.mu.Lock()
+	g.closed = true
+	g.mu.Unlock()
+}
+
 // Workers only handle Go values and network I/O. All JavaScript, including
 // callbacks and promise continuations, executes on the invocation's VM thread.
 func installScriptHTTP(vm *goja.Runtime, parent context.Context, dial RewriteDialFunc, roots *x509.CertPool, _ int64, policy scriptHTTPPolicy) func() {
@@ -192,14 +223,22 @@ func installScriptHTTP(vm *goja.Runtime, parent context.Context, dial RewriteDia
 					stop()
 					callCtx, stop = context.WithTimeout(ctx, options.timeout)
 				}
-				defer stop()
 				if options.policy != "" {
 					callCtx = context.WithValue(callCtx, scriptPolicyKey{}, options.policy)
 				}
 				transport := newRewriteTransport(callCtx, dial, roots)
+				dials := &scriptHTTPDialGate{dial: transport.DialContext}
+				transport.DialContext = dials.dialContext
 				transport.DisableKeepAlives = true
 				transport.TLSClientConfig.InsecureSkipVerify = options.insecure
-				defer transport.CloseIdleConnections()
+				defer func() {
+					// Cancel even after a normal response: Transport can leave a
+					// speculative dial waiting independently of client.Do.
+					stop()
+					dials.close()
+					transport.CloseIdleConnections()
+					dials.workers.Wait()
+				}()
 				client := &http.Client{Transport: transport}
 				if options.cookie {
 					client.Jar = jar

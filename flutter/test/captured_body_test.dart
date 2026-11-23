@@ -861,6 +861,7 @@ void main() {
     await _tap(tester, _in(_viewer, find.text('Next page')));
     expect(_text(tester, _viewer), '1: 2');
     final reader = json(harness.calls.lastWhere((call) => call.method == 'capture.body.view').arguments)['readerId'];
+    final session = harness.box.sessionRevision;
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
@@ -872,10 +873,30 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
-    expect(_text(tester, _viewer), '1: 2');
-    expect(_in(_viewer, find.text('Derived body page: 2')), findsOneWidget);
-    expect(harness.calls.where((call) => call.method == 'capture.body.view'), hasLength(2));
-    expect(harness.calls.where((call) => call.method == 'capture.body.view.page'), hasLength(2));
+    final viewers = _viewer.evaluate().toList();
+    final viewerContext = viewers.isEmpty ? null : viewers.first;
+    final resumeState = jsonEncode({
+      'lifecycle': tester.binding.lifecycleState.toString(),
+      'session': harness.box.sessionRevision,
+      'remote': harness.box.remote,
+      'viewerCount': viewers.length,
+      'pageActive': viewerContext == null ? null : PageActivityScope.isActiveOf(viewerContext),
+      'tickerEnabled': viewerContext == null ? null : TickerMode.of(viewerContext),
+      'routeCurrent': viewerContext == null ? null : ModalRoute.of(viewerContext)?.isCurrent,
+      'calls': [for (final call in harness.calls.where((call) => call.method.startsWith('capture.')))
+        {'method': call.method, 'arguments': call.arguments}],
+      'viewerLabels': tester.widgetList<Text>(_in(_viewer, find.byType(Text)))
+        .map((text) => text.data).whereType<String>().take(12).toList(),
+    });
+    expect(tester.binding.lifecycleState, AppLifecycleState.resumed, reason: resumeState);
+    expect(harness.box.sessionRevision, session, reason: resumeState);
+    expect(harness.box.remote, isFalse, reason: resumeState);
+    expect(_viewer, findsOneWidget, reason: resumeState);
+    expect(harness.calls.where((call) => call.method == 'capture.body.view'), hasLength(2), reason: resumeState);
+    expect(harness.calls.where((call) => call.method == 'capture.body.view.page'), hasLength(2), reason: resumeState);
+    expect(_in(_viewer, find.byKey(const ValueKey('captured-body-text'))), findsOneWidget, reason: resumeState);
+    expect(_text(tester, _viewer), '1: 2', reason: resumeState);
+    expect(_in(_viewer, find.text('Derived body page: 2')), findsOneWidget, reason: resumeState);
     expect(json(harness.calls.lastWhere((call) => call.method == 'capture.body.view').arguments)['readerId'], isNot(reader));
     expect(tester.takeException(), isNull);
   });
