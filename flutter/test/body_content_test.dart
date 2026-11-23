@@ -162,6 +162,86 @@ void main() {
     expect(latinPage.text, 'café');
   });
 
+  test('native charset display pages preserve the original bytes across page boundaries', () {
+    const original = [0xc4, 0xe3, 0xba, 0xc3];
+    final page = {
+      'text': base64Encode(original), 'encoding': 'base64', 'source': 'decoded',
+      'offset': 16384, 'hasMore': true, 'charset': 'GB18030', 'displayText': '你好😀',
+    };
+    final content = readCapturedBody({'bodyComplete': false, 'headers': [
+      {'name': 'content-type', 'value': 'text/plain; charset=gbk'},
+    ]}, page);
+    expect(content.kind, CapturedBodyKind.text);
+    expect(content.charset, 'gb18030');
+    expect(content.text, '你好😀');
+    expect(content.bytes, original);
+    expect(content.complete, isFalse);
+    final utf16 = readCapturedBody({'bodyComplete': false}, {
+      'text': base64Encode([0, 0xde, 0x41, 0]), 'encoding': 'base64', 'offset': 16384,
+      'hasMore': true, 'charset': 'utf-16le', 'displayText': '😀A',
+    });
+    expect(utf16.text, '😀A');
+    expect(utf16.bytes, [0, 0xde, 0x41, 0]);
+    final declaredEarlier = readCapturedBody({}, {
+      'text': base64Encode([0x63, 0x61, 0x66, 0xe9]), 'encoding': 'base64',
+      'offset': 32768, 'charset': 'iso-8859-1',
+    });
+    expect(declaredEarlier.text, 'café');
+    expect(readCapturedBody({}, {...page, 'source': 'raw'}).kind, CapturedBodyKind.binary);
+    expect(readCapturedBody({}, {...page, 'displayText': String.fromCharCode(0xd800)}).kind,
+      CapturedBodyKind.binary);
+    expect(readCapturedBody({}, {...page, 'displayText': 'a\u0000b'}).kind, CapturedBodyKind.binary);
+  });
+
+  test('a native page applies its latest direction completion metadata', () {
+    final content = readCapturedBody({'bodyComplete': false}, {
+      'text': base64Encode([0x89, 0x50, 0x4e, 0x47]), 'encoding': 'base64', 'offset': 0,
+      'message': {'bodyComplete': true, 'headers': [{'name': 'content-type', 'value': 'image/png'}]},
+    });
+    expect(content.kind, CapturedBodyKind.image);
+    expect(content.complete, isTrue);
+  });
+
+  test('native ASCII pages in legacy charsets remain text when decoded display equals the original', () {
+    const original = 'ASCII body page';
+    for (final charset in ['gbk', 'big5', 'windows-1252']) {
+      final page = {
+        'text': original, 'encoding': 'text', 'source': 'decoded', 'offset': 16384,
+        'charset': charset, 'displayText': original,
+      };
+      final content = readCapturedBody({'bodyComplete': false, 'headers': [
+        {'name': 'content-type', 'value': 'text/plain; charset=$charset'},
+      ]}, page);
+      expect(content.kind, CapturedBodyKind.text, reason: charset);
+      expect(content.text, original);
+      expect(content.bytes, ascii.encode(original));
+      expect(content.complete, isFalse);
+    }
+  });
+
+  test('the native default UTF-8 charset keeps untyped text and binary Protobuf classification', () {
+    final message = {'bodyComplete': true, 'bodyTruncated': false};
+    final text = readCapturedBody(message, {
+      'text': '你好😀', 'encoding': 'text', 'source': 'decoded', 'offset': 0, 'charset': 'utf-8',
+    });
+    expect(text.kind, CapturedBodyKind.text);
+    expect(text.text, '你好😀');
+    for (final display in [null, '\u0008\u0001\u0012\u0000']) {
+      final page = {
+        'text': base64Encode([8, 1, 18, 0]), 'encoding': 'base64', 'source': 'decoded',
+        'offset': 0, 'charset': 'utf-8', if (display != null) 'displayText': display,
+      };
+      final proto = readCapturedBody(message, page);
+      expect(proto.format, CapturedBodyFormat.protobuf);
+      expect(proto.text, '1: 1\n2: ""');
+      expect(proto.bytes, [8, 1, 18, 0]);
+      final declared = readCapturedBody({...message, 'headers': [
+        {'name': 'content-type', 'value': 'application/octet-stream; charset=utf-8'},
+      ]}, page);
+      expect(declared.kind, CapturedBodyKind.binary);
+    }
+  });
+
   test('unsupported declared charsets keep bytes and do not guess text or Protobuf', () {
     const gbk = [0xc4, 0xe3, 0xba, 0xc3];
     final content = _read(gbk, contentType: 'text/plain; charset=GBK');

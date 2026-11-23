@@ -295,24 +295,6 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 		e.wg.Add(1)
 		e.mu.Unlock()
 		defer e.wg.Done()
-		requestURL, err := url.Parse(target.Scheme + "://" + request.Host)
-		if err != nil || requestURL.Hostname() == "" || requestURL.User != nil {
-			http.Error(w, "Invalid request authority", http.StatusBadRequest)
-			return
-		}
-		requestHost := normalizeHost(requestURL.Hostname())
-		if metadata.Protocol == "tls" {
-			port := requestURL.Port()
-			if port == "" {
-				port = "443"
-			}
-			if requestHost != normalizeHost(metadata.Host) || port != strconv.Itoa(int(metadata.Port)) {
-				// HTTP/2 clients can retry this origin on its own TLS connection.
-				e.filteredRequests.Add(1)
-				http.Error(w, "Reconnect using this origin's own TLS connection", http.StatusMisdirectedRequest)
-				return
-			}
-		}
 		display := request.Clone(request.Context())
 		if display.URL.Scheme == "" {
 			display.URL.Scheme = target.Scheme
@@ -324,7 +306,12 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 			display.URL.Host = target.Host
 		}
 		requestMetadata := metadata
-		requestMetadata.Host = requestHost
+		requestURL, err := url.Parse(target.Scheme + "://" + request.Host)
+		requestHost := ""
+		if err == nil {
+			requestHost = normalizeHost(requestURL.Hostname())
+			requestMetadata.Host = requestHost
+		}
 		id := ""
 		e.parsedRequests.Add(1)
 		id = e.beginRecording(requestMetadata, display)
@@ -341,9 +328,26 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 			}
 			e.store.finish(id)
 		}()
+		if err != nil || requestHost == "" || requestURL.User != nil {
+			e.store.setError(id, errors.New("invalid request authority"))
+			e.writeError(w, request, id, "Invalid request authority", http.StatusBadRequest)
+			return
+		}
+		if metadata.Protocol == "tls" {
+			port := requestURL.Port()
+			if port == "" {
+				port = "443"
+			}
+			if requestHost != normalizeHost(metadata.Host) || port != strconv.Itoa(int(metadata.Port)) {
+				// HTTP/2 clients can retry this origin on its own TLS connection.
+				e.store.setError(id, errors.New("request authority differs from the intercepted TLS origin"))
+				e.writeError(w, request, id, "Reconnect using this origin's own TLS connection", http.StatusMisdirectedRequest)
+				return
+			}
+		}
 		if request.Method == http.MethodConnect {
 			e.store.setError(id, errors.New("nested CONNECT is not supported"))
-			http.Error(w, "Nested CONNECT is not supported", http.StatusNotImplemented)
+			e.writeError(w, request, id, "Nested CONNECT is not supported", http.StatusNotImplemented)
 			return
 		}
 		request.URL = display.URL
@@ -366,12 +370,19 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 		if program != nil {
 			// Abort rejected HTTP/1 uploads without draining unfinished bodies.
 			controller := http.NewResponseController(w)
+			var progress *requestBodyProgress
+			if request.Body != nil && request.Body != http.NoBody {
+				progress = &requestBodyProgress{ReadCloser: request.Body, expected: request.ContentLength}
+				request.Body = progress
+			}
 			local, err = program.request(request, scriptID, originalURL.String(), note)
 			if err != nil && request.ProtoMajor == 1 {
 				// HTTP/1 Body.Close may drain unread data before the response is
 				// flushed. Stop those reads and never reuse a rejected upload's
 				// connection, even when the client leaves its body unfinished.
-				_ = controller.SetReadDeadline(time.Now())
+				if progress != nil && !progress.complete() {
+					_ = controller.SetReadDeadline(time.Now())
+				}
 				w.Header().Set("Connection", "close")
 			} else {
 				_ = controller.SetReadDeadline(time.Time{})
@@ -386,7 +397,7 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 				if errors.Is(err, errRewriteSize) {
 					status = http.StatusRequestEntityTooLarge
 				}
-				http.Error(w, "B-box: request processing failed; see request details or service logs", status)
+				e.writeError(w, request, id, "B-box: request processing failed; see request details or service logs", status)
 				return
 			}
 			e.store.rewrittenRequest(id, request, originalURL.String())
@@ -453,11 +464,88 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 					panic(http.ErrAbortHandler)
 				}
 				e.reportError("Upstream HTTP " + metadata.Host + ": " + err.Error())
-				http.Error(w, "B-box: upstream connection failed; see HTTP debugging details", http.StatusBadGateway)
+				e.writeError(w, r, id, "B-box: upstream connection failed; see HTTP debugging details", http.StatusBadGateway)
 			},
 		}
 		proxy.ServeHTTP(w, request)
 	})
+}
+
+// Record local errors through the writer that sends them. Constructing a saved
+// response before writing would fabricate bodies on HEAD, abort or write failure.
+func (e *Engine) writeError(w http.ResponseWriter, request *http.Request, id, message string, status int) {
+	if request.Context().Err() != nil {
+		return
+	}
+	writer := &errorResponseWriter{ResponseWriter: w, engine: e, request: request, id: id}
+	http.Error(writer, message, status)
+	if writer.wroteHeader && writer.err == nil && request.Context().Err() == nil {
+		e.store.bodyComplete(id, true)
+	}
+}
+
+type errorResponseWriter struct {
+	http.ResponseWriter
+	engine      *Engine
+	request     *http.Request
+	id          string
+	wroteHeader bool
+	err         error
+}
+
+// Once an HTTP/1 body is complete, net/http starts a background read for the
+// next request. Interrupting that read cancels this request's context too, so
+// only an unfinished upload should be stopped before sending its rejection.
+type requestBodyProgress struct {
+	io.ReadCloser
+	expected int64
+	read     int64
+	eof      bool
+}
+
+func (b *requestBodyProgress) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	b.read += int64(n)
+	b.eof = b.eof || err == io.EOF
+	return n, err
+}
+
+func (b *requestBodyProgress) complete() bool {
+	return b.eof || b.expected >= 0 && b.read == b.expected
+}
+
+func (w *errorResponseWriter) WriteHeader(status int) {
+	w.ResponseWriter.WriteHeader(status)
+	if w.wroteHeader || status < 200 {
+		return
+	}
+	w.wroteHeader = true
+	w.engine.store.response(w.id, &http.Response{
+		StatusCode: status, Proto: w.request.Proto, Header: w.Header().Clone(),
+		// Completion is published only after http.Error's writes succeed.
+		Body: io.NopCloser(strings.NewReader("")), ContentLength: -1,
+	})
+}
+
+func (w *errorResponseWriter) Write(p []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	n, err := w.ResponseWriter.Write(p)
+	// net/http accepts and discards the representation on HEAD. It is not an
+	// actual response body and must not appear in capture or HAR.
+	if n > 0 && w.request.Method != http.MethodHead {
+		w.engine.plaintextBytes.Add(int64(n))
+		w.engine.store.appendBody(w.id, true, p[:n])
+	}
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		w.err = err
+		w.engine.store.setError(w.id, err)
+	}
+	return n, err
 }
 
 // Observe records only the visible name, never a fabricated decrypted request.

@@ -25,7 +25,7 @@
 | 路由生命周期 | [ui_route.go](libbox/ui_route.go) | 出口探测与脚本共用路由准入、取消及退出等待，包含脚本指定出站的拨号 |
 | 正则取消 | [regexp2-cancel.patch](libbox/regexp2-cancel.patch)、[goja-regexp-cancel.patch](libbox/goja-regexp-cancel.patch) | 将请求取消和 VM 中断传入回溯执行，不对不同请求共用可变期限 |
 | 局域网代理配置绑定 | [ui_lan.go](libbox/ui_lan.go) | 读取 mixed/http/socks 监听端点、修改 listen 或显式新增 mixed 入站 |
-| HTTP/HTTPS 请求抓取 | [httpdebug.patch](libbox/httpdebug.patch)、[httpdebug/](libbox/httpdebug/)、[route/](libbox/route/)、[ui_capture.go](libbox/ui_capture.go) | HTTP 录制、HTTPS MITM、平台签名、域名提取、记录及导出绑定 |
+| HTTP/HTTPS 请求抓取 | [httpdebug.patch](libbox/httpdebug.patch)、[httpdebug/](libbox/httpdebug/)、[route/](libbox/route/)、[ui_capture.go](libbox/ui_capture.go)、[ui_capture_body.go](libbox/ui_capture_body.go) | HTTP 录制、HTTPS MITM、平台签名、域名提取、可取消正文读取与派生视图、记录及导出绑定 |
 | 独立配置处理 | [http_rewrite.patch](libbox/http_rewrite.patch)、[ui_processing.go](libbox/ui_processing.go)、[processing.go](libbox/option/processing.go) | 独立的 MITM、HTTP 改写及 HTTP/Cron/事件/Generic 脚本，统一校验及服务生命周期 |
 
 ## 新增接口与行为
@@ -216,6 +216,8 @@ WireGuard 输出结构核对当前核心 [`v1.15.0-alpha.13` 的选项](https://
 
 HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供的 Forwarded/X-Forwarded 字段。正文边转发边保存前缀，不因存储限额截断实际传输；SSE 立即刷新，WebSocket 透传升级后的连接且只记录 HTTP 握手。请求/响应 trailers 单独保存；并发 HTTP/2 流独立记录，取消保留已收到的正文及未完成标志。
 
+[proxy.go](libbox/httpdebug/proxy.go) 也录制当前录制条件允许的本地错误响应：请求处理的 413/502、上游连接或响应处理的 502，以及 authority 校验的 400/421 和 nested CONNECT 的 501。保存实际写出的状态、显式响应头、客户端 HTTP 协议及响应写入器接受的字节，并沿用每方向正文保留上限；HEAD 保存空正文。短写、写入失败或取消不标记正文完整，脚本 abort 不合成响应；服务已停止时返回的 503 不重建录制记录。
+
 每条请求/响应记录保留独立 `id`，详情查询、正文文件和导出继续使用它。路由入口从 sing-box [trafficcontrol.Tracker](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/common/trafficcontrol/tracker.go) 读取原始客户端连接的 UUID，写入可选的 `metadata.connectionId`，与 libbox 连接列表的 ID 一致；读取会穿过嗅探缓存等连接包装。同一连接的 HTTP/1.1 请求和 HTTP/2 流共享此关联，HTTPS 与 TLS/TCP 记录也保留它，跨目标改写不替换为新出站连接的 ID。
 
 没有跟踪器的流、跟踪前的 QUIC 域名观察和旧记录可缺省该字段；旧 `captureId` 不作为连接 ID。关联以字符串随记录保存，连接关闭或从连接历史淘汰不删除请求记录，请求记录保留到明确清空；启停抓包接口不接收连接 ID。
@@ -233,12 +235,20 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 - 不设固定的接管连接、HTTP/2 并发流、每主机连接、HTTP 头或正文容量配额，也不增加固定读头、空闲、正文读取、MITM 探测和 TLS 握手期限。[tls_selection.go](libbox/httpdebug/tls_selection.go) 跟踪探测、待交接与正式处理的生命周期，调用取消及服务停止会回收连接。ClientHello 使用当前 Go `crypto/tls` 的解析边界；路由入口保留上游协议嗅探的回退期限，缓冲区按需增长并完整回放，不以初始容量拒绝大请求头。
 - [recording.go](libbox/httpdebug/recording.go) 将记录策略与服务处理引擎分开。启停记录不替换引擎或关闭已有 HTTP、SSE、WebSocket、TLS/TCP 连接；停止时封存已有前缀和当时的完整性状态，迟到正文、响应及 EOF 不再更新该记录。重新开启从已有拦截连接的新 HTTP 请求或新 TCP 流开始记录，不能补录正在传输的旧流；尚未被接管的连接需由应用重新建立。服务停止/重载才关闭旧处理连接，记录不会自动恢复。
 - 抓包端口默认 80、443、8080、8443，端口、应用和 MITM 主机列表不设条数配额；按原始目标端口筛选。应用列表为空表示不限；未知归属不能匹配指定应用，共享 UID 使用同一归属结果。这些设置只限制记录，不改变配置中的解密或处理范围。
-- 请求条数、磁盘总量、头部和 trailers 不设固定配额。每方向正文默认保留 64 KiB，用户可填写任意可表示的正整数字节数，`-1` 保存完整正文；旧记录的截断标记保留。存储失败、截断、未完成和流错误分别保留。
-- 正文处理、预览和 HAR 使用相同的 Content-Encoding 解析，支持 identity、gzip/x-gzip、deflate（zlib/raw）、br 和 zstd，合并重复头后按应用顺序逆序解码。处理阶段沿用 [content_encoding.go](libbox/httpdebug/content_encoding.go) 的逐层用户限额；预览和导出通过 [content_reader.go](libbox/httpdebug/content_reader.go) 串联流式解码器，不将完整正文或中间层装入内存。HAR 请求/响应保留原始保存内容与完整性标志，用 `_trailers` 保存尾部字段，耗时仅为总时长。cURL 仅允许完整、未截断且无 trailers 的 HTTP 请求；TLS/TCP 流和仅域名记录不进入 HAR，也不能导出 cURL。
+- 请求条数、磁盘总量、头部和 trailers 不设固定配额。每方向正文默认保留 64 KiB，用户可填写任意可表示的正整数字节数，`-1` 保存完整正文；旧记录的截断标记保留。需要完整图片或完整格式解读时，正文必须已经完整保存；超过当前保留上限的内容须先调大限额或设为 `-1`，再重新录制，派生视图不能补回未保存的字节。存储失败、截断、未完成和流错误分别保留。
+- 正文处理、预览、派生视图和 HAR 使用相同的 Content-Encoding 解析，支持 identity、gzip/x-gzip、deflate（zlib/raw）、br 和 zstd，合并重复头后按应用顺序逆序解码。处理阶段沿用 [content_encoding.go](libbox/httpdebug/content_encoding.go) 的逐层用户限额；读取和导出使用串联流式解码器，完整正文及中间层不进入全量内存数组。HAR 请求/响应保留原始保存内容与完整性标志，用 `_trailers` 保存尾部字段，耗时仅为总时长。cURL 仅允许完整、未截断且无 trailers 的 HTTP 请求；TLS/TCP 流和仅域名记录不进入 HAR，也不能导出 cURL。
 
 [store.go](libbox/httpdebug/store.go) 为每条记录的两个方向按需保留正文文件句柄，方向内串行写入，EOF、用户正文限额、完成和清空均释放句柄；达到前缀上限后继续累计实际转发字节。正文写入在索引锁外执行，完成标志等待在途写入提交计数，迟到写入不能重建已清理记录；元数据沿用原子替换。详情、正文页和导出在锁内复制元数据并打开文件，随后在锁外通过受快照字节数约束的 SectionReader 读取，保留并发追加及清空期间的快照一致性。兼容绑定 `ListUICapture` 仍支持 `limit=0` 返回全部摘要，新界面使用上述分页查询。
 
-[body_preview.go](libbox/httpdebug/body_preview.go) 将每方向详情限制为首个 16 KiB 正文页；`ReadUICaptureBody(id, response, offset, raw)` 按需读取后续页。`offset` / `nextOffset` 是所选字节表示的偏移，UTF-8 边界保留完整字符；`hasMore` 表示仍可翻页，与保存或解码的 `truncated` 分开。支持的编码默认查看解码后字节，二进制页以 Base64 表示；编码不可用时首个页回退到原始保存字节，返回 `source: raw` 及原因，后续沿用该来源。普通文件页直接定位，压缩内容为到达指定偏移从头流式解码并丢弃前缀，不缓存之前的正文页。16 KiB 是读取窗口，不改变用户的抓取保留范围。
+[body_preview.go](libbox/httpdebug/body_preview.go) 将每方向详情限制为首个 16 KiB 正文页，兼容绑定 `ReadUICaptureBody(id, response, offset, raw)` 保留按需读取。`offset` / `nextOffset` 始终是所选字节表示的偏移：默认使用 HTTP 解码后的字节，`raw` 使用原始保存字节；文本边界保留完整字符，二进制页以 Base64 表示。`hasMore` 表示仍可翻页，与保存或解码的 `truncated` 分开。不支持 HTTP 编码或无法取得任何解码前缀时，零偏移读取可回退到保存字节并返回 `source: raw` 及原因，后续沿用该来源；已有解码前缀发生错误时保留前缀及错误标志。16 KiB 是读取窗口，不改变抓取保留范围。
+
+交互读取使用 [ui_capture_body.go](libbox/ui_capture_body.go) 的 `NewUICaptureBodyTask` / `Read` 和 [BodyReader](libbox/httpdebug/body_reader.go)。每个 reader 绑定一个正文方向和字节来源；未压缩页直接定位，压缩正文的已解码前缀流式写入任务独享的临时文件，继续翻页复用解码器，返回已读页面直接定位已有前缀。保存长度、编码或来源文件变化会使缓存失效。调用方取消传到每层解码和字符转换，关闭任务释放解码器、正文快照及临时文件；读取前后检查原记录仍被保留，清空后不发布旧缓存中的页面。
+
+[body_charset.go](libbox/httpdebug/body_charset.go) 只从正文开头最多 1 KiB 确定字符集，优先使用 BOM，再使用 HTTP `Content-Type` 的 `charset`、XML 声明或 HTML meta，最后默认 UTF-8；后续页面沿用该结果。UTF-16 BOM 决定字节序，泛用 `charset=utf-16` 没有 BOM 时按大端解释。支持 UTF-8、UTF-16、GBK/GB18030、Big5、Shift_JIS、EUC-JP/KR 及受支持的单字节字符集，ASCII 和 ISO-8859-1 保留其声明语义。页面的 `text` / `encoding` 仍表示原字节，`charset` 与 UTF-8 `displayText` 供显示使用，不改变字节偏移；可解码的非 UTF-8 页面始终带 `displayText`，包括全 ASCII 页面。未知字符集或无效字符数据保留可查看的字节；[严格字符转换](libbox/httpdebug/body_charset_reader.go) 不以替换字符掩盖源数据错误，完整 JSON 派生遇到此类错误会失败。
+
+[body_view.go](libbox/httpdebug/body_view.go) 的 `WriteBodyView` 只接受完整、未截断的正文，先完整处理 HTTP 编码，再生成文件视图。`UICaptureBodyTask.PrepareView` 通过临时文件和原子改名发布结果：图片返回完整解码文件路径；JSON、protobuf 和 gRPC 输出完整派生文本，再由 `ReadView` 按 16 KiB UTF-8 页面读取。派生页使用 `source: view`，偏移属于派生文件，不与原正文页混用。生成和分页均可取消，清空原记录后拒绝旧视图；关闭任务清理文件，原抓取正文、保留计数与导出内容保持原表示。完整视图不受首个正文页或旧 64 KiB 格式化窗口限制。
+
+[JSON 格式化](libbox/httpdebug/body_view_json.go) 流式验证完整语法并保留数字词法、重复键和转义拼写；[protobuf 解读](libbox/httpdebug/body_view_proto.go) 完整遍历字段，保留 uint64、重复字段和跨页长文本，按字段编号展示可判定的文本与嵌套结构。没有 schema 时不推断字段名称或业务类型，不可解读的二进制字段保留字节摘要，完整字节仍可从原正文页查看。gRPC 完整遍历消息帧，支持帧内 gzip/deflate、gRPC-Web trailers、HTTP trailers 和独立填充的 grpc-web-text Base64 块；`+json` 优先按声明的 JSON 解读，其余可识别消息按 protobuf 展示。帧内编码不可用或损坏时保留压缩字节摘要及提示，HTTP 编码损坏、帧封装错误或不完整正文不发布完整视图。
 
 [export.go](libbox/httpdebug/export.go) 的 HAR 逐条、逐字段写入；解码大小及请求文本编码通过一次流式扫描确定，第二次流式写出完整保存内容，保留压缩原文 `_rawBody`。文本转义和 Base64 编码均分块进行，解码错误保留前缀、原文及错误标记。`ExportUICaptureCurlFile(path, id)` 直接流式生成脚本文件；旧 `ExportUICaptureCurl` 字符串绑定只为已有调用者保留，Android 文件导出使用新绑定。正文页、HAR 和 cURL 不共享全量正文数组。此边界对应 [Android 进程内存管理](https://developer.android.com/topic/performance/memory-overview)；它不是设备容量测量或新的抓取配额。
 
@@ -566,7 +576,9 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 - [store_activity_test.go](libbox/httpdebug/store_activity_test.go)：摘要关联的持久化、独立正文计数、改写前 URL、旧记录缺省，以及 HAR 选择的去重、顺序、空选择、非法输入、非 HTTP 排除和淘汰后不扩大导出范围；真实 HTTP/1.1 复用连接的用例同时检查摘要与详情的关联一致。
 - [store_query_test.go](libbox/httpdebug/store_query_test.go)：超过 300 条历史的分页与搜索、当前连接和请求字段组合匹配、未加载父连接去重、状态和排序、摘要增量、全历史 HAR 选择、清空后不扩大导出、非法范围与选项，以及查询与录制/清空竞争。
 - [store_migration_test.go](libbox/httpdebug/store_migration_test.go)：旧文件清理、请求保留、符号链接隔离，以及旧记录不将 `captureId` 误认为连接 ID、未知上游 ALPN 保持区分。
-- [body_inspection_test.go](libbox/httpdebug/body_inspection_test.go)：正文分页不拆分 UTF-8 字符、不丢失或重复字节，预览只读取并解码所在页，流式 HAR 和 cURL 保留完整的已存正文及原始压缩数据，快照在追加和清空后保持已固定的前缀。
+- [body_inspection_test.go](libbox/httpdebug/body_inspection_test.go)：无状态正文分页不拆分 UTF-8 字符、不丢失或重复字节，首个预览不完整读取或解码整份保存正文，流式 HAR 和 cURL 保留完整的已存正文及原始压缩数据，快照在追加和清空后保持已固定的前缀。
+- [body_reader_test.go](libbox/httpdebug/body_reader_test.go)：二进制混合页的 UTF-8 边界、字符集与 BOM/HTTP/markup 优先级、跨页中文和 emoji、原字节及偏移保留、ASCII/Latin-1 的声明语义、非 UTF-8 的 ASCII 页面仍返回 `displayText`；压缩前缀的前后翻页复用、增长时失效、元数据刷新、空解码正文与编码回退区分、绑定来源及非法偏移、排队和在途取消、清空/关闭释放临时文件，以及严格字符转换的错误与取消。
+- [body_view_test.go](libbox/httpdebug/body_view_test.go)：超过首个正文页及旧格式化窗口的大 JSON、字符集转换后格式化、数字/重复键/转义保留、protobuf 的跨页 uint64/长文本及大量重复字段、完整大图片、HTTP 多层编码与帧内压缩的 gRPC/JSON/protobuf、grpc-web-text 独立填充及两类 trailers、JSON 声明与 protobuf 字节推断冲突、完整派生文本分页；畸形/损坏/未完成/截断拒绝，底层读取和最后一次输出取消、输出时清空记录、视图保留检查及临时文件清理。
 - [recording_test.go](libbox/httpdebug/recording_test.go)：在同一 HTTP/1.1、HTTP/2 连接反复启停记录时处理不中断、连接 ID 不变，停止记录冻结 SSE 记录但不断开连接。
 - [diagnostics_test.go](libbox/httpdebug/diagnostics_test.go)：无 HTTP 请求的 TLS 结束提示、处理失败指向既有服务日志，以及停止后的迟到更新隔离。
 
@@ -584,7 +596,8 @@ MITM 与 TLS：
 - [body_processing_test.go](libbox/httpdebug/body_processing_test.go)：各编码、多层和重复头在改写、预览与 HAR 中一致；不符合条件的正文不被读取并继续流式转发；正文预留按实际字节登记并在输出后释放，不再有全局配额；显式解码上限和截断上传保持完整性；只读头部的脚本不为原始流保留正文预留。
 - [streaming_processing_test.go](libbox/httpdebug/streaming_processing_test.go)：HTTP/2 gRPC 在上传结束前响应并保留 trailers、`Expect: 100-continue` 上传改写不死锁，以及慢上传取消后释放预留。
 - [grpc_body_test.go](libbox/httpdebug/grpc_body_test.go)：通过真实 HTTP/2 MITM 检查一元 RPC 双向压缩消息改写、长度更新及请求/响应 trailers；gRPC-Web 二进制/Base64 填充、损坏及多消息跳过、无操作原字节保留、输出校验和取消释放。
-- [upload_rejection_test.go](libbox/httpdebug/upload_rejection_test.go)：使用真实 TCP 连接，固定长度/chunked 上传超过显式上限且停止发送时，HTTP/1 及时返回完整 413、关闭连接并完成记录及预留释放；未读取正文就发生的脚本错误返回 502；HTTP/2 返回 413 后同一连接仍可处理新请求。
+- [upload_rejection_test.go](libbox/httpdebug/upload_rejection_test.go)：使用真实 TCP 连接，固定长度/chunked 上传超过显式上限且停止发送时，HTTP/1 及时返回完整 413、关闭连接并完成记录及预留释放；未读取正文就发生的脚本错误返回 502；HTTP/2 返回 413 后同一连接仍可处理新请求，并核对错误响应状态、保存正文及完整标志。
+- [error_response_test.go](libbox/httpdebug/error_response_test.go)：真实 HTTP/1.1/2 的请求处理 413/502、上游和响应处理 502、HEAD 与正文保留上限，核对客户端收到的响应及记录；短写/写入失败只保存已接受字节，取消和脚本 abort 不录制未发送响应，400/421/501 的录制及服务关闭后 503 不重建记录。
 - [transport_limits_test.go](libbox/httpdebug/transport_limits_test.go)：慢上传越过旧正文期限后不中止，仍完成改写。
 - [processing_limits_test.go](libbox/httpdebug/processing_limits_test.go)：大规模配置、MITM 范围、改写与脚本数量不受旧数量或大小上限限制，长正则与大量分组可用，jq 无输出数量/嵌套上限并响应调用方取消，记录保留大正文和全部历史直至显式清空。
 

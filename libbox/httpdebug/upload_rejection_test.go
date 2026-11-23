@@ -102,6 +102,12 @@ func TestRejectedHTTP1UploadDoesNotWaitForRemainingBody(t *testing.T) {
 				if len(items) != 1 || !items[0].Complete || items[0].Error == "" {
 					t.Fatalf("rejected request did not finish recording: %+v", items)
 				}
+				detail, err := saved.Detail(items[0].ID)
+				if err != nil || detail.Response.Status != response.StatusCode || !detail.Response.BodyComplete ||
+					detail.Response.BodyBytes != int64(len(body)) || detail.Response.CapturedBytes != int64(len(body)) ||
+					detail.ResponsePreview.Text != string(body) || recordedErrorHeader(detail.Response, "Connection") != "close" {
+					t.Fatalf("unfinished upload lost the rejection sent to the client: %+v %v", detail, err)
+				}
 			})
 		}
 	}
@@ -164,6 +170,7 @@ func TestRejectedHTTP2UploadKeepsConnectionUsable(t *testing.T) {
 	if err != nil || got.response.StatusCode != http.StatusRequestEntityTooLarge || got.response.ProtoMajor != 2 || !strings.Contains(string(body), "request processing failed") {
 		t.Fatalf("incomplete HTTP/2 rejection: status=%d body=%q error=%v", got.response.StatusCode, body, err)
 	}
+	rejectedBody := string(body)
 	// Reuse this exact connection so reconnecting cannot hide a connection-wide
 	// deadline or Connection: close accidentally applied to HTTP/2.
 	next, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.test/ok", nil)
@@ -176,7 +183,23 @@ func TestRejectedHTTP2UploadKeepsConnectionUsable(t *testing.T) {
 	if err != nil || response.StatusCode != http.StatusOK || response.ProtoMajor != 2 || string(body) != "ok" {
 		t.Fatalf("HTTP/2 connection failed after rejection: status=%d body=%q error=%v", response.StatusCode, body, err)
 	}
-	waitComplete(t, saved, 2)
+	items := waitComplete(t, saved, 2)
+	foundRejection := false
+	for _, item := range items {
+		if item.Status != http.StatusRequestEntityTooLarge {
+			continue
+		}
+		foundRejection = true
+		detail, err := saved.Detail(item.ID)
+		if err != nil || !detail.Response.BodyComplete || detail.Response.Protocol != "HTTP/2.0" ||
+			detail.Response.BodyBytes != int64(len(rejectedBody)) || detail.Response.CapturedBytes != int64(len(rejectedBody)) ||
+			detail.ResponsePreview.Text != rejectedBody || recordedErrorHeader(detail.Response, "Connection") != "" {
+			t.Fatalf("HTTP/2 stream lost the rejection sent to the client: %+v %v", detail, err)
+		}
+	}
+	if !foundRejection {
+		t.Fatal("HTTP/2 rejection status was not saved")
+	}
 	if processingBodies.used.Load() != 0 {
 		t.Fatal("HTTP/2 rejection retained its body budget")
 	}

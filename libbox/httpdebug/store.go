@@ -187,6 +187,12 @@ func OpenStore(directory string) (*Store, error) {
 	// Only remove files owned by this store, including orphaned body/temp files.
 	for _, entry := range entries {
 		name := entry.Name()
+		if !entry.IsDir() && strings.HasSuffix(name, ".tmp") &&
+			(strings.HasPrefix(name, "body-preview-") || strings.HasPrefix(name, "body-view-source-") ||
+				strings.HasPrefix(name, "body-view-grpc-web-") || strings.HasPrefix(name, "body-view-grpc-message-")) {
+			_ = os.Remove(filepath.Join(directory, name))
+			continue
+		}
 		for _, suffix := range []string{".request", ".response", ".json.tmp"} {
 			id := strings.TrimSuffix(name, suffix)
 			if strings.HasSuffix(name, suffix) && validID(id) && (suffix == ".json.tmp" || s.records[id] == nil) {

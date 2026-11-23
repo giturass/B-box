@@ -24,7 +24,7 @@ FlClash 应用层固定参考 [chen08209/FlClash v0.9.3](https://github.com/chen
 
 脚本事件与调试独立参考同一固定提交的 [mitm_module.dart](https://github.com/chen08209/FlClash/blob/5e579c4987e50e5c68e6023cc31ff4db55d480bb/lib/common/mitm_module.dart#L505) 及 [mitm_modules.dart](https://github.com/chen08209/FlClash/blob/5e579c4987e50e5c68e6023cc31ff4db55d480bb/lib/views/config/mitm_modules.dart#L38)：采用三个事件名字、Cron/event/generic 的立即运行入口、防重复执行和结果/错误/console 展示。来源清单记录两份原文件哈希及设计参考用途；B-box 自行实现 sing-box JSON、内核事件、配置修订及数组下标选择、可取消 Goja 执行和本地/远程隔离。该补充参考不更新整体 UI、Android 或核心基线，也不导入模块解析器。
 
-正文查看独立参考同一固定提交的 [readMitmBody](https://github.com/chen08209/FlClash/blob/5e579c4987e50e5c68e6023cc31ff4db55d480bb/lib/common/mitm_body.dart#L64)、[mitm_protobuf.dart](https://github.com/chen08209/FlClash/blob/5e579c4987e50e5c68e6023cc31ff4db55d480bb/lib/common/mitm_protobuf.dart) 及[正文查看组件](https://github.com/chen08209/FlClash/blob/5e579c4987e50e5c68e6023cc31ff4db55d480bb/lib/features/connection/mitm_body.dart)。采用文本/图片/二进制分类、无类型定义的 Protobuf/gRPC 展示、十六进制行及独立查看入口；清单记录改写与交互参考的原始哈希。B-box 继续使用 sing-box 保存的正文页、原文保真 JSON 格式化和 Prism 控件，不引入上游的全量正文、Rust 字符集接口或编辑器依赖，整体 UI、Android 和核心基线分别维护。
+正文查看独立参考同一固定提交的 [readMitmBody](https://github.com/chen08209/FlClash/blob/5e579c4987e50e5c68e6023cc31ff4db55d480bb/lib/common/mitm_body.dart#L64)、[mitm_protobuf.dart](https://github.com/chen08209/FlClash/blob/5e579c4987e50e5c68e6023cc31ff4db55d480bb/lib/common/mitm_protobuf.dart) 及[正文查看组件](https://github.com/chen08209/FlClash/blob/5e579c4987e50e5c68e6023cc31ff4db55d480bb/lib/features/connection/mitm_body.dart)。采用文本/图片/二进制分类、无类型定义的 Protobuf/gRPC 展示、十六进制行及独立查看入口；清单记录改写与交互参考的原始哈希，并列出 Go 完整文件解析的适配路径。B-box 使用 sing-box 保存的正文、原生流式解码与派生文件、原文保真 JSON 格式化和 Prism 控件；Flutter 按需读取字节页或派生文本页，字符集由自身原生读取接口提供，页面没有上游 Rust 字符集或编辑器依赖。整体 UI、Android 和核心基线分别维护。
 
 FlClash 应用层组件位于 [flutter/lib/ui](flutter/lib/ui)，共享控件以本地包 [flutter/packages/prism_ui](flutter/packages/prism_ui) 使用，保留原始源码与 shader，不再依赖旧 `material_ui`/`cupertino_ui`。原始许可见 [FlClash GPL](flutter/assets/licenses/LICENSE)、[prism_ui LICENSE](flutter/packages/prism_ui/LICENSE) 和 [NOTICE](flutter/packages/prism_ui/NOTICE)。Prism 内置的 shapes、sliver list、resizable navigator 的 MIT 声明另从源文件头提取至 [应用许可资源](flutter/assets/licenses)，与 HCT/Flutter 的 Apache/BSD 及 SDK、插件许可一起在 [许可证页](flutter/lib/pages/licenses.dart) 展示。该页面按包名列出、搜索并打开可选中的完整正文。
 
@@ -107,15 +107,21 @@ Android UI 生命周期、后台退出及原生状态恢复的约定见 [UI 与�
 
 普通连接和抓取记录使用同一个详情页。普通连接显示状态、来源/目标、规则、出站、应用及流量，并列出关联抓取记录；应用行展示当前会话内核提供的包名，缺失时显示“—”，详情复制沿用同一字段。请求详情在有原始连接 ID 时显示可复制 ID 和“查看连接”，菜单可切换连接信息与请求、响应、Cookies。连接信息下的关联记录以请求自身 ID 打开详情；仅域名记录不显示 HTTP 报文菜单。连接已淘汰时保留本页最后观测信息或请求中保存的元数据，标明当前连接不可用并禁用关闭操作。请求菜单的“关闭底层连接”需明确确认会中断共享连接上的所有请求。详情和 cURL 始终使用请求自身 ID；两个 ID 的来源、关联及保留规则见 [核心请求调试](libbox.md#httphttps-请求调试)。
 
-[captured_body.dart](flutter/lib/components/captured_body.dart) 在正文卡片中提供文本/图片、十六进制和 Base64 切换，展示内容类型、保存/总字节数、截断和未完成状态。“查看正文”打开当前页的独立快照，继承页码历史、字节来源、显示方式和本机会话；查看页支持文本自动折行/横向滚动、图片缩放与重置。返回详情后继续查看原卡片的页。上一页/下一页按需调用原生正文读取并替换当前页，不累计已读正文；页大小、UTF-8 边界和原始/解码字节语义见 [核心正文读取](libbox.md#httphttps-请求调试)。仍有下一页不显示截断警告；加载失败保留当前页，切换会话后丢弃迟到结果，已打开查看页也不再展示旧会话内容。
+[captured_body.dart](flutter/lib/components/captured_body.dart) 在正文卡片中提供文本/图片、十六进制和 Base64 切换，展示内容类型、字符集、保存/总字节数、截断和未完成状态。“查看正文”打开独立的活动查看页，以卡片当前原字节页、页码历史、字节来源、显示方式和本机会话为起点。卡片与查看页各自拥有原生读取器，返回详情后保留卡片的原页；查看页支持文本自动折行/横向滚动、图片缩放与重置。Flutter 只保留当前原字节页，上一页/下一页按需替换它，原生读取器在临时文件中复用解码进度。字节页大小、字符边界及原始保存/HTTP 解码字节的语义见 [核心正文读取](libbox.md#httphttps-请求调试)。
 
-单页内完整 JSON 可切换格式化与原文；[http_message.dart](flutter/lib/common/http_message.dart) 仅调整字符串外的空白，保留数值字面量、重复键及转义。正文页格式化在生成缩进前检查输出长度，超过 64 KiB 的展示窗口或内容无效时保留原文；这只约束派生显示文本，不截断保存内容或导出。
+活动查看页在前台、页面活动且 TickerMode 开启时每两秒读取未完成方向的详情，完成后停轮询；重新可见或返回前台重新读取一次。计数、完成和截断状态在所有原字节页同步，当前末页增长时按原偏移补读，页码历史不增加。原页保留自己的快照元数据，迟到的详情首页不能覆盖新页，分页读取期间收到更新后也会补读落后的末页；发出读取请求不会把旧页误判为完整正文。写入在途造成的截断状态可在保存字节追平后清除；`hasMore` 只决定翻页，不替代保存或解码失败的状态。原字节分页失败保留当前页，完整派生视图失败保留原页并提供重试。
 
-[body_content.dart](flutter/lib/common/body_content.dart) 基于当前页原始字节判断展示形式。文本严格校验 UTF-8，密集控制字符或 NUL 保留为二进制；稀疏控制字符只在显示中替换，保存内容与复制原文不变。UTF-8/ASCII、Latin1 及完整首个单页的 UTF-16 BOM/LE/BE 可解码，头部和首个页前 1024 字节的 HTML/XML 声明辅助识别字符集；不支持的字符集保留字节，不猜作 UTF-8。二进制默认显示十六进制与 ASCII 对照，行地址从当前页实际字节偏移开始，按宽度和系统字号选择列数并懒加载行；原始保存字节回退仍保留来源和解码错误。
+[body_content.dart](flutter/lib/common/body_content.dart) 基于当前页原字节判断展示形式，优先采用原生读取器提供的字符集及独立 `displayText`。原生从正文开头的 BOM、Content-Type 和前 1024 字节 HTML/XML 声明识别字符集，并在后续页保留相同解码方式；受支持字符集的纯 ASCII 页也保留可读显示。没有声明时默认 UTF-8，有明确但不支持的字符集时保留字节。文本严格检查有效字符，密集控制字符或 NUL 保留为二进制；稀疏控制字符只在显示中替换。字符集范围和原始页偏移由 [核心读取](libbox.md#httphttps-请求调试) 维护。十六进制行的地址从当前原字节页的实际偏移开始，按宽度和系统字号选择列数并懒加载行；原始保存字节回退仍保留来源和解码错误。
 
-图片仅在完整、未截断且无后续页的首个页预览，SVG 使用文本；解码尺寸按视口限制，每边最多 2048 像素并保留比例，关闭或更换内容时释放图像缓存。无效或平台不支持的图片可切回十六进制。完整首个单页的 Protobuf/gRPC 可按字段编号展示，保留重复字段及无符号 64 位整数；固定宽度值显示十六进制，长度字段的文本/嵌套结构仅为无类型定义的推测。gRPC 支持多个帧和 gRPC-Web 二进制/分块 Base64 文本及 trailers，帧压缩标志与 `grpc-encoding` 单独标记并保留压缩字节，不当作 HTTP 压缩解码；无法解析的帧载荷也保留为字节。嵌套解析最多进入 16 层，更深字段保留字节，节点与派生输出分别限制为 4096 和 64 KiB。Protobuf 结构无效或无法生成预算内结果时使用二进制查看，gRPC 无效帧封装和超出整体预算同样回退；不完整或分页内容继续逐页查看字节。上述限制只作用于派生显示，不改变保存范围或导出。
+单页快速解析保留原有预算：完整落在一页的 JSON 可切换格式化与原文；[http_message.dart](flutter/lib/common/http_message.dart) 只调整字符串外的空白，保留数值字面量、重复键及转义，缩进输出超过 64 KiB 或内容无效时保留原文。Dart 的 Protobuf/gRPC 快速解析最多进入 16 层，节点与派生输出分别限制为 4096 和 64 KiB；结构无效或超预算时使用原字节查看。这些是卡片及单页显示的预算，完整原生查看页通过流式文件解析处理跨页正文和超过这些节点、输出预算的内容。正文保留范围及每方向默认值由 [核心抓取设置](libbox.md#httphttps-请求调试) 维护。
 
-“复制本页正文”始终复制桥接页原文：文本页保留原字符，二进制页保留原 Base64，与格式化、字符替换、图片和 Protobuf 展示无关。独立查看页另提供“复制显示内容”，用于复制当前文本/格式化结果或十六进制；整份 HTTP 导出继续使用原生流式导出。
+正文完整保存且未截断时，独立查看页按已识别内容打开完整图片、JSON、Protobuf 或 gRPC 视图；菜单也提供明确的“按 JSON/Protobuf/gRPC/图片查看”，供没有准确 MIME 或需要覆盖误标类型时选择。选择只改变显示格式。卡片可快速预览已完整落在当前页的图片，跨页图片由查看页读取完整 HTTP 解码文件；SVG 默认使用文本。图片按视口限制解码尺寸，每边最多 2048 像素并保留比例，关闭或更换内容时释放图像缓存，无效或平台不支持的图片可切回十六进制。
+
+完整 JSON、Protobuf/gRPC 视图在原生层生成 UTF-8 临时文件，Flutter 每次只读取一个派生页，派生页以该文件的 UTF-8 字节偏移翻页，并维护独立页码历史。JSON 继续保留数值字面量、重复键及转义。Protobuf 按字段编号保留重复字段、无符号 64 位整数和固定宽度十六进制值，长度字段的文本或嵌套结构仍是无类型定义的推测；完整路径保留 16 层的嵌套推测边界，更深或不透明字段显示带长度的字节摘要，原字节页继续可读。gRPC 支持多帧、gRPC-Web 二进制/独立填充 Base64 块及 trailers：单页快速路径标记 `grpc-encoding` 并保留压缩帧；完整路径按帧声明解码受支持的消息压缩，失败或不支持时保留帧字节摘要，与外层 HTTP 压缩分别处理。原生完整解码、帧和文件生命周期的边界见 [核心正文读取](libbox.md#httphttps-请求调试)。
+
+派生显示始终保留当前原字节页：“复制本页正文”复制桥接的原 `text`，文本页保留原字符，二进制页保留原 Base64；字符集显示、JSON 格式化、图片及 Protobuf/gRPC 解读都不替换它。查看页的“复制显示内容”复制当前文本/格式化派生页或十六进制；切回原文、Hex 或 Base64 时恢复原字节页和原页码历史。原方向的保存/总字节数不被派生文件长度覆盖，两套偏移也分别维护；整份 HTTP 导出继续使用原生流式导出。
+
+关闭、隐藏或进入后台时取消当前读取并清理读取器及临时文件；再次可见保留原页并按需使用新读取器，已打开的派生格式和页码历史按需重新生成并恢复。切换本地/远程会话后立即失效旧读取，已打开查看页也不再显示或复制旧会话内容；旧会话的迟到正文、详情或派生结果不能恢复数据。实际读取、清理及 Android 桥接边界见 [应用请求抓取](app.md#请求抓取与-mitm)。
 
 ### 配置页与内核差异
 
@@ -263,10 +269,12 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 - [requests_test.dart](flutter/test/requests_test.dart)：统一工具入口、混合列表和活动筛选、关联详情、底层连接关闭确认、历史保留、同名远端的会话隔离、HAR 选中 ID、本机设置修订、旧记录设置清理、无改写横幅/抓包日志入口、端口、启动确认及后台轮询/迟到结果。MITM 域名覆盖空域名、有序域名/排除项选择；证书测试检查无配置时从抓包设置经 MITM 页进入证书、明确生成、取消导出、活跃 MITM 禁止重生成、远程切换和信任刷新。其他回归包括停止抓取时的历史分页与搜索重置、TCP 详情及流完成/导出限制、既有 socket 元数据、报文菜单、字段/Cookie 复制、正文格式及 Unicode 分页、完整正文/任意字节限制和超过旧条数范围的搜索导出；历史列表检查“显示更多”可实际点击，正文检查原生翻页、页内复制、失败重试及会话切换。资源页另检查导入、取消、修订失败和远程会话禁用。详情的滚动查找限定在当前详情页内，目标尚未由列表构建时先滚动，不对空查找调用 `.last`，以保留关联请求、连接过期及滚动后标题边界的实际断言。
 - 滚动边界：配置页面和共享表单将滚动视口放在共享标题下方，测试核对配置页 320 宽、1.3 倍字号深色主题，以及抓包设置 360 宽浅色/1.4 倍深色、800 宽浅色的滚动前后几何位置。窄屏、大字号深色及宽屏测试运行后将截图写入 `build/screenshots/requests/`，包含独立配置（如 `independent-mitm-config.png`、`independent-scripts-cron.png`）、请求设置、证书、统一列表、关联记录、分页按钮及报文详情。
 - [http_message_test.dart](flutter/test/http_message_test.dart)：JSON 数值/重复键/转义保真、无效内容回退、正文页缩进输出过大时回退原文，以及重复 Cookie、空值、等号和 Expires 逗号。请求正文不完整或截断时不提供 cURL 导出。
-- [body_content_test.dart](flutter/test/body_content_test.dart)：文本控制字符与无效 UTF-8、截断尾字符、声明字符集/BOM、图片完整性、十六进制绝对偏移、Protobuf 无符号整数与重复字段、无效或超预算结构、gRPC 多帧/压缩标记及 gRPC-Web 二进制和独立填充 Base64 块。
-- [captured_body_test.dart](flutter/test/captured_body_test.dart)：显示方式与原文/派生复制、独立查看的页历史和字节来源、二进制行懒加载、图片预览/缩放/失败回退、文本横向滚动与折行，以及查看期间远端往返的迟到分页隔离和窄屏大字号布局。使用保存正文的桥接替身，图片和交互截图由统一测试工作流生成，不作为实机验收。
+- [body_content_test.dart](flutter/test/body_content_test.dart)：文本控制字符与无效 UTF-8、截断尾字符、声明字符集/BOM、原生跨页 `displayText` 与原字节分离、非 UTF-8 字符集纯 ASCII 页、原生默认 UTF-8 下的无类型 Protobuf 推测及最新方向完成元数据；另检查图片完整性、十六进制绝对偏移、Protobuf 无符号整数与重复字段、单页无效或超预算结构、gRPC 多帧/压缩标记及 gRPC-Web 二进制和独立填充 Base64 块。
+- [captured_body_test.dart](flutter/test/captured_body_test.dart)：显示方式与原文/派生复制、独立查看的原页历史和字节来源、二进制行懒加载、图片预览/缩放/失败回退、文本横向滚动与折行；活动卡片和独立查看页的末页追加、读取器隔离、完成停轮询、迟到详情/分页以及写入追平后清除截断。完整跨页图片检查文件读取和解码尺寸；完整 JSON/Protobuf/gRPC 检查派生 UTF-8 页、独立偏移/页码、原计数和原页复制不变，无类型正文显式选择格式、误标图片 MIME 覆盖为 JSON 也有断言。取消用例覆盖后台/返回前台的派生页恢复、覆盖页面、销毁、直接远程切换和同帧远程往返，确认关闭发生在迟到结果前且恢复使用新读取器；失败保留原页并可重试。窄屏大字号布局和图片交互截图由统一测试工作流生成，使用保存正文的桥接替身，不作为实机验收。
 
 ### 当前验证记录
+
+当前工作树的活动正文读取、跨页字符集及完整文件/派生分页改动尚未运行 Actions。本机仅执行来源清单与源码约束、`git diff --check` 和文档本地链接检查；新增测试的存在不代表已通过运行验收。以下正文查看成功记录固定于所列旧源码 SHA，不覆盖本次工作树的新读取器、完整派生视图和取消行为。
 
 2026-11-23 正文查看的功能及测试源码 `14639a98899f14e4e4613311558e0c66ff004efa` 已通过 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45059030530/job/137320599646)：分析为 139 项 info、0 warning/error，858 项测试全部成功，包括新增 19 项正文解读及 17 项查看交互测试；ARM64 Debug/Release Flutter AAR 均构建成功。[AAR 产物](https://github.com/giturass/B-box/actions/runs/45059030530/artifacts/14768743191) 与 [截图产物](https://github.com/giturass/B-box/actions/runs/45059030530/artifacts/14768758084) 的 `workflow_run.head_sha` 均已核对与该源码一致。核心、脚本取消及 Android 结果由 [应用验证记录](app.md#当前验证记录) 维护。
 

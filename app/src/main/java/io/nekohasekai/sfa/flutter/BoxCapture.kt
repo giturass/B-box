@@ -22,13 +22,16 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.json.JSONArray
 import java.io.File
+import java.io.Closeable
+import java.util.UUID
 
 /** Local routed HTTP recording and opt-in TLS interception. */
-internal class BoxCapture(private val activity: BoxHost) {
+internal class BoxCapture(private val activity: BoxHost) : Closeable {
     private val directory = File(activity.noBackupFilesDir, "http-debug")
     private val captures = File(directory, "captures")
     private val settings = CaptureSettings(directory)
     private val certificate = MitmCertificate(activity)
+    private val bodyReaders = CaptureBodyReaders(File(activity.cacheDir, "capture-body-views"))
 
     private companion object {
         val mutex = Mutex()
@@ -40,7 +43,13 @@ internal class BoxCapture(private val activity: BoxHost) {
     private fun status() = JSONObject(Libbox.readUICaptureStatus())
 
     suspend fun invoke(method: String, args: Map<String, Any?>): Any? {
+        // Cleanup must also work after the UI has switched to a remote session.
+        if (method == "capture.body.close") return withContext(Dispatchers.IO) {
+            bodyReaders.closeReader(args["readerId"] as? String ?: error("Missing body reader ID"))
+        }
         requireLocal()
+        if (method in setOf("capture.body", "capture.body.view", "capture.body.view.page")) return readBody(method, args)
+        if (method in setOf("capture.snapshot", "capture.query", "capture.detail", "capture.domains")) return readCapture(method, args)
         if (method == "capture.export") return export(args)
         if (method == "capture.ca.export" || method == "capture.ca.module") return exportCertificate(method, args)
         if (method == "capture.ca.install") return installCertificate(args)
@@ -59,17 +68,6 @@ internal class BoxCapture(private val activity: BoxHost) {
                             require(!status().optBoolean("active")) { "Stop capture before changing the MITM certificate" }
                             certificate.generate(args["revision"] as? String ?: error("Missing certificate revision"))
                         }
-                        "capture.snapshot" -> mapOf(
-                            "state" to jsonObject(status()),
-                            "page" to jsonObject(JSONObject(Libbox.listUICapture(
-                                (args["limit"] as? Number)?.toInt()?.also { require(it >= 0) { "Invalid page size" } } ?: 50,
-                                (args["query"] as? String).orEmpty(),
-                            ))),
-                        )
-                        "capture.query" -> mapOf(
-                            "state" to jsonObject(status()),
-                            "page" to jsonObject(JSONObject(Libbox.queryUICapture(JSONObject(args).toString()))),
-                        )
                         "capture.settings" -> settings.snapshot()
                         "capture.configure" -> {
                             require(!status().optBoolean("active")) { "Stop capture before changing its settings" }
@@ -79,23 +77,7 @@ internal class BoxCapture(private val activity: BoxHost) {
                         }
                         "capture.start" -> start { started = true }
                         "capture.stop" -> { Libbox.stopUICapture(); jsonObject(status()) }
-                        "capture.clear" -> { Libbox.clearUICapture(); null }
-                        "capture.domains" -> {
-                            val domains = JSONArray(Libbox.extractUICaptureHosts((args["query"] as? String).orEmpty()))
-                            List(domains.length()) { domains.getString(it) }
-                        }
-                        "capture.detail" -> jsonObject(JSONObject(Libbox.readUICapture(args["id"] as? String ?: error("Missing request ID"))))
-                        "capture.body" -> {
-                            val direction = args["direction"] as? String
-                            require(direction == "request" || direction == "response") { "Invalid body direction" }
-                            val offset = (args["offset"] as? Number)?.toLong() ?: error("Missing body offset")
-                            require(offset >= 0) { "Invalid body offset" }
-                            val source = args["source"] as? String ?: "decoded"
-                            require(source == "decoded" || source == "raw") { "Invalid body source" }
-                            jsonObject(JSONObject(Libbox.readUICaptureBody(
-                                args["id"] as? String ?: error("Missing request ID"), direction == "response", offset, source == "raw",
-                            )))
-                        }
+                        "capture.clear" -> { bodyReaders.cancelAll(); Libbox.clearUICapture(); null }
                         else -> error("Unknown capture operation")
                     }
                 }
@@ -112,6 +94,74 @@ internal class BoxCapture(private val activity: BoxHost) {
             }
         }
     }
+
+    private suspend fun readCapture(method: String, args: Map<String, Any?>): Any? {
+        val session = CommandTarget.localSession()
+        return withContext(Dispatchers.IO) {
+            CommandTarget.requireLocalSession(session)
+            Libbox.openUICapture(captures.absolutePath)
+            val result = when (method) {
+                "capture.snapshot" -> mapOf(
+                    "state" to jsonObject(status()),
+                    "page" to jsonObject(JSONObject(Libbox.listUICapture(
+                        (args["limit"] as? Number)?.toInt()?.also { require(it >= 0) { "Invalid page size" } } ?: 50,
+                        (args["query"] as? String).orEmpty(),
+                    ))),
+                )
+                "capture.query" -> mapOf(
+                    "state" to jsonObject(status()),
+                    "page" to jsonObject(JSONObject(Libbox.queryUICapture(JSONObject(args).toString()))),
+                )
+                "capture.detail" -> jsonObject(JSONObject(Libbox.readUICapture(args["id"] as? String ?: error("Missing request ID"))))
+                "capture.domains" -> {
+                    val domains = JSONArray(Libbox.extractUICaptureHosts((args["query"] as? String).orEmpty()))
+                    List(domains.length()) { domains.getString(it) }
+                }
+                else -> error("Unknown capture read operation")
+            }
+            CommandTarget.requireLocalSession(session)
+            result
+        }
+    }
+
+    private suspend fun readBody(method: String, args: Map<String, Any?>): Any? {
+        val session = CommandTarget.localSession()
+        withContext(Dispatchers.IO) {
+            CommandTarget.requireLocalSession(session)
+            Libbox.openUICapture(captures.absolutePath)
+            CommandTarget.requireLocalSession(session)
+        }
+        val readerId = args["readerId"] as? String ?: if (method == "capture.body") UUID.randomUUID().toString()
+            else error("Missing body reader ID")
+        try {
+            val value = if (method == "capture.body.view.page") {
+                val offset = (args["offset"] as? Number)?.toLong() ?: error("Missing body offset")
+                require(offset >= 0) { "Invalid body offset" }
+                bodyReaders.readView(readerId, offset)
+            } else {
+                val direction = args["direction"] as? String
+                require(direction == "request" || direction == "response") { "Invalid body direction" }
+                val id = args["id"] as? String ?: error("Missing request ID")
+                if (method == "capture.body.view") {
+                    bodyReaders.prepareView(readerId, id, direction == "response", args["format"] as? String ?: error("Missing body view format"))
+                } else {
+                    val offset = (args["offset"] as? Number)?.toLong() ?: error("Missing body offset")
+                    require(offset >= 0) { "Invalid body offset" }
+                    val source = args["source"] as? String ?: "decoded"
+                    require(source == "decoded" || source == "raw") { "Invalid body source" }
+                    bodyReaders.read(readerId, id, direction == "response", offset, source == "raw")
+                }
+            }
+            CommandTarget.requireLocalSession(session)
+            return jsonObject(JSONObject(value))
+        } finally {
+            if (!args.containsKey("readerId")) withContext(NonCancellable + Dispatchers.IO) { bodyReaders.closeReader(readerId) }
+        }
+    }
+
+    fun cancelBodyReads() = bodyReaders.cancelAll()
+
+    override fun close() = bodyReaders.close()
 
     private suspend fun start(onStarted: () -> Unit): Map<String, Any?> {
         require(!status().optBoolean("active")) { "Capture is already running" }

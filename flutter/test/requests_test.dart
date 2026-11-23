@@ -750,7 +750,9 @@ void main() {
     await tester.pump();
     expect(tester.widget<TextButton>(find.widgetWithText(TextButton, 'Next page')).onPressed, isNull);
     expect(body(), firstText);
-    expect(json(calls.lastWhere((call) => call.method == 'capture.body').arguments),
+    final pageArguments = json(calls.lastWhere((call) => call.method == 'capture.body').arguments);
+    expect(pageArguments['readerId'], isA<String>());
+    expect({...pageArguments}..remove('readerId'),
       {'id': 'paged', 'direction': 'response', 'offset': 16383, 'source': 'decoded'});
     pending.complete(last);
     await tester.pumpAndSettle();

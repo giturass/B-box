@@ -609,7 +609,7 @@
       "name": "captured-body-viewing",
       "repository": "https://github.com/chen08209/FlClash",
       "commit": "5e579c4987e50e5c68e6023cc31ff4db55d480bb",
-      "scope": "Captured body classification, schema-free Protobuf/gRPC interpretation, hexadecimal rows and a separate body viewer only. Maintained independently of the overall UI, Android and sing-box baselines. Local paths are relative to the repository root.",
+      "scope": "Captured body page classification, complete file-backed JSON and schema-free Protobuf/gRPC interpretation, hexadecimal rows and an independent live body viewer. Maintained independently of the overall UI, Android and sing-box baselines. Local paths are relative to the repository root.",
       "files": [
         {
           "source": "lib/common/mitm_body.dart",
@@ -618,16 +618,18 @@
           "localPaths": [
             "flutter/lib/common/body_content.dart"
           ],
-          "changes": "Rework text/image/binary classification and hexadecimal rows around one native 16 KiB page. Preserve original bytes and absolute byte offsets, validate canonical Base64 and UTF-8, replace only sparse display controls, and recognize supported declared charsets or BOMs. UTF-16, complete images and schema-free structures require the complete first page. Unsupported charsets and raw compression fallback keep their bytes; no Rust charset bridge or full-body allocation. Existing B-box JSON formatting preserves numbers, duplicate keys and escapes."
+          "changes": "Rework text/image/binary classification and hexadecimal rows around native byte pages. Preserve Text/Encoding and absolute original byte offsets while accepting separately decoded native charset/displayText fields, including ASCII pages in non-UTF-8 charsets. Validate canonical Base64 and Unicode, replace only sparse display controls, and retain bytes for unsupported charsets or raw compression fallback. Native default UTF-8 preserves untyped binary Protobuf inference. Dart retains bounded single-page quick parsing; an independent viewer opens complete native decoded image files or streamed JSON/Protobuf/gRPC text files and reads their pages separately. Existing B-box JSON formatting preserves numbers, duplicate keys and escapes; Flutter keeps only its current original and derived pages."
         },
         {
           "source": "lib/common/mitm_protobuf.dart",
           "sourceSHA256": "572124227da5e13cc9040e9a4e761523494e940a4f7fc59ae7e3192c7ab855ac",
           "usage": "adapted",
           "localPaths": [
-            "flutter/lib/common/body_content.dart"
+            "flutter/lib/common/body_content.dart",
+            "libbox/httpdebug/body_view_proto.go",
+            "libbox/httpdebug/body_view.go"
           ],
-          "changes": "Implement bounded schema-free wire parsing with unsigned BigInt values, repeated numbered fields, fixed-width hexadecimal values and inferred text/nested/opaque length-delimited fields. Support gRPC frames and gRPC-Web binary or independently padded text chunks and trailers. Compressed message frames retain bytes and their declared encoding instead of assuming gzip. Incomplete, invalid or over-budget structure falls back to page bytes, with depth, node and derived output limits independent of capture retention."
+          "changes": "Implement schema-free numbered fields, repeated values, unsigned 64-bit integers, fixed-width hexadecimal values and inferred text/nested/opaque length-delimited fields. The Dart quick path keeps depth 16, 4096-node and 64 KiB derived-output budgets and falls back to original page bytes for incomplete, invalid or over-budget structures. The adapted Go ReaderAt path validates complete decoded files and streams all fields and frames to UTF-8 view files without the Dart node or total-output budgets, while retaining depth 16 for nesting inference and byte summaries for opaque fields. Support multiple gRPC frames, gRPC-Web binary or independently padded Base64 blocks, and trailers. The quick path retains compressed message bytes and their declared encoding; the complete path decodes supported grpc-encoding values independently of outer HTTP compression and retains byte summaries when message decoding is unsupported or fails. Capture retention and original export bytes remain independent of both display paths."
         },
         {
           "source": "lib/features/connection/mitm_body.dart",
@@ -637,7 +639,7 @@
             "flutter/lib/components/captured_body.dart",
             "flutter/test/captured_body_test.dart"
           ],
-          "changes": "Reference for separate text/image/hex viewing, wrapping and original byte access. B-box uses Prism cards and controls, copies raw page text/Base64 independently of the display mode, lazily builds responsive hex rows and opens a one-page snapshot with preserved pagination history/source/session. Images use aspect-preserving bounded decode dimensions, zoom/reset, error-to-hex fallback and cache eviction. No upstream editor dependencies, full-body loading or remote local-state access."
+          "changes": "Reference for separate text/image/hex viewing, wrapping and original byte access. B-box uses Prism cards and controls, lazily builds responsive hex rows, and opens an independent live viewer starting with the card's original page, history, source and local session. Each State owns its reader; direction metadata and appended tails refresh without resetting page history, older replies are rejected, and transient truncation can clear after a pending write. Complete decoded images use file providers with aspect-preserving bounded decode dimensions, zoom/reset, error-to-hex fallback and cache eviction. Complete JSON/Protobuf/gRPC view files use separate UTF-8 byte offsets and history without changing original counts or copied Text/Base64; explicit format choices override absent or misleading MIME. Hidden, backgrounded, disposed or obsolete-session readers cancel work and clean temporary files; visible viewers recreate readers and restore derived pages, while old-session data stays inaccessible. Prism provides navigation and controls."
         },
         {
           "source": "test/common/mitm_body_test.dart",
@@ -646,7 +648,7 @@
           "localPaths": [
             "flutter/test/body_content_test.dart"
           ],
-          "changes": "Reference edge cases for body types, declared charset, malformed/truncated text and hexadecimal layout. B-box adds native page completeness/source boundaries, exact byte preservation, responsive absolute offsets, wire-format validity and bounded schema-free interpretation cases. Tests run through the existing GitHub Actions Flutter job."
+          "changes": "Reference edge cases for body types, declared charset, malformed/truncated text and hexadecimal layout. B-box adds native charset display fields across pages, equal ASCII display/original text for legacy charsets, default UTF-8 untyped inference, latest direction metadata, completeness/source boundaries, exact original byte preservation, responsive absolute offsets, wire-format validity and single-page quick-parser budgets. Independent viewer tests additionally cover live tail refresh, transient truncation recovery, complete file and derived-page views, explicit format overrides, separated byte/history/copy semantics and reader cancellation/restoration. Tests are included in the existing GitHub Actions Flutter job; source presence does not claim a passing run."
         }
       ]
     }

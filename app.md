@@ -171,7 +171,11 @@ post-fs-data 只做不等待的早期注入；[service.sh](app/src/main/assets/m
 
 Root/eBPF 采集器、目标 TLS 库发现、FD 会话和手动函数偏移已移除。[IRootService](app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl) 的事务 10 退役，不复用；原 2/3 空缺保持，普通 Root/Shizuku、VPN 授权、自动重定向和 Shell 能力保留。
 
-正文详情只跨桥接传首个页，`capture.body` 按需读取指定方向、偏移和表示的后续页；协议及完整性字段见 [核心正文读取](libbox.md#httphttps-请求调试)。HAR/cURL、域名、CRT 和模块导出使用 Android 文档选择器，取消返回 false，写入失败不报告成功；证书在选择文件后再次检查修订。HAR 与 cURL 由原生绑定流式写入私有临时文件，再复制到用户选择的文档，用后删除临时文件，不经 JNI、JSONObject 或 Flutter 传递完整正文字符串。抓包日志页面、缓冲和 `capture.logs` / `capture.logs.clear` 平台方法已移除；运行错误及脚本 console 输出使用现有服务日志，Android 证书清理/抓包准备异常使用普通 Android 日志。
+正文详情只跨桥接传首个页，`capture.body` 按需读取指定方向、偏移和表示的后续页；每个可见卡片和独立查看页使用自己的 `readerId`。[CaptureBodyReaders.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureBodyReaders.kt) 将读取器绑定到本机会话代次、请求 ID 和方向，同一个读取器串行复用解码缓存，不同读取器可并行。正文读取及列表/详情查询在抓包变更互斥锁外执行，慢解压不占用启停、清空和设置操作的锁。`capture.body.view` 通过 [UICaptureBodyTask](libbox/ui_capture_body.go) 将完整解码图片或 JSON/Protobuf/gRPC 派生文本流式写到私有 `cacheDir/capture-body-views`；图片只传文件路径，文本由 `capture.body.view.page` 按派生 UTF-8 字节偏移分页，不经 JNI、JSONObject 或 Flutter 传递完整正文字符串。原正文页及导出字节保留，格式和完整性要求见 [核心正文读取](libbox.md#httphttps-请求调试)。
+
+`capture.body.close` 在隐藏、离开查看页或切换会话后仍可清理原读取器。清空、远程连接/断开、UI 退出及桥接关闭取消在途读取，先取消所属协程，再向 JNI 任务发送非阻塞取消信号；最后一个调用退出后释放解码器和文件。新进程首次使用缓存目录仅清理本功能命名的遗留视图文件，不删除其他缓存。页面可见性与最后一页刷新见 [正文查看交互](flclash.md#导航与交互约定)。
+
+HAR/cURL、域名、CRT 和模块导出使用 Android 文档选择器，取消返回 false，写入失败不报告成功；证书在选择文件后再次检查修订。HAR 与 cURL 由原生绑定流式写入私有临时文件，再复制到用户选择的文档，用后删除临时文件，不经 JNI、JSONObject 或 Flutter 传递完整正文字符串。抓包日志页面、缓冲和 `capture.logs` / `capture.logs.clear` 平台方法已移除；运行错误及脚本 console 输出使用现有服务日志，Android 证书清理/抓包准备异常使用普通 Android 日志。
 
 ### 配置处理生命周期
 
@@ -280,6 +284,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 - **默认接口与开机恢复：** [DefaultInterfaceMonitorTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/DefaultInterfaceMonitorTest.kt) 覆盖网络先于核心监听器到达、开机无网及接口编号超过一秒才就绪、同网络刷新、断网恢复、切网或监听器替换后的迟到结果、异常重试及停止/取消期间的等待与结果丢弃。纯 Kotlin 调度回归不代替 Android 网络回调、系统重启或实际代理连通验收。
 - **WARP 注册：** [BoxWarpTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxWarpTest.kt) 检查注册等待时配置/会话冲突、重复提交、取消及时关闭 JNI 请求、已返回凭据在取消后留待保存、失败重试复用账号及错误消敏；WireGuard 另核对所选目标、协议传递和失败重试的协议保留，并检查非法协议在准备配置及注册之前拒绝。
 - **脚本调试：** [BoxScriptsTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxScriptsTest.kt) 覆盖等待配置锁时取消、不同请求并行、重复 ID 拒绝、阻塞 JNI 及准入后尚未等待时的取消/退出等待、配置代次变化拒绝迟到结果、宿主关闭与原下标参数校验；双任务 gate 另核对已附着及关闭期间才附着的任务均在释放结果前取消协程、关闭后拒绝新准入及请求登记保留至原生任务退出。
+- **正文读取生命周期：** [CaptureBodyReadersTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/CaptureBodyReadersTest.kt) 使用阻塞原生替身检查协程取消及时传入 JNI、正常连续读取复用、同体排队与独立正文并发、取消时先结束协程再返回原生错误、在途关闭不阻塞、会话失效及缓存文件清理、宿主关闭后拒绝新读取；真实 Go 绑定及完整正文的回归见 [核心测试](libbox.md#回归文件覆盖)。替身调度断言不代替 Android 实机性能验收。
 - **UI 退出与终端回复：** [UiExitPolicyTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/UiExitPolicyTest.kt) 用虚拟时间检查连续后台闲置 5 分钟的边界、超时前不执行退出准备、多 Activity、反复前后台切换不累计时间、配置重建、外部交互打断后重新计时及恢复失败；[UiIdleTriggerTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/UiIdleTriggerTest.kt) 检查冻结期间等待系统触发、旧任务与截止时间校验、调度取消/失败、重复完成、恢复期间任务替换和系统停止，以及完成通知排队期间返回前台的退出取消。[TerminalReplyLedgerTest.kt](app/src/test/java/io/nekohasekai/sfa/terminal/TerminalReplyLedgerTest.kt) 检查输出确认、UI 断开后的回复恢复及有序等待。
 - **UI JVM 报告：** [UiJvmCrashReportsTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/UiJvmCrashReportsTest.kt) 使用真实临时文件检查 UI 报告的独立发布、主进程日志/配置保留、多个报告及失败后重试；测试不加载 Android、libbox 或 Flutter 引擎。
 
@@ -324,6 +329,8 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 统一工作流的 `root-ca` job 在独立 Linux PID/mount namespace 中运行 [test_mitm_ca.py](tools/test_mitm_ca.py)，使用 BusyBox 和导出的原始脚本，覆盖 APEX 延迟就绪、旧系统缺少 APEX、hash 冲突和原证书保留、已有二级后代/隐藏模块路径、同一 namespace 的重新挂载、准备失败、service 重试和禁用退出。该测试只在 Actions 运行，不对本机 Android 做 Root 挂载，也不代表真实 Magisk/KernelSU/APatch 安装与重启已验收。
 
 ### 当前验证记录
+
+2026-11-23 本轮大正文完整解读、图片文件读取、字符集分页、活动尾页刷新及本地错误响应录制的修复，当前已完成 `git diff --check`、`python3 tools/verify_newui.py`、Go 语法格式和文档链接静态检查；新增真实 Go 绑定与 JVM 生命周期回归由统一工作流运行，正文绑定同时加入 race 范围。Actions 尚待本轮源码运行，下面记录的结果只适用于各自列出的历史 SHA。本机没有执行编译、Go/Flutter/Android 动态测试或签名 Release。
 
 2026-11-23 正文查看增强及脚本关闭取消修正的功能/测试源码 `14639a98899f14e4e4613311558e0c66ff004efa` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45059030530) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[核心作业](https://github.com/giturass/B-box/actions/runs/45059030530/job/137320599630) 实际执行 13 条 Go 测试命令，其中 8 条启用 race，全部使用 `-count=1` 并成功；[Root CA 作业](https://github.com/giturass/B-box/actions/runs/45059030530/job/137320599588) 的 15 项发布元数据、6 项 mount/boot 测试及 shellcheck 通过。Flutter 分析、交互/布局、ARM64 AAR 和本次正文截图审阅由 [界面验证记录](flclash.md#当前验证记录) 维护。
 

@@ -503,9 +503,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
       ] else ...[
         if (!capture.rawTCP) _headers(message, response),
         CapturedBody(key: ValueKey('body-${widget.id}-$_part'), message: message, preview: capture.preview(response: response),
-          loadPage: (offset, source) async => json(await box.call('capture.body', {
-            'id': widget.id, 'direction': response ? 'response' : 'request', 'offset': offset, 'source': source,
-          }))),
+          captureId: widget.id, direction: response ? 'response' : 'request'),
         if (rows(message['trailers']).isNotEmpty) _trailers(message),
       ],
     ];

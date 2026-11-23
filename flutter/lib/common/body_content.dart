@@ -41,10 +41,12 @@ const _maxProtoNodes = 4096;
 const _maxHexBytes = 256;
 const _maxGuessedFieldNumber = 1 << 16;
 
-/// Classifies only [page]. Derived formats require the entire saved body to be
-/// present, complete and decoded in this first page. Paging never accumulates
-/// image bytes, Protobuf fields or gRPC frames from earlier pages.
+/// Classifies only [page], keeping its original bytes for copy and byte views.
+/// The native reader may supply charset-decoded UTF-8 display text separately;
+/// complete image/Protobuf/gRPC files are opened by the viewer, not accumulated.
 CapturedBodyContent readCapturedBody(Map<String, dynamic> message, Map<String, dynamic> page) {
+  final latest = page['message'];
+  if (latest is Map) message = {...message, ...Map<String, dynamic>.from(latest)};
   final contentType = _header(message, 'content-type');
   final mime = contentType.split(';').first.trim().toLowerCase();
   final source = page['text']?.toString() ?? '';
@@ -68,7 +70,8 @@ CapturedBodyContent readCapturedBody(Map<String, dynamic> message, Map<String, d
       message['bodyComplete'] == true && message['bodyTruncated'] != true &&
       page['truncated'] != true && page['hasMore'] != true &&
       (page['error']?.toString() ?? '').isEmpty;
-  final charset = _declaredCharset(bytes, contentType, mime, firstPage: offset == 0);
+  final declaredCharset = _declaredCharset(bytes, contentType, mime, firstPage: offset == 0);
+  final charset = page['charset'] is String ? (page['charset'] as String).trim().toLowerCase() : declaredCharset;
   CapturedBodyContent binary() => CapturedBodyContent(kind: CapturedBodyKind.binary,
     bytes: bytes, mime: mime, charset: charset, complete: complete);
   CapturedBodyContent text(String value, {CapturedBodyFormat format = CapturedBodyFormat.plain}) =>
@@ -89,17 +92,28 @@ CapturedBodyContent readCapturedBody(Map<String, dynamic> message, Map<String, d
     final parsed = _protobufText(bytes);
     return parsed == null ? binary() : text(parsed, format: CapturedBodyFormat.protobuf);
   }
-  // The native reader aligns pages for UTF-8, not UTF-16 surrogate pairs.
-  // A stateless page cannot infer the previous page's byte order or tail.
-  if (_isUtf16Charset(charset) && !complete) return binary();
-  // Only an incomplete final character may be replaced. Invalid bytes inside
-  // a truncated capture still identify binary data.
-  final allowTail = page['hasMore'] != true &&
-      (message['bodyTruncated'] == true || page['truncated'] == true);
-  final decoded = _decodeText(bytes, charset, allowTail: allowTail);
-  final readable = decoded == null ? null : _readableText(decoded);
+  // The stateful native reader decodes across byte-page boundaries. Its
+  // display field does not replace Text/Encoding or their original bytes.
+  String? readable;
+  if (page['displayText'] is String) {
+    final display = page['displayText'] as String;
+    if (!_validSurrogates(display)) return binary();
+    readable = _readableText(display);
+  } else {
+    // Legacy single-page callers have no previous byte-order/decoder state.
+    if (_isUtf16Charset(charset) && !complete) return binary();
+    // Only an incomplete final character may be replaced. Invalid bytes inside
+    // a truncated capture still identify binary data.
+    final allowTail = page['hasMore'] != true &&
+        (message['bodyTruncated'] == true || page['truncated'] == true);
+    final decoded = _decodeText(bytes, charset, allowTail: allowTail);
+    readable = decoded == null ? null : _readableText(decoded);
+  }
   if (readable != null) return text(readable);
-  if (complete && charset.isEmpty && (mime.isEmpty || mime == 'application/octet-stream')) {
+  // Native pages name the default UTF-8 decoder even without a declaration.
+  // That default must not suppress the existing untyped binary Proto guess.
+  if (complete && declaredCharset.isEmpty && (charset.isEmpty || charset == 'utf-8' || charset == 'utf8') &&
+      (mime.isEmpty || mime == 'application/octet-stream')) {
     final parsed = _protobufText(bytes, guessed: true);
     if (parsed != null) return text(parsed, format: CapturedBodyFormat.protobuf);
   }
@@ -168,6 +182,20 @@ String? _decodeText(Uint8List bytes, String charset, {required bool allowTail}) 
 bool _isUtf16Charset(String charset) => const {
   'utf-16', 'utf16', 'utf-16le', 'utf16le', 'utf-16be', 'utf16be',
 }.contains(charset);
+
+bool _validSurrogates(String text) {
+  for (var index = 0; index < text.length; index++) {
+    final unit = text.codeUnitAt(index);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      if (++index >= text.length) return false;
+      final low = text.codeUnitAt(index);
+      if (low < 0xdc00 || low > 0xdfff) return false;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+}
 
 String? _utf8Text(Uint8List bytes, {required bool allowTail}) {
   try {

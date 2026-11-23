@@ -183,6 +183,7 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
                     state.config !== previousConfig || state.remoteId != previousRemote) {
                     scripts.cancelAll()
                 }
+                if (state.remoteId != previousRemote) capture.cancelBodyReads()
                 previousConfig = state.config
                 previousRemote = state.remoteId
                 emit("dashboard", dashboard.uiState.value.toWire())
@@ -814,9 +815,13 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
             }
             "remote.connect" -> operations.withLock {
                 val server = withContext(Dispatchers.IO) { RemoteServerManager.get(args.id()) } ?: error("Server no longer exists")
+                capture.cancelBodyReads()
                 RemoteControlManager.enterRemoteControl(server)
             }
-            "remote.disconnect" -> operations.withLock { RemoteControlManager.exitRemoteControl() }
+            "remote.disconnect" -> operations.withLock {
+                capture.cancelBodyReads()
+                RemoteControlManager.exitRemoteControl()
+            }
             else -> return toolBridge.invoke(method, args)
         }
         return null
@@ -1008,6 +1013,7 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
     suspend fun prepareForExit() {
         quiescing = true
         scripts.cancelAll()
+        capture.cancelBodyReads()
         val pending = calls.toList()
         pending.forEach { it.cancel() }
         pending.joinAll()
@@ -1033,6 +1039,7 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
         }
         cleanup(warp::close)
         cleanup(scripts::close)
+        cleanup(capture::close)
         cleanup(qrScanner::close)
         cleanup { channel.setMethodCallHandler(null) }
         cleanup { events.setStreamHandler(null) }
