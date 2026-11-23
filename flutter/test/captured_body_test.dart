@@ -851,16 +851,16 @@ void main() {
     final harness = await _mount(tester, message: message, page: first, nativeReader: true, handler: (call) async {
       if (call.method == 'capture.detail') return {'response': message, 'responsePreview': first};
       if (call.method == 'capture.body.view') return {'format': 'protobuf', 'message': message, 'page': shownFirst};
-      if (call.method == 'capture.body.view.page') {
-        expect(json(call.arguments)['offset'], next);
-        return shownLast;
-      }
+      if (call.method == 'capture.body.view.page') return shownLast;
       return null;
     });
     await _openViewer(tester);
     await _tap(tester, _in(_viewer, find.text('Next page')));
     expect(_text(tester, _viewer), '1: 2');
     final reader = json(harness.calls.lastWhere((call) => call.method == 'capture.body.view').arguments)['readerId'];
+    expect(harness.calls.where((call) => call.method == 'capture.body.view.page').map((call) => json(call.arguments)).toList(), [
+      {'readerId': reader, 'offset': next},
+    ]);
     final session = harness.box.sessionRevision;
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
@@ -894,10 +894,15 @@ void main() {
     expect(_viewer, findsOneWidget, reason: resumeState);
     expect(harness.calls.where((call) => call.method == 'capture.body.view'), hasLength(2), reason: resumeState);
     expect(harness.calls.where((call) => call.method == 'capture.body.view.page'), hasLength(2), reason: resumeState);
+    final resumedReader = json(harness.calls.lastWhere((call) => call.method == 'capture.body.view').arguments)['readerId'];
+    expect(harness.calls.where((call) => call.method == 'capture.body.view.page').map((call) => json(call.arguments)).toList(), [
+      {'readerId': reader, 'offset': next},
+      {'readerId': resumedReader, 'offset': next},
+    ], reason: resumeState);
     expect(_in(_viewer, find.byKey(const ValueKey('captured-body-text'))), findsOneWidget, reason: resumeState);
     expect(_text(tester, _viewer), '1: 2', reason: resumeState);
     expect(_in(_viewer, find.text('Derived body page: 2')), findsOneWidget, reason: resumeState);
-    expect(json(harness.calls.lastWhere((call) => call.method == 'capture.body.view').arguments)['readerId'], isNot(reader));
+    expect(resumedReader, isNot(reader), reason: resumeState);
     expect(tester.takeException(), isNull);
   });
 
