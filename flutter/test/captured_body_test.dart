@@ -139,8 +139,11 @@ Future<void> _dismissFeedback(WidgetTester tester) async {
 
 Future<void> _tap(WidgetTester tester, Finder target) async {
   await _dismissFeedback(tester);
-  await tester.ensureVisible(target.last);
+  // The detail viewport extends beneath its floating page bar. Center the
+  // control in that viewport so the page bar cannot cover the tap position.
+  await Scrollable.ensureVisible(tester.element(target.last), alignment: .5);
   await tester.pumpAndSettle();
+  expect(target.hitTestable(), findsWidgets, reason: 'The body control must be reachable after scrolling.');
   await tester.tap(target.hitTestable().last);
   await tester.pumpAndSettle();
 }
@@ -1314,10 +1317,13 @@ void main() {
         await _tap(tester, _in(_body, find.text('JSON')));
         final reader = json(harness.calls.lastWhere((call) => call.method == 'capture.body.view').arguments)['readerId'];
         tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
         tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
         await tester.pumpAndSettle();
         expect(harness.calls.where((call) => call.method == 'capture.body.close' &&
           json(call.arguments)['readerId'] == reader), hasLength(1));
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
         tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
         await tester.pumpAndSettle();
         expect(_text(tester, _body), shownLast);

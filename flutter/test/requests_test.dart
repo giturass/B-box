@@ -819,13 +819,20 @@ void main() {
     await open(tester, const RequestDetailPage(id: 'paged'));
     await showDetailItem(tester, find.byKey(const ValueKey('captured-body-text')));
     String body() => tester.widget<SelectableText>(find.byKey(const ValueKey('captured-body-text'))).data!;
+    Future<void> copyCurrentPage() async {
+      await dismissCopyFeedback(tester);
+      final action = find.descendant(of: find.byType(CapturedBody), matching: find.byTooltip('Copy current body page'));
+      await Scrollable.ensureVisible(tester.element(action), alignment: .2);
+      await tester.pumpAndSettle();
+      expect(action.hitTestable(), findsOneWidget);
+      await tester.tap(action.hitTestable());
+      await tester.pumpAndSettle();
+    }
     expect(body(), firstText);
     expect(find.text('Captured body was truncated.'), findsNothing);
     expect(find.text('Body could not be fully decoded.'), findsNothing);
-    await tester.ensureVisible(find.byTooltip('Copy current body page'));
-    await tester.tap(find.byTooltip('Copy current body page'));
-    await tester.pumpAndSettle();
-    expect(copied.last, firstText);
+    await copyCurrentPage();
+    expect(copied, [firstText]);
     await showDetailItem(tester, find.text('Next page'));
     await capture(tester, 'body-first-page');
     await tester.tap(find.text('Next page'));
@@ -840,10 +847,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(body(), lastText);
     expect(find.text('Next page'), findsNothing);
-    await tester.ensureVisible(find.byTooltip('Copy current body page'));
-    await tester.tap(find.byTooltip('Copy current body page'));
-    await tester.pumpAndSettle();
-    expect(copied.last, lastText);
+    await copyCurrentPage();
+    expect(copied, [firstText, lastText]);
     await showDetailItem(tester, find.text('Previous page'));
     await capture(tester, 'body-last-page');
     await tester.tap(find.text('Previous page'));
