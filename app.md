@@ -330,6 +330,21 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
+2026-11-23 请求/响应详情原位正文及自动格式识别的功能/测试源码 `267d692eae2c4f81755146fcf227ba91ed6a15b9` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45174354097) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[核心作业](https://github.com/giturass/B-box/actions/runs/45174354097/job/137691694719) 实际执行 13 条 Go 测试命令，其中 8 条启用 race，全部使用 `-count=1`；15 条包测试结果均为 `ok`，没有零测试或 race 错误，包含正文真实绑定及生命周期、全量 httpdebug race 和后续路由回归。[Root CA 作业](https://github.com/giturass/B-box/actions/runs/45174354097/job/137691694816) 的 15 项发布工具、6 项 mount/boot 测试及 ShellCheck 通过。Flutter 分析、交互/布局、ARM64 AAR 和原位正文截图的结果由 [界面验证记录](flclash.md#当前验证记录) 维护。
+
+[Android 作业](https://github.com/giturass/B-box/actions/runs/45174354097/job/137691694097) 完成本轮 x86_64 libbox、Flutter Debug AAR、other/play Kotlin、AIDL 及 [模拟器应用/测试 APK](https://github.com/giturass/B-box/actions/runs/45174354097/artifacts/14819915212)。实际 Gradle 日志确认 JVM 测试、`play` 编译及应用/测试 APK 构建成功。[JVM 报告](https://github.com/giturass/B-box/actions/runs/45174354097/artifacts/14819745333) 为 24 个套件、153 项测试，失败、错误及跳过均为 0；`CaptureBodyReadersTest` 为 8/8。
+
+四份 smoke 结果的源码 SHA、实际 SDK、镜像、页大小及采集来源、UI/native 状态已逐项核对。各原生日志均有 116 个用例开始并成功完成，每项仅一次 `1→0`，`current` 完整覆盖 1–116，结束为 `OK (116 tests)`，失败、错误及跳过均为 0；合计 464 次原生测试执行全部通过。本轮 APK、JVM 及四组 smoke 产物的 `workflow_run.head_sha`、四份 `results.json.sha` 均与上述功能/测试提交一致。
+
+| 环境 | 实际页大小（字节） | 原生 / UI | 报告 |
+| --- | --- | --- | --- |
+| [API 24](https://github.com/giturass/B-box/actions/runs/45174354097/job/137696161608) | 4096（`/proc/self/smaps`） | 116 项通过 / 通过 | [14820401253](https://github.com/giturass/B-box/actions/runs/45174354097/artifacts/14820401253) |
+| [API 31](https://github.com/giturass/B-box/actions/runs/45174354097/job/137696161681) | 4096（`getconf`） | 116 项通过 / 通过 | [14819577901](https://github.com/giturass/B-box/actions/runs/45174354097/artifacts/14819577901) |
+| [API 36 / 4 KiB](https://github.com/giturass/B-box/actions/runs/45174354097/job/137696161771) | 4096（`getconf`） | 116 项通过 / 通过 | [14819657274](https://github.com/giturass/B-box/actions/runs/45174354097/artifacts/14819657274) |
+| [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/45174354097/job/137696161678) | 16384（`getconf`） | 116 项通过 / 通过 | [14819288161](https://github.com/giturass/B-box/actions/runs/45174354097/artifacts/14819288161) |
+
+本轮均为临时 x86_64 模拟器，16 KiB 组的实际镜像为 `system-images;android-36;google_apis_ps16k;x86_64`。既有 smoke 没有直接调用 `capture.body.view` / `capture.body.view.page` 完整正文接口；完整正文和分页仍由 Go 真实 HTTP/绑定回归及 Flutter 桥接替身测试覆盖，Android 构建及常规 smoke 不代表 ARM64 实机完整正文或视觉已验收。本机仅执行差异、源码/来源约束和文档静态检查，并读取本轮 Actions 日志及报告；未执行本机动态测试、签名 Release 或发布。后续验证记录提交仅补充文档，功能及测试源码保持与本轮 Actions 一致；下列记录只适用于各自列出的此前源码 SHA。
+
 2026-11-23 大正文完整解读、图片文件读取、字符集分页、活动尾页刷新、本地错误响应录制及脚本拨号退出等待的功能/测试源码 `60c56dc182e1a655928aec6c7d3934a1eff34462` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45141151663) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[核心作业](https://github.com/giturass/B-box/actions/runs/45141151663/job/137579236546) 实际执行 13 条 Go 命令，其中 8 条启用 race，全部使用 `-count=1` 并成功；包含正文真实绑定及生命周期、全量 httpdebug race、脚本取消后路由与迟到连接清理等待，以及后续 `TestBboxHTTPDebug` 路由命令。[Root CA 作业](https://github.com/giturass/B-box/actions/runs/45141151663/job/137579236429) 的 15 项发布元数据、6 项 mount/boot 测试及 ShellCheck 通过。Flutter 分析、880 项交互/布局测试、ARM64 AAR 和九张正文截图的审阅由 [界面验证记录](flclash.md#当前验证记录) 维护。
 
 [Android 作业](https://github.com/giturass/B-box/actions/runs/45141151663/job/137579236609) 完成本轮 x86_64 libbox、Flutter Debug AAR、Other/Play Kotlin、AIDL 及 [模拟器应用/测试 APK](https://github.com/giturass/B-box/actions/runs/45141151663/artifacts/14802537019)。[JVM 报告](https://github.com/giturass/B-box/actions/runs/45141151663/artifacts/14802511858) 实际为 24 个套件、153 项测试，失败、错误及跳过均为 0；`CaptureBodyReadersTest` 为 8/8，覆盖取消排序、排队/并发、读取器复用、关闭和文件清理。

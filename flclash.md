@@ -278,7 +278,17 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 
 ### 当前验证记录
 
-详情页原位完整正文查看及自动内容识别的本次改动尚无对应 Actions 或实机验收结果。以下已完成验证和截图均对应各自列出的此前源码 SHA，其中独立查看页的截图记录当时实现，不能作为本次原位布局与自动识别的验收。
+2026-11-23 详情页原位完整正文显示、自动内容识别及正文恢复的功能/测试源码 `267d692eae2c4f81755146fcf227ba91ed6a15b9` 已通过 [本次统一测试运行](https://github.com/giturass/B-box/actions/runs/45174354097)中的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45174354097/job/137691694530)：分析为 154 项 info、0 warning/error，920 项测试全部成功；日志确认 ARM64 Debug/Release Flutter AAR 均构建成功。[AAR 产物](https://github.com/giturass/B-box/actions/runs/45174354097/artifacts/14818029846) 与 [截图产物](https://github.com/giturass/B-box/actions/runs/45174354097/artifacts/14819515840) 的 `workflow_run.head_sha` 均已核对与该源码一致；本机只下载截图产物。
+
+实际逐张查看本次 `build/screenshots/body/` 的九张截图：320×568 浅色的 `320-1.8-light-hex.png`、`320-1.8-light-hex-end.png`、`320-1.8-light-base64.png`，360×568 深色的 `360-1.4-dark-hex.png`、`360-1.4-dark-hex-end.png`、`360-1.4-dark-base64.png`，以及 360×800 的 `360-light-image.png`、`360-light-image-zoomed.png`、`360-light-large-image.png`。320 的系统字号输入为 1.8，组件实际缩放上限为 1.4；360 的系统及组件字号均为 1.4，实际缩放值由同轮布局断言核对。
+
+两组窄屏的正文标题、复制/更多和 Hex/Base64 切换均可见，Hex 分别使用每行 2/4 字节，地址、字节和 ASCII 列可读，Base64 自然折行，未见横向溢出或工具栏遮挡。两张 Hex 尾部截图仅显示当前内部列表与外层页面的交叠视口，末字节 `ff` 由通过的断言验证。有效 PNG、缩放后的图片和 72.3 KB 跨页大图都在详情内显示，重置/复制/更多可见；大图截图仅覆盖当前视口。完整文件读取、原字节/派生分页、自动内容识别、仅保留“复制显示内容”的更多菜单及后台恢复由同轮测试断言覆盖，这九张图未另拍 JSON/Protobuf/gRPC 派生文本视图。
+
+另实际查看 `build/screenshots/requests/` 中的 `requests-pagination.png`、`body-first-page.png`、`body-last-page.png`，以及 `360-1.0-light`、`360-1.4-dark`、`800-1.0-light` 三组的 `details`、`body` 和 `message-menu`，共十二张截图。列表“Show more”位于底部搜索条上方，正文前/后页按钮、页码及复制工具栏可见；详情和报文菜单位于页面或右侧详情弹层内，窄屏标题按既有省略规则显示，未见菜单行越出视口。`body-last-page.png` 中的 emoji 在 Linux 测试字体下呈缺字方框，Unicode 字符串和 UTF-8 分页保真由通过的断言验证，Android 字体的实际字形仍需实机核对。
+
+本次截图采用英文、SDK Roboto、JetBrainsMono 与 Android 桥接替身，未覆盖中文正文界面、全部图片格式、真实远程数据或 ARM64 实机视觉，也没有上游逐像素一致的验收结论。核心、JVM 与 Android smoke 的结果及边界由 [应用验证记录](app.md#当前验证记录) 维护。本机仅执行静态检查并读取本次 Actions 日志、元数据和截图；后续验证记录提交仅更新文档。
+
+以下记录均仅适用于各自列出的此前源码 SHA；其中独立查看页的截图保留当时实现的历史身份，原位布局与自动内容识别的当前结论以上述 `267d692` 记录为准。
 
 2026-11-23 大正文完整文件读取、字符集分页、活动尾页刷新及派生视图取消恢复的功能/测试源码 `60c56dc182e1a655928aec6c7d3934a1eff34462` 已通过 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45141151663/job/137579236128)：分析为 153 项 info、0 warning/error，880 项测试全部成功；ARM64 Debug/Release Flutter AAR 均构建成功。[AAR 产物](https://github.com/giturass/B-box/actions/runs/45141151663/artifacts/14801733797) 与 [截图产物](https://github.com/giturass/B-box/actions/runs/45141151663/artifacts/14802910862) 的 `workflow_run.head_sha` 均已核对与该源码一致。后台恢复用例在异步操作完成后校验原/新读取器及相同派生页偏移，正文、页码历史、会话及取消断言全部保留。
 
