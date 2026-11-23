@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:b_box_ui/common/body_content.dart';
+import 'package:b_box_ui/common/http_message.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 CapturedBodyContent _read(List<int> bytes, {
@@ -53,6 +54,7 @@ void main() {
     expect(content.text, source);
     expect(content.bytes, utf8.encode(source));
     expect(content.complete, isTrue);
+    expect(content.viewFormat, 'json');
   });
 
   test('invalid or noncanonical Base64 produces a visible decode error', () {
@@ -61,6 +63,7 @@ void main() {
       expect(content.kind, CapturedBodyKind.binary, reason: source);
       expect(content.bytes, isEmpty, reason: source);
       expect(content.error, 'Invalid Base64 body page', reason: source);
+      expect(content.viewFormat, isNull, reason: source);
     }
     expect(_read([0xff]).bytes, [0xff]);
     expect(readCapturedBody({}, {'text': 'abc', 'encoding': 'unknown'}).error,
@@ -73,6 +76,7 @@ void main() {
       expect(content.kind, CapturedBodyKind.binary, reason: type);
       expect(content.bytes, utf8.encode('abc'));
       expect(content.complete, isFalse);
+      expect(content.viewFormat, isNull);
     }
   });
 
@@ -93,6 +97,184 @@ void main() {
     final svg = _read(utf8.encode('<svg/>'), contentType: 'image/svg+xml');
     expect(svg.kind, CapturedBodyKind.text);
     expect(svg.text, '<svg/>');
+  });
+
+  group('native display format hints', () {
+    test('image signatures recognize missing and misleading MIME without changing bytes', () {
+      final png = base64Decode('iVBORw0KGgoAAAANSUhEUgAAACAAAAAYCAIAAAAUMWhjAAAAJElEQVR4nGPQaLpEU8QwasGoBaMWjFowasGoBaMWjFowNCwAAKq6dD0cp/caAAAAAElFTkSuQmCC');
+      for (final mime in ['', 'application/octet-stream', 'application/json', 'text/plain']) {
+        final content = _read(png, contentType: mime);
+        expect(content.kind, CapturedBodyKind.image, reason: mime);
+        expect(content.viewFormat, 'image', reason: mime);
+        expect(content.bytes, png, reason: mime);
+      }
+      final bmp = Uint8List(54);
+      ByteData.sublistView(bmp)..setUint16(0, 0x4d42, Endian.little)
+        ..setUint32(2, 54, Endian.little)..setUint32(10, 54, Endian.little);
+      final icon = Uint8List(22);
+      ByteData.sublistView(icon)..setUint16(2, 1, Endian.little)..setUint16(4, 1, Endian.little)
+        ..setUint32(14, 1, Endian.little)..setUint32(18, 22, Endian.little);
+      for (final signature in [
+        [0xff, 0xd8, 0xff, 0xe0], ascii.encode('GIF87a'), ascii.encode('GIF89a'),
+        [...ascii.encode('RIFF'), 4, 0, 0, 0, ...ascii.encode('WEBP')], bmp, icon,
+      ]) {
+        expect(_read(signature).viewFormat, 'image', reason: signature.toString());
+      }
+      final first = _read(png.take(16).toList(), hasMore: true);
+      expect(first.kind, CapturedBodyKind.binary);
+      expect(first.complete, isFalse);
+      expect(first.viewFormat, 'image');
+      expect(_read(ascii.encode('BM is plain text')).viewFormat, isNull);
+      expect(_read([...ascii.encode('RIFF'), 4, 0, 0, 0, ...ascii.encode('WAVE')]).viewFormat, isNull);
+    });
+
+    test('an image MIME cannot hide readable text, JSON or SVG', () {
+      for (final (source, expected) in [
+        ('ordinary response text', null),
+        (r'{"id":123456789012345678901234567890,"same":1,"same":2}', 'json'),
+        ('<svg xmlns="http://www.w3.org/2000/svg"/>', null),
+      ]) {
+        final content = _read(utf8.encode(source), contentType: 'image/png');
+        expect(content.kind, CapturedBodyKind.text);
+        expect(content.text, source);
+        expect(content.bytes, utf8.encode(source));
+        expect(content.viewFormat, expected);
+      }
+      expect(_read([0, 1, 2, 3], contentType: 'image/png').viewFormat, 'image',
+        reason: 'An opaque image MIME remains a candidate for platform decoding and byte fallback.');
+    });
+
+    test('readable bodies with an image MIME remain text on later byte pages without new format hints', () {
+      for (final source in ['ordinary body ${'a' * 18000}', '{"text":"${'a' * 18000}"}']) {
+        final bytes = utf8.encode(source);
+        final first = _read(bytes.take(16384).toList(), contentType: 'image/png', hasMore: true);
+        final laterBytes = bytes.skip(16384).toList();
+        final later = _read(laterBytes, contentType: 'image/png', offset: 16384);
+        expect(first.kind, CapturedBodyKind.text);
+        expect(first.viewFormat, source.startsWith('{') ? 'json' : null);
+        expect(later.kind, CapturedBodyKind.text);
+        expect(later.text, utf8.decode(laterBytes));
+        expect(later.bytes, laterBytes);
+        expect(later.viewFormat, isNull);
+      }
+      final fragment = _read(utf8.encode('{"tail":true}'), contentType: 'image/png', offset: 16384);
+      expect(fragment.kind, CapturedBodyKind.text);
+      expect(fragment.viewFormat, isNull);
+    });
+
+    test('JSON validation distinguishes ordinary text and declared scalars', () {
+      for (final source in ['true', 'null', '123456789012345678901234567890', '"plain JSON string"']) {
+        expect(_read(utf8.encode(source)).viewFormat, isNull, reason: source);
+        final content = _read(utf8.encode(source), contentType: 'application/problem+json');
+        expect(content.viewFormat, 'json', reason: source);
+        expect(content.text, source);
+      }
+      for (final source in ['plain text', '{"unfinished":', '{invalid}', '{"one":1}\n{"two":2}', '\u00a0{"ok":true}']) {
+        final content = _read(utf8.encode(source), contentType: 'application/json');
+        expect(content.kind, CapturedBodyKind.text);
+        expect(content.text, source);
+        expect(content.viewFormat, isNull, reason: source);
+      }
+      for (final source in ['{}', '[true,null,1]', '{"plain":true}']) {
+        expect(_read(utf8.encode(source)).viewFormat, 'json', reason: source);
+      }
+    });
+
+    test('valid JSON remains eligible when local formatting would exceed its output budget', () {
+      final source = '${'[' * 200}0${']' * 200}';
+      expect(formatCapturedJson(source, maxOutputLength: 65536), isNull);
+      final content = _read(utf8.encode(source));
+      expect(content.viewFormat, 'json');
+      expect(content.text, source);
+      expect(content.bytes, utf8.encode(source));
+    });
+
+    test('display control replacement cannot turn an invalid body into JSON', () {
+      final source = '{"text":"${'a' * 500}\u0001"}';
+      for (final mime in ['', 'application/json']) {
+        final content = _read(utf8.encode(source), contentType: mime);
+        expect(content.kind, CapturedBodyKind.text);
+        expect(content.text, source.replaceAll('\u0001', '\ufffd'));
+        expect(content.viewFormat, isNull);
+        expect(content.bytes, utf8.encode(source));
+      }
+      final grpc = _read(_frame(0, utf8.encode(source)), contentType: 'application/grpc+json');
+      expect(grpc.format, CapturedBodyFormat.grpc);
+      expect(grpc.text, startsWith('# 1\n<'));
+    });
+
+    test('only healthy first pages provide provisional hints for complete native parsing', () {
+      for (final source in ['{"items":[', '[{"id":', '[true,']) {
+        final content = _read(utf8.encode(source), hasMore: true);
+        expect(content.complete, isFalse);
+        expect(content.viewFormat, 'json', reason: source);
+      }
+      expect(_read(utf8.encode('123'), contentType: 'application/json', hasMore: true).viewFormat, 'json');
+      expect(_read(utf8.encode('123'), hasMore: true).viewFormat, isNull);
+      expect(_read(utf8.encode('[INFO] ordinary log line'), hasMore: true).viewFormat, isNull);
+      expect(_read(utf8.encode('{plain text'), hasMore: true).viewFormat, isNull);
+      expect(_read([0xff, 0xfe, 0x7b, 0, 0x22, 0], contentType: 'application/json; charset=utf-16le',
+        hasMore: true).viewFormat, 'json');
+      for (final (bytes, mime) in [
+        (utf8.encode('{"ok":true}'), 'application/json'),
+        ([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'image/png'),
+        ([8, 1], 'application/protobuf'),
+        (_frame(0, [8, 1]), 'application/grpc'),
+      ]) {
+        for (final content in [
+          _read(bytes, contentType: mime, source: 'raw'),
+          _read(bytes, contentType: mime, offset: 16384),
+          _read(bytes, contentType: mime, error: 'decoding failed'),
+          _read(bytes, contentType: mime, pageTruncated: true),
+          _read(bytes, contentType: mime, bodyTruncated: true),
+        ]) {
+          expect(content.viewFormat, isNull, reason: mime);
+          expect(content.bytes, bytes);
+        }
+      }
+      expect(_read([], contentType: 'application/json').viewFormat, isNull);
+      expect(_read([0xff, 0xfe, 0xfd]).viewFormat, isNull);
+    });
+
+    test('a declared JSON page still requires a possible JSON prefix', () {
+      for (final source in [
+        '<html><body>upstream error', '   <!DOCTYPE html>', 'ordinary error text',
+        '{plain text', '[INFO] request log', 'not found', 'trueish', '404 Not Found',
+      ]) {
+        final content = _read(utf8.encode(source), contentType: 'application/json', hasMore: true);
+        expect(content.kind, CapturedBodyKind.text);
+        expect(content.viewFormat, isNull, reason: source);
+        expect(content.text, source);
+      }
+      for (final source in [
+        ' \r\n\t ', '"${'a' * 16380}', '-', '-123.4500e+', '12345678901234567890',
+        't', 'tru', 'false', 'null ', '{"items":[', '[true,',
+      ]) {
+        final content = _read(utf8.encode(source), contentType: 'application/json', hasMore: true);
+        expect(content.viewFormat, 'json', reason: source);
+        expect(content.complete, isFalse);
+        expect(content.bytes, utf8.encode(source));
+      }
+    });
+
+    test('gRPC framing and declared Proto resolve ambiguous readable payloads', () {
+      final source = '"F${'a' * 69}"';
+      final bytes = utf8.encode(source);
+      final protobuf = _read(bytes, contentType: 'application/protobuf');
+      expect(protobuf.format, CapturedBodyFormat.protobuf);
+      expect(protobuf.viewFormat, 'protobuf');
+      expect(protobuf.bytes, bytes);
+      expect(_read(bytes, contentType: 'application/json').viewFormat, 'json');
+      final grpc = _read(_frame(0, bytes), contentType: 'application/grpc+json');
+      expect(grpc.format, CapturedBodyFormat.grpc);
+      expect(grpc.viewFormat, 'grpc');
+      expect(grpc.text, '# 1\n$source');
+      expect(grpc.bytes, _frame(0, bytes));
+      expect(_read(_frame(0, bytes)).viewFormat, isNull);
+      expect(_read([8, 1]).viewFormat, 'protobuf');
+      expect(_read([8, 1], hasMore: true).viewFormat, isNull);
+      expect(_read([8, 1], contentType: 'application/octet-stream; charset=utf-8').viewFormat, isNull);
+    });
   });
 
   test('sparse controls are replaced only in display and dense controls stay binary', () {
@@ -323,6 +505,31 @@ void main() {
   });
 
   group('gRPC', () {
+    test('a JSON suffix validates payloads before considering Proto wire fields', () {
+      final source = '"F${'a' * 69}"';
+      final second = utf8.encode(r'{"n":123456789012345678901234567890,"same":1,"same":2}');
+      final wire = [..._frame(0, utf8.encode(source)), ..._frame(0, second)];
+      expect(_read(utf8.encode(source), contentType: 'application/protobuf').format, CapturedBodyFormat.protobuf,
+        reason: 'The same payload is also valid Proto wire data.');
+      for (final mime in ['application/grpc+json', 'application/grpc-web+json', 'application/grpc-web-text+json']) {
+        final bytes = mime.contains('web-text') ? ascii.encode(base64.encode(wire)) : wire;
+        final content = _read(bytes, contentType: mime);
+        expect(content.kind, CapturedBodyKind.text, reason: mime);
+        expect(content.format, CapturedBodyFormat.grpc);
+        expect(content.viewFormat, 'grpc');
+        expect(content.text, '# 1\n$source\n# 2\n${utf8.decode(second)}');
+        expect(content.bytes, bytes);
+      }
+      for (final payload in [utf8.encode('ordinary text'), [8, 1], utf8.encode('{invalid}')]) {
+        final bytes = _frame(0, payload);
+        final content = _read(bytes, contentType: 'application/grpc+json');
+        expect(content.format, CapturedBodyFormat.grpc);
+        expect(content.viewFormat, 'grpc');
+        expect(content.text, startsWith('# 1\n<'));
+        expect(content.bytes, bytes);
+      }
+    });
+
     test('reads complete message frames and gRPC-Web trailers', () {
       final bytes = [..._frame(0, [0x08, 1]), ..._frame(0, [0x08, 2]),
         ..._frame(0x80, utf8.encode('grpc-status: 0\r\n'))];

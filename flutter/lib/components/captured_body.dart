@@ -15,26 +15,17 @@ int _readerSequence = 0;
 
 class CapturedBody extends StatefulWidget {
   const CapturedBody({super.key, required this.message, required this.preview, this.loadPage,
-    this.captureId, this.direction = 'response'})
-    : _fullPage = false, _initialSession = null, _initialOffsets = const [], _initialView = null, _initialFormatted = true;
-  const CapturedBody._viewer({required this.message, required this.preview, this.loadPage, this.captureId,
-    required this.direction, required int session, required List<int> previousOffsets, required _BodyView? view,
-    required bool formatted})
-    : _fullPage = true, _initialSession = session, _initialOffsets = previousOffsets, _initialView = view, _initialFormatted = formatted;
+    this.captureId, this.direction = 'response'});
   final Json message, preview;
   final String? captureId;
   final String direction;
   // Retained for single-page widget fixtures. Production readers belong to
-  // this State, so an independent viewer cannot share the card's reader.
+  // this direction's State and are released when the detail is hidden.
   final Future<Json> Function(int offset, String source)? loadPage;
-  final bool _fullPage, _initialFormatted;
-  final int? _initialSession;
-  final List<int> _initialOffsets;
-  final _BodyView? _initialView;
   @override State<CapturedBody> createState() => _CapturedBodyState();
 }
 
-class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver {
+class _CapturedBodyState extends State<CapturedBody> with AutomaticKeepAliveClientMixin<CapturedBody>, WidgetsBindingObserver {
   final _scroll = ScrollController();
   final _horizontal = ScrollController();
   final _transform = TransformationController();
@@ -42,65 +33,73 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
   final _derivedOffsets = <int>[];
   bool _formatted = true, _loading = false, _wrap = true;
   bool _visible = false, _pageActive = false, _workQueued = false, _refreshQueued = false;
-  bool _detailLoading = false, _detailQueued = false;
-  int _generation = 0, _visibilityGeneration = 0;
+  int _generation = 0;
   int _hexColumns = 16;
   int? _session;
   BoxController? _box;
-  Timer? _pollTimer;
   String? _readerId;
-  Json _page = {}, _message = {};
+  Json _page = {}, _message = {}, _formatMessage = {};
   Json? _derivedPage;
-  String? _imagePath, _nativeViewFormat, _pendingDerived, _failedDerivedFormat, _resumeDerivedFormat, _explicitFormat;
+  String? _imagePath, _nativeViewFormat, _pendingDerived, _failedDerivedFormat, _resumeDerivedFormat, _automaticFormat;
   int _resumeDerivedOffset = 0;
   late CapturedBodyContent _content;
   _BodyView? _view;
   String _text = '';
-  String? _pretty, _error, _pollError;
+  String? _pretty, _error;
   String _contentType = '', _grpcEncoding = '';
   bool? _bodyComplete, _bodyTruncated;
   bool _pageCurrent = true;
   int get _offset => (_page['offset'] as num? ?? 0).toInt();
   bool get _canLoad => widget.loadPage != null || widget.captureId != null;
-  bool get _hasDerived => _imagePath != null || _derivedPage != null;
+  bool get _hasDerived => _nativeViewsAvailable && _nativeViewFormat == _automaticFormat &&
+    (_imagePath != null || _derivedPage != null);
   bool get _usingDerived => _activeView == _BodyView.content && _hasDerived &&
     (_nativeViewFormat != 'json' || _formatted);
+  bool get _hasPageContent => _content.kind != CapturedBodyKind.binary &&
+    (_automaticFormat != 'image' || _content.kind == CapturedBodyKind.image);
   bool get _showingImage => _activeView == _BodyView.content &&
     (_usingDerived ? _imagePath != null : _content.kind == CapturedBodyKind.image);
   _BodyView get _activeView {
     if (_view == _BodyView.hex || _view == _BodyView.base64) return _view!;
     final derived = _hasDerived && (_nativeViewFormat != 'json' || _formatted);
-    return derived || _content.kind != CapturedBodyKind.binary ? _BodyView.content : _BodyView.hex;
+    return derived || _hasPageContent ? _BodyView.content : _BodyView.hex;
   }
 
-  bool get _nativeViewsAvailable => widget._fullPage && widget.captureId != null &&
+  @override bool get wantKeepAlive => true;
+
+  bool get _nativeViewsAvailable => widget.captureId != null &&
+    (_message['capturedBytes'] as num? ?? 0) > 0 &&
     _message['bodyComplete'] == true && _message['bodyTruncated'] != true;
 
   String? get _nativeFormat {
     if (!_nativeViewsAvailable) return null;
-    if (_explicitFormat != null) return _explicitFormat;
-    final mime = _contentType.split(';').first.trim().toLowerCase();
-    if (mime.startsWith('image/') && !mime.contains('svg')) return 'image';
-    if (mime.startsWith('application/grpc')) return 'grpc';
-    if (mime.contains('proto') || _content.format == CapturedBodyFormat.protobuf) return 'protobuf';
-    if (mime.contains('json') || _pretty != null) return 'json';
-    return null;
+    // A fresh decoded first page can recover a formerly raw/error byte view.
+    // Complete-file interpretation starts at the beginning; the byte page and
+    // its offsets continue to belong to their original source.
+    if (!_healthyPage(_page, _content) && _messageBehind(_formatMessage, _message)) return null;
+    return _automaticFormat;
   }
 
   String? get _wantedDerived {
     if (_view == _BodyView.hex || _view == _BodyView.base64) return null;
     final format = _nativeFormat;
-    if (format == 'json' && (!_formatted || _explicitFormat != 'json' && _content.complete && _pretty != null)) return null;
+    if (format == 'json' && (!_formatted || _content.complete && _pretty != null)) return null;
     return format;
   }
+
+  bool get _canFormatJson => _pretty != null ||
+    _nativeViewFormat == 'json' && _derivedPage != null ||
+    _failedDerivedFormat != 'json' && (_resumeDerivedFormat == 'json' && _nativeFormat == 'json' ||
+      !_formatted && _content.complete && _content.viewFormat == 'json');
+
+  bool get _showsProtobufFields => _usingDerived
+    ? _nativeViewFormat == 'protobuf' || _nativeViewFormat == 'grpc' && !_content.mime.endsWith('+json')
+    : _content.format == CapturedBodyFormat.protobuf ||
+      _content.format == CapturedBodyFormat.grpc && !_content.mime.endsWith('+json');
 
   @override void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _session = widget._initialSession;
-    _previousOffsets.addAll(widget._initialOffsets);
-    _view = widget._initialView;
-    _formatted = widget._initialFormatted;
     _message = Map<String, dynamic>.of(widget.message);
     _update(widget.preview);
   }
@@ -114,31 +113,37 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
   @override void didUpdateWidget(CapturedBody oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.captureId != widget.captureId || oldWidget.direction != widget.direction) {
-      _visibilityGeneration++;
       _closeReader();
       _previousOffsets.clear();
       _derivedOffsets.clear();
       _resumeDerivedFormat = null;
       _resumeDerivedOffset = 0;
-      _view = widget._initialView;
-      _formatted = widget._initialFormatted;
-      _explicitFormat = null;
+      _view = null;
+      _formatted = true;
+      _automaticFormat = null;
+      _formatMessage = {};
       _failedDerivedFormat = null;
       _error = null;
-      _pollError = null;
       _message = Map<String, dynamic>.of(widget.message);
       _update(widget.preview);
       _scheduleWork();
-      if (_visible && widget._fullPage) _refreshDetail();
       return;
     }
+    // The detail page's CapturePoll supplies the live direction snapshot.
     final latest = _messageChanged(oldWidget.message, widget.message) ? _freshMessage(widget.message) : _message;
     final before = _message;
     final sourceMatches = (_page['source'] ?? 'decoded') == (widget.preview['source'] ?? 'decoded');
     final snapshot = _snapshotMessage(widget.preview, widget.message);
-    final replace = _offset == 0 && !_loading && sourceMatches && widget.preview.isNotEmpty &&
-      !_messageBehind(snapshot, latest);
-    _update(replace ? {...widget.preview, 'message': snapshot} : _page, message: latest);
+    final freshPreview = widget.preview.isNotEmpty && !_messageBehind(snapshot, latest);
+    final recovered = _decodedRecovery(_page, latest);
+    // A fallback reader stays bound to raw bytes. Replace it before accepting
+    // decoded offsets, and reject any raw read that is still in flight.
+    if (recovered != null) _closeReader();
+    final replace = _offset == 0 && !_loading && (sourceMatches || recovered != null) && freshPreview;
+    _update(replace ? recovered ?? {...widget.preview, 'message': snapshot} : _page, message: latest);
+    if (!replace && widget.preview.isNotEmpty && !_messageBehind(snapshot, _message)) {
+      _rememberFormat(widget.preview, readCapturedBody(_message, {...widget.preview, 'message': snapshot}));
+    }
     // Metadata is live on every page. Only the current last page needs to be
     // reread when a stream grows; its offset and previous-page history stay.
     if (_page['hasMore'] != true && (!_pageCurrent || !replace && _messageChanged(before, _message))) _queueCurrentRefresh();
@@ -148,6 +153,19 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
     ['capturedBytes', 'bodyBytes', 'bodyComplete', 'bodyTruncated'].any((field) => before[field] != after[field]) ||
     capturedHeader(rows(before['headers']), 'content-type') != capturedHeader(rows(after['headers']), 'content-type') ||
     capturedHeader(rows(before['headers']), 'grpc-encoding') != capturedHeader(rows(after['headers']), 'grpc-encoding');
+
+  static bool _healthyPage(Json page, CapturedBodyContent content) => content.error == null &&
+    page['source'] != 'raw' && page['truncated'] != true && (page['error']?.toString() ?? '').isEmpty;
+
+  Json? _decodedRecovery(Json page, Json message) {
+    final preview = widget.preview;
+    if (page['source'] != 'raw' || (page['offset'] as num? ?? 0).toInt() != 0 ||
+        preview.isEmpty || (preview['offset'] as num? ?? 0).toInt() != 0) return null;
+    final snapshot = _snapshotMessage(preview, widget.message);
+    if (_messageBehind(snapshot, message)) return null;
+    final decoded = {...preview, 'message': snapshot};
+    return _healthyPage(decoded, readCapturedBody(message, decoded)) ? decoded : null;
+  }
 
   static Json _snapshotMessage(Json page, Json fallback) {
     final snapshot = json(page['message']);
@@ -186,7 +204,10 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
         .every((field) => page[field] == _page[field]);
     _page = {...page, 'message': Map<String, dynamic>.of(snapshot)};
     _pageCurrent = pageCurrent;
-    if (same) return;
+    if (same) {
+      if (pageCurrent) _rememberFormat(page, _content);
+      return;
+    }
     _contentType = contentType;
     _grpcEncoding = grpcEncoding;
     _bodyComplete = _message['bodyComplete'] as bool?;
@@ -195,12 +216,34 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
     _content = readCapturedBody(_message, {...page, 'message': {
       ..._message, if (!pageCurrent) 'bodyComplete': false,
     }});
-    _pretty = _content.kind == CapturedBodyKind.text && _content.format == CapturedBodyFormat.plain && _content.complete
+    _pretty = _content.kind == CapturedBodyKind.text && _content.format == CapturedBodyFormat.plain &&
+      _content.complete && _content.viewFormat == 'json'
       ? formatCapturedJson(_content.text, maxOutputLength: 65536) : null;
+    if (pageCurrent) _rememberFormat(page, _content);
+  }
+
+  void _rememberFormat(Json page, CapturedBodyContent content) {
+    // A later byte page can begin with arbitrary text or part of a field.
+    // Only the first page identifies the direction's complete-file view.
+    if ((page['offset'] as num? ?? 0).toInt() != 0) return;
+    final snapshot = _snapshotMessage(page, _message);
+    if (_messageBehind(snapshot, _formatMessage)) return;
+    // Reading an already-kept raw page cannot erase a decoded hint from the
+    // same or a newer snapshot supplied by the detail page.
+    if (page['source'] == 'raw' && _automaticFormat != null && !_messageBehind(_formatMessage, snapshot)) return;
+    _formatMessage = Map<String, dynamic>.of(snapshot);
+    if (content.viewFormat == _automaticFormat) return;
+    if (_pendingDerived != null || _nativeViewFormat != null) _closeReader();
+    _automaticFormat = content.viewFormat;
+    _resumeDerivedFormat = null;
+    _resumeDerivedOffset = 0;
+    _derivedOffsets.clear();
+    if (_failedDerivedFormat != null) _error = null;
+    _failedDerivedFormat = null;
+    _scheduleWork();
   }
   @override void dispose() {
     _visible = false;
-    _visibilityGeneration++;
     _closeReader();
     WidgetsBinding.instance.removeObserver(this);
     _scroll.dispose();
@@ -219,12 +262,10 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
       (lifecycle == null || lifecycle == AppLifecycleState.resumed);
     if (visible == _visible) return false;
     _visible = visible;
-    _visibilityGeneration++;
     if (!visible) {
       _closeReader();
     } else {
-      if (widget._fullPage && widget.captureId != null) _refreshDetail();
-      else if ((_offset > 0 || !_pageCurrent) && _page['hasMore'] != true) _queueCurrentRefresh();
+      if ((_offset > 0 || !_pageCurrent) && _page['hasMore'] != true) _queueCurrentRefresh();
       _scheduleWork();
     }
     return true;
@@ -234,8 +275,6 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
 
   void _closeReader() {
     _generation++;
-    _pollTimer?.cancel();
-    _pollTimer = null;
     _loading = false;
     _refreshQueued = false;
     _pendingDerived = null;
@@ -278,45 +317,6 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
     });
   }
 
-  void _refreshDetail() {
-    _pollTimer?.cancel();
-    if (_detailLoading) { _detailQueued = true; return; }
-    if (_current() && widget.captureId != null) unawaited(_pollDetail());
-  }
-
-  Future<void> _pollDetail() async {
-    if (!_current() || _detailLoading || widget.captureId == null) return;
-    _detailLoading = true;
-    final epoch = _visibilityGeneration, box = _box!;
-    try {
-      final detail = json(await box.call('capture.detail', {'id': widget.captureId}));
-      if (!_current() || epoch != _visibilityGeneration) return;
-      final incoming = json(detail[widget.direction]);
-      final message = _freshMessage(incoming);
-      if (incoming.isNotEmpty) {
-        final preview = json(detail['${widget.direction}Preview']);
-        final before = _message;
-        final sourceMatches = (_page['source'] ?? 'decoded') == (preview['source'] ?? 'decoded');
-        final snapshot = _snapshotMessage(preview, incoming);
-        final replace = _offset == 0 && !_loading && preview.isNotEmpty && sourceMatches &&
-          !_messageBehind(snapshot, message);
-        setState(() {
-          _update(replace ? {...preview, 'message': snapshot} : _page, message: message);
-          _pollError = null;
-        });
-        if (_page['hasMore'] != true && (!_pageCurrent || !replace && _messageChanged(before, _message))) _queueCurrentRefresh();
-        _scheduleWork();
-      }
-    } catch (failure) {
-      if (_current() && epoch == _visibilityGeneration) setState(() => _pollError = BoxController.describe(failure));
-    } finally {
-      _detailLoading = false;
-      if (_current()) {
-        if (_detailQueued) { _detailQueued = false; _refreshDetail(); }
-        else if (_message['bodyComplete'] != true) _pollTimer = Timer(const Duration(seconds: 2), _pollDetail);
-      }
-    }
-  }
   String get _shownText => _activeView == _BodyView.base64 ?
     (_page['encoding'] == 'base64' ? _text : base64Encode(_content.bytes)) : _usingDerived && _derivedPage != null
       ? _derivedText(_derivedPage!) : _formatted ? _pretty ?? _content.text : _content.text;
@@ -356,20 +356,10 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
       if (_pendingDerived != null && value != _BodyView.content) _closeReader();
       _view = value;
       if (value == _BodyView.content) _failedDerivedFormat = null;
+      if (value == _BodyView.content && _content.kind == CapturedBodyKind.binary) _formatted = true;
     });
     _resetScroll();
     _scheduleWork();
-  }
-
-  void _open() {
-    if (!_current() || widget._fullPage) return;
-    // Preserve the original page/history, then give the viewer its own reader
-    // and live metadata lifecycle.
-    openPage(context, CapturedBody._viewer(
-      message: Map<String, dynamic>.unmodifiable(_message), preview: Map<String, dynamic>.unmodifiable(_page),
-      loadPage: widget.loadPage, captureId: widget.captureId, direction: widget.direction,
-      session: _session!, previousOffsets: List<int>.unmodifiable(_previousOffsets), view: _view, formatted: _formatted,
-    ));
   }
 
   Future<void> _copyDisplayed() => _copy(!_usingDerived && _content.error != null ? _text : _activeView == _BodyView.hex ? [
@@ -377,34 +367,37 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
       capturedHexLine(_content.bytes, offset, _hexColumns, baseOffset: _offset),
   ].join('\n') : _shownText);
 
-  List<IconButtonData> _actions({required bool expanded}) => [
-    if (_activeView == _BodyView.content && (_pretty != null || _nativeFormat == 'json')) IconButtonData(glyph: AppGlyphs.code,
+  List<IconButtonData> _actions() => [
+    if (_activeView == _BodyView.content && _canFormatJson) IconButtonData(glyph: AppGlyphs.code,
       tooltip: context.tr(_formatted ? 'Show original' : 'Format JSON'), isSelected: _formatted,
       onPressed: _loading ? null : () { setState(() => _formatted = !_formatted); _resetScroll(); _scheduleWork(); }),
-    if (expanded && (_activeView == _BodyView.base64 || _activeView == _BodyView.content && (_derivedPage != null || _content.kind == CapturedBodyKind.text)))
+    if (_activeView == _BodyView.base64 || _activeView == _BodyView.content && (_derivedPage != null || _content.kind == CapturedBodyKind.text))
       IconButtonData(glyph: AppGlyphs.wrap, tooltip: context.tr('Wrap lines'), isSelected: _wrap,
         onPressed: () { setState(() => _wrap = !_wrap); _resetScroll(); }),
-    if (expanded && _showingImage)
+    if (_showingImage)
       IconButtonData(glyph: AppGlyphs.reset, tooltip: context.tr('Reset zoom'),
         onPressed: () => _transform.value = Matrix4.identity()),
-    if (!expanded) IconButtonData(glyph: AppGlyphs.openExternal, tooltip: context.tr('View body'),
-      onPressed: _text.isEmpty && (_message['capturedBytes'] as num? ?? 0) == 0 ? null : _open),
     IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr('Copy current body page'), onPressed: _text.isEmpty ? null : () => _copy()),
   ];
 
-  String get _contentLabel => switch (_usingDerived ? _nativeViewFormat : _nativeFormat) {
-    'image' => 'Image', 'protobuf' => 'Protobuf', 'grpc' => 'gRPC', 'json' when _usingDerived || _content.kind == CapturedBodyKind.binary => 'JSON',
+  List<PopupMenuItem> _menuItems() => [
+    PopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Copy displayed body'),
+      onPressed: _text.isEmpty && !_usingDerived || _showingImage ? null : _copyDisplayed),
+  ];
+
+  String get _contentLabel => switch (_usingDerived ? _nativeViewFormat :
+      _nativeFormat != _failedDerivedFormat ? _nativeFormat : null) {
+    'image' => 'Image', 'protobuf' => 'Protobuf', 'grpc' => 'gRPC', 'json' => 'JSON',
     _ => _content.kind == CapturedBodyKind.image ? 'Image' : switch (_content.format) {
     CapturedBodyFormat.protobuf => 'Protobuf',
     CapturedBodyFormat.grpc => 'gRPC',
-    CapturedBodyFormat.plain => 'Text',
+    CapturedBodyFormat.plain => _pretty != null || _content.complete && _content.viewFormat == 'json' ? 'JSON' : 'Text',
   }};
 
   Widget _body(double maxHeight) {
     if (_showingImage) {
       return _BodyImage(bytes: _usingDerived ? null : _content.bytes, path: _usingDerived ? _imagePath : null,
-        height: math.min(maxHeight, widget._fullPage ? maxHeight : 240.0),
-        transform: widget._fullPage ? _transform : null, onOpen: widget._fullPage ? null : _open,
+        height: maxHeight, transform: _transform,
         onHex: () => _select(_BodyView.hex));
     }
     if (_text.isEmpty && !_usingDerived) return Text(context.tr('No body captured'), style: context.listSubtitleStyle);
@@ -430,7 +423,7 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
       }
       final text = _shownText;
       var width = constraints.maxWidth;
-      if (widget._fullPage && !_wrap) {
+      if (!_wrap) {
         final measure = TextPainter(text: TextSpan(text: text, style: style), textDirection: TextDirection.ltr,
           textScaler: MediaQuery.textScalerOf(context))..layout();
         width = math.max(width, measure.width + 4);
@@ -438,7 +431,7 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
       }
       Widget child = SizedBox(width: width, child: Directionality(textDirection: TextDirection.ltr, child: SelectableText(text,
         key: const ValueKey('captured-body-text'), style: style)));
-      if (widget._fullPage && !_wrap) child = Scrollbar(controller: _horizontal,
+      if (!_wrap) child = Scrollbar(controller: _horizontal,
         child: SingleChildScrollView(controller: _horizontal, primary: false, scrollDirection: Axis.horizontal, child: child));
       return ConstrainedBox(constraints: BoxConstraints(maxHeight: maxHeight), child: Scrollbar(controller: _scroll,
         child: SingleChildScrollView(controller: _scroll, primary: false, child: child)));
@@ -448,17 +441,25 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
   Future<void> _load(int offset, {required _PageMove move, bool derived = false}) async {
     final box = _box!, loader = widget.loadPage;
     if (_loading || !_current() || !derived && !_canLoad || derived && _readerId == null) return;
-    final generation = ++_generation;
+    var generation = ++_generation;
     final oldOffset = derived ? (_derivedPage?['offset'] as num? ?? 0).toInt() : _offset;
     setState(() { _loading = true; _error = null; });
     try {
       final source = _page['source'] as String? ?? 'decoded';
-      final page = derived ? json(await box.call('capture.body.view.page', {'readerId': _readerId, 'offset': offset})) :
+      var page = derived ? json(await box.call('capture.body.view.page', {'readerId': _readerId, 'offset': offset})) :
         loader != null ? await loader(offset, source) : json(await box.call('capture.body', {
           'readerId': _reader(), 'id': widget.captureId, 'direction': widget.direction, 'offset': offset, 'source': source,
         }));
       if (!_current() || generation != _generation) return;
       if (derived) _derivedText(page);
+      if (!derived) {
+        final recovered = _decodedRecovery(page, _freshMessage(_snapshotMessage(page, _message)));
+        if (recovered != null) {
+          _closeReader();
+          generation = _generation;
+          page = recovered;
+        }
+      }
       setState(() {
         final history = derived ? _derivedOffsets : _previousOffsets;
         if (move == _PageMove.previous && history.isNotEmpty) history.removeLast();
@@ -484,7 +485,7 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
   }
 
   Future<void> _openDerived(String format) async {
-    if (!_current() || _loading || widget.captureId == null) return;
+    if (!_current() || _loading || _nativeFormat != format) return;
     final generation = ++_generation, box = _box!;
     setState(() { _loading = true; _error = null; _pendingDerived = format; _failedDerivedFormat = null; });
     try {
@@ -492,7 +493,7 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
       final view = json(await box.call('capture.body.view', {
         'readerId': reader, 'id': widget.captureId, 'direction': widget.direction, 'format': format,
       }));
-      if (!_current() || generation != _generation) return;
+      if (!_current() || generation != _generation || _nativeFormat != format) return;
       if (view['format'] != format) throw const FormatException('Unexpected body view format');
       Json? page;
       String? path;
@@ -504,7 +505,7 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
         if (page.isEmpty) throw const FormatException('Body view page is unavailable');
         final offset = _resumeDerivedFormat == format ? _resumeDerivedOffset : 0;
         if (offset > 0) page = json(await box.call('capture.body.view.page', {'readerId': reader, 'offset': offset}));
-        if (!_current() || generation != _generation) return;
+        if (!_current() || generation != _generation || _nativeFormat != format) return;
         _derivedText(page);
       }
       setState(() {
@@ -531,31 +532,10 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
     }
   }
 
-  void _chooseDerived(String format) {
-    if (!_current() || _loading || !_nativeViewsAvailable) return;
-    setState(() {
-      _explicitFormat = format;
-      _view = _BodyView.content;
-      _formatted = true;
-      _failedDerivedFormat = null;
-      if (_nativeViewFormat != format) {
-        _nativeViewFormat = null;
-        _derivedPage = null;
-        _imagePath = null;
-        _resumeDerivedFormat = null;
-        _resumeDerivedOffset = 0;
-        _derivedOffsets.clear();
-      }
-    });
-    if (!_hasDerived) unawaited(_openDerived(format));
-    _resetScroll();
-  }
-
   @override Widget build(BuildContext context) {
+    super.build(context);
     final box = context.watchBox(BoxAspect.connections);
-    if (box.remote || box.sessionRevision != _session) return widget._fullPage
-      ? BoxPage(title: 'Body', children: const [EmptyState('Session changed; reopen this activity from the current list')])
-      : const SizedBox.shrink();
+    if (box.remote || box.sessionRevision != _session) return const SizedBox.shrink();
     final message = _message;
     final derived = _usingDerived && _derivedPage != null;
     final preview = derived ? _derivedPage! : _page;
@@ -573,15 +553,14 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
         ].join(' · '), style: context.listCaptionStyle),
         if ((_text.isNotEmpty || _hasDerived) && (_content.error == null || _usingDerived)) SegmentedControl<_BodyView>(
           segments: [
-            if (_content.kind != CapturedBodyKind.binary || _nativeFormat != null) (_BodyView.content, context.tr(_contentLabel)),
+            if (_hasPageContent || _hasDerived ||
+                _nativeFormat != null && _nativeFormat != _failedDerivedFormat) (_BodyView.content, context.tr(_contentLabel)),
             (_BodyView.hex, context.tr('Hex')), (_BodyView.base64, 'Base64'),
           ], value: _activeView, onChanged: _select,
         ),
         if (_usingDerived)
           Text(context.tr('The original body page is kept for copying and byte views.'), style: context.listCaptionStyle),
-        if (_activeView == _BodyView.content && (_usingDerived
-            ? _nativeViewFormat == 'protobuf' || _nativeViewFormat == 'grpc'
-            : _content.format != CapturedBodyFormat.plain))
+        if (_activeView == _BodyView.content && _showsProtobufFields)
           Text(context.tr('Field numbers are shown without a Protobuf schema.'), style: context.listCaptionStyle),
         if (message['bodyTruncated'] == true)
           Text(context.tr('Captured body was truncated.'), style: context.listSubtitleStyle),
@@ -593,16 +572,13 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
           Text(preview['error'] as String, style: context.listSubtitleStyle),
         if (_content.error != null) Text(context.tr('Body data could not be read.'), style: context.listSubtitleStyle),
         if (message['bodyComplete'] != true) Text(context.tr('Body stream is incomplete'), style: context.listSubtitleStyle),
-        if (_content.error == null || _usingDerived) _body(MediaQuery.sizeOf(context).height * (widget._fullPage ? .7 : .5))
+        if (_content.error == null || _usingDerived) _body(MediaQuery.sizeOf(context).height * .7)
         else SelectableText(_text, key: const ValueKey('captured-body-text'), style: context.listSubtitleStyle),
         if (_error != null) Text(_error!, style: context.listSubtitleStyle),
         if (_pendingDerived != null) Text(context.tr('Loading'), style: context.listCaptionStyle),
-        if (_failedDerivedFormat != null) TextButton(onPressed: _loading ? null : () => _openDerived(_failedDerivedFormat!),
+        if (_failedDerivedFormat != null && _nativeFormat == _failedDerivedFormat)
+          TextButton(onPressed: _loading ? null : () => _openDerived(_failedDerivedFormat!),
           child: Text(context.tr('Retry body view'))),
-        if (_pollError != null) ...[
-          Text(_pollError!, style: context.listSubtitleStyle),
-          TextButton(onPressed: _refreshDetail, child: Text(context.tr('Refresh'))),
-        ],
         if (paged) ...[
           Text('${context.tr(derived ? 'Derived body page' : 'Body page')}: ${history.length + 1}', style: context.listCaptionStyle),
           Wrap(spacing: 8, children: [
@@ -615,37 +591,25 @@ class _CapturedBodyState extends State<CapturedBody> with WidgetsBindingObserver
           ]),
         ],
       ]));
-    if (!widget._fullPage) return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      ListHeader(title: context.tr('Body'), actions: _actions(expanded: false)), card,
+    return Column(key: const ValueKey('captured-body'), crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      ListHeader(title: context.tr('Body'), trailing: TonalButtonTheme(size: TonalButtonSize.section,
+        child: Row(mainAxisSize: MainAxisSize.min, spacing: appBarActionSpace, children: [
+          for (final action in _actions()) AppBarActionButton(data: action),
+          BoxMenu(items: _menuItems()),
+        ]))),
+      card,
     ]);
-    return Scaffold(key: const ValueKey('captured-body-viewer'), title: context.tr('Body'),
-      iconActions: _actions(expanded: true), menuItems: [
-        PopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Copy displayed body'),
-          onPressed: _text.isEmpty && !_usingDerived || _showingImage ? null : _copyDisplayed),
-        if (_nativeViewsAvailable) for (final format in ['json', 'protobuf', 'grpc', 'image']) PopupMenuItem(
-          label: context.tr(switch (format) {
-            'json' => 'View as JSON', 'protobuf' => 'View as Protobuf', 'grpc' => 'View as gRPC', _ => 'View as image',
-          }), section: format == 'json' ? PopupMenuSection(title: context.tr('Display format')) : null,
-          checked: _usingDerived && _nativeViewFormat == format,
-          onPressed: _loading ? null : () => _chooseDerived(format)),
-      ], body: Builder(builder: (context) {
-        final inset = context.appBarInset, gap = context.contentTopPadding - inset;
-        return Padding(padding: EdgeInsets.only(top: inset), child: ListView(
-          padding: EdgeInsets.fromLTRB(16, math.max(0.0, gap), 16, 24 + context.bottomInset), children: [card],
-        ));
-      }));
   }
 }
 
 class _BodyImage extends StatefulWidget {
-  const _BodyImage({this.bytes, this.path, required this.height, required this.onHex, this.transform, this.onOpen})
+  const _BodyImage({this.bytes, this.path, required this.height, required this.onHex, required this.transform})
     : assert((bytes == null) != (path == null));
   final Uint8List? bytes;
   final String? path;
   final double height;
-  final TransformationController? transform;
+  final TransformationController transform;
   final VoidCallback onHex;
-  final VoidCallback? onOpen;
   @override State<_BodyImage> createState() => _BodyImageState();
 }
 
@@ -674,8 +638,6 @@ class _BodyImageState extends State<_BodyImage> {
         Text(context.tr('Image preview unavailable'), style: context.listSubtitleStyle),
         TextButton(onPressed: widget.onHex, child: Text(context.tr('Show hexadecimal'))),
       ])));
-    return ClipRect(child: widget.transform != null
-      ? InteractiveViewer(transformationController: widget.transform, minScale: 1, maxScale: 6, child: image)
-      : GestureDetector(onTap: widget.onOpen, child: image));
+    return ClipRect(child: InteractiveViewer(transformationController: widget.transform, minScale: 1, maxScale: 6, child: image));
   });
 }

@@ -21,6 +21,7 @@ class CapturedBodyContent {
     this.charset = '',
     this.complete = false,
     this.error,
+    this.viewFormat,
   });
 
   final CapturedBodyKind kind;
@@ -29,6 +30,10 @@ class CapturedBodyContent {
   final CapturedBodyFormat format;
   final bool complete;
   final String? error;
+
+  /// A native top-level format suggested by the first decoded byte page.
+  /// The caller retains this direction's hint while reading subsequent pages.
+  final String? viewFormat;
 
   bool get isCut => preview.length < text.length;
 }
@@ -43,7 +48,7 @@ const _maxGuessedFieldNumber = 1 << 16;
 
 /// Classifies only [page], keeping its original bytes for copy and byte views.
 /// The native reader may supply charset-decoded UTF-8 display text separately;
-/// complete image/Protobuf/gRPC files are opened by the viewer, not accumulated.
+/// complete image/JSON/Protobuf/gRPC files are read natively, not accumulated.
 CapturedBodyContent readCapturedBody(Map<String, dynamic> message, Map<String, dynamic> page) {
   final latest = page['message'];
   if (latest is Map) message = {...message, ...Map<String, dynamic>.from(latest)};
@@ -72,52 +77,122 @@ CapturedBodyContent readCapturedBody(Map<String, dynamic> message, Map<String, d
       (page['error']?.toString() ?? '').isEmpty;
   final declaredCharset = _declaredCharset(bytes, contentType, mime, firstPage: offset == 0);
   final charset = page['charset'] is String ? (page['charset'] as String).trim().toLowerCase() : declaredCharset;
-  CapturedBodyContent binary() => CapturedBodyContent(kind: CapturedBodyKind.binary,
-    bytes: bytes, mime: mime, charset: charset, complete: complete);
-  CapturedBodyContent text(String value, {CapturedBodyFormat format = CapturedBodyFormat.plain}) =>
+  final canInfer = offset == 0 && page['source'] != 'raw' && bytes.isNotEmpty &&
+      page['truncated'] != true && message['bodyTruncated'] != true &&
+      (page['error']?.toString() ?? '').isEmpty;
+  String? hint(String format) => canInfer ? format : null;
+  CapturedBodyContent binary({String? viewFormat}) => CapturedBodyContent(kind: CapturedBodyKind.binary,
+    bytes: bytes, mime: mime, charset: charset, complete: complete, viewFormat: viewFormat);
+  CapturedBodyContent text(String value, {CapturedBodyFormat format = CapturedBodyFormat.plain, String? viewFormat}) =>
       CapturedBodyContent(kind: CapturedBodyKind.text, bytes: bytes, text: value,
-        preview: _preview(value), format: format, mime: mime, charset: charset, complete: complete);
+        preview: _preview(value), format: format, mime: mime, charset: charset, complete: complete, viewFormat: viewFormat);
   if (page['source'] == 'raw') return binary();
   if (bytes.isEmpty) return text('');
-  if (mime.startsWith('image/') && !mime.contains('svg')) {
+  if (offset == 0 && _rasterImageSignature(bytes)) {
     return complete ? CapturedBodyContent(kind: CapturedBodyKind.image,
-      bytes: bytes, mime: mime, complete: true) : binary();
+      bytes: bytes, mime: mime, complete: true, viewFormat: hint('image')) : binary(viewFormat: hint('image'));
   }
   if (mime.startsWith('application/grpc')) {
-    if (!complete) return binary();
+    if (!complete) return binary(viewFormat: hint('grpc'));
     final parsed = _grpcText(bytes, mime, _header(message, 'grpc-encoding'));
-    return parsed == null ? binary() : text(parsed, format: CapturedBodyFormat.grpc);
+    return parsed == null ? binary(viewFormat: hint('grpc')) :
+      text(parsed, format: CapturedBodyFormat.grpc, viewFormat: hint('grpc'));
   } else if (mime.contains('proto')) {
-    if (!complete) return binary();
+    if (!complete) return binary(viewFormat: hint('protobuf'));
     final parsed = _protobufText(bytes);
-    return parsed == null ? binary() : text(parsed, format: CapturedBodyFormat.protobuf);
+    return parsed == null ? binary(viewFormat: hint('protobuf')) :
+      text(parsed, format: CapturedBodyFormat.protobuf, viewFormat: hint('protobuf'));
   }
+  final imageMime = mime.startsWith('image/') && !mime.contains('svg');
   // The stateful native reader decodes across byte-page boundaries. Its
   // display field does not replace Text/Encoding or their original bytes.
-  String? readable;
+  String? decoded;
   if (page['displayText'] is String) {
     final display = page['displayText'] as String;
     if (!_validSurrogates(display)) return binary();
-    readable = _readableText(display);
+    decoded = display;
   } else {
     // Legacy single-page callers have no previous byte-order/decoder state.
-    if (_isUtf16Charset(charset) && !complete) return binary();
+    if (_isUtf16Charset(charset) && !complete) return binary(viewFormat: _jsonMime(mime) ? hint('json') : null);
     // Only an incomplete final character may be replaced. Invalid bytes inside
     // a truncated capture still identify binary data.
     final allowTail = page['hasMore'] != true &&
         (message['bodyTruncated'] == true || page['truncated'] == true);
-    final decoded = _decodeText(bytes, charset, allowTail: allowTail);
-    readable = decoded == null ? null : _readableText(decoded);
+    decoded = _decodeText(bytes, charset, allowTail: allowTail);
   }
-  if (readable != null) return text(readable);
+  final readable = decoded == null ? null : _readableText(decoded);
+  if (readable != null) return text(readable,
+    viewFormat: canInfer ? _jsonViewFormat(decoded!, mime, complete: complete) : null);
+  if (imageMime) {
+    return complete ? CapturedBodyContent(kind: CapturedBodyKind.image,
+      bytes: bytes, mime: mime, complete: true, viewFormat: hint('image')) : binary(viewFormat: hint('image'));
+  }
   // Native pages name the default UTF-8 decoder even without a declaration.
   // That default must not suppress the existing untyped binary Proto guess.
   if (complete && declaredCharset.isEmpty && (charset.isEmpty || charset == 'utf-8' || charset == 'utf8') &&
       (mime.isEmpty || mime == 'application/octet-stream')) {
     final parsed = _protobufText(bytes, guessed: true);
-    if (parsed != null) return text(parsed, format: CapturedBodyFormat.protobuf);
+    if (parsed != null) return text(parsed, format: CapturedBodyFormat.protobuf, viewFormat: hint('protobuf'));
   }
-  return binary();
+  return binary(viewFormat: !complete && _jsonMime(mime) ? hint('json') : null);
+}
+
+bool _rasterImageSignature(Uint8List bytes) {
+  bool starts(List<int> prefix, [int offset = 0]) {
+    if (bytes.length < offset + prefix.length) return false;
+    for (var index = 0; index < prefix.length; index++) {
+      if (bytes[offset + index] != prefix[index]) return false;
+    }
+    return true;
+  }
+  if (starts(const [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) ||
+      starts(const [0xff, 0xd8, 0xff]) ||
+      starts(const [0x47, 0x49, 0x46, 0x38, 0x37, 0x61]) ||
+      starts(const [0x47, 0x49, 0x46, 0x38, 0x39, 0x61]) ||
+      starts(const [0x52, 0x49, 0x46, 0x46]) && starts(const [0x57, 0x45, 0x42, 0x50], 8)) return true;
+  if (bytes.length < 14) return false;
+  final data = ByteData.sublistView(bytes);
+  if (starts(const [0x42, 0x4d]) && data.getUint32(6, Endian.little) == 0 &&
+      data.getUint32(2, Endian.little) >= 26 && data.getUint32(10, Endian.little) >= 26) return true;
+  return bytes.length >= 22 && starts(const [0, 0, 1, 0]) && data.getUint16(4, Endian.little) > 0 &&
+      data.getUint32(14, Endian.little) > 0 &&
+      data.getUint32(18, Endian.little) >= 6 + data.getUint16(4, Endian.little) * 16;
+}
+
+bool _jsonMime(String mime) => mime == 'application/json' || mime == 'text/json' || mime.endsWith('+json');
+
+final _jsonArrayKeyword = RegExp(r'^(?:true|false|null)(?=\s|,|\]|$)');
+final _jsonNumberPrefix = RegExp(r'^-?(?:0|[1-9][0-9]*)(?:\.[0-9]*)?(?:[eE][+-]?[0-9]*)?\s*$');
+
+String? _jsonViewFormat(String text, String mime, {required bool complete}) {
+  final source = text.trimLeft();
+  final declared = _jsonMime(mime);
+  final container = source.startsWith('{') || source.startsWith('[');
+  if (complete) {
+    if (!declared && !container) return null;
+    try {
+      // Validation is independent of formatting/output budgets. The decoded
+      // values never replace text, number literals, duplicate keys or bytes.
+      jsonDecode(text);
+      return 'json';
+    } on FormatException {
+      return null;
+    }
+  }
+  if (!container) {
+    if (!declared) return null;
+    // A declaration can identify a split string or scalar, but must not turn
+    // an obvious HTML/error page into an automatic JSON parsing request.
+    if (source.isEmpty || source.startsWith('"') || source == '-' || _jsonNumberPrefix.hasMatch(source)) return 'json';
+    final token = source.trimRight();
+    return const ['true', 'false', 'null'].any((keyword) => keyword.startsWith(token)) ? 'json' : null;
+  }
+  final next = source.substring(1).trimLeft();
+  if (next.isEmpty || next.startsWith('"')) return 'json';
+  if (source.startsWith('{')) return next.startsWith('}') ? 'json' : null;
+  final first = next.codeUnitAt(0);
+  return next.startsWith('{') || next.startsWith('[') || next.startsWith(']') || next.startsWith('-') ||
+      first >= 0x30 && first <= 0x39 || _jsonArrayKeyword.hasMatch(next) ? 'json' : null;
 }
 
 String _header(Map<String, dynamic> message, String name) {
@@ -491,13 +566,14 @@ String? _grpcText(Uint8List bytes, String mime, String grpcEncoding) {
       final coding = grpcEncoding.trim();
       final knownToken = RegExp(r'^[A-Za-z0-9._-]{1,128}$').hasMatch(coding);
       note = knownToken ? ' [compressed: $coding]' : ' [compressed]';
+    } else if (mime.endsWith('+json')) {
+      // The suffix identifies each message, while the outer view keeps its
+      // gRPC framing. JSON bytes may also happen to be valid Proto wire data.
+      final decoded = _utf8Text(frame, allowTail: false);
+      if (decoded != null && _jsonViewFormat(decoded, 'application/json', complete: true) == 'json') text = decoded;
     } else {
       text = _protobufText(frame, budget: budget);
       if (budget.exhausted) return null;
-      if (text == null && mime.endsWith('+json')) {
-        final decoded = _utf8Text(frame, allowTail: false);
-        text = decoded == null ? null : _readableText(decoded);
-      }
     }
     if (!out.append('# ${++index}$note\n${text ?? _shortHex(frame)}\n')) return null;
     offset = end;

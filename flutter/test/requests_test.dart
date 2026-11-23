@@ -137,9 +137,15 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Finder detailToolbarMenu() {
+    final page = find.byType(RequestDetailPage).last;
+    final bar = find.descendant(of: page, matching: find.byType(ScaffoldBar)).first;
+    return find.descendant(of: bar, matching: find.byTooltip('More'));
+  }
+
   Future<void> chooseMessage(WidgetTester tester, String part) async {
     await dismissCopyFeedback(tester);
-    await tester.tap(find.byTooltip('More').last);
+    await tester.tap(detailToolbarMenu());
     await tester.pumpAndSettle();
     expect(find.text('Message type'), findsOneWidget);
     await tester.tap(find.text(part).last);
@@ -407,7 +413,7 @@ void main() {
     expect(tester.getTopLeft(detailList).dy, greaterThanOrEqualTo(tester.getBottomLeft(detailTitle).dy),
       reason: 'Scrolled connection information must stay below the shared toolbar.');
     await capture(tester, 'unified-related-requests');
-    await tester.tap(find.byTooltip('More').last); await tester.pumpAndSettle();
+    await tester.tap(detailToolbarMenu()); await tester.pumpAndSettle();
     await tester.tap(find.text('Close underlying connection').last); await tester.pumpAndSettle();
     expect(calls.where((call) => call.method == 'connections.close'), isEmpty);
     expect(find.text('Close the underlying connection? All requests using it will be interrupted.'), findsOneWidget);
@@ -593,7 +599,7 @@ void main() {
     await tester.pumpAndSettle();
     final scaffold = tester.widget<Scaffold>(find.descendant(of: find.byType(RequestDetailPage), matching: find.byType(Scaffold)).first);
     expect(scaffold.iconActions.last.onPressed, isNull);
-    await tester.tap(find.byTooltip('More').last);
+    await tester.tap(detailToolbarMenu());
     await tester.pumpAndSettle();
     expect(find.text('Cookies'), findsNothing);
     expect(find.text('Request'), findsOneWidget);
@@ -710,6 +716,82 @@ void main() {
     expect(body(), 'AAECAw==');
     expect(find.textContaining('Base64'), findsWidgets);
     expect(find.byTooltip('Format JSON'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('request details display complete body views and actions without another page', (tester) async {
+    await mount(tester, size: const Size(320, 900), scale: 1.3);
+    const original = '{"count":123456789012345678901234567890,"ok":true}';
+    const displayed = '{\n  "count": 123456789012345678901234567890,\n  "ok": true\n}';
+    final first = {'text': original.substring(0, 18), 'encoding': 'text', 'source': 'decoded',
+      'offset': 0, 'nextOffset': 18, 'hasMore': true};
+    final message = {'status': 200, 'bodyComplete': true, 'bodyTruncated': false,
+      'capturedBytes': original.length, 'bodyBytes': original.length,
+      'headers': [{'name': 'Content-Type', 'value': 'application/json'},
+        {'name': 'X-Long-Header', 'value': 'header-value ' * 80}]};
+    extra = (call) async {
+      if (call.method == 'capture.detail') return {
+        'id': 'inline', 'complete': true, 'metadata': {},
+        'request': {'url': 'https://api.test/${'long-path/' * 30}', 'method': 'GET', 'protocol': 'HTTP/2', 'bodyComplete': true},
+        'response': message, 'responsePreview': first,
+      };
+      if (call.method == 'capture.body.view') return {'format': 'json', 'message': message, 'page': {
+        'text': displayed, 'encoding': 'text', 'source': 'view', 'offset': 0,
+        'nextOffset': displayed.length, 'hasMore': false,
+      }};
+      return null;
+    };
+    await open(tester, const RequestDetailPage(id: 'inline'));
+    await showDetailItem(tester, find.byKey(const ValueKey('captured-body-text')));
+    final detail = find.byType(RequestDetailPage);
+    final body = find.descendant(of: detail, matching: find.byType(CapturedBody));
+    String shown() => tester.widget<SelectableText>(find.descendant(of: body,
+      matching: find.byKey(const ValueKey('captured-body-text')))).data!;
+    Future<void> action(String label) async {
+      await dismissCopyFeedback(tester);
+      final direct = find.descendant(of: body, matching: find.byTooltip(label));
+      if (direct.evaluate().isNotEmpty) {
+        await showDetailItem(tester, direct);
+        await tester.tap(direct);
+      } else {
+        final menu = find.descendant(of: body, matching: find.byTooltip('More'));
+        await showDetailItem(tester, menu);
+        await tester.tap(menu);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(label).hitTestable());
+      }
+      await tester.pumpAndSettle();
+    }
+    expect(body, findsOneWidget);
+    expect(find.descendant(of: detail, matching: find.byType(Scaffold)), findsOneWidget);
+    expect(find.byTooltip('View body'), findsNothing);
+    expect(shown(), displayed);
+    final views = calls.where((call) => call.method == 'capture.body.view').toList();
+    expect(views, hasLength(1));
+    expect({...json(views.single.arguments)}..remove('readerId'),
+      {'id': 'inline', 'direction': 'response', 'format': 'json'});
+    await action('Copy current body page');
+    expect(copied.last, first['text']);
+    await action('Copy displayed body');
+    expect(copied.last, displayed);
+    await action('Wrap lines');
+    expect(shown(), displayed);
+    await action('Show original');
+    expect(shown(), first['text']);
+    final scrollable = find.descendant(of: detail, matching: find.byType(Scrollable)).first;
+    tester.state<ScrollableState>(scrollable).position.jumpTo(0);
+    await tester.pumpAndSettle();
+    await showDetailItem(tester, find.byKey(const ValueKey('captured-body-text')));
+    expect(shown(), first['text'], reason: 'Scrolling through metadata must retain the body view and page.');
+    await action('Format JSON');
+    expect(shown(), displayed);
+    expect(find.descendant(of: detail, matching: find.byType(Scaffold)), findsOneWidget);
+    await chooseMessage(tester, 'Request');
+    await showDetailItem(tester, find.text('Request headers'));
+    expect(find.text('Request headers'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(calls.where((call) => call.method == 'capture.detail'), hasLength(1));
     expect(tester.takeException(), isNull);
   });
 
@@ -959,7 +1041,7 @@ void main() {
       expect(find.text('Captured body was truncated.'), findsOneWidget);
       expect(find.text('Body stream is incomplete'), findsOneWidget);
       await capture(tester, '$label-body');
-      await tester.tap(find.byTooltip('More').last);
+      await tester.tap(detailToolbarMenu());
       await tester.pumpAndSettle();
       await capture(tester, '$label-message-menu');
       await tester.tap(find.text('Cookies').last);

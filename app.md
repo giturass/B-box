@@ -171,9 +171,9 @@ post-fs-data 只做不等待的早期注入；[service.sh](app/src/main/assets/m
 
 Root/eBPF 采集器、目标 TLS 库发现、FD 会话和手动函数偏移已移除。[IRootService](app/src/main/aidl/io/nekohasekai/sfa/bg/IRootService.aidl) 的事务 10 退役，不复用；原 2/3 空缺保持，普通 Root/Shizuku、VPN 授权、自动重定向和 Shell 能力保留。
 
-正文详情只跨桥接传首个页，`capture.body` 按需读取指定方向、偏移和表示的后续页；每个可见卡片和独立查看页使用自己的 `readerId`。[CaptureBodyReaders.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureBodyReaders.kt) 将读取器绑定到本机会话代次、请求 ID 和方向，同一个读取器串行复用解码缓存，不同读取器可并行。正文读取及列表/详情查询在抓包变更互斥锁外执行，慢解压不占用启停、清空和设置操作的锁。`capture.body.view` 通过 [UICaptureBodyTask](libbox/ui_capture_body.go) 将完整解码图片或 JSON/Protobuf/gRPC 派生文本流式写到私有 `cacheDir/capture-body-views`；图片只传文件路径，文本由 `capture.body.view.page` 按派生 UTF-8 字节偏移分页，不经 JNI、JSONObject 或 Flutter 传递完整正文字符串。原正文页及导出字节保留，格式和完整性要求见 [核心正文读取](libbox.md#httphttps-请求调试)。
+正文详情只跨桥接传首个页，`capture.body` 按需读取指定方向、偏移和表示的后续页；详情内每个可见正文组件按方向持有自己的 `readerId`。[CaptureBodyReaders.kt](app/src/main/java/io/nekohasekai/sfa/flutter/CaptureBodyReaders.kt) 将读取器绑定到本机会话代次、请求 ID 和方向，同一个读取器串行复用解码缓存，不同读取器可并行。正文读取及列表/详情查询在抓包变更互斥锁外执行，慢解压不占用启停、清空和设置操作的锁。详情正文区域保留该方向健康 HTTP 解码首页的自动格式线索，完整保存、非空且未截断时调用 `capture.body.view`，通过 [UICaptureBodyTask](libbox/ui_capture_body.go) 从正文开头验证完整 HTTP 解码及 JSON/Protobuf/gRPC 格式，将完整解码图片或 JSON/Protobuf/gRPC 派生文本流式写到私有 `cacheDir/capture-body-views`；该路径独立于原字节页的来源和偏移，完整解码或解析失败仍保留原页并提供重试。图片只传文件路径，文本由 `capture.body.view.page` 按派生 UTF-8 字节偏移分页，不经 JNI、JSONObject 或 Flutter 传递完整正文字符串。原正文页及导出字节保留，格式和完整性要求见 [核心正文读取](libbox.md#httphttps-请求调试)，自动识别、原位显示及操作见 [正文查看交互](flclash.md#导航与交互约定)。
 
-`capture.body.close` 在隐藏、离开查看页或切换会话后仍可清理原读取器。清空、远程连接/断开、UI 退出及桥接关闭取消在途读取，先取消所属协程，再向 JNI 任务发送非阻塞取消信号；最后一个调用退出后释放解码器和文件。新进程首次使用缓存目录仅清理本功能命名的遗留视图文件，不删除其他缓存。页面可见性与最后一页刷新见 [正文查看交互](flclash.md#导航与交互约定)。
+`capture.body.close` 在正文隐藏、切换请求/响应方向、离开详情或切换会话后仍可清理原读取器。清空、远程连接/断开、UI 退出及桥接关闭取消在途读取，先取消所属协程，再向 JNI 任务发送非阻塞取消信号；最后一个调用退出后释放解码器和文件。新进程首次使用缓存目录仅清理本功能命名的遗留视图文件，不删除其他缓存。页面可见性与最后一页刷新见 [正文查看交互](flclash.md#导航与交互约定)。
 
 HAR/cURL、域名、CRT 和模块导出使用 Android 文档选择器，取消返回 false，写入失败不报告成功；证书在选择文件后再次检查修订。HAR 与 cURL 由原生绑定流式写入私有临时文件，再复制到用户选择的文档，用后删除临时文件，不经 JNI、JSONObject 或 Flutter 传递完整正文字符串。抓包日志页面、缓冲和 `capture.logs` / `capture.logs.clear` 平台方法已移除；运行错误及脚本 console 输出使用现有服务日志，Android 证书清理/抓包准备异常使用普通 Android 日志。
 
