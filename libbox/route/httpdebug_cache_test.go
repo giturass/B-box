@@ -259,8 +259,8 @@ func (o *cacheTestPausedOutbound) NewConnection(ctx context.Context, conn net.Co
 	}()
 }
 
-func TestBboxHTTPDebugPreSniffedTCPStopsWithPendingCache(t *testing.T) {
-	directory := t.TempDir()
+func testBboxHTTPDebugPreSniffedTCPStopsWithPendingCache(t *testing.T, directory string) {
+	t.Helper()
 	defer httpdebug.StopService()
 	for range 16 {
 		if err := httpdebug.Start(directory, `{"ports":[9001],"rawTCP":true,"bodyLimit":-1}`, "", nil); err != nil {
@@ -326,14 +326,14 @@ func TestBboxHTTPDebugPreSniffedTCPStopsWithPendingCache(t *testing.T) {
 	}
 }
 
-func TestBboxHTTPDebugPreSniffedTCPKeepsCacheCountersAndHalfClose(t *testing.T) {
+func testBboxHTTPDebugPreSniffedTCPKeepsCacheCountersAndHalfClose(t *testing.T, directory string) {
+	t.Helper()
 	for _, capture := range []bool{false, true} {
 		name, host, ports := "bypass", "cached-bypass.test", "[9002]"
 		if capture {
 			name, host, ports = "capture", "cached-capture.test", "[9001]"
 		}
 		t.Run(name, func(t *testing.T) {
-			directory := t.TempDir()
 			if err := httpdebug.Start(directory, `{"ports":`+ports+`,"rawTCP":true,"bodyLimit":-1}`, "", nil); err != nil {
 				t.Fatal(err)
 			}
