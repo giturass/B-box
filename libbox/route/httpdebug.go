@@ -94,11 +94,29 @@ func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata ada
 		if err := dialCtx.Err(); err != nil {
 			return nil, err
 		}
-		local, routed := net.Pipe()
+		var local, routed net.Conn
+		if info.RawTCP {
+			local, routed = newDebugStreamPipe()
+		} else {
+			local, routed = net.Pipe()
+		}
+		var stopCancel func() bool
+		if info.RawTCP {
+			stopCancel = context.AfterFunc(dialCtx, func() { _ = local.Close(); _ = routed.Close() })
+		}
 		// Reuse the exact selected outbound's ConnectionHandler, including route
 		// address resolution, network strategy, TLS fragmentation and spoofing.
 		go func() {
-			closed := func(error) { routed.Close() }
+			closed := func(error) {
+				if stopCancel != nil {
+					stopCancel()
+				}
+				_ = routed.Close()
+			}
+			if info.RawTCP && dialCtx.Err() != nil {
+				closed(dialCtx.Err())
+				return
+			}
 			if handler, ok := outbound.(adapter.ConnectionHandler); ok {
 				handler.NewConnection(dialCtx, routed, metadata, closed)
 			} else {

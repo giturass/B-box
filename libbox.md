@@ -218,7 +218,7 @@ HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供�
 
 [WebSocket 引擎](libbox/httpdebug/websocket.go) 处理标准 HTTP/1.1 Upgrade 的 WS/WSS。握手保留为 HTTP 记录，文本/二进制 data message 独立保存为 `WebSocket`，支持分片、掩码及 `permessage-deflate` 的上下文接管；Ping/Pong/Close 控制帧按协议转发。压缩消息保留各方向的原始解压历史，脚本改写、丢弃和注入不破坏后续消息的字典。无正文脚本时使用临时文件和分块处理；仅命中 [stream 脚本](#tcpwebsocket-消息脚本与注入) 时在用户限额内读取完整消息。不支持的扩展或握手带具体原因保持原流透传；HTTP/2/3 extended CONNECT WebSocket 不在此 Upgrade 实现范围。
 
-[TCP 引擎](libbox/httpdebug/mitm_tcp.go) 保留普通 TCP 和已解密 TLS/TCP 的双向字节流与半关闭。流记录保留双向正文；启用 `rawTCP` 后另外按每次网络读取保存独立数据块，支持重新开启录制后从下一数据块记录。TCP 数据块没有应用协议消息边界，不把 SSH、MQTT 等私有协议自动解释为 HTTP。两个协议的独立消息均带 `streamId`、可选的 `parentId`、`direction`（`client`/`server`），WebSocket 另带 `opcode`（文本 `1`、二进制 `2`）；正文沿用同一存储、分页和预览。`injected`/`dropped` 如实区分注入与未转发消息，动态 `streamActive` 来自当前处理引擎，记录完成不表示连接已关闭。
+[TCP 引擎](libbox/httpdebug/mitm_tcp.go) 保留普通 TCP 和已解密 TLS/TCP 的双向字节流与半关闭；[原出站内存管道](libbox/route/httpdebug_stream.go) 分开读写方向，客户端 EOF 后仍可接收服务器响应，取消时关闭双方管道。流记录保留双向正文；启用 `rawTCP` 后另外按每次网络读取保存独立数据块，支持重新开启录制后从下一数据块记录。TCP 数据块没有应用协议消息边界，不把 SSH、MQTT 等私有协议自动解释为 HTTP。两个协议的独立消息均带 `streamId`、可选的 `parentId`、`direction`（`client`/`server`），WebSocket 另带 `opcode`（文本 `1`、二进制 `2`）；正文沿用同一存储、分页和预览。`injected`/`dropped` 如实区分注入与未转发消息，动态 `streamActive` 来自当前处理引擎，记录完成不表示连接已关闭。
 
 [proxy.go](libbox/httpdebug/proxy.go) 也录制当前录制条件允许的本地错误响应：请求处理的 413/502、上游连接或响应处理的 502，以及 authority 校验的 400/421 和 nested CONNECT 的 501。保存实际写出的状态、显式响应头、客户端 HTTP 协议及响应写入器接受的字节，并沿用每方向正文保留上限；HEAD 保存空正文。短写、写入失败或取消不标记正文完整，脚本 abort 不合成响应；服务已停止时返回的 503 不重建录制记录。
 
@@ -563,7 +563,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
   2. `go test -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`：全部 `TestUI` 扩展回归；随后以 `-tags=with_xhttp,with_quic,with_wireguard,with_utls,with_clash_api` 单独运行 `^TestUINode`，核对随发布核心包含的节点协议。
   3. `go test -race -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m`，再以 `-tags=with_quic` 运行同一命令；随后执行 `go test -tags=with_xhttp,with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIMASQUE' -count=1` 及 `go test -race -tags=with_xhttp,with_quic,with_wireguard -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIWARP' -count=1 -timeout=3m`：WARP MASQUE/WireGuard 注册与配置、认证及 HTTP/2、HTTP/3 隧道。HTTP/3 用例只在 `with_quic` 构建中编译。
   4. `go test -race -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(Egress|Route|HTTP|Profile|Processing|CaptureBody)' -count=1`：路由、出口探测、HTTP 任务、订阅、脚本处理及正文读取生命周期的数据竞争。
-  5. `go test -race ./experimental/httpdebug -count=1 -timeout=5m` 与 `go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m`，再以 `-tags=with_quic -ldflags=-checklinkname=0` 运行相同两个包：HTTP/TCP/WebSocket 抓取、消息脚本、存储及路由回归；QUIC 构建额外验证真实 HTTP/3 多流、正文、证书校验、离线 Mock、取消与未命中数据报回放。
+  5. `go test -json -race ./experimental/httpdebug -count=1 -timeout=5m` 与 `go test -json -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m`，再以 `-tags=with_quic -ldflags=-checklinkname=0` 运行相同两个包：HTTP/TCP/WebSocket 抓取、消息脚本、存储及路由回归；QUIC 构建额外验证真实 HTTP/3 多流、正文、证书校验、离线 Mock、取消与未命中数据报回放。四条命令分为独立步骤并保留 JSON 用例结果；首条实际运行后，其余步骤在前一测试失败时仍执行，前置准备失败或工作流取消时跳过，任何失败继续使核心作业失败。
 - 获准本机测试时可使用 [verify_httpdebug.py](tools/verify_httpdebug.py) 以受限并发运行独立的抓取引擎测试，它不构建 Android 绑定。
 
 ### 回归文件覆盖
@@ -593,6 +593,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 
 - [redirect_ingress_discard_linux_test.go](libbox/sing-tun/redirect_ingress_discard_linux_test.go)：map 布局校验、单/双接口归属和恢复条件，范围说明见 [Android 自动重定向兼容](#android-自动重定向兼容)。
 - [route/httpdebug_test.go](libbox/route/httpdebug_test.go)：嗅探缓冲随大请求头增长并完整回放；通过真实 TLS 握手核对原选定出站、SNI 与 DNS 映射隔离、端口覆写、CONNECT 确认顺序、证书库及未匹配流的字节回放；从真实流量跟踪器取得连接 UUID、穿过嗅探缓存、清空连接历史后重新打开请求存储，以及无跟踪器的 HTTP。
+- [route/httpdebug_stream_test.go](libbox/route/httpdebug_stream_test.go)：真实 TCP 客户端经 tracker、嗅探缓存及原选定出站的 sing 双向复制，在请求 EOF 后接收完整二进制响应；检查原路由元数据、连接 UUID、正文完整状态，以及等待响应时停服取消。
 
 **HTTP 调试引擎（`./experimental/httpdebug`，步骤 5，全部以 race 运行）**
 
@@ -602,7 +603,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 - [stream_test.go](libbox/httpdebug/stream_test.go)：普通 TCP 的双向二进制、服务器先发与半关闭、独立数据块和 HAR/cURL 排除，消息改写、反向注入、防递归、消息 ID、drop/abort、脚本取消、过期流及阻塞写取消后的期限恢复。
 - [websocket_test.go](libbox/httpdebug/websocket_test.go)：真实 Upgrade、掩码和分片、文本/二进制、控制帧、压缩上下文、改写/丢弃/注入、超限和错误保留、启停记录与关闭/取消。HTTP/2/3 extended CONNECT 不在该文件覆盖范围。
 - [http3_test.go](libbox/httpdebug/http3_test.go)、[httpdebug_quic_test.go](libbox/route/httpdebug_quic_test.go) 与 [httpdebug_rawtcp_test.go](libbox/route/httpdebug_rawtcp_test.go)：固定核心的 HTTP/3 多流、改写/脚本/HAR、证书校验、离线 Mock 和 SSE/停服取消，原 UDP 出站、QUIC v1/v2 Initial 回放及非 HTTP QUIC 透传，以及普通 TCP 原出站和嗅探字节保留。HTTP/3 用例仅在 `with_quic` 下编译。
-- [http3_selection_test.go](libbox/httpdebug/http3_selection_test.go)：实际 QUIC TLS ClientHello 的 SNI/ALPN、超过 16 KiB 的握手、应用/端口范围、无 SNI 的已知 IP、关闭选项及截断回放选择。
+- [http3_selection_test.go](libbox/httpdebug/http3_selection_test.go)：实际 QUIC TLS ClientHello 的 SNI/ALPN、超过 16 KiB 的握手、应用/端口范围、无 SNI 的已知 IP、关闭选项及截断 ClientHello 不接管。
 - [store_concurrency_test.go](libbox/httpdebug/store_concurrency_test.go)：正文句柄复用和关闭边界、前缀/转发总量、并发双向写入与详情快照，以及模拟慢写时其他记录和清空继续工作、完成状态等待计数提交。
 - [store_activity_test.go](libbox/httpdebug/store_activity_test.go)：摘要关联的持久化、独立正文计数、改写前 URL、旧记录缺省，以及 HAR 选择的去重、顺序、空选择、非法输入、非 HTTP 排除和淘汰后不扩大导出范围；真实 HTTP/1.1 复用连接的用例同时检查摘要与详情的关联一致。
 - [store_query_test.go](libbox/httpdebug/store_query_test.go)：超过 300 条历史的分页与搜索、当前连接和请求字段组合匹配、未加载父连接去重、状态和排序、摘要增量、全历史 HAR 选择、清空后不扩大导出、非法范围与选项，以及查询与录制/清空竞争。

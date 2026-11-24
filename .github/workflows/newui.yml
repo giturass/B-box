@@ -62,13 +62,22 @@ jobs:
       - name: Routed probe, script and captured body lifecycle race tests
         working-directory: .core
         run: go test -race -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(Egress|Route|HTTP|Profile|Processing|CaptureBody)' -count=1
-      - name: HTTP/TCP/WebSocket MITM, stream scripts, storage and route tests
+      - name: HTTP/TCP/WebSocket MITM, stream scripts and storage race tests
+        id: httpdebug_base
         working-directory: .core
-        run: |
-          go test -race ./experimental/httpdebug -count=1 -timeout=5m
-          go test -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m
-          go test -race -tags=with_quic -ldflags=-checklinkname=0 ./experimental/httpdebug -count=1 -timeout=5m
-          go test -tags=with_quic -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m
+        run: go test -json -race ./experimental/httpdebug -count=1 -timeout=5m
+      - name: HTTP/TCP route regressions without QUIC
+        if: ${{ !cancelled() && (steps.httpdebug_base.outcome == 'success' || steps.httpdebug_base.outcome == 'failure') }}
+        working-directory: .core
+        run: go test -json -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m
+      - name: HTTP/3 and HTTP/TCP/WebSocket race tests with QUIC
+        if: ${{ !cancelled() && (steps.httpdebug_base.outcome == 'success' || steps.httpdebug_base.outcome == 'failure') }}
+        working-directory: .core
+        run: go test -json -race -tags=with_quic -ldflags=-checklinkname=0 ./experimental/httpdebug -count=1 -timeout=5m
+      - name: HTTP/3 QUIC and TCP route regressions
+        if: ${{ !cancelled() && (steps.httpdebug_base.outcome == 'success' || steps.httpdebug_base.outcome == 'failure') }}
+        working-directory: .core
+        run: go test -json -tags=with_quic -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m
   flutter:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	N "github.com/sagernet/sing/common/network"
 )
 
 type streamInjection struct {
@@ -281,10 +283,18 @@ func (w *streamWriter) closeWrite(ctx context.Context) error {
 	}
 	defer func() { w.gate <- struct{}{} }()
 	w.closed = true
-	if half, ok := w.conn.(interface{ CloseWrite() error }); ok {
+	if half, ok := streamCloseWriter(w.conn); ok {
 		return half.CloseWrite()
 	}
 	return w.conn.Close()
+}
+
+// Follow the same replaceable writer and counter wrappers as sing-box's
+// connection manager. A read cache or tracker must not hide TCP half-close.
+func streamCloseWriter(conn net.Conn) (N.WriteCloser, bool) {
+	writer, _ := N.UnwrapCountWriter(conn, nil)
+	half, ok := N.UnwrapWriter(writer).(N.WriteCloser)
+	return half, ok
 }
 
 func streamNote(metadata Metadata, kind string) func(string) {

@@ -128,6 +128,44 @@ func waitWebSocketMessages(t *testing.T, store *Store, count int) []Summary {
 	return nil
 }
 
+func TestWebSocketUpgradeSnapshotsHandshakeBeforeProxyMutation(t *testing.T) {
+	engine, store := testEngine(t, Config{})
+	request, response := webSocketTestHeaders("permessage-deflate")
+	upstream, origin := net.Pipe()
+	defer origin.Close()
+	origin.SetDeadline(time.Now().Add(5 * time.Second))
+	response.Body = upstream
+	stream, reason, err := engine.wrapWebSocket(context.Background(), request, response,
+		Metadata{Host: "example.test", Port: 80, Protocol: "http"}, "11223344556677889900aabbccddeeff")
+	if err != nil || reason != "" || stream == nil {
+		upstream.Close()
+		t.Fatalf("valid WebSocket handshake did not open a stream: %s %v", reason, err)
+	}
+	t.Cleanup(func() { stream.Close() })
+	// The HTTP proxy owns and may replace the original response headers after
+	// wrapWebSocket returns. Later message parsing must use the opening snapshot.
+	response.Header = http.Header{"Sec-Websocket-Extensions": {"unsupported"}}
+	response.Body = nil
+	request.Header.Set("Sec-WebSocket-Extensions", "unsupported")
+	request.URL.Path = "/changed-after-upgrade"
+	payload := []byte("original negotiated handshake")
+	encoded := newWebSocketTestDeflater(t).message(t, payload)
+	writeDone := make(chan error, 1)
+	go func() { writeDone <- webSocketTestWrite(stream, webSocketText, true, true, true, encoded) }()
+	frame, wirePayload, err := webSocketTestRead(origin, true, true)
+	if err != nil || !frame.compressed || !bytes.Equal(wirePayload, encoded) {
+		t.Fatalf("proxy mutation changed the negotiated compressed transport: %+v %x %v", frame, wirePayload, err)
+	}
+	if err := <-writeDone; err != nil {
+		t.Fatal(err)
+	}
+	items := waitWebSocketMessages(t, store, 1)
+	detail, err := store.detailWithBodies(items[0].ID)
+	if err != nil || !bytes.Equal(detail.RequestBody, payload) || detail.Request.URL != "ws://example.test/socket" {
+		t.Fatalf("message did not use the original opening handshake: %+v %v", detail, err)
+	}
+}
+
 func TestWebSocketFrameLengthsMaskingAndValidation(t *testing.T) {
 	for _, size := range []int{0, 125, 126, 65535, 65536} {
 		for _, client := range []bool{false, true} {
@@ -364,6 +402,31 @@ func TestWebSocketFragmentControlAndRecordingBoundaries(t *testing.T) {
 	if err := <-writeDone; err != nil {
 		t.Fatal(err)
 	}
+	// Receiving the forwarded fragment does not synchronize with the store's
+	// later append. Stop only after the prefix under test has been captured.
+	partialID := ""
+	deadline := time.Now().Add(2 * time.Second)
+	for partialID == "" && time.Now().Before(deadline) {
+		for _, item := range store.Page(0, "").Items {
+			if item.Direction != "client" || item.Opcode != webSocketBinary {
+				continue
+			}
+			detail, err := store.detailWithBodies(item.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Equal(detail.RequestBody, []byte{0, 255}) && !detail.Request.BodyComplete {
+				partialID = item.ID
+				break
+			}
+		}
+		if partialID == "" {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if partialID == "" {
+		t.Fatal("initial fragment was not captured before stopping recording")
+	}
 	engine.stopRecording()
 	config := Config{Version: 3, BodyLimit: 64, Ports: []uint16{80}}
 	engine.recording.Store(&config)
@@ -386,13 +449,10 @@ func TestWebSocketFragmentControlAndRecordingBoundaries(t *testing.T) {
 	if err := <-writeDone; err != nil {
 		t.Fatal(err)
 	}
-	items = waitWebSocketMessages(t, store, 3)
-	for _, item := range items {
-		detail, _ := store.detailWithBodies(item.ID)
-		if detail.Metadata.Opcode == webSocketBinary && detail.Metadata.Direction == "client" &&
-			(!bytes.Equal(detail.RequestBody, []byte{0, 255}) || detail.Request.BodyComplete) {
-			t.Fatal("restarted recording appended to a stopped fragmented message")
-		}
+	waitWebSocketMessages(t, store, 3)
+	detail, err = store.detailWithBodies(partialID)
+	if err != nil || !bytes.Equal(detail.RequestBody, []byte{0, 255}) || detail.Request.BodyComplete {
+		t.Fatalf("restarted recording changed a stopped fragmented message: %+v %v", detail, err)
 	}
 	finishWebSocketTestSession(t, client, server, done)
 }

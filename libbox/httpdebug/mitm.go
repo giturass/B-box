@@ -264,6 +264,14 @@ type cancelConn struct {
 
 func (c *cancelConn) Close() error { c.cancel(); return c.Conn.Close() }
 
+func (c *cancelConn) CloseWrite() error {
+	if half, ok := streamCloseWriter(c.Conn); ok {
+		// EOF ends this direction, while replies still use the same route.
+		return half.CloseWrite()
+	}
+	return c.Close()
+}
+
 func (e *Engine) recordTLSFailure(metadata Metadata, err error) {
 	e.recordTLSDiagnostic(metadata, "TLS handshake failed before any HTTP request was received", err)
 }

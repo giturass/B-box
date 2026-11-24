@@ -859,6 +859,61 @@ void main() {
     });
   }
 
+  for (final (size, scale, dark) in [(const Size(320, 568), 1.8, true), (const Size(800, 1000), 1.0, false)]) {
+    for (final websocket in [true, false]) {
+      testWidgets('${websocket ? 'WebSocket' : 'TCP'} injection controls and actions fit $size at $scale', (tester) async {
+        await mount(tester, size: size, scale: scale, dark: dark);
+        final pending = Completer<dynamic>();
+        extra = (call) async {
+          if (call.method == 'capture.inject') return pending.future;
+          if (call.method == 'capture.inject.cancel') {
+            pending.completeError(PlatformException(code: 'cancelled', message: 'Operation cancelled'));
+            return true;
+          }
+          return null;
+        };
+        final label = 'injection-${websocket ? 'websocket' : 'tcp'}-${size.width.toInt()}-$scale-${dark ? 'dark' : 'light'}';
+        await open(tester, StreamInjectionPage(streamId: '0123456789abcdef0123456789abcdef', websocket: websocket));
+        final page = find.byType(StreamInjectionPage);
+        expect(MediaQuery.textScalerOf(tester.element(page)).scale(1), closeTo(scale.clamp(.8, 1.4), .001));
+        final scrollable = find.descendant(of: page, matching: find.byType(Scrollable)).first;
+        final send = find.byTooltip('Send').last;
+        expect(send.hitTestable(), findsOneWidget);
+        expect(find.byKey(const ValueKey('inject-opcode')), websocket ? findsOneWidget : findsNothing);
+        for (final key in ['inject-direction', if (websocket) 'inject-opcode', 'inject-format']) {
+          final option = find.byKey(ValueKey(key));
+          await tester.ensureVisible(option);
+          await tester.pumpAndSettle();
+          expect(option.hitTestable(), findsOneWidget);
+          expect(send.hitTestable(), findsOneWidget);
+        }
+        tester.state<ScrollableState>(scrollable).position.jumpTo(0);
+        await tester.pumpAndSettle();
+        await capture(tester, '$label-controls');
+        final content = find.byKey(const ValueKey('inject-content'));
+        await tester.ensureVisible(content);
+        await tester.enterText(content, 'Message to the selected stream\nSecond line\nFinal line');
+        await tester.pumpAndSettle();
+        expect(content.hitTestable(), findsOneWidget);
+        expect(send.hitTestable(), findsOneWidget);
+        expect(tester.widget<TextField>(content).readOnly, isFalse);
+        await capture(tester, '$label-draft');
+        await tester.tap(send);
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(tester.widget<TextField>(content).readOnly, isTrue);
+        final cancel = find.byTooltip('Cancel injection').last;
+        expect(cancel.hitTestable(), findsOneWidget);
+        await capture(tester, '$label-pending');
+        await tester.tap(cancel);
+        await tester.pumpAndSettle();
+        expect(find.text('Injection cancelled'), findsOneWidget);
+        expect(tester.widget<TextField>(content).controller!.text, 'Message to the selected stream\nSecond line\nFinal line');
+        expect(send.hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
   testWidgets('domain observations keep saved metadata without HTTP message controls', (tester) async {
     await mount(tester);
     extra = (call) async => call.method == 'capture.detail' ? {

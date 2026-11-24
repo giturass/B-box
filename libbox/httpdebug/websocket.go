@@ -48,6 +48,10 @@ func (e *Engine) wrapWebSocket(ctx context.Context, request *http.Request, respo
 	proxy, client := net.Pipe()
 	ctx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(e.ctx, cancel)
+	// ReverseProxy replaces response.Header and response.Body while emitting
+	// the 101 response. Keep the stream's handshake inputs independent of it.
+	handshakeRequest := request.Clone(ctx)
+	handshakeResponse := &http.Response{Header: response.Header.Clone()}
 	stream := &webSocketUpgrade{Conn: proxy, upstream: upstream, cancel: cancel, done: make(chan struct{})}
 	go func() {
 		defer close(stream.done)
@@ -55,7 +59,7 @@ func (e *Engine) wrapWebSocket(ctx context.Context, request *http.Request, respo
 		defer cancel()
 		defer client.Close()
 		defer upstream.Close()
-		err := e.serveWebSocket(ctx, client, client, upstream, request, response, metadata, parentID)
+		err := e.serveWebSocket(ctx, client, client, upstream, handshakeRequest, handshakeResponse, metadata, parentID)
 		if err != nil && ctx.Err() == nil {
 			e.reportError("WebSocket stream for " + metadata.Host + ": " + err.Error())
 		}

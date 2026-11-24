@@ -144,6 +144,9 @@ func TestBboxHTTPDebugKeepsSelectedRouteAndReplaysUnmatchedBytes(t *testing.T) {
 	t.Run("raw-TCP", func(t *testing.T) {
 		testBboxHTTPDebugRawTCP(t, directory)
 	})
+	t.Run("raw-TCP-half-close", func(t *testing.T) {
+		testBboxHTTPDebugRawTCPHalfClose(t, directory)
+	})
 	testBboxHTTPDebugQUIC(t, directory)
 }
 
