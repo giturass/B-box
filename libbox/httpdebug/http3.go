@@ -40,18 +40,18 @@ func (e *Engine) HandleQUIC(ctx context.Context, conn net.PacketConn, metadata M
 		return false
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	e.packetConnections[conn] = cancel
+	socket := &http3Socket{PacketConn: conn, cancel: cancel}
+	e.packetConnections[socket] = cancel
 	e.wg.Add(1)
 	e.mu.Unlock()
 	go func() {
 		defer e.wg.Done()
-		stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
-		err := e.serveQUIC(ctx, conn, metadata, dial, mapped, roots)
+		stopClose := context.AfterFunc(ctx, func() { _ = socket.Close() })
+		err := e.serveQUIC(ctx, socket, metadata, dial, mapped, roots)
 		stopClose()
-		cancel()
-		_ = conn.Close()
+		_ = socket.Close()
 		e.mu.Lock()
-		delete(e.packetConnections, conn)
+		delete(e.packetConnections, socket)
 		e.mu.Unlock()
 		if onClose != nil {
 			onClose(err)
@@ -79,7 +79,7 @@ func debugHTTP3HeaderLimit() int {
 	return int(min(uint64(^uint(0)>>1)-4096, uint64(1<<62-1)))
 }
 
-func (e *Engine) serveQUIC(ctx context.Context, raw net.PacketConn, metadata Metadata, dial PacketDialFunc, mapped RewriteDialFunc, roots *x509.CertPool) error {
+func (e *Engine) serveQUIC(ctx context.Context, socket *http3Socket, metadata Metadata, dial PacketDialFunc, mapped RewriteDialFunc, roots *x509.CertPool) error {
 	e.tlsOpened.Add(1)
 	metadata.CaptureSource, metadata.TLSAdapter = "MITM", "Go crypto/tls + quic-go"
 	upstream := newHTTP3Upstream(ctx, dial, metadata.Host, roots, e.mitm.SkipServerCertVerify)
@@ -114,7 +114,7 @@ func (e *Engine) serveQUIC(ctx context.Context, raw net.PacketConn, metadata Met
 	defer cancelAccept()
 	var accepted atomic.Bool
 	var acceptFailure atomic.Pointer[error]
-	transport := &quic.Transport{Conn: raw, DisableVersionNegotiationPackets: true,
+	transport := &quic.Transport{Conn: socket.PacketConn, DisableVersionNegotiationPackets: true,
 		ConnContext: func(connCtx context.Context, _ *quic.ClientInfo) (context.Context, error) {
 			context.AfterFunc(connCtx, func() {
 				if !accepted.Load() {
@@ -126,12 +126,14 @@ func (e *Engine) serveQUIC(ctx context.Context, raw net.PacketConn, metadata Met
 			return connCtx, nil
 		},
 	}
-	defer func() { _ = raw.Close(); _ = transport.Close() }()
+	if !socket.setTransport(transport) {
+		return net.ErrClosed
+	}
+	defer socket.Close()
 	listener, err := transport.Listen(tlsConfig, debugQUICConfig())
 	if err != nil {
 		return e.quicHandshakeFailure(metadata, "Client QUIC listener", err)
 	}
-	defer func() { _ = raw.Close(); _ = listener.Close() }()
 	client, err := listener.Accept(acceptCtx)
 	if err != nil {
 		if ctx.Err() != nil || e.ctx.Err() != nil {
@@ -143,10 +145,12 @@ func (e *Engine) serveQUIC(ctx context.Context, raw net.PacketConn, metadata Met
 		return e.quicHandshakeFailure(metadata, "Client QUIC TLS", err)
 	}
 	accepted.Store(true)
-	defer func() {
-		_ = raw.Close()
+	if !socket.setConn(client) {
+		_ = socket.Close()
 		_ = client.CloseWithError(quic.ApplicationErrorCode(http3.ErrCodeNoError), "")
-	}()
+		return net.ErrClosed
+	}
+	context.AfterFunc(client.Context(), func() { _ = socket.Close() })
 	state := client.ConnectionState().TLS
 	metadata.TLS = &TLSMetadata{ServerName: metadata.Host, ClientVersion: tlsVersion(state.Version), ALPN: state.NegotiatedProtocol}
 	if upstreamState != nil {
@@ -182,12 +186,10 @@ func (e *Engine) serveQUIC(ctx context.Context, raw net.PacketConn, metadata Met
 		},
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
-	defer func() { _ = raw.Close(); _ = server.Close() }()
-	stop := context.AfterFunc(ctx, func() {
-		_ = raw.Close()
-		_ = client.CloseWithError(quic.ApplicationErrorCode(http3.ErrCodeNoError), "")
-	})
-	defer stop()
+	defer func() {
+		_ = socket.Close()
+		_ = server.Close()
+	}()
 	err = server.ServeQUICConn(client)
 	if !received.Load() && ctx.Err() == nil && e.ctx.Err() == nil {
 		e.tlsNoRequest.Add(1)
@@ -272,9 +274,12 @@ func (t *http3Upstream) prime(ctx context.Context) (*quic.Conn, error) {
 		return nil, err
 	}
 	t.mu.Lock()
-	if t.closed {
+	if t.closed || t.ctx.Err() != nil {
+		err := t.ctx.Err()
 		t.mu.Unlock()
-		_ = conn.CloseWithError(0, "")
+		if err != nil {
+			return nil, err
+		}
 		return nil, net.ErrClosed
 	}
 	t.primed = conn
@@ -284,8 +289,12 @@ func (t *http3Upstream) prime(ctx context.Context) (*quic.Conn, error) {
 
 func (t *http3Upstream) open(handshake context.Context, tlsConfig *tls.Config, config *quic.Config) (*quic.Conn, error) {
 	t.mu.Lock()
-	if t.closed {
+	if t.closed || t.ctx.Err() != nil {
+		err := t.ctx.Err()
 		t.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
 		return nil, net.ErrClosed
 	}
 	t.wg.Add(1)
@@ -294,7 +303,12 @@ func (t *http3Upstream) open(handshake context.Context, tlsConfig *tls.Config, c
 	if t.dial == nil {
 		return nil, errors.New("HTTP/3 requires a sing-box UDP route dialer")
 	}
-	connCtx, cancel := context.WithCancel(t.ctx)
+	// Keep route context values, but let the owned socket notify the peer before
+	// service cancellation tears down the selected UDP handler. Cancellation
+	// remains immediate while the route dial and QUIC handshake are pending.
+	connCtx, cancel := context.WithCancel(context.WithoutCancel(t.ctx))
+	stopRouteDial := context.AfterFunc(t.ctx, cancel)
+	defer stopRouteDial()
 	stopHandshake := context.AfterFunc(handshake, cancel)
 	defer stopHandshake()
 	raw, address, err := t.dial(connCtx)
@@ -312,42 +326,47 @@ func (t *http3Upstream) open(handshake context.Context, tlsConfig *tls.Config, c
 		}
 		return nil, err
 	}
-	socket := &http3Socket{raw: raw, transport: &quic.Transport{Conn: raw}, cancel: cancel}
-	stopClose := context.AfterFunc(connCtx, socket.Close)
+	socket := &http3Socket{PacketConn: raw, transport: &quic.Transport{Conn: raw}, cancel: cancel}
+	closeSocket := func() { _ = socket.Close() }
+	stopClose := context.AfterFunc(connCtx, closeSocket)
 	defer stopClose()
+	stopRouteDial()
 	t.mu.Lock()
-	if t.closed {
+	if t.closed || t.ctx.Err() != nil || connCtx.Err() != nil {
+		err := t.ctx.Err()
+		if err == nil {
+			err = connCtx.Err()
+		}
 		t.mu.Unlock()
-		socket.Close()
+		_ = socket.Close()
+		if err != nil {
+			return nil, err
+		}
 		return nil, net.ErrClosed
 	}
 	t.sockets = append(t.sockets, socket)
 	t.mu.Unlock()
+	context.AfterFunc(t.ctx, closeSocket)
 	conn, err := socket.transport.Dial(connCtx, address, tlsConfig, config)
 	if err != nil {
-		socket.Close()
+		_ = socket.Close()
 		return nil, err
 	}
+	if !socket.setConn(conn) {
+		_ = socket.Close()
+		_ = conn.CloseWithError(quic.ApplicationErrorCode(http3.ErrCodeNoError), "")
+		return nil, net.ErrClosed
+	}
 	if !stopHandshake() || handshake.Err() != nil || connCtx.Err() != nil {
-		socket.Close()
-		_ = conn.CloseWithError(0, "")
+		_ = socket.Close()
 		if err = handshake.Err(); err == nil {
 			err = connCtx.Err()
 		}
 		return nil, err
 	}
-	socket.mu.Lock()
-	if socket.closed {
-		socket.mu.Unlock()
-		_ = conn.CloseWithError(0, "")
-		return nil, net.ErrClosed
-	}
-	socket.conn = conn
-	socket.mu.Unlock()
 	// Use the QUIC lifetime once the handshake succeeded. Cancelling the HTTP
 	// request that opened a pooled connection must not terminate other streams.
-	context.AfterFunc(conn.Context(), socket.Close)
-	context.AfterFunc(t.ctx, socket.Close)
+	context.AfterFunc(conn.Context(), closeSocket)
 	return conn, nil
 }
 
@@ -363,7 +382,7 @@ func (t *http3Upstream) Close() {
 		t.mu.Unlock()
 		t.cancel()
 		for _, socket := range sockets {
-			socket.Close()
+			_ = socket.Close()
 		}
 		_ = t.transport.Close()
 		t.wg.Wait()
@@ -371,7 +390,7 @@ func (t *http3Upstream) Close() {
 }
 
 type http3Socket struct {
-	raw       net.PacketConn
+	net.PacketConn
 	transport *quic.Transport
 	cancel    context.CancelFunc
 	mu        sync.Mutex
@@ -380,19 +399,63 @@ type http3Socket struct {
 	once      sync.Once
 }
 
-func (s *http3Socket) Close() {
+func (s *http3Socket) setTransport(transport *quic.Transport) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	s.transport = transport
+	return true
+}
+
+func (s *http3Socket) setConn(conn *quic.Conn) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	s.conn = conn
+	return true
+}
+
+// This bounds shutdown only; it never limits an active handshake or stream.
+const http3CloseGrace = time.Second
+
+func (s *http3Socket) Close() error {
 	s.once.Do(func() {
 		s.mu.Lock()
 		s.closed = true
 		conn := s.conn
+		transport := s.transport
 		s.mu.Unlock()
-		s.cancel()
-		_ = s.raw.Close()
+		// quic-go drains its send queue before writing CONNECTION_CLOSE. Allow
+		// that write while the selected route is still alive, but interrupt a
+		// stalled packet pipe even if a custom socket rejects write deadlines.
+		deadline := time.Now().Add(http3CloseGrace)
+		_ = s.PacketConn.SetWriteDeadline(deadline)
+		teardown := sync.OnceFunc(func() {
+			// A routed socket's Close joins its onClose callback. Cancel the
+			// handler before joining, including one still dialing its outbound.
+			s.cancel()
+			_ = s.PacketConn.Close()
+		})
+		forceClose := time.AfterFunc(time.Until(deadline), teardown)
 		if conn != nil {
-			_ = conn.CloseWithError(0, "")
+			_ = conn.CloseWithError(quic.ApplicationErrorCode(http3.ErrCodeNoError), "")
+			if routed, loaded := s.PacketConn.(interface{ CloseGracefully() error }); loaded {
+				// An in-memory route write hands off to the selected handler.
+				// Drain that final physical UDP write before cancelling its route.
+				_ = routed.CloseGracefully()
+			}
 		}
-		_ = s.transport.Close()
+		forceClose.Stop()
+		teardown()
+		if transport != nil {
+			_ = transport.Close()
+		}
 	})
+	return nil
 }
 
 func quicDebugClosed(err error) bool {

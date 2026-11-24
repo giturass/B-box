@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -560,6 +561,74 @@ func TestWebSocketScriptEmptyMessageRewrite(t *testing.T) {
 				detail, err := store.detailWithBodies(items[0].ID)
 				if err != nil || len(detail.RequestBody) != 0 || !detail.Request.BodyComplete || detail.Metadata.Dropped {
 					t.Fatalf("empty rewritten message was not recorded as a forwarded complete message: %+v %v", detail, err)
+				}
+				finishWebSocketTestSession(t, client, server, done)
+			})
+		}
+	}
+}
+
+func TestWebSocketScriptLimitsFollowShrinkingChain(t *testing.T) {
+	for _, limits := range []struct {
+		name     string
+		section  int64
+		first    int64
+		second   int64
+		expected string
+	}{
+		{"bounded", 0, 8, 2, "xy"},
+		{"unlimited_zero", 0, 0, 2, "xy"},
+		{"unlimited_override", 2, -1, 2, "xy"},
+		{"inherited", 8, 0, 2, "xy"},
+		{"first_limit_preserves_original", 0, 7, 2, "original"},
+		{"later_limit_preserves_original", 0, 8, 1, "original"},
+	} {
+		for _, transport := range []struct {
+			name       string
+			extensions string
+		}{
+			{"plain", ""},
+			{"deflate", "permessage-deflate"},
+		} {
+			t.Run(limits.name+"/"+transport.name, func(t *testing.T) {
+				engine, store := testEngine(t, Config{BodyLimit: -1})
+				// Disabled and nonmatching narrow rules cannot constrain loading.
+				engine.scripts = scriptProgram(t, fmt.Sprintf(`{"max_body_bytes":%d,"stream":[
+{"type":"websocket","direction":"client","max_body_bytes":1,"disabled":true,"source":"throw Error('disabled rule executed');"},
+{"type":"websocket","direction":"client","max_body_bytes":1,"pattern":"^ws://different[.]test/","source":"throw Error('unmatched rule executed');"},
+{"type":"websocket","direction":"client","max_body_bytes":%d,"source":"if ($message.body !== 'original') throw Error('wrong original body'); $done({body:'ok'});"},
+{"type":"websocket","direction":"client","max_body_bytes":%d,"source":"if ($message.body !== 'ok') throw Error('wrong preceding result'); $done({body:'xy'});"}
+]}`, limits.section, limits.first, limits.second))
+				client, server, done := webSocketTestSession(t, engine, transport.extensions)
+				payload := []byte("original")
+				compressed := transport.extensions != ""
+				if compressed {
+					payload = newWebSocketTestDeflater(t).message(t, payload)
+				}
+				expectedWire := []byte(limits.expected)
+				preserved := limits.expected == "original"
+				if compressed && preserved {
+					expectedWire = payload
+				}
+				writeDone := make(chan error, 1)
+				go func() {
+					writeDone <- webSocketTestWrite(client, webSocketText, true, compressed, true, payload)
+				}()
+				frame, result, err := webSocketTestRead(server, true, compressed)
+				if err != nil || !frame.final || frame.opcode != webSocketText ||
+					frame.compressed != (compressed && preserved) || !bytes.Equal(result, expectedWire) {
+					t.Fatalf("stream rule limits changed chain behavior: %+v %x %v", frame, result, err)
+				}
+				if err := <-writeDone; err != nil {
+					t.Fatal(err)
+				}
+				items := waitWebSocketMessages(t, store, 1)
+				detail, err := store.detailWithBodies(items[0].ID)
+				if err != nil || string(detail.RequestBody) != limits.expected || !detail.Request.BodyComplete || detail.Metadata.Dropped {
+					t.Fatalf("script chain result was not recorded completely: %+v %v", detail, err)
+				}
+				if preserved && !strings.Contains(detail.Note, "exceeds") {
+					t.Fatal("configured limit fallback did not explain why the original was preserved")
 				}
 				finishWebSocketTestSession(t, client, server, done)
 			})

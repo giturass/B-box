@@ -71,6 +71,7 @@ func http3TestClient(t *testing.T, e *Engine, origin string, ca, roots *x509.Cer
 				if err != nil {
 					return nil, nil, err
 				}
+				context.AfterFunc(callCtx, func() { _ = raw.Close() })
 				peer, err := net.ResolveUDPAddr("udp", origin)
 				if err != nil {
 					_ = raw.Close()
@@ -373,14 +374,166 @@ func TestHTTP3RequestCancellationKeepsConnectionAndServiceCloseStopsStreams(t *t
 	case <-time.After(3 * time.Second):
 		t.Fatal("service close waited for a live QUIC stream")
 	}
-	_, err = response.Body.Read(make([]byte, 1))
-	_ = response.Body.Close()
-	if err == nil {
-		t.Fatal("service close left the HTTP/3 response readable")
+	read := make(chan error, 1)
+	go func() {
+		_, err := response.Body.Read(make([]byte, 1))
+		_ = response.Body.Close()
+		read <- err
+	}()
+	select {
+	case err = <-read:
+		if err == nil {
+			t.Fatal("service close left the HTTP/3 response readable")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("service close did not promptly notify the HTTP/3 client")
 	}
 	select {
 	case <-cancelled:
 	case <-time.After(3 * time.Second):
 		t.Fatal("service close left an upstream HTTP/3 stream alive")
+	}
+}
+
+type http3BlockedWriteConn struct {
+	net.PacketConn
+	block   atomic.Bool
+	started chan struct{}
+	closed  chan struct{}
+	start   sync.Once
+	close   sync.Once
+}
+
+func (c *http3BlockedWriteConn) WriteTo(p []byte, address net.Addr) (int, error) {
+	if !c.block.Load() {
+		return c.PacketConn.WriteTo(p, address)
+	}
+	c.start.Do(func() { close(c.started) })
+	<-c.closed
+	return 0, net.ErrClosed
+}
+
+func (c *http3BlockedWriteConn) SetWriteDeadline(time.Time) error {
+	return errors.ErrUnsupported
+}
+
+func (c *http3BlockedWriteConn) Close() error {
+	c.close.Do(func() { close(c.closed) })
+	return c.PacketConn.Close()
+}
+
+func TestHTTP3UpstreamCloseInterruptsWriterRejectingDeadlines(t *testing.T) {
+	certificate, roots := originCertificate(t, "origin.test", false)
+	origin := http3TestOrigin(t, certificate, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "stream")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	raw, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	peer, err := net.ResolveUDPAddr("udp", origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked := &http3BlockedWriteConn{PacketConn: raw, started: make(chan struct{}), closed: make(chan struct{})}
+	upstream := newHTTP3Upstream(context.Background(), func(ctx context.Context) (net.PacketConn, net.Addr, error) {
+		context.AfterFunc(ctx, func() { _ = blocked.Close() })
+		return blocked, peer, nil
+	}, "origin.test", roots, false)
+	defer upstream.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	request, _ := http.NewRequestWithContext(ctx, "GET", "https://origin.test/stream", nil)
+	response, err := upstream.RoundTrip(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if _, err = io.ReadFull(response.Body, make([]byte, len("stream"))); err != nil {
+		t.Fatal(err)
+	}
+	blocked.block.Store(true)
+	stopped := make(chan struct{})
+	go func() { upstream.Close(); close(stopped) }()
+	deadline := time.After(3 * time.Second)
+	select {
+	case <-blocked.started:
+	case <-deadline:
+		t.Fatal("QUIC close did not try to write to its selected route")
+	}
+	select {
+	case <-stopped:
+	case <-deadline:
+		t.Fatal("QUIC close hung on a writer that rejected deadlines")
+	}
+	select {
+	case <-blocked.closed:
+	default:
+		t.Fatal("QUIC close did not close the owned UDP socket")
+	}
+	if _, err = response.Body.Read(make([]byte, 1)); err == nil {
+		t.Fatal("upstream close retained a live HTTP/3 stream")
+	}
+}
+
+func TestHTTP3UpstreamPendingRouteCancellationClosesLateSocket(t *testing.T) {
+	for _, serviceStop := range []bool{false, true} {
+		t.Run(fmt.Sprint("service-stop=", serviceStop), func(t *testing.T) {
+			type routeContextKey struct{}
+			lifetime := context.WithValue(context.Background(), routeContextKey{}, "selected-route")
+			started := make(chan struct{})
+			raw, err := net.ListenPacket("udp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer raw.Close()
+			upstream := newHTTP3Upstream(lifetime, func(ctx context.Context) (net.PacketConn, net.Addr, error) {
+				if ctx.Value(routeContextKey{}) != "selected-route" {
+					t.Error("detached UDP lifetime lost route context values")
+				}
+				close(started)
+				<-ctx.Done()
+				// An outbound can complete a socket concurrently with cancellation.
+				return raw, raw.LocalAddr(), nil
+			}, "origin.test", nil, false)
+			defer upstream.Close()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			dialed := make(chan error, 1)
+			go func() { _, err := upstream.prime(ctx); dialed <- err }()
+			select {
+			case <-started:
+			case <-time.After(3 * time.Second):
+				t.Fatal("HTTP/3 route dial did not start")
+			}
+			stopped := make(chan struct{})
+			go func() {
+				if serviceStop {
+					upstream.Close()
+				} else {
+					cancel()
+				}
+				close(stopped)
+			}()
+			select {
+			case <-stopped:
+			case <-time.After(3 * time.Second):
+				t.Fatal("HTTP/3 cancellation retained a pending route dial")
+			}
+			select {
+			case err = <-dialed:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatal("pending UDP dial ignored cancellation", err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("cancelled UDP dial did not finish")
+			}
+			if _, err = raw.WriteTo([]byte("late"), raw.LocalAddr()); !errors.Is(err, net.ErrClosed) {
+				t.Fatal("cancellation retained a late UDP socket", err)
+			}
+		})
 	}
 }

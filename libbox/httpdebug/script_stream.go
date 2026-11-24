@@ -96,14 +96,13 @@ func (e *Engine) streamMessageNeedsBody(ctx context.Context, metadata Metadata, 
 
 func (e *Engine) streamMessageBodyLimit(ctx context.Context, metadata Metadata, kind, direction string) int64 {
 	matches, _ := e.matchingStreamScripts(ctx, metadata, kind, direction)
-	var limit int64
-	for _, script := range matches {
-		candidate := script.options.MaxBodyBytes
-		if candidate > 0 && (limit == 0 || candidate < limit) {
-			limit = candidate
-		}
+	if len(matches) == 0 {
+		return 0
 	}
-	return limit // Zero means no user-configured processing limit.
+	// Only the first matching rule receives the original payload. Later rules
+	// check their own limits against the preceding rule's result, which may be
+	// smaller. Zero is the compiled representation of an unlimited input.
+	return matches[0].options.MaxBodyBytes
 }
 
 func (e *Engine) processStreamMessage(ctx context.Context, metadata Metadata, kind, direction string, opcode int, data []byte) (streamResult, error) {

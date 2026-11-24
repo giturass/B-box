@@ -3,6 +3,7 @@ package route
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -134,6 +135,28 @@ func (c *debugRoutedPacketConn) Close() error {
 	return err
 }
 
+func (c *debugRoutedPacketConn) CloseGracefully() error {
+	writer, loaded := common.Cast[interface{ CloseWrite() error }](c.PacketConn)
+	if !loaded {
+		return errors.ErrUnsupported
+	}
+	if err := writer.CloseWrite(); err != nil {
+		return err
+	}
+	// The selected handler receives EOF on its next read, after forwarding the
+	// current datagram to its physical UDP socket. Keep its route context alive
+	// until onClose; the owner's shutdown watchdog can still force full close.
+	<-c.done
+	return nil
+}
+
+func (c *debugFixedPacketPeer) CloseGracefully() error {
+	if closer, loaded := c.PacketConn.(interface{ CloseGracefully() error }); loaded {
+		return closer.CloseGracefully()
+	}
+	return errors.ErrUnsupported
+}
+
 func (c *debugFixedPacketPeer) ReadFrom(p []byte) (int, net.Addr, error) {
 	n, _, err := c.PacketConn.ReadFrom(p)
 	return n, c.peer, err
@@ -147,12 +170,15 @@ func (c *debugFixedPacketPeer) WriteTo(p []byte, _ net.Addr) (int, error) {
 // PacketConnectionHandler, preserving DNS strategy, detours and Android VPN
 // protection. It cannot fall back to a direct socket or a different outbound.
 type debugPacketPipe struct {
-	read, write chan debugPipeDatagram
-	done        chan struct{}
-	closeOnce   *sync.Once
-	local       net.Addr
-	readLimit   *debugPacketDeadline
-	writeLimit  *debugPacketDeadline
+	read, write    chan debugPipeDatagram
+	readDone       <-chan struct{}
+	writeDone      chan struct{}
+	writeCloseOnce sync.Once
+	done           chan struct{}
+	closeOnce      *sync.Once
+	local          net.Addr
+	readLimit      *debugPacketDeadline
+	writeLimit     *debugPacketDeadline
 }
 
 type debugPipeDatagram struct {
@@ -162,10 +188,11 @@ type debugPipeDatagram struct {
 
 func newDebugPacketPipe(source, destination M.Socksaddr) (N.NetPacketConn, N.NetPacketConn) {
 	forward, reverse := make(chan debugPipeDatagram), make(chan debugPipeDatagram)
+	forwardDone, reverseDone := make(chan struct{}), make(chan struct{})
 	done, once := make(chan struct{}), new(sync.Once)
-	left := &debugPacketPipe{read: reverse, write: forward, done: done, closeOnce: once, local: source,
+	left := &debugPacketPipe{read: reverse, write: forward, readDone: reverseDone, writeDone: forwardDone, done: done, closeOnce: once, local: source,
 		readLimit: newDebugPacketDeadline(), writeLimit: newDebugPacketDeadline()}
-	right := &debugPacketPipe{read: forward, write: reverse, done: done, closeOnce: once, local: destination,
+	right := &debugPacketPipe{read: forward, write: reverse, readDone: forwardDone, writeDone: reverseDone, done: done, closeOnce: once, local: destination,
 		readLimit: newDebugPacketDeadline(), writeLimit: newDebugPacketDeadline()}
 	return bufio.NewPacketConn(left), bufio.NewPacketConn(right)
 }
@@ -176,6 +203,8 @@ func (p *debugPacketPipe) ReadFrom(buffer []byte) (int, net.Addr, error) {
 		select {
 		case <-p.done:
 			return 0, nil, net.ErrClosed
+		case <-p.readDone:
+			return 0, nil, io.EOF
 		case <-expired:
 			return 0, nil, os.ErrDeadlineExceeded
 		default:
@@ -183,6 +212,8 @@ func (p *debugPacketPipe) ReadFrom(buffer []byte) (int, net.Addr, error) {
 		select {
 		case <-p.done:
 			return 0, nil, net.ErrClosed
+		case <-p.readDone:
+			return 0, nil, io.EOF
 		case <-expired:
 			return 0, nil, os.ErrDeadlineExceeded
 		case <-changed:
@@ -200,12 +231,16 @@ func (p *debugPacketPipe) WriteTo(buffer []byte, address net.Addr) (int, error) 
 		select {
 		case <-p.done:
 			return 0, net.ErrClosed
+		case <-p.writeDone:
+			return 0, net.ErrClosed
 		case <-expired:
 			return 0, os.ErrDeadlineExceeded
 		default:
 		}
 		select {
 		case <-p.done:
+			return 0, net.ErrClosed
+		case <-p.writeDone:
 			return 0, net.ErrClosed
 		case <-expired:
 			return 0, os.ErrDeadlineExceeded
@@ -215,6 +250,11 @@ func (p *debugPacketPipe) WriteTo(buffer []byte, address net.Addr) (int, error) 
 			return len(buffer), nil
 		}
 	}
+}
+
+func (p *debugPacketPipe) CloseWrite() error {
+	p.writeCloseOnce.Do(func() { close(p.writeDone) })
+	return nil
 }
 
 func (p *debugPacketPipe) Close() error {

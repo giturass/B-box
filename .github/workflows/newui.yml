@@ -66,18 +66,18 @@ jobs:
         id: httpdebug_base
         working-directory: .core
         run: go test -json -race ./experimental/httpdebug -count=1 -timeout=5m
-      - name: HTTP/TCP route regressions without QUIC
+      - name: HTTP/TCP route race regressions without QUIC
         if: ${{ !cancelled() && (steps.httpdebug_base.outcome == 'success' || steps.httpdebug_base.outcome == 'failure') }}
         working-directory: .core
-        run: go test -json -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m
+        run: go test -json -race -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m
       - name: HTTP/3 and HTTP/TCP/WebSocket race tests with QUIC
         if: ${{ !cancelled() && (steps.httpdebug_base.outcome == 'success' || steps.httpdebug_base.outcome == 'failure') }}
         working-directory: .core
         run: go test -json -race -tags=with_quic -ldflags=-checklinkname=0 ./experimental/httpdebug -count=1 -timeout=5m
-      - name: HTTP/3 QUIC and TCP route regressions
+      - name: HTTP/3 QUIC and TCP route race regressions
         if: ${{ !cancelled() && (steps.httpdebug_base.outcome == 'success' || steps.httpdebug_base.outcome == 'failure') }}
         working-directory: .core
-        run: go test -json -tags=with_quic -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m
+        run: go test -json -race -tags=with_quic -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m
   flutter:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

@@ -16,6 +16,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,6 +37,16 @@ type captureQUICOutbound struct {
 	origin   *net.UDPAddr
 	metadata chan adapter.InboundContext
 	closed   chan struct{}
+	pause    chan struct{}
+	paused   chan struct{}
+	packets  chan net.PacketConn
+	handoff  *captureQUICHandoff
+}
+
+type captureQUICHandoff struct {
+	block    atomic.Bool
+	received chan context.Context
+	release  chan struct{}
 }
 
 func (o *captureQUICOutbound) Tag() string  { return "selected-udp-group" }
@@ -54,6 +66,9 @@ func (o *captureQUICOutbound) NewPacketConnection(ctx context.Context, conn N.Pa
 		stop := context.AfterFunc(ctx, func() { _ = raw.Close(); _ = conn.Close() })
 		defer stop()
 		packets := bufio.NewNetPacketConn(conn)
+		if o.packets != nil {
+			o.packets <- packets
+		}
 		finished := make(chan struct{}, 2)
 		go func() {
 			defer func() { finished <- struct{}{} }()
@@ -61,7 +76,24 @@ func (o *captureQUICOutbound) NewPacketConnection(ctx context.Context, conn N.Pa
 			for {
 				n, _, err := packets.ReadFrom(data)
 				if err != nil {
+					select {
+					case <-o.pause:
+						// Stop consuming the actual unbuffered packet pipe. A
+						// QUIC close write must now wait for its shutdown deadline.
+						_ = packets.SetReadDeadline(time.Time{})
+						close(o.paused)
+						<-ctx.Done()
+					default:
+					}
 					return
+				}
+				if o.handoff != nil && o.handoff.block.CompareAndSwap(true, false) {
+					o.handoff.received <- ctx
+					select {
+					case <-o.handoff.release:
+					case <-ctx.Done():
+						return
+					}
 				}
 				if _, err = raw.WriteTo(data[:n], o.origin); err != nil {
 					return
@@ -143,24 +175,36 @@ func prepareCaptureQUIC(t *testing.T, directory string, pem string, signer *ecds
 
 func testBboxHTTPDebugQUIC(t *testing.T, directory string) {
 	t.Run("HTTP3-route-and-connection", func(t *testing.T) {
-		testBboxHTTPDebugQUICRoute(t, directory)
+		testBboxHTTPDebugQUICRoute(t, directory, false)
+	})
+	t.Run("HTTP3-stalled-packet-pipe-stop", func(t *testing.T) {
+		testBboxHTTPDebugQUICRoute(t, directory, true)
 	})
 	t.Run("QUIC-unmatched-replay", func(t *testing.T) {
 		testBboxHTTPDebugQUICReplay(t, directory)
 	})
 }
 
-func testBboxHTTPDebugQUICRoute(t *testing.T, directory string) {
+func testBboxHTTPDebugQUICRoute(t *testing.T, directory string, stall bool) {
 	certificate, originRoots, pem, signer, clientRoots := captureQUICCertificates(t)
 	rawOrigin, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rawOrigin.Close()
+	originCancelled := make(chan struct{}, 1)
 	origin := &http3.Server{TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{certificate}, NextProtos: []string{"h3"}},
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.ProtoMajor != 3 || r.Host != "origin.test" {
 				t.Errorf("UDP route did not reach a real HTTP/3 origin: %s %s", r.Proto, r.Host)
+			}
+			if strings.HasPrefix(r.URL.Path, "/quic-live/") {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, "data: routed\n\n")
+				w.(http.Flusher).Flush()
+				<-r.Context().Done()
+				originCancelled <- struct{}{}
+				return
 			}
 			_, _ = io.Copy(w, r.Body)
 		})}
@@ -172,10 +216,20 @@ func testBboxHTTPDebugQUICRoute(t *testing.T, directory string) {
 		RouteOriginalDestination: M.ParseSocksaddr("198.51.100.9:443"), RouteOutbound: "selected-udp-group", RouteRule: "unchanged-udp-rule",
 		ProcessInfo: &adapter.ConnectionOwner{UserId: 12345, PackageNames: []string{"com.test"}}}
 	outbound := &captureQUICOutbound{origin: rawOrigin.LocalAddr().(*net.UDPAddr), metadata: make(chan adapter.InboundContext, 2), closed: make(chan struct{})}
+	releaseHandoff := func() {}
+	if stall {
+		outbound.pause, outbound.paused = make(chan struct{}), make(chan struct{})
+		outbound.packets = make(chan net.PacketConn, 1)
+	} else {
+		outbound.handoff = &captureQUICHandoff{received: make(chan context.Context, 1), release: make(chan struct{})}
+		releaseHandoff = sync.OnceFunc(func() { close(outbound.handoff.release) })
+	}
+	defer releaseHandoff()
 	router := &Router{ctx: service.ContextWith[adapter.CertificateStore](context.Background(), &captureTestRoots{roots: originRoots})}
 	manager := trafficcontrol.NewManager()
 	defer manager.CloseAllConnections()
-	clientPackets, inbound := newDebugPacketPipe(metadata.Source, metadata.RouteOriginalDestination)
+	clientPackets, rawInbound := newDebugPacketPipe(metadata.Source, metadata.RouteOriginalDestination)
+	var inbound N.PacketConn = rawInbound
 	defer clientPackets.Close()
 	defer inbound.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
@@ -218,9 +272,13 @@ func testBboxHTTPDebugQUICRoute(t *testing.T, directory string) {
 	h3 := &http3.Transport{DisableCompression: true}
 	defer h3.Close()
 	client := &http.Client{Transport: h3.NewClientConn(conn), Timeout: 4 * time.Second}
+	routePath := "/quic-routed/"
+	if stall {
+		routePath = "/quic-stalled/"
+	}
 	for _, path := range []string{"first", "second"} {
 		payload := strings.Repeat(path, 8192)
-		response, err := client.Post("https://origin.test/quic-routed/"+path, "application/octet-stream", strings.NewReader(payload))
+		response, err := client.Post("https://origin.test"+routePath+path, "application/octet-stream", strings.NewReader(payload))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -241,7 +299,72 @@ func testBboxHTTPDebugQUICRoute(t *testing.T, directory string) {
 		t.Fatal("original UDP flow was not tracked", len(connections))
 	}
 	connectionID := connections[0].ID
-	httpdebug.StopService()
+	var stream *http.Response
+	if stall {
+		packets := <-outbound.packets
+		close(outbound.pause)
+		if err = packets.SetReadDeadline(time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-outbound.paused:
+		case <-time.After(3 * time.Second):
+			t.Fatal("selected UDP handler did not stop reading its packet pipe")
+		}
+	} else {
+		stream, err = client.Get("https://origin.test/quic-live/routed")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer stream.Body.Close()
+		if _, err = io.ReadFull(stream.Body, make([]byte, len("data: routed\n\n"))); err != nil {
+			t.Fatal(err)
+		}
+		// Hold the selected handler between consuming a pipe datagram and its
+		// physical origin write. Service close must preserve that handoff.
+		outbound.handoff.block.Store(true)
+	}
+	stopped := make(chan struct{})
+	go func() { httpdebug.StopService(); close(stopped) }()
+	if !stall {
+		select {
+		case routeCtx := <-outbound.handoff.received:
+			if routeCtx.Err() != nil {
+				releaseHandoff()
+				t.Fatal("HTTP/3 service close cancelled a pending physical UDP handoff")
+			}
+		case <-stopped:
+			t.Fatal("HTTP/3 service close skipped the selected handler's physical UDP write")
+		case <-time.After(3 * time.Second):
+			t.Fatal("HTTP/3 service close did not reach its selected UDP handler")
+		}
+		releaseHandoff()
+	}
+	select {
+	case <-stopped:
+	case <-time.After(3 * time.Second):
+		t.Fatal("HTTP/3 service close hung on the selected UDP route")
+	}
+	if !stall {
+		read := make(chan error, 1)
+		go func() {
+			_, err := stream.Body.Read(make([]byte, 1))
+			read <- err
+		}()
+		select {
+		case err = <-read:
+			if err == nil {
+				t.Fatal("HTTP/3 route close retained the client's SSE stream")
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("HTTP/3 route close did not promptly notify its client")
+		}
+		select {
+		case <-originCancelled:
+		case <-time.After(3 * time.Second):
+			t.Fatal("HTTP/3 route close left the physical origin's SSE stream alive")
+		}
+	}
 	// Closing the engine must wait for the selected route's onClose callback.
 	select {
 	case <-outbound.closed:
@@ -252,7 +375,7 @@ func testBboxHTTPDebugQUICRoute(t *testing.T, directory string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	items := store.Page(10, "/quic-routed/").Items
+	items := store.Page(10, routePath).Items
 	if len(items) != 2 || items[0].ID == items[1].ID {
 		t.Fatal("HTTP/3 did not retain separate requests on the same connection", items)
 	}
@@ -276,7 +399,8 @@ func testBboxHTTPDebugQUICReplay(t *testing.T, directory string) {
 		t.Run(test.name, func(t *testing.T) {
 			metadata := adapter.InboundContext{Network: "udp", Domain: "dns-mapping.test", Source: M.ParseSocksaddr("192.0.2.2:4321"),
 				Destination: M.ParseSocksaddr("198.51.100.9:443"), ProcessInfo: &adapter.ConnectionOwner{UserId: 12345, PackageNames: []string{"com.test"}}}
-			client, inbound := newDebugPacketPipe(metadata.Source, metadata.Destination)
+			client, rawInbound := newDebugPacketPipe(metadata.Source, metadata.Destination)
+			var inbound N.PacketConn = rawInbound
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			qt := &quic.Transport{Conn: client}
 			dialed := make(chan struct{})

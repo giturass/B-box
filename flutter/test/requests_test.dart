@@ -155,7 +155,7 @@ void main() {
 
   Future<void> chooseInjectionOption(WidgetTester tester, String key, String option) async {
     final row = find.byKey(ValueKey(key));
-    await tester.ensureVisible(row);
+    await Scrollable.ensureVisible(tester.element(row), alignment: .5);
     await tester.pumpAndSettle();
     await tester.tap(row.hitTestable());
     await tester.pumpAndSettle();
@@ -880,19 +880,22 @@ void main() {
         final send = find.byTooltip('Send').last;
         expect(send.hitTestable(), findsOneWidget);
         expect(find.byKey(const ValueKey('inject-opcode')), websocket ? findsOneWidget : findsNothing);
-        for (final key in ['inject-direction', if (websocket) 'inject-opcode', 'inject-format']) {
+        for (final (key, choice) in [('inject-direction', 'Server to client'),
+          if (websocket) ('inject-opcode', 'Binary message'), ('inject-format', 'Hex')]) {
           final option = find.byKey(ValueKey(key));
-          await tester.ensureVisible(option);
-          await tester.pumpAndSettle();
+          await chooseInjectionOption(tester, key, choice);
           expect(option.hitTestable(), findsOneWidget);
           expect(send.hitTestable(), findsOneWidget);
         }
+        await chooseInjectionOption(tester, 'inject-format', 'Text');
         tester.state<ScrollableState>(scrollable).position.jumpTo(0);
         await tester.pumpAndSettle();
         await capture(tester, '$label-controls');
         final content = find.byKey(const ValueKey('inject-content'));
-        await tester.ensureVisible(content);
+        await Scrollable.ensureVisible(tester.element(content), alignment: .5);
         await tester.enterText(content, 'Message to the selected stream\nSecond line\nFinal line');
+        await tester.pumpAndSettle();
+        await Scrollable.ensureVisible(tester.element(content), alignment: .5);
         await tester.pumpAndSettle();
         expect(content.hitTestable(), findsOneWidget);
         expect(send.hitTestable(), findsOneWidget);
@@ -900,6 +903,10 @@ void main() {
         await capture(tester, '$label-draft');
         await tester.tap(send);
         await tester.pump(const Duration(milliseconds: 400));
+        expect(injectionArguments(calls.singleWhere((call) => call.method == 'capture.inject')), {
+          'streamId': '0123456789abcdef0123456789abcdef', 'direction': 'server', 'opcode': websocket ? 2 : 0,
+          'data': base64.encode(utf8.encode('Message to the selected stream\nSecond line\nFinal line')),
+        });
         expect(tester.widget<TextField>(content).readOnly, isTrue);
         final cancel = find.byTooltip('Cancel injection').last;
         expect(cancel.hitTestable(), findsOneWidget);
