@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../widgets.dart';
+import '../components/record.dart';
 
 /// Sends bytes through an intercepted stream whose lifetime is checked by the core.
 class StreamInjectionPage extends StatefulWidget {
