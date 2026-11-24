@@ -32,6 +32,10 @@ runs:
         git -C core merge-base --is-ancestor FETCH_HEAD HEAD
         git -C core tag --force "v$CORE_VERSION" HEAD
         test -z "$(git -C core status --porcelain)"
+    # The copies are replaced locally, so go.sum no longer covers them.
+    - name: Verify the dependency copies against their pinned modules
+      shell: bash
+      run: python3 core/.b-box/verify.py
     - uses: actions/setup-go@v5
       with:
         go-version: ${{ steps.versions.outputs.go_version }}

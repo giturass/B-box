@@ -6,7 +6,7 @@
 
 上游为 [SagerNet/sing-box](https://github.com/SagerNet/sing-box)，绑定位于 `experimental/libbox`。当前基线是 [`v1.15.0-alpha.13`](https://github.com/SagerNet/sing-box/tree/v1.15.0-alpha.13/experimental/libbox)，Go 为 `go1.26.10`；实际版本由 [version.properties](version.properties) 的 `CORE_VERSION_NAME` 和 `GO_VERSION` 决定，核心分支须以 `v${CORE_VERSION_NAME}` 为基础。应用版本独立维护，见 [app.md](app.md#应用版本与应用内更新)。
 
-核心是上游的 fork [giturass/sing-box](https://github.com/giturass/sing-box/tree/b-box) 的 `b-box` 分支，以 git 子模块引入到 [core/](.gitmodules)；本仓库不存储 AAR。该分支在上游标签之上按提交保存构建改动、XHTTP/VLESS Encryption、WARP MASQUE、HTTP 调试、抓取引擎、路由适配及所有 `ui_*.go` 和相应测试，源码位于核心内的实际位置。sing-tun、sing-vmess、Goja 和 regexp2 的修改副本提交在 [.b-box/](https://github.com/giturass/sing-box/tree/b-box/.b-box)，由 `go.mod` 的本地 `replace` 引用，对应依赖补丁保存在 `.b-box/patches/`。CI 通过 [setup-core](.github/actions/setup-core/action.yml) 检出子模块，核对它基于 `v${CORE_VERSION_NAME}` 上游标签且工作树干净，并准备版本文件指定的 Go；不再在 CI 中应用补丁或整理依赖。修改核心时先向 fork 的 `b-box` 分支提交并推送，再在本仓库更新子模块指针。Android 构建由 [build-libbox](.github/actions/build-libbox/action.yml) 生成标准 `libbox.aar`。仅有上游原版 AAR 不足以编译当前 B-box，因为它没有下面的 UI 扩展绑定，也不包含本仓库的路由和自动重定向兼容补丁。
+核心是上游的 fork [giturass/sing-box](https://github.com/giturass/sing-box/tree/b-box) 的 `b-box` 分支，以 git 子模块引入到 [core/](.gitmodules)；本仓库不存储 AAR。该分支在上游标签之上按提交保存构建改动、XHTTP/VLESS Encryption、WARP MASQUE、HTTP 调试、抓取引擎、路由适配及所有 `ui_*.go` 和相应测试，源码位于核心内的实际位置。sing-tun、sing-vmess、Goja 和 regexp2 的修改副本提交在 [.b-box/](https://github.com/giturass/sing-box/tree/b-box/.b-box)，由 `go.mod` 的本地 `replace` 引用，对应依赖补丁保存在 `.b-box/patches/`。CI 通过 [setup-core](.github/actions/setup-core/action.yml) 检出子模块，核对它基于 `v${CORE_VERSION_NAME}` 上游标签且工作树干净，运行 [verify.py](https://github.com/giturass/sing-box/blob/b-box/.b-box/verify.py) 核对四个依赖副本，并准备版本文件指定的 Go；CI 不应用补丁，也不整理依赖。本地 `replace` 使副本不再受 `go.sum` 校验，因此该脚本在已跟踪文件的临时副本上反向应用补丁、去除 B-box 新增文件，要求结果与固定版本的 Go 模块哈希（`h1`）一致。修改核心时先向 fork 的 `b-box` 分支提交并推送，再在本仓库更新子模块指针。Android 构建由 [build-libbox](.github/actions/build-libbox/action.yml) 生成标准 `libbox.aar`。仅有上游原版 AAR 不足以编译当前 B-box，因为它没有下面的 UI 扩展绑定，也不包含本仓库的路由和自动重定向兼容补丁。
 
 | 差异 | 文件 | 作用 |
 | --- | --- | --- |
@@ -64,7 +64,7 @@
 
 [uiNodeVMessNode](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_nodes_scheme.go) 在 Clash `cipher`、VMess Base64 JSON 的 `scy` 及 VMess URI 的 `encryption` 为 `auto` 或缺省时，按当前固定 [sing-vmess 的 `AutoSecurityType`](https://github.com/SagerNet/sing-vmess/blob/a0c58542bd9d99b00ea0c3cfacce6f03cf8a4017/protocol.go#L137) 写入明确的 `aes-128-gcm` 或 `chacha20-poly1305`，有无 TLS 使用同一规则。显式 `none`、`zero` 和其他受支持 cipher 保留；原生 sing-box JSON 的 `security` 不经过此转换，继续使用核心原有语义。已有节点通过重新导入或刷新对应订阅来源获得修复，不批量改写已有配置。
 
-[ui_nodes_vmess_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_nodes_vmess_test.go) 覆盖上述导入格式、TLS 开关、显式 cipher、原生 JSON 保留及订阅应用后的配置校验。文件通过共享准备 Action 的 `ui_*.go` 安装规则进入统一工作流的基础 `^TestUI` 和发货协议 `^TestUINode` 检查；测试源码的存在不代表当前源码已通过 Actions 或外部服务互通验收。
+[ui_nodes_vmess_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_nodes_vmess_test.go) 覆盖上述导入格式、TLS 开关、显式 cipher、原生 JSON 保留及订阅应用后的配置校验。该文件由统一工作流的基础 `^TestUI` 和发货协议 `^TestUINode` 检查运行；测试源码的存在不代表当前源码已通过 Actions 或外部服务互通验收。
 
 ### 配置分组与停服选择
 
@@ -524,7 +524,7 @@ Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`ti
 
 上述语义对照 2026-11-05 的 Surge [HTTP Processing](https://manual.nssurge.com/http/overview.html)、[URL Rewrite](https://manual.nssurge.com/http/url-rewrite.html)、[Header Rewrite](https://manual.nssurge.com/http/header-rewrite.html)、[Body Rewrite](https://manual.nssurge.com/http/body-rewrite.html)、[Map Local](https://manual.nssurge.com/http/map-local.html)、[脚本概览](https://manual.nssurge.com/scripting/overview.html)、[请求](https://manual.nssurge.com/scripting/http-request.html)、[响应](https://manual.nssurge.com/scripting/http-response.html)、[Cron](https://manual.nssurge.com/scripting/cron.html)及 [JavaScript API](https://manual.nssurge.com/scripting/api.html)。B-box 使用 JSON 和 Goja，不沿用仅有 iOS/macOS 出处的固定容量配额；用户配置的正文限制及执行期限继续生效。不导入 Surge INI，不提供 Node.js、通知、完整 WebView/Surge API，也不引入 Mihomo 覆写。
 
-核心固定 [Goja a177d211bf606f6275674a35bc0d31d8ee0ee396](https://github.com/dop251/goja/tree/a177d211bf606f6275674a35bc0d31d8ee0ee396)、[regexp2/v2 v2.11.0](https://github.com/dlclark/regexp2/tree/v2.11.0)、[gojq v0.12.17](https://github.com/itchyny/gojq/tree/v0.12.17)、[timefmt-go v0.1.6](https://github.com/itchyny/timefmt-go/tree/v0.1.6) 和 [robfig/cron v3.0.1](https://github.com/robfig/cron/tree/v3.0.1)。setup-core 将最低 Go 版本设为 1.26.0，实际用 version.properties 的 go1.26.10；Goja 还引入 sourcemap、pprof 及 x/text v0.43.0。正文解码复用核心的 [brotli v1.1.0](https://github.com/andybalholm/brotli/tree/v1.1.0) 和 [klauspost/compress v1.19.1](https://github.com/klauspost/compress/tree/v1.19.1)。许可证随 Flutter assets 注册；统一测试和 Release 共用核心安装入口，三个上游基线不变。
+核心固定 [Goja a177d211bf606f6275674a35bc0d31d8ee0ee396](https://github.com/dop251/goja/tree/a177d211bf606f6275674a35bc0d31d8ee0ee396)、[regexp2/v2 v2.11.0](https://github.com/dlclark/regexp2/tree/v2.11.0)、[gojq v0.12.17](https://github.com/itchyny/gojq/tree/v0.12.17)、[timefmt-go v0.1.6](https://github.com/itchyny/timefmt-go/tree/v0.1.6) 和 [robfig/cron v3.0.1](https://github.com/robfig/cron/tree/v3.0.1)。核心 `go.mod` 的最低 Go 版本为 1.26.0，CI 实际使用 version.properties 的 go1.26.10；Goja 还引入 sourcemap、pprof 及 x/text v0.43.0。正文解码复用核心的 [brotli v1.1.0](https://github.com/andybalholm/brotli/tree/v1.1.0) 和 [klauspost/compress v1.19.1](https://github.com/klauspost/compress/tree/v1.19.1)。许可证随 Flutter assets 注册；统一测试和 Release 共用核心准备入口，三个上游基线不变。
 
 核心分支将固定版本的 Goja/regexp2 副本提交在 [.b-box/](https://github.com/giturass/sing-box/tree/b-box/.b-box)，其中已应用取消补丁和 [Goja 扩展](https://github.com/giturass/sing-box/blob/b-box/.b-box/goja/bbox_regexp_interrupt.go)、[regexp2 扩展](https://github.com/giturass/sing-box/blob/b-box/.b-box/regexp2/bbox_context.go)，并由 `go.mod` 的模块替换引用。升级依赖时须重新核对补丁位置、runner 隔离和 VM 中断行为。JS 正则字面量、构造器、`.compile`、match/replace 的取消与并行 VM 回归见 [script_admission_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/httpdebug/script_admission_test.go)。
 
@@ -562,7 +562,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](https://github.com/giturass/
 
 - [Release 工作流](.github/workflows/build-release.yml) 仅手动构建、不运行测试；通过共享构建 Action 使用 JDK 17、版本文件指定的 Go 和 NDK 28.0.13004108，执行上游 `make lib_install` 与 `build_libbox -target android -platform android/arm64`，与 Flutter Release AAR 并行准备。
 - [统一测试工作流](.github/workflows/newui.yml) 的 Android job 使用同一构建 Action，核心目标为 `android/amd64`，用于 JVM 及 [Android 模拟器矩阵](app.md#模拟器-smoke-矩阵) 的回归。两种架构的构建均要求不存在 `libbox-legacy.aar`，再将标准产物放到 `app/libs/libbox.aar`。
-- 同一工作流的 core job 使用共享准备 Action 把扩展、补丁和回归文件安装到上游检出目录，不构建核心 AAR。所有生产扩展均参与编译，测试按名称前缀或目录自动纳入，不维护具体扩展名的筛选清单。该 job 依次运行：
+- 同一工作流的 core job 使用共享准备 Action 检出并核对核心子模块，不构建核心 AAR。所有生产扩展均参与编译，测试按名称前缀或目录自动纳入，不维护具体扩展名的筛选清单。该 job 依次运行：
   1. `go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1`：Android ingress-discard map 布局兼容。
   2. `go test -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1`：全部 `TestUI` 扩展回归；随后以 `-tags=with_xhttp,with_quic,with_wireguard,with_utls,with_clash_api` 单独运行 `^TestUINode`，核对随发布核心包含的节点协议。
   3. `go test -race -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m`，再以 `-tags=with_quic` 运行同一命令；随后执行 `go test -tags=with_xhttp,with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIMASQUE' -count=1` 及 `go test -race -tags=with_xhttp,with_quic,with_wireguard -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIWARP' -count=1 -timeout=3m`：WARP MASQUE/WireGuard 注册与配置、认证及 HTTP/2、HTTP/3 隧道。HTTP/3 用例只在 `with_quic` 构建中编译。
@@ -670,4 +670,6 @@ XHTTP 与 VLESS Encryption 的独立传输、加密与 race 回归由同一 core
 
 ### 升级核心
 
-升级核心时先检查补丁是否仍准确排除 legacy 分支，核对 sing-tun 依赖版本及自动重定向补丁，检查 HTTP 调试路由/服务生命周期补丁及覆盖文件，再逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。任何扩展增删都要核对共享准备 Action 的安装范围，以及统一测试与 Release 两条工作流的调用。
+升级核心时在 fork 中将 `b-box` 分支在上游标签之后的提交变基到新标签，并同步更新 [version.properties](version.properties) 的 `CORE_VERSION_NAME`；setup-core 要求子模块提交以该标签为祖先。变基会改写提交：强制推送前先在 fork 以分支（如 `b-box-<旧核心版本>`）保留旧分支头，使已有 B-box 提交记录的子模块 SHA 仍可取得。
+
+变基时检查构建改动是否仍准确排除 legacy 分支，核对 HTTP 调试的路由/服务生命周期改动，再逐项核对扩展所依赖的路由、配置解析、HTTP 客户端和生成绑定。固定依赖的版本变化时，以新版本模块源码重建 `.b-box/` 中的副本、重新应用对应补丁，并更新 `verify.py` 中的版本和哈希；副本须用 `git add -f` 加入，因为 sing-tun 和 regexp2 自带的 `.gitignore` 会忽略它们自己发布的文件。Go 导出名与 gomobile 生成的 Java 方法名不能凭拼写推断，例如 `UIHTTPGet` 当前由 Kotlin 调用为 `Libbox.uihttpGet`。扩展增删后核对统一测试与 Release 两条工作流的调用，并更新本文档中指向 fork 提交的链接。
