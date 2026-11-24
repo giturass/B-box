@@ -93,6 +93,26 @@
           "source": "$httpClient.get({url:'https://api.example.test/binary','binary-mode':true,'full-header-mode':true,timeout:4}, (error,response,data)=>{if(error) throw Error(error); $done({response:{status:response.status,body:data}});});"
         }
       ],
+      "stream": [
+        {
+          "name": "WebSocket message",
+          "disabled": true,
+          "type": "websocket",
+          "direction": "server",
+          "pattern": "^wss?://api\\.example\\.test/messages$",
+          "source": "$done({body:$message.body});",
+          "timeout_ms": 5000
+        },
+        {
+          "name": "TCP byte chunk",
+          "disabled": true,
+          "type": "tcp",
+          "binary_body": true,
+          "pattern": "^tcp://api\\.example\\.test:80$",
+          "source": "$done({body:$message.body});",
+          "timeout_ms": 5000
+        }
+      ],
       "cron": [
         {
           "name": "Daily HTTP task",

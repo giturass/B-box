@@ -2,6 +2,7 @@ package route
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
 	"time"
@@ -63,10 +64,16 @@ func (r *Router) routeHTTPDebug(ctx context.Context, conn net.Conn, metadata ada
 		var err error
 		conn, err = peekHTTPDebug(ctx, &captureMetadata, conn)
 		if err != nil {
-			return conn, false
+			if !engine.WantsRawTCP(debugMetadata(metadata)) {
+				return conn, false
+			}
+			captureMetadata.Protocol = "tcp"
 		}
 	}
 	info := debugMetadata(captureMetadata)
+	if info.Protocol != "http" && info.Protocol != "tls" && engine.WantsRawTCP(info) {
+		info.Protocol, info.RawTCP = "tcp", true
+	}
 	// Routing registered the client connection before this hook. Unwrap sniffing
 	// caches and other upstream-aware wrappers to read the same UUID as libbox.
 	// Keep it on the original metadata even if an HTTP rewrite routes a new dial.
@@ -163,28 +170,48 @@ func debugNeedsStream(m adapter.InboundContext) bool {
 	return m.Network == N.NetworkUDP && engine.WantsQUIC(debugMetadata(m))
 }
 
-// Only a recovered QUIC ClientHello name can trigger the opt-in TCP fallback.
-// Other UDP and all buffered datagrams of unmatched flows stay unchanged.
-func debugObserveQUIC(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, buffers []*N.PacketBuffer) ([]*N.PacketBuffer, bool) {
+type debugQUICSelection struct {
+	engine   *httpdebug.Engine
+	metadata httpdebug.Metadata
+}
+
+// Observe a copy after routing, then replay every datagram through the normal
+// tracking/NAT wrappers. Only a genuine HTTP/3 offer may be intercepted. Other
+// QUIC protocols, unknown names and unmatched flows retain their selected route.
+func debugObserveQUIC(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, buffers []*N.PacketBuffer) ([]*N.PacketBuffer, *debugQUICSelection, bool) {
+	if ctx.Value(httpRewriteRouteKey{}) != nil || httpdebug.ProcessingDisabled(ctx) {
+		return buffers, nil, false
+	}
 	engine := httpdebug.Current()
 	if engine == nil || !engine.WantsQUIC(debugMetadata(metadata)) {
-		return buffers, false
+		return buffers, nil, false
 	}
 	if metadata.Protocol != "" && metadata.Protocol != C.ProtocolQUIC {
-		return buffers, false
+		return buffers, nil, false
 	}
-	if metadata.Protocol == C.ProtocolQUIC && metadata.Domain != "" {
-		return buffers, engine.RejectQUIC(debugMetadata(metadata))
-	}
-	metadata.Domain = ""
-	for i := 0; i < 3; i++ {
+	// The actual ClientHello must establish SNI and ALPN even when a routing
+	// rule already sniffed a name. Do not treat a DNS mapping as inspected SNI.
+	metadata.Domain, metadata.Protocol, metadata.SniffContext = "", "", nil
+	deadline := time.Now().Add(time.Second)
+	for i := 0; ; i++ {
 		if i >= len(buffers) {
+			if ctx.Err() != nil || !time.Now().Before(deadline) {
+				break
+			}
 			packet := buf.NewPacket()
-			if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+			if err := conn.SetReadDeadline(deadline); err != nil {
 				packet.Release()
 				break
 			}
+			deadlineDone := make(chan struct{})
+			stop := context.AfterFunc(ctx, func() {
+				_ = conn.SetReadDeadline(time.Now())
+				close(deadlineDone)
+			})
 			destination, err := conn.ReadPacket(packet)
+			if !stop() {
+				<-deadlineDone
+			}
 			_ = conn.SetReadDeadline(time.Time{})
 			if err != nil {
 				packet.Release()
@@ -194,13 +221,25 @@ func debugObserveQUIC(ctx context.Context, conn N.PacketConn, metadata adapter.I
 			*buffer = N.PacketBuffer{Buffer: packet, Destination: destination}
 			buffers = append(buffers, buffer)
 		}
-		err := sniff.QUICClientHello(ctx, &metadata, buffers[i].Buffer.Bytes())
-		if err == nil && metadata.Domain != "" {
-			return buffers, engine.RejectQUIC(debugMetadata(metadata))
+		var clientHello []byte
+		err := sniff.QUICClientHelloDebug(ctx, &metadata, buffers[i].Buffer.Bytes(), func(hello []byte) {
+			clientHello = append([]byte(nil), hello...)
+		})
+		if err == nil {
+			info := debugMetadata(metadata)
+			packet := buffers[i].Buffer.Bytes()
+			version := binary.BigEndian.Uint32(packet[1:5])
+			if selected, matched := engine.SelectQUIC(info, clientHello); matched && (version == 1 || version == 0x6b3343cf) {
+				return buffers, &debugQUICSelection{engine: engine, metadata: selected}, false
+			}
+			if metadata.Domain != "" {
+				return buffers, nil, engine.RejectQUIC(info)
+			}
+			break
 		}
 		if !errors.Is(err, sniff.ErrNeedMoreData) {
 			break
 		}
 	}
-	return buffers, false
+	return buffers, nil, false
 }

@@ -86,7 +86,7 @@ class _CapturePollState extends State<CapturePoll> with WidgetsBindingObserver {
       _loading = false;
       if (mounted && _visible) {
         if (_queued) { _queued = false; unawaited(_load()); }
-        else if (!widget.untilComplete || _value?['complete'] != true || _error != null) {
+        else if (!widget.untilComplete || _value?['complete'] != true || _value?['streamActive'] == true || _error != null) {
           _timer = Timer(const Duration(seconds: 2), _load);
         }
       }

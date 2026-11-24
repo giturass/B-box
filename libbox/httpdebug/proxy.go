@@ -38,6 +38,9 @@ type Engine struct {
 	wg                   sync.WaitGroup
 	closed               bool
 	connections          map[net.Conn]context.CancelFunc
+	packetConnections    map[net.PacketConn]context.CancelFunc
+	streamMu             sync.Mutex
+	streams              map[string]*activeStream
 	preparing            map[*tlsSelection]struct{}
 	skipped              atomic.Int64
 	warning              atomic.Pointer[string]
@@ -53,7 +56,7 @@ type Engine struct {
 }
 
 func newEngine(config Config, store *Store) *Engine {
-	e := &Engine{store: store, connections: make(map[net.Conn]context.CancelFunc), preparing: make(map[*tlsSelection]struct{})}
+	e := &Engine{store: store, connections: make(map[net.Conn]context.CancelFunc), packetConnections: make(map[net.PacketConn]context.CancelFunc), streams: make(map[string]*activeStream), preparing: make(map[*tlsSelection]struct{})}
 	e.recording.Store(&config)
 	e.ctx, e.cancel = context.WithCancel(context.Background())
 	return e
@@ -67,7 +70,7 @@ func (e *Engine) Candidate(metadata Metadata) bool {
 	if metadata.Protocol == "tls" {
 		return config != nil && config.ExtractHosts && config.candidate(metadata)
 	}
-	return config != nil && config.candidate(metadata) || e.httpProgram(metadata) != nil
+	return config != nil && config.candidate(metadata) || e.httpProgram(metadata) != nil || e.WantsRawTCP(metadata) || e.wantsWebSocket(metadata)
 }
 
 func (e *Engine) Matches(metadata Metadata) bool {
@@ -75,14 +78,14 @@ func (e *Engine) Matches(metadata Metadata) bool {
 		return e.mitm.matches(metadata)
 	}
 	config := e.recording.Load()
-	return config != nil && config.matches(metadata) || e.httpProgram(metadata) != nil
+	return config != nil && config.matches(metadata) || e.httpProgram(metadata) != nil || e.WantsRawTCP(metadata) || e.wantsWebSocket(metadata)
 }
 
 func (e *Engine) WantsQUIC(metadata Metadata) bool {
 	metadata.Protocol = "tls"
 	config := e.recording.Load()
 	return config != nil && config.ExtractHosts && config.candidate(metadata) ||
-		e.mitm.candidate(metadata) && e.mitm.BlockQUIC
+		e.mitm.candidate(metadata) && (e.mitm.BlockQUIC || e.H3Enabled())
 }
 
 // The caller must have observed a QUIC ClientHello, never just an IP/UDP port.
@@ -90,7 +93,7 @@ func (e *Engine) RejectQUIC(metadata Metadata) bool {
 	metadata.Protocol = "tls"
 	metadata.sniffedSNI = true
 	e.Observe(metadata, "QUIC")
-	if !e.mitm.matches(metadata) || !e.mitm.BlockQUIC {
+	if !e.mitm.matches(metadata) || !e.mitm.BlockQUIC || e.H3Enabled() {
 		return false
 	}
 	e.mu.Lock()
@@ -156,11 +159,16 @@ func (e *Engine) Close() {
 	}
 	e.closed = true
 	connections := maps.Clone(e.connections)
+	packets := maps.Clone(e.packetConnections)
 	e.mu.Unlock()
 	e.cancel()
 	// Selected TLS wrappers release lifecycle tracking in Close, which takes
 	// e.mu too. Close transports after releasing the engine lock.
 	for conn, cancel := range connections {
+		cancel()
+		conn.Close()
+	}
+	for conn, cancel := range packets {
 		cancel()
 		conn.Close()
 	}
@@ -190,6 +198,14 @@ func (e *Engine) serve(ctx context.Context, conn net.Conn, metadata Metadata, di
 		}
 		scheme = "https"
 	} else {
+		if metadata.RawTCP {
+			upstream, err := dial(ctx)
+			if err != nil {
+				return err
+			}
+			defer upstream.Close()
+			return e.serveTCP(ctx, conn, upstream, metadata)
+		}
 		metadata.CaptureSource = "HTTP"
 		e.plaintextConnections.Add(1)
 	}
@@ -306,6 +322,9 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 			display.URL.Host = target.Host
 		}
 		requestMetadata := metadata
+		if strings.EqualFold(request.Header.Get("Upgrade"), "websocket") {
+			requestMetadata.StreamID = newStreamID()
+		}
 		requestURL, err := url.Parse(target.Scheme + "://" + request.Host)
 		requestHost := ""
 		if err == nil {
@@ -451,6 +470,20 @@ func (e *Engine) handler(metadata Metadata, target *url.URL, transport http.Roun
 					}
 				}
 				e.store.response(id, response)
+				if response.StatusCode == http.StatusSwitchingProtocols && strings.EqualFold(response.Header.Get("Upgrade"), "websocket") {
+					body, reason, wrapErr := e.wrapWebSocket(request.Context(), request, response, requestMetadata, id)
+					if wrapErr != nil {
+						response.Body.Close()
+						return nil, wrapErr
+					}
+					if body != nil {
+						response.Body = body
+						e.store.webSocket(id)
+					}
+					if reason != "" {
+						note(reason)
+					}
+				}
 				if response.StatusCode != http.StatusSwitchingProtocols && response.Body != nil && response.Body != http.NoBody {
 					response.Body = &tapBody{ReadCloser: response.Body, store: e.store, id: id, response: true, expected: response.ContentLength, trailers: response.Trailer, engine: e}
 				}

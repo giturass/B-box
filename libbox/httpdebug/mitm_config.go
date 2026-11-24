@@ -17,6 +17,7 @@ type MITMConfig struct {
 	Packages             []string `json:"packages,omitempty"`
 	TCP                  bool     `json:"tcp,omitempty"`
 	H2                   bool     `json:"h2"`
+	H3                   bool     `json:"h3,omitempty"`
 	SkipServerCertVerify bool     `json:"skip_server_cert_verify,omitempty"`
 	// Keep explicit false when formatting a profile: omission means true.
 	BlockQUIC bool `json:"block_quic"`

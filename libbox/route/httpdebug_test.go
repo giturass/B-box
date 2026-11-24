@@ -141,6 +141,10 @@ func TestBboxHTTPDebugKeepsSelectedRouteAndReplaysUnmatchedBytes(t *testing.T) {
 			testBboxTLSRoute(t, directory, bypass)
 		})
 	}
+	t.Run("raw-TCP", func(t *testing.T) {
+		testBboxHTTPDebugRawTCP(t, directory)
+	})
+	testBboxHTTPDebugQUIC(t, directory)
 }
 
 func testBboxHTTPDebugConnectionID(t *testing.T, directory string) {

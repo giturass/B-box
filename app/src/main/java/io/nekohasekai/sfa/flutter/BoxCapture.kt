@@ -32,6 +32,8 @@ internal class BoxCapture(private val activity: BoxHost) : Closeable {
     private val settings = CaptureSettings(directory)
     private val certificate = MitmCertificate(activity)
     private val bodyReaders = CaptureBodyReaders(File(activity.cacheDir, "capture-body-views"))
+    private val injectTasks = CaptureInjectTasks()
+    private val captureTasks = CaptureTasks(bodyReaders, injectTasks)
 
     private companion object {
         val mutex = Mutex()
@@ -47,7 +49,22 @@ internal class BoxCapture(private val activity: BoxHost) : Closeable {
         if (method == "capture.body.close") return withContext(Dispatchers.IO) {
             bodyReaders.closeReader(args["readerId"] as? String ?: error("Missing body reader ID"))
         }
+        if (method == "capture.inject.cancel") return injectTasks.cancel(args["requestId"] as? String ?: error("Missing injection request ID"))
         requireLocal()
+        if (method == "capture.inject") {
+            val opcode = args["opcode"]?.let { raw ->
+                val value = raw as? Number ?: error("Invalid stream message opcode")
+                require(value.toDouble() in setOf(0.0, 1.0, 2.0)) { "Invalid stream message opcode" }
+                value.toInt()
+            } ?: 0
+            return injectTasks.inject(
+                args["requestId"] as? String ?: UUID.randomUUID().toString(),
+                args["streamId"] as? String ?: error("Missing stream ID"),
+                args["direction"] as? String ?: error("Missing stream direction"),
+                opcode,
+                args["data"] as? String ?: error("Missing stream message"),
+            )
+        }
         if (method in setOf("capture.body", "capture.body.view", "capture.body.view.page")) return readBody(method, args)
         if (method in setOf("capture.snapshot", "capture.query", "capture.detail", "capture.domains")) return readCapture(method, args)
         if (method == "capture.export") return export(args)
@@ -77,7 +94,7 @@ internal class BoxCapture(private val activity: BoxHost) : Closeable {
                         }
                         "capture.start" -> start { started = true }
                         "capture.stop" -> { Libbox.stopUICapture(); jsonObject(status()) }
-                        "capture.clear" -> { bodyReaders.cancelAll(); Libbox.clearUICapture(); null }
+                        "capture.clear" -> { captureTasks.clearRecords { Libbox.clearUICapture() }; null }
                         else -> error("Unknown capture operation")
                     }
                 }
@@ -159,9 +176,9 @@ internal class BoxCapture(private val activity: BoxHost) : Closeable {
         }
     }
 
-    fun cancelBodyReads() = bodyReaders.cancelAll()
+    fun cancelBodyReads() = captureTasks.cancelAll()
 
-    override fun close() = bodyReaders.close()
+    override fun close() = captureTasks.close()
 
     private suspend fun start(onStarted: () -> Unit): Map<String, Any?> {
         require(!status().optBoolean("active")) { "Capture is already running" }

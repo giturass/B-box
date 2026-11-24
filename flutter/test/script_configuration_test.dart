@@ -29,7 +29,7 @@ const _scriptConfig = <String, dynamic>{
 };
 
 String _title(String type) => switch (type) {
-  'cron' => 'Cron tasks', 'event' => 'Event scripts', 'generic' => 'Generic scripts', _ => 'HTTP scripts',
+  'cron' => 'Cron tasks', 'event' => 'Event scripts', 'generic' => 'Generic scripts', 'stream' => 'Stream scripts', _ => 'HTTP scripts',
 };
 
 class _ScriptsHarness {
@@ -220,13 +220,13 @@ void main() {
       {'profileId': 7, 'revision': 'saved', 'type': 'generic', 'index': 0, 'requestId': 'first'});
   });
 
-  testWidgets('event and generic examples save independently, event selection preserves rejected drafts', (tester) async {
+  testWidgets('event, generic and stream examples save independently, event selection preserves rejected drafts', (tester) async {
     final harness = await _mount(tester, config: const {
       'dns': {'servers': [{'type': 'local', 'tag': 'system'}]},
       'route': {'final': 'direct'}, 'outbounds': [{'type': 'direct', 'tag': 'direct'}],
       'experimental': {'cache_file': {'enabled': true}, 'mitm': {'enabled': false}},
     });
-    for (final type in ['event', 'generic']) {
+    for (final type in ['event', 'generic', 'stream']) {
       await _openList(tester, harness, type);
       await tester.tap(find.byTooltip('Add').last);
       await tester.pumpAndSettle();
@@ -251,10 +251,19 @@ void main() {
         expect(harness.writes, isEmpty);
         harness.rejectWrite = false;
       }
+      if (type == 'stream') {
+        expect(draft['type'], 'websocket');
+        expect(draft['direction'], 'server');
+        draft = {...draft, 'disabled': false, 'binary_body': true,
+          'source': r'$done({body: $message.body, inject: [{direction: "server", body: "reply", opcode: 1}]});'};
+        await tester.enterText(field, jsonEncode(draft));
+        await tester.pumpAndSettle();
+      }
       await tester.tap(find.byTooltip('Save').hitTestable());
       await tester.pumpAndSettle();
       expect(harness.store.entries([...ScriptsConfigPage.path, type]), [draft]);
-      expect(_items(tester).where((item) => item.label == 'Run script'), isEmpty, reason: 'New scripts remain disabled after saving.');
+      expect(_items(tester).where((item) => item.label == 'Run script'), isEmpty,
+        reason: 'Disabled tasks and stream message handlers do not expose manual task execution.');
       Navigator.pop(tester.element(find.byType(ConfigListPage)));
       await tester.pumpAndSettle();
     }

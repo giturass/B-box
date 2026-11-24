@@ -21,6 +21,7 @@ type Config struct {
 	Ports        []uint16 `json:"ports"`
 	BodyLimit    int64    `json:"bodyLimit"`
 	ExtractHosts bool     `json:"extractHosts,omitempty"`
+	RawTCP       bool     `json:"rawTCP,omitempty"`
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
@@ -107,8 +108,16 @@ type Metadata struct {
 	TLSAdapter          string          `json:"tlsAdapter,omitempty"`
 	Socket              *SocketMetadata `json:"socket,omitempty"`
 	RawTCP              bool            `json:"rawTCP,omitempty"`
+	StreamID            string          `json:"streamId,omitempty"`
+	ParentID            string          `json:"parentId,omitempty"`
+	StreamURL           string          `json:"streamUrl,omitempty"`
+	Direction           string          `json:"direction,omitempty"`
+	Opcode              int             `json:"opcode,omitempty"`
+	Injected            bool            `json:"injected,omitempty"`
+	Dropped             bool            `json:"dropped,omitempty"`
 	TLS                 *TLSMetadata    `json:"tls,omitempty"`
 	sniffedSNI          bool            // only an inspected ClientHello can set this
+	messageID           string          // one stream-script invocation, shared across its rules
 }
 
 // Versions and ALPN are the negotiated values on each side, not estimates.
@@ -134,7 +143,7 @@ func (c Config) candidate(m Metadata) bool {
 	if !slices.Contains(c.Ports, m.Port) {
 		return false
 	}
-	if m.Protocol != "" && m.Protocol != "http" && m.Protocol != "tls" {
+	if m.Protocol != "" && m.Protocol != "http" && m.Protocol != "tls" && !c.RawTCP {
 		return false
 	}
 	if len(c.Packages) == 0 {

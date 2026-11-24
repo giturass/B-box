@@ -333,13 +333,14 @@ class MitmConfigPage extends StatelessWidget {
         ListItem.open(key: const ValueKey('mitm-hosts'), leading: const GlyphIcon(AppGlyphs.dns), title: Text(context.tr('Decryption domains')),
           widget: MitmHostsEditor(store: store)),
         _toggle(context, store, 'mitm-h2', 'MITM over HTTP/2', 'h2', byDefault: true),
+        _toggle(context, store, 'mitm-h3', 'MITM over HTTP/3', 'h3'),
         _toggle(context, store, 'mitm-skip-server-cert-verify', 'Skip server certificate verification', 'skip_server_cert_verify'),
         _toggle(context, store, 'mitm-tcp', 'Decrypt TCP', 'tcp'),
         _toggle(context, store, 'mitm-block-quic', 'Request TCP fallback for QUIC', 'block_quic', byDefault: true),
       ]),
       if (store != null && store.ready) generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit MITM options')),
-          widget: ConfigValueEditor(title: 'MITM configuration', initial: store.value(path) ?? const {'enabled': false, 'hosts': [], 'tcp': false, 'h2': true, 'skip_server_cert_verify': false, 'block_quic': true},
+          widget: ConfigValueEditor(title: 'MITM configuration', initial: store.value(path) ?? const {'enabled': false, 'hosts': [], 'tcp': false, 'h2': true, 'h3': false, 'skip_server_cert_verify': false, 'block_quic': true},
             onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
       ]),
     ]);
@@ -390,7 +391,7 @@ class ScriptsConfigPage extends StatelessWidget {
     final revision = store.revision;
     if (context.box.remote) return const BoxPage(title: 'Scripts', children: [EmptyState('Disconnect remote session to edit local profiles')]);
     return ProcessingConfigScaffold(title: 'Scripts', store: store, children: [
-      ListFooter(text: context.tr('HTTP, cron, event and generic scripts run independently of HTTP rewriting. HTTPS HTTP scripts use the MITM domain settings.')),
+      ListFooter(text: context.tr('HTTP, stream, cron, event and generic scripts run independently of HTTP rewriting. Encrypted traffic uses the MITM domain settings.')),
       generateSection(items: [
         ListItem.toggle(key: const ValueKey('scripts-enabled'), title: Text(context.tr('Enable scripts')),
           value: store.value([...path, 'enabled']) == true,
@@ -401,6 +402,12 @@ class ScriptsConfigPage extends StatelessWidget {
             'name': 'HTTP script', 'disabled': true, 'pattern': r'^https?://example\.com/', 'phase': 'response',
             'requires_body': true, 'source': r'$done({body: $response.body});',
           }, showHttpMatchHelp: true)),
+        ListItem.open(key: const ValueKey('stream-scripts'), leading: const GlyphIcon(AppGlyphs.connections), title: Text(context.tr('Stream scripts')),
+          subtitle: Text('${store.entries([...path, 'stream']).length}'),
+          widget: ConfigListPage(store: store, title: 'Stream scripts', path: [...path, 'stream'], showStreamScriptHelp: true, initial: const {
+            'name': 'WebSocket script', 'disabled': true, 'type': 'websocket', 'pattern': r'^wss?://example\.com/',
+            'direction': 'server', 'source': r'$done();',
+          })),
         ListItem.open(key: const ValueKey('cron-scripts'), leading: const GlyphIcon(AppGlyphs.logs), title: Text(context.tr('Cron tasks')),
           subtitle: Text('${store.entries([...path, 'cron']).length}'),
           widget: ConfigListPage(store: store, title: 'Cron tasks', path: [...path, 'cron'], scriptType: 'cron', initial: const {
@@ -571,12 +578,13 @@ class LogConfigPage extends StatelessWidget {
 
 class ConfigListPage extends StatefulWidget {
   const ConfigListPage({super.key, required this.store, required this.title, required this.path, required this.initial,
-    this.showHttpMatchHelp = false, this.scriptType});
+    this.showHttpMatchHelp = false, this.showStreamScriptHelp = false, this.scriptType});
   final ProfileConfigStore store;
   final String title;
   final List<String> path;
   final Json initial;
   final bool showHttpMatchHelp;
+  final bool showStreamScriptHelp;
   final String? scriptType;
   @override State<ConfigListPage> createState() => _ConfigListPageState();
 }
@@ -741,7 +749,8 @@ class _ConfigListPageState extends State<ConfigListPage> with WidgetsBindingObse
     setState(() => _editing = true);
     try {
       await openForm(context, ConfigValueEditor(title: index == null ? 'Add' : 'Edit', initial: value,
-        showHttpMatchHelp: widget.showHttpMatchHelp, scriptType: widget.scriptType, onSave: (value) async {
+        showHttpMatchHelp: widget.showHttpMatchHelp, showStreamScriptHelp: widget.showStreamScriptHelp,
+        scriptType: widget.scriptType, onSave: (value) async {
         if (value is! Map) throw const FormatException('JSON object required');
         final next = List<Json>.of(entries);
         if (index == null) next.add(json(value)); else next[index] = json(value);
@@ -952,11 +961,12 @@ class _ConfigOrderPageState extends State<ConfigOrderPage> {
 
 class ConfigValueEditor extends StatefulWidget {
   const ConfigValueEditor({super.key, required this.title, required this.initial, required this.onSave,
-    this.showHttpMatchHelp = false, this.scriptType});
+    this.showHttpMatchHelp = false, this.showStreamScriptHelp = false, this.scriptType});
   final String title;
   final dynamic initial;
   final Future<bool> Function(dynamic value) onSave;
   final bool showHttpMatchHelp;
+  final bool showStreamScriptHelp;
   final String? scriptType;
   @override State<ConfigValueEditor> createState() => _ConfigValueEditorState();
 }
@@ -1021,6 +1031,8 @@ class _ConfigValueEditorState extends State<ConfigValueEditor> {
         Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 0), child: SelectableText(_httpRuleMatchExample,
           style: const TextStyle(fontFamily: 'JetBrainsMono', fontSize: 12, height: 1.5))),
       ],
+      if (widget.showStreamScriptHelp)
+        ListFooter(text: context.tr(r'Stream scripts process TCP chunks or complete WebSocket messages. Set type to tcp or websocket, and direction to client or server; omit direction for both. Use pattern to match the stream URL. $message contains body, direction, opcode, type, url, id, streamId and parentId. With binary_body, body is a Uint8Array; otherwise it is UTF-8 text. $done() keeps the message, $done({body: "..."}) replaces it, and $done({drop: true}) drops it. Use $done({inject: [{direction: "server", body: "...", opcode: 1}]}) to inject a message after it.')),
     ],
   ));
 }

@@ -10,6 +10,33 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ScriptConfigBindingTest {
+    @Test fun streamScriptsHttp3AndRawTcpRoundTripThroughTheActualAndroidBindings() {
+        val content = """{"experimental":{
+            "mitm":{"enabled":true,"hosts":["message.example:0"],"h3":true,"tcp":true},
+            "scripts":{"enabled":true,"stream":[
+                {"name":"TCP handler","type":"tcp","binary_body":true,"source":"${'$'}done({body: ${'$'}message.body});"},
+                {"name":"WebSocket handler","type":"websocket","direction":"server","disabled":true,
+                 "pattern":"^wss://message.example/","source":"${'$'}done({inject: [{direction: 'server', body: 'reply', opcode: 1}]});"}
+            ]}
+        }}"""
+        Libbox.checkConfig(content)
+        val formatted = Libbox.formatConfig(content).value
+        Libbox.checkConfig(formatted)
+        val experimental = JSONObject(formatted).getJSONObject("experimental")
+        assertTrue(experimental.getJSONObject("mitm").getBoolean("h3"))
+        assertTrue(Libbox.needsUIMITMCA(formatted))
+        val stream = experimental.getJSONObject("scripts").getJSONArray("stream")
+        assertEquals("tcp", stream.getJSONObject(0).getString("type"))
+        assertTrue(stream.getJSONObject(0).getBoolean("binary_body"))
+        assertEquals("server", stream.getJSONObject(1).getString("direction"))
+        assertTrue(stream.getJSONObject(1).getBoolean("disabled"))
+        val capture = JSONObject(Libbox.validateUICaptureConfig("""{"version":3,"rawTCP":true,"bodyLimit":-1}"""))
+        assertTrue(capture.getBoolean("rawTCP"))
+        assertEquals(-1, capture.getInt("bodyLimit"))
+        val schema = Libbox.generateConfigSchema().value
+        for (field in listOf("h3", "stream", "binary_body", "direction")) assertTrue(schema.contains("\"$field\""))
+    }
+
     @Test fun eventAndGenericScriptsRoundTripWithoutLoadingOrExecutingTheirSources() {
         val content = """{"experimental":{"scripts":{
             "enabled":true,

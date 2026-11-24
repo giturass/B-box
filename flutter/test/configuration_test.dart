@@ -134,7 +134,9 @@ void main() {
     expect(find.text('Decryption domains'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('mitm-enabled')));
     await tester.pumpAndSettle();
-    for (final key in ['mitm-h2', 'mitm-skip-server-cert-verify', 'mitm-tcp', 'mitm-block-quic']) {
+    expect(find.byKey(const ValueKey('mitm-h3')), findsOneWidget);
+    expect(store.value([...MitmConfigPage.path, 'h3']), isNull);
+    for (final key in ['mitm-h2', 'mitm-h3', 'mitm-skip-server-cert-verify', 'mitm-tcp', 'mitm-block-quic']) {
       final control = find.byKey(ValueKey(key));
       await tester.ensureVisible(control);
       await tester.pumpAndSettle();
@@ -142,7 +144,7 @@ void main() {
       await tester.tap(control.hitTestable());
       await tester.pumpAndSettle();
     }
-    expect(store.value(MitmConfigPage.path), {'enabled': true, 'tcp': true, 'h2': false, 'skip_server_cert_verify': true, 'block_quic': false});
+    expect(store.value(MitmConfigPage.path), {'enabled': true, 'tcp': true, 'h2': false, 'h3': true, 'skip_server_cert_verify': true, 'block_quic': false});
     expect(store.value(ScriptsConfigPage.path), isNull);
     openPage(tester.element(find.byType(MitmConfigPage)), ScriptsConfigPage(store: store));
     await tester.pumpAndSettle();
@@ -169,7 +171,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(store.value(['experimental', 'http_rewrite', 'enabled']), isFalse);
     expect(store.value([...ScriptsConfigPage.path, 'enabled']), isTrue);
-    expect(store.value(MitmConfigPage.path), {'enabled': true, 'tcp': true, 'h2': false, 'skip_server_cert_verify': true, 'block_quic': false});
+    expect(store.value(MitmConfigPage.path), {'enabled': true, 'tcp': true, 'h2': false, 'h3': true, 'skip_server_cert_verify': true, 'block_quic': false});
     expect(json(writes.last['experimental'])['cache_file'], {'enabled': true});
     expect(writes.last['outbounds'], [{'type': 'direct', 'tag': 'kept'}]);
     final savedRevision = revision;

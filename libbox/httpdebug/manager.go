@@ -110,6 +110,7 @@ type State struct {
 	MITMActive            bool   `json:"mitmActive"`
 	ScriptsActive         bool   `json:"scriptsActive"`
 	ScriptRules           int    `json:"scriptRules"`
+	StreamRules           int    `json:"streamRules"`
 	CronJobs              int    `json:"cronJobs"`
 	EventJobs             int    `json:"eventJobs"`
 	GenericJobs           int    `json:"genericJobs"`
@@ -130,6 +131,7 @@ type State struct {
 	CronScriptsRunning    int    `json:"cronScriptsRunning"`
 	EventScriptsRunning   int    `json:"eventScriptsRunning"`
 	GenericScriptsRunning int    `json:"genericScriptsRunning"`
+	StreamScriptsRunning  int    `json:"streamScriptsRunning"`
 }
 
 func Status() State {
@@ -153,15 +155,16 @@ func (engine *Engine) captureState() State {
 	if engine.rewrite != nil {
 		rules = engine.rewrite.count
 	}
-	scriptRules, cronJobs, eventJobs, genericJobs := 0, 0, 0, 0
+	scriptRules, streamRules, cronJobs, eventJobs, genericJobs := 0, 0, 0, 0, 0
 	if engine.scripts != nil {
 		scriptRules, cronJobs = len(engine.scripts.http), len(engine.scripts.cron)
+		streamRules = len(engine.scripts.stream)
 		eventJobs, genericJobs = len(engine.scripts.event), len(engine.scripts.generic)
 	}
 	return State{MITMActive: !engine.closed && engine.mitm.active(), ScriptsActive: !engine.closed && engine.scripts != nil,
-		ScriptRules: scriptRules, CronJobs: cronJobs, EventJobs: eventJobs, GenericJobs: genericJobs,
+		ScriptRules: scriptRules, StreamRules: streamRules, CronJobs: cronJobs, EventJobs: eventJobs, GenericJobs: genericJobs,
 		Active: !engine.closed && engine.recording.Load() != nil, RewriteActive: !engine.closed && engine.rewrite != nil, RewriteRules: rules, Backend: engine.backend(), Error: warning,
-		Connections: len(engine.connections) + len(engine.preparing),
+		Connections: len(engine.connections) + len(engine.packetConnections) + len(engine.preparing),
 		Skipped:     engine.skipped.Load(), TLSFailed: engine.tlsFailed.Load(), BlockedQUIC: engine.blockedQUIC.Load(),
 		TLSOpened:            engine.tlsOpened.Load(),
 		TLSNoRequest:         engine.tlsNoRequest.Load(),
@@ -169,7 +172,8 @@ func (engine *Engine) captureState() State {
 		ParsedRequests: engine.parsedRequests.Load(), FilteredRequests: engine.filteredRequests.Load(), RecordedRequests: engine.recordedRequests.Load(),
 		BodyBudgetReserved: processingBodies.used.Load(), BodyBudgetLimit: processingBodies.limit,
 		HTTPScriptsRunning: int(httpScriptsRunning.Load()), CronScriptsRunning: int(cronScriptsRunning.Load()),
-		EventScriptsRunning: int(eventScriptsRunning.Load()), GenericScriptsRunning: int(genericScriptsRunning.Load())}
+		EventScriptsRunning: int(eventScriptsRunning.Load()), GenericScriptsRunning: int(genericScriptsRunning.Load()),
+		StreamScriptsRunning: int(streamScriptsRunning.Load())}
 }
 
 func (engine *Engine) backend() string {

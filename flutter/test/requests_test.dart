@@ -7,6 +7,7 @@ import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/pages/requests.dart';
 import 'package:b_box_ui/pages/request_settings.dart';
+import 'package:b_box_ui/pages/stream_injection.dart';
 import 'package:b_box_ui/pages/mitm_certificate.dart';
 import 'package:b_box_ui/pages/capture_domains.dart';
 import 'package:b_box_ui/pages/configuration.dart';
@@ -152,6 +153,23 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> chooseInjectionOption(WidgetTester tester, String key, String option) async {
+    final row = find.byKey(ValueKey(key));
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    await tester.tap(row.hitTestable());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(option).last.hitTestable());
+    await tester.pumpAndSettle();
+  }
+
+  Json injectionArguments(MethodCall call) {
+    final args = json(call.arguments);
+    expect(args['requestId'], isA<String>());
+    expect(args['requestId'], isNotEmpty);
+    return {...args}..remove('requestId');
+  }
+
   testWidgets('Tools has one Connections and requests entry and remote sessions show only their connections', (tester) async {
     await mount(tester, remote: true);
     await tester.tap(find.text('Tools').last);
@@ -280,7 +298,8 @@ void main() {
     final saved = json(args['config']);
     expect(saved.containsKey('tlsLibraries'), isFalse);
     expect(saved['extractHosts'], isTrue);
-    expect(saved.keys.toSet(), {'version', 'packages', 'ports', 'bodyLimit', 'extractHosts'});
+    expect(saved.keys.toSet(), {'version', 'packages', 'ports', 'bodyLimit', 'extractHosts', 'rawTCP'});
+    expect(saved['rawTCP'], isFalse);
     expect(saved['version'], 3);
     expect(saved.containsKey('blockQUIC'), isFalse);
     expect(saved.containsKey('tlsOffsets'), isFalse);
@@ -299,6 +318,24 @@ void main() {
     await tester.tap(find.byTooltip('Save').last);
     await tester.pumpAndSettle();
     expect(json(json(calls.lastWhere((call) => call.method == 'capture.configure').arguments)['config'])['bodyLimit'], -1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('raw TCP recording saves independently of MITM with the current settings revision', (tester) async {
+    await mount(tester);
+    await open(tester, const RequestSettingsPage(initial: {'rawTCP': false, 'bodyLimit': -1}, source: {'revision': 'raw-tcp-settings'}));
+    final toggle = find.byKey(const ValueKey('capture-raw-tcp'));
+    await tester.ensureVisible(toggle);
+    await tester.tap(toggle.hitTestable());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Save').last);
+    await tester.pumpAndSettle();
+    final args = json(calls.singleWhere((call) => call.method == 'capture.configure').arguments);
+    expect(args['revision'], 'raw-tcp-settings');
+    expect(json(args['config'])['rawTCP'], isTrue);
+    expect(json(args['config'])['bodyLimit'], -1);
+    expect(json(args['config']).containsKey('https'), isFalse);
+    expect(calls.where((call) => call.method == 'capture.start' || call.method == 'profiles.write'), isEmpty);
     expect(tester.takeException(), isNull);
   });
 
@@ -598,14 +635,229 @@ void main() {
     await tester.tap(find.text('tls://stream.test:8883'));
     await tester.pumpAndSettle();
     final scaffold = tester.widget<Scaffold>(find.descendant(of: find.byType(RequestDetailPage), matching: find.byType(Scaffold)).first);
-    expect(scaffold.iconActions.last.onPressed, isNull);
+    expect(scaffold.iconActions.any((action) => action.tooltip == 'Export cURL'), isFalse);
     await tester.tap(detailToolbarMenu());
     await tester.pumpAndSettle();
     expect(find.text('Cookies'), findsNothing);
-    expect(find.text('Request'), findsOneWidget);
-    expect(find.text('Response'), findsOneWidget);
+    expect(find.text('Client to server'), findsOneWidget);
+    expect(find.text('Server to client'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  for (final protocol in ['TCP', 'WebSocket']) {
+    for (final direction in ['client', 'server']) {
+      testWidgets('$protocol $direction messages select their own byte direction and do not offer HTTP export', (tester) async {
+        await mount(tester);
+        final websocket = protocol == 'WebSocket';
+        final bodyDirection = direction == 'server' ? 'response' : 'request';
+        final message = <String, dynamic>{'url': websocket ? 'wss://message.test/socket' : 'tcp://message.test:9000',
+          'method': websocket ? 'WS' : 'TCP', 'protocol': protocol, 'bodyComplete': true,
+          'bodyBytes': 5, 'capturedBytes': 5};
+        snapshot['page'] = {'items': [{'id': 'stream-message', ...message, 'complete': true,
+          'streamId': 'live-stream', 'parentId': 'stream-parent', 'direction': direction, 'opcode': 1}], 'total': 1};
+        extra = (call) async => call.method == 'capture.detail' ? {
+          'id': 'stream-message', 'complete': true, 'streamActive': true,
+          'metadata': {'streamId': 'live-stream', 'parentId': 'stream-parent', 'direction': direction,
+            'opcode': 1, 'rawTCP': !websocket},
+          'request': bodyDirection == 'request' ? message : {...message, 'bodyBytes': 0, 'capturedBytes': 0},
+          'response': bodyDirection == 'response' ? message : {'bodyComplete': true},
+          '${bodyDirection}Preview': {'encoding': 'text', 'text': 'hello', 'source': 'decoded'},
+        } : call.method == 'capture.query' ? snapshot : null;
+        await open(tester, const RequestsPage());
+        expect(find.text('Complete'), findsOneWidget);
+        expect(find.text('Error'), findsNothing);
+        await tester.tap(find.text(message['url'] as String));
+        await tester.pumpAndSettle();
+        await showDetailItem(tester, find.byType(CapturedBody));
+        final body = tester.widget<CapturedBody>(find.byType(CapturedBody));
+        expect(body.direction, bodyDirection);
+        expect(body.message['capturedBytes'], 5);
+        expect(find.byTooltip('Export cURL'), findsNothing);
+        expect(find.text('Request headers'), findsNothing);
+        expect(find.text('Response headers'), findsNothing);
+        final detail = tester.widget<Scaffold>(find.descendant(of: find.byType(RequestDetailPage), matching: find.byType(Scaffold)).first);
+        expect(detail.menuItems.any((item) => item.label == 'Cookies'), isFalse);
+        expect(detail.menuItems.singleWhere((item) => item.label == 'Inject message').onPressed, isNotNull);
+        await showDetailItem(tester, find.text(websocket ? 'View WebSocket handshake' : 'View TCP stream'));
+        await capture(tester, '${protocol.toLowerCase()}-$direction-message');
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  testWidgets('a WebSocket handshake keeps HTTP headers and opens a WebSocket injector', (tester) async {
+    await mount(tester);
+    extra = (call) async => call.method == 'capture.detail' ? {
+      'id': 'ws-handshake', 'complete': true, 'streamActive': true,
+      'metadata': {'streamId': 'handshake-stream'},
+      'request': {'url': 'wss://message.test/socket', 'method': 'GET', 'protocol': 'HTTP/1.1',
+        'bodyComplete': true, 'headers': [{'name': 'Upgrade', 'value': 'websocket'}]},
+      'response': {'status': 101, 'bodyComplete': true, 'headers': [{'name': 'Upgrade', 'value': 'websocket'}]},
+    } : null;
+    await open(tester, const RequestDetailPage(id: 'ws-handshake'));
+    await showDetailItem(tester, find.text('Response headers'));
+    expect(find.text('Response headers'), findsOneWidget);
+    await tester.tap(detailToolbarMenu());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inject message').last);
+    await tester.pumpAndSettle();
+    expect(tester.widget<StreamInjectionPage>(find.byType(StreamInjectionPage)).websocket, isTrue);
+    expect(find.byKey(const ValueKey('inject-opcode')), findsOneWidget);
+    final content = find.byKey(const ValueKey('inject-content'));
+    await tester.ensureVisible(content);
+    await tester.enterText(content, 'from handshake');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Send').last);
+    await tester.pumpAndSettle();
+    expect(injectionArguments(calls.lastWhere((call) => call.method == 'capture.inject')), {
+      'streamId': 'handshake-stream', 'direction': 'client', 'opcode': 1,
+      'data': base64.encode(utf8.encode('from handshake')),
+    });
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('WebSocket injection sends UTF-8 text to the selected direction and retains failed drafts', (tester) async {
+    await mount(tester, dark: true, scale: 1.3, size: const Size(320, 900));
+    var reject = true;
+    extra = (call) async {
+      if (call.method == 'capture.inject' && reject) throw PlatformException(code: 'stream', message: 'Stream is no longer active');
+      return null;
+    };
+    await open(tester, const StreamInjectionPage(streamId: 'stream-utf8', websocket: true));
+    await chooseInjectionOption(tester, 'inject-direction', 'Server to client');
+    final content = find.byKey(const ValueKey('inject-content'));
+    await tester.ensureVisible(content);
+    await tester.enterText(content, 'message ✓');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Send').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Stream is no longer active'), findsOneWidget);
+    expect(tester.widget<TextField>(content).controller!.text, 'message ✓');
+    expect(injectionArguments(calls.lastWhere((call) => call.method == 'capture.inject')), {
+      'streamId': 'stream-utf8', 'direction': 'server', 'opcode': 1, 'data': base64.encode(utf8.encode('message ✓')),
+    });
+    await capture(tester, 'websocket-injection-failed-draft');
+    reject = false;
+    await tester.tap(find.byTooltip('Send').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(StreamInjectionPage), findsNothing);
+    expect(calls.where((call) => call.method == 'capture.inject').length, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('WebSocket binary injection validates byte formats and TCP injection preserves raw bytes', (tester) async {
+    await mount(tester);
+    await open(tester, const StreamInjectionPage(streamId: 'stream-binary', websocket: true));
+    await chooseInjectionOption(tester, 'inject-format', 'Hex');
+    final content = find.byKey(const ValueKey('inject-content'));
+    await tester.ensureVisible(content);
+    await tester.enterText(content, 'ff');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Send').last);
+    await tester.pumpAndSettle();
+    expect(find.text('WebSocket text messages must contain valid UTF-8'), findsOneWidget);
+    expect(calls.where((call) => call.method == 'capture.inject'), isEmpty);
+    await chooseInjectionOption(tester, 'inject-opcode', 'Binary message');
+    await tester.tap(find.byTooltip('Send').last);
+    await tester.pumpAndSettle();
+    expect(injectionArguments(calls.lastWhere((call) => call.method == 'capture.inject')),
+      {'streamId': 'stream-binary', 'direction': 'client', 'opcode': 2, 'data': '/w=='});
+    await open(tester, const StreamInjectionPage(streamId: 'stream-tcp', websocket: false));
+    expect(find.byKey(const ValueKey('inject-opcode')), findsNothing);
+    await chooseInjectionOption(tester, 'inject-format', 'Base64');
+    await tester.ensureVisible(content);
+    await tester.enterText(content, 'AAH/');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Send').last);
+    await tester.pumpAndSettle();
+    expect(injectionArguments(calls.lastWhere((call) => call.method == 'capture.inject')),
+      {'streamId': 'stream-tcp', 'direction': 'client', 'opcode': 0, 'data': 'AAH/'});
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('remote sessions cannot open local stream injection', (tester) async {
+    await mount(tester, remote: true);
+    await open(tester, const StreamInjectionPage(streamId: 'old-local-stream', websocket: true));
+    expect(find.byTooltip('Send'), findsNothing);
+    expect(find.text('HTTP debugging is only available for the local service'), findsOneWidget);
+    expect(calls.where((call) => call.method == 'capture.inject'), isEmpty);
+  });
+
+  testWidgets('a blocked injection can be cancelled by its request ID without losing the draft', (tester) async {
+    await mount(tester);
+    final pending = Completer<dynamic>();
+    String? requestId;
+    extra = (call) async {
+      if (call.method == 'capture.inject') {
+        requestId = json(call.arguments)['requestId'] as String;
+        return pending.future;
+      }
+      if (call.method == 'capture.inject.cancel') {
+        expect(json(call.arguments), {'requestId': requestId});
+        pending.completeError(PlatformException(code: 'cancelled', message: 'Operation cancelled'));
+        return true;
+      }
+      return null;
+    };
+    await open(tester, const StreamInjectionPage(streamId: 'blocked-stream', websocket: true));
+    final content = find.byKey(const ValueKey('inject-content'));
+    await tester.ensureVisible(content);
+    await tester.enterText(content, 'unsent draft');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Send').last);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byTooltip('Cancel injection').hitTestable(), findsOneWidget);
+    await tester.tap(find.byTooltip('Cancel injection').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Injection cancelled'), findsOneWidget);
+    expect(tester.widget<TextField>(content).controller!.text, 'unsent draft');
+    expect(calls.where((call) => call.method == 'capture.inject.cancel').length, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final cancelThrows in [false, true]) {
+    testWidgets('an injection failure retains its error when cancellation ${cancelThrows ? 'fails' : 'returns false'}', (tester) async {
+      await mount(tester);
+      final pending = Completer<dynamic>();
+      final cancellation = Completer<dynamic>();
+      String? requestId;
+      extra = (call) async {
+        if (call.method == 'capture.inject') {
+          requestId = json(call.arguments)['requestId'] as String;
+          return pending.future;
+        }
+        if (call.method == 'capture.inject.cancel') {
+          expect(json(call.arguments), {'requestId': requestId});
+          return cancellation.future;
+        }
+        return null;
+      };
+      await open(tester, const StreamInjectionPage(streamId: 'failed-stream', websocket: true));
+      final content = find.byKey(const ValueKey('inject-content'));
+      await tester.ensureVisible(content);
+      await tester.enterText(content, 'retained draft');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Send').last);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.byTooltip('Cancel injection').last);
+      await tester.pump();
+      pending.completeError(PlatformException(code: 'stream', message: 'Upstream connection closed'));
+      await tester.pump();
+      expect(find.byType(StreamInjectionPage), findsOneWidget);
+      if (cancelThrows) {
+        cancellation.completeError(PlatformException(code: 'cancel', message: 'Cancellation request failed'));
+      } else {
+        cancellation.complete(false);
+      }
+      await tester.pumpAndSettle();
+      expect(find.text('Upstream connection closed'), findsOneWidget);
+      expect(find.text('Injection cancelled'), findsNothing);
+      expect(find.text('Cancellation request failed'), findsNothing);
+      expect(tester.widget<TextField>(content).controller!.text, 'retained draft');
+      expect(calls.where((call) => call.method == 'capture.inject.cancel'), hasLength(1));
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('domain observations keep saved metadata without HTTP message controls', (tester) async {
     await mount(tester);

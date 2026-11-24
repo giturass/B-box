@@ -354,6 +354,38 @@ class ProfileRecoveryTest {
                         """{"version":3,"ports":[$originPort,$tcpOriginPort]}""", "", null)
                     assertTrue(JSONObject(Libbox.readUICaptureStatus()).getBoolean("active"))
 
+                    // Call the generated AAR binding while its real service
+                    // engine is active, rather than replacing it with JVM fakes.
+                    val absentStream = "f".repeat(32)
+                    fun bindingFailure(expected: String, call: () -> Unit) {
+                        val failure = runCatching(call).exceptionOrNull()
+                        assertTrue("Expected JNI failure containing '$expected', got $failure",
+                            failure?.message.orEmpty().contains(expected))
+                    }
+                    val injection = Libbox.newUICaptureInjectTask()
+                    try {
+                        bindingFailure("stream is no longer active") {
+                            injection.inject(absentStream, "client", 0, "AAH/")
+                        }
+                        bindingFailure("stream injection task has already been used") {
+                            injection.inject(absentStream, "server", 2, "AAH/")
+                        }
+                    } finally { injection.close() }
+                    val malformedInjection = Libbox.newUICaptureInjectTask()
+                    try {
+                        bindingFailure("stream injection data must be valid Base64") {
+                            malformedInjection.inject(absentStream, "client", 1, "invalid!")
+                        }
+                    } finally { malformedInjection.close() }
+                    val cancelledInjection = Libbox.newUICaptureInjectTask()
+                    try {
+                        cancelledInjection.close()
+                        cancelledInjection.close()
+                        bindingFailure("context canceled") {
+                            cancelledInjection.inject(absentStream, "server", 2, "AAH/")
+                        }
+                    } finally { cancelledInjection.close() }
+
                     val trustStore = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("mitm", certificate) }
                     val managers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(trustStore) }
                     val ssl = SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, SecureRandom()) }

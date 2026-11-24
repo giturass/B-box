@@ -64,6 +64,7 @@ type bodyFile struct {
 
 type Detail struct {
 	Exchange
+	StreamActive    bool    `json:"streamActive"`
 	RequestPreview  Preview `json:"requestPreview"`
 	ResponsePreview Preview `json:"responsePreview"`
 }
@@ -90,6 +91,13 @@ type Summary struct {
 	ResponseBytes int64    `json:"responseBytes"`
 	Error         string   `json:"error,omitempty"`
 	DomainOnly    bool     `json:"domainOnly,omitempty"`
+	StreamID      string   `json:"streamId,omitempty"`
+	ParentID      string   `json:"parentId,omitempty"`
+	Direction     string   `json:"direction,omitempty"`
+	Opcode        int      `json:"opcode,omitempty"`
+	Injected      bool     `json:"injected,omitempty"`
+	Dropped       bool     `json:"dropped,omitempty"`
+	StreamActive  bool     `json:"streamActive"`
 }
 
 type Page struct {
@@ -189,7 +197,8 @@ func OpenStore(directory string) (*Store, error) {
 		name := entry.Name()
 		if !entry.IsDir() && strings.HasSuffix(name, ".tmp") &&
 			(strings.HasPrefix(name, "body-preview-") || strings.HasPrefix(name, "body-view-source-") ||
-				strings.HasPrefix(name, "body-view-grpc-web-") || strings.HasPrefix(name, "body-view-grpc-message-")) {
+				strings.HasPrefix(name, "body-view-grpc-web-") || strings.HasPrefix(name, "body-view-grpc-message-") ||
+				strings.HasPrefix(name, "websocket-wire-") || strings.HasPrefix(name, "websocket-payload-")) {
 			_ = os.Remove(filepath.Join(directory, name))
 			continue
 		}
@@ -272,6 +281,28 @@ func (s *Store) rewrittenRequest(id string, request *http.Request, originalURL s
 		record.Request.Method = request.Method
 		record.Request.Headers, record.Request.HeadersTruncated = captureHeaders(request.Header, request.Host)
 		record.Request.BodyComplete = request.Body == nil || request.Body == http.NoBody
+	}
+}
+
+func (s *Store) markStreamResult(id string, injected, dropped bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record := s.records[id]; record != nil && !record.finishing && !record.Complete {
+		record.Metadata.Injected, record.Metadata.Dropped = injected, dropped
+		if dropped {
+			appendRecordNote(record, "Message dropped by stream script; saved payload was not forwarded")
+		}
+		s.persistLocked(record)
+	}
+}
+
+func (s *Store) webSocket(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record := s.records[id]; record != nil && !record.finishing && !record.Complete {
+		record.Note = strings.ReplaceAll(record.Note, "Protocol upgraded; only the HTTP handshake is recorded",
+			"WebSocket handshake; data messages are recorded separately")
+		s.persistLocked(record)
 	}
 }
 
@@ -671,5 +702,5 @@ func (d *bodySnapshot) detail() (*Detail, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Detail{Exchange: d.Exchange, RequestPreview: request, ResponsePreview: response}, nil
+	return &Detail{Exchange: d.Exchange, StreamActive: streamIsActive(d.Metadata.StreamID), RequestPreview: request, ResponsePreview: response}, nil
 }

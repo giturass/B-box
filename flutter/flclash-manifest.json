@@ -529,7 +529,7 @@
             "flutter/lib/pages/configuration.dart",
             "flutter/lib/pages/mitm_certificate.dart"
           ],
-          "changes": "Reference for explicit CA operations and certificate setup. B-box uses independent profile MITM with an ordered allowlist (empty decrypts nothing), exclusions and optional TLS/TCP streams. One certificate entry precedes the decryption controls on a compact MITM page; domain values appear only in the secondary editor, and certificate access does not require a loaded profile. JSON editing covers additional ports/packages settings. HTTP rewriting and HTTP/cron scripts are separate B-box extensions. Certificate rotation is blocked during capture or active MITM. Shared form/navigation components are reused; no Mihomo configuration."
+          "changes": "Reference for explicit CA operations and certificate setup. B-box uses independent profile MITM with an ordered allowlist (empty decrypts nothing), exclusions, HTTP/2 and HTTP/3 controls, and optional TLS/TCP streams. One certificate entry precedes the decryption controls on a compact MITM page; domain values appear only in the secondary editor, and certificate access does not require a loaded profile. JSON editing covers additional ports/packages settings. HTTP rewriting and HTTP/stream/cron/event/generic scripts are separate B-box extensions. Stream handlers edit TCP chunks or complete WebSocket messages through the B-box message contract and never use task-script run menus. Certificate rotation is blocked during capture or active MITM. Shared form/navigation components are reused; no Mihomo configuration."
         },
         {
           "source": "lib/features/connection/mitm_exchanges.dart",
@@ -540,16 +540,17 @@
             "flutter/lib/common/network_activity.dart",
             "flutter/lib/components/connection_record.dart"
           ],
-          "changes": "Reference for HTTP exchange information. B-box combines current sing-box connections and all retained capture summaries in one request viewer, following Surge's documented recent/active request model. Independent exchange IDs and optional original connection UUIDs support one-to-many association, filtered deduplication and historical requests without a live parent. Pagination affects presentation, not search or export coverage. Body counts remain separate from socket traffic; recording and MITM retain independent controls. No profile-rewrite banner or dedicated capture logs."
+          "changes": "Reference for HTTP exchange information. B-box combines current sing-box connections and all retained HTTP, TCP stream/chunk and WebSocket message summaries in one request viewer, following Surge's documented recent/active request model. Independent exchange IDs and optional original connection UUIDs support one-to-many association, filtered deduplication and historical requests without a live parent. Stream IDs, parent records, message directions, opcodes, injection and drop markers come from the B-box core. Pagination affects presentation, not search or export coverage. Body counts remain separate from socket traffic; raw TCP recording is a local setting and MITM remains profile-controlled. No profile-rewrite banner or dedicated capture logs."
         },
         {
           "source": "lib/features/connection/detail_tabs.dart",
           "sourceSHA256": "b989c3b61cfedf37253c9c61d6f5e66b3b9f8ceb7520f574fe3d6bac1ea17612",
           "usage": "design",
           "localPaths": [
-            "flutter/lib/pages/requests.dart"
+            "flutter/lib/pages/requests.dart",
+            "flutter/lib/pages/stream_injection.dart"
           ],
-          "changes": "Reference for per-message navigation. B-box shares a detail page between ordinary connections and captured records, with copyable connection metadata, related exchanges and request/response/cookie menus. Expired parents retain observed information without an active close action; closing a captured request's underlying socket explicitly confirms interruption of every request on it. Raw TLS/TCP streams have two body directions without HTTP header/cookie menus or cURL export; domain-only observations have no HTTP message menus."
+          "changes": "Reference for per-message navigation. B-box shares a detail page between ordinary connections and captured records, with copyable connection metadata, related exchanges and HTTP request/response/cookie menus. Expired parents retain observed information without an active close action; closing a captured request's underlying socket explicitly confirms interruption of every request on it. Raw TCP and TLS/TCP aggregate streams have two byte directions; TCP chunks and WebSocket messages show their own direction and optional parent navigation without HTTP headers, cookies or cURL export. Active B-box streams expose independently implemented text/Hex/Base64 injection, WebSocket text/binary opcode selection and request-specific cancellation through the Android bridge. Completed messages refresh while their stream remains active. Domain-only observations have no HTTP message menus."
         },
         {
           "source": "lib/common/constant.dart",

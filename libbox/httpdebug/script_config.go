@@ -22,6 +22,7 @@ type ScriptsConfig struct {
 	Packages     []string                   `json:"packages,omitempty"`
 	MaxBodyBytes int64                      `json:"max_body_bytes,omitempty"`
 	HTTP         []HTTPScript               `json:"http,omitempty"`
+	Stream       []StreamScript             `json:"stream,omitempty"`
 	Cron         []CronScript               `json:"cron,omitempty"`
 	Event        []EventScript              `json:"event,omitempty"`
 	Generic      []GenericScript            `json:"generic,omitempty"`
@@ -142,6 +143,7 @@ type ScriptProgram struct {
 	scope      Config
 	limit      int64
 	http       []compiledScript
+	stream     []compiledStreamScript
 	cron       []compiledCron
 	event      []compiledTask
 	generic    []compiledTask
@@ -262,6 +264,9 @@ func CompileScripts(c *ScriptsConfig, location *time.Location) (*ScriptProgram, 
 			p.http = append(p.http, compiledScript{compiledRule: item, program: program, client: client, source: source,
 				storageKey: scriptDefaultStorageKey(rule.Source, rule.ScriptPath, rule.Resource, c.Resources)})
 		}
+	}
+	if err := compileStreamScripts(c, p); err != nil {
+		return nil, err
 	}
 	for i, rule := range c.Cron {
 		label := fmt.Sprintf("scripts.cron[%d] %s", i, rule.Name)

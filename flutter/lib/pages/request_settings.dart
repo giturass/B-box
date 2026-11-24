@@ -18,6 +18,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
   late bool _completeBodies = widget.initial['bodyLimit'] == -1;
   late List<String> _packages = (widget.initial['packages'] as List? ?? []).cast<String>().toList();
   late bool _extract = widget.initial['extractHosts'] == true;
+  late bool _rawTCP = widget.initial['rawTCP'] == true;
   bool _busy = false, _dirty = false;
   String? _error;
 
@@ -35,6 +36,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
         'version': 3, 'packages': _packages, 'ports': ports,
         'bodyLimit': bodyLimit,
         'extractHosts': _extract,
+        'rawTCP': _rawTCP,
       }});
       if (mounted) { setState(() { _dirty = false; _busy = false; }); Navigator.pop(context); }
     } catch (error) {
@@ -66,6 +68,9 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
       generateSection(items: [ListItem.toggle(title: Text(context.tr('Extract TLS/QUIC domains')), value: _extract,
         subtitle: Text(context.tr('Collect visible TLS/QUIC hostnames through the local service. These records contain names only.')),
         onChanged: (value) => setState(() { _extract = value; _dirty = true; })),
+        ListItem.toggle(key: const ValueKey('capture-raw-tcp'), title: Text(context.tr('Record raw TCP')), value: _rawTCP,
+          subtitle: Text(context.tr('Save non-HTTP TCP bytes in both directions. TLS traffic uses the profile decryption settings.')),
+          onChanged: (value) => setState(() { _rawTCP = value; _dirty = true; })),
       ]),
       generateSection(title: context.tr('Filters and storage'), items: [
         ListItem(leading: const GlyphIcon(AppGlyphs.appsList), title: Text(context.tr('Capture applications')),

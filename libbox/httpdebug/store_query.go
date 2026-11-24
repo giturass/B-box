@@ -236,5 +236,8 @@ func captureSummary(r *Exchange, now int64) Summary {
 		Packages: slices.Clone(r.Metadata.Packages), Source: r.Metadata.Source, Destination: r.Metadata.Destination,
 		Inbound: r.Metadata.Inbound, Outbound: r.Metadata.Outbound, Rule: r.Metadata.Rule,
 		Bytes: r.Request.BodyBytes + r.Response.BodyBytes, RequestBytes: r.Request.BodyBytes, ResponseBytes: r.Response.BodyBytes,
-		Error: r.Error, DomainOnly: r.DomainOnly}
+		Error: r.Error, DomainOnly: r.DomainOnly,
+		StreamID: r.Metadata.StreamID, ParentID: r.Metadata.ParentID, Direction: r.Metadata.Direction,
+		Opcode: r.Metadata.Opcode, Injected: r.Metadata.Injected, Dropped: r.Metadata.Dropped,
+		StreamActive: streamIsActive(r.Metadata.StreamID)}
 }

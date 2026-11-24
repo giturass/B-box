@@ -358,12 +358,27 @@ func TestWebSocketUpgradeForwardsFramesAndStops(t *testing.T) {
 			return
 		}
 		defer conn.Close()
-		_, _ = stream.WriteString("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+		_, _ = stream.WriteString("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n")
 		if err := stream.Flush(); err != nil {
 			return
 		}
-		// Echo opaque frames to verify the upgrade uses bidirectional forwarding.
-		_, _ = io.Copy(conn, stream)
+		for {
+			frame, err := readWebSocketFrame(stream, true, false)
+			if err != nil {
+				return
+			}
+			var payload bytes.Buffer
+			if err = readWebSocketPayload(context.Background(), stream, frame, nil, &payload); err != nil {
+				return
+			}
+			if err = writeWebSocketFrame(context.Background(), conn, frame.opcode, frame.final, false, false,
+				bytes.NewReader(payload.Bytes()), int64(payload.Len())); err != nil {
+				return
+			}
+			if frame.opcode == webSocketClose {
+				return
+			}
+		}
 	}))
 	defer origin.Close()
 	e, store := testEngine(t, Config{})
@@ -376,7 +391,7 @@ func TestWebSocketUpgradeForwardsFramesAndStops(t *testing.T) {
 		}, nil, nil) {
 		t.Fatal("upgrade was not captured")
 	}
-	_, err := io.WriteString(client, "GET /socket HTTP/1.1\r\nHost: example.test\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+	_, err := io.WriteString(client, "GET /socket HTTP/1.1\r\nHost: example.test\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,26 +400,55 @@ func TestWebSocketUpgradeForwardsFramesAndStops(t *testing.T) {
 	if err != nil || response.StatusCode != http.StatusSwitchingProtocols {
 		t.Fatal("upgrade failed", err)
 	}
-	frame := []byte{0x81, 0x02, 'o', 'k'}
-	if _, err := client.Write(frame); err != nil {
+	if err := writeWebSocketFrame(context.Background(), client, webSocketText, true, false, true, strings.NewReader("ok"), 2); err != nil {
 		t.Fatal(err)
 	}
-	echo := make([]byte, len(frame))
-	if _, err := io.ReadFull(reader, echo); err != nil || !bytes.Equal(echo, frame) {
+	echo, err := readWebSocketFrame(reader, false, false)
+	var payload bytes.Buffer
+	if err == nil {
+		err = readWebSocketPayload(context.Background(), reader, echo, nil, &payload)
+	}
+	if err != nil || echo.opcode != webSocketText || payload.String() != "ok" {
 		t.Fatal("upgraded stream changed the frame", err)
 	}
+	waitWebSocketMessages(t, store, 2)
 	e.stopRecording()
-	if _, err := client.Write(frame); err != nil {
+	if err := writeWebSocketFrame(context.Background(), client, webSocketText, true, false, true, strings.NewReader("ok"), 2); err != nil {
 		t.Fatal("stopping recording closed WebSocket:", err)
 	}
-	if _, err := io.ReadFull(reader, echo); err != nil || !bytes.Equal(echo, frame) {
+	echo, err = readWebSocketFrame(reader, false, false)
+	payload.Reset()
+	if err == nil {
+		err = readWebSocketPayload(context.Background(), reader, echo, nil, &payload)
+	}
+	if err != nil || payload.String() != "ok" {
 		t.Fatal("WebSocket did not continue after recording stopped", err)
 	}
 	e.Close()
-	item := waitComplete(t, store, 1)[0]
-	detail, err := store.detailWithBodies(item.ID)
-	if err != nil || detail.Response.Status != 101 || len(detail.ResponseBody) != 0 || detail.Note == "" {
-		t.Fatal("WebSocket payload was mistaken for an HTTP body", err)
+	items := waitComplete(t, store, 3)
+	if len(store.Page(0, "").Items) != 3 {
+		t.Fatal("stopped WebSocket recording admitted new messages")
+	}
+	var handshake string
+	for _, item := range items {
+		detail, err := store.detailWithBodies(item.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if detail.Request.Protocol != "WebSocket" {
+			handshake = detail.ID
+			if detail.Response.Status != 101 || len(detail.ResponseBody) != 0 || detail.Note == "" {
+				t.Fatal("WebSocket payload was mistaken for an HTTP body")
+			}
+		} else if string(detail.RequestBody)+string(detail.ResponseBody) != "ok" || detail.Metadata.StreamID == "" {
+			t.Fatalf("WebSocket message was not captured independently: %+v", detail)
+		}
+	}
+	for _, item := range items {
+		detail, _ := store.detailWithBodies(item.ID)
+		if detail.Request.Protocol == "WebSocket" && detail.Metadata.ParentID != handshake {
+			t.Fatal("WebSocket message lost its opening handshake")
+		}
 	}
 }
 

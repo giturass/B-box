@@ -9,6 +9,7 @@
       ],
       "tcp": true,
       "h2": true,
+      "h3": false,
       "skip_server_cert_verify": false,
       "block_quic": true
     }

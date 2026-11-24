@@ -53,7 +53,7 @@ func validateStorageNamespace(namespace string) error {
 }
 
 func (p *ScriptProgram) needsStorage() bool {
-	return len(p.http)+len(p.tasks) > 0
+	return len(p.http)+len(p.stream)+len(p.tasks) > 0
 }
 
 func scriptDefaultStorageKey(source, path, reference string, resources map[string]RewriteResource) string {

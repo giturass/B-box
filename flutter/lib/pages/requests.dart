@@ -9,8 +9,12 @@ import '../components/connection_record.dart';
 import '../components/data_subscription.dart';
 import '../components/record.dart';
 import 'request_settings.dart';
+import 'stream_injection.dart';
 
 const _pageSize = 50;
+
+bool _isStreamProtocol(dynamic protocol) => const ['TCP', 'TLS/TCP', 'WebSocket'].contains(protocol);
+String _directionLabel(String direction) => direction == 'server' ? 'Server to client' : 'Client to server';
 
 class RequestsPage extends StatefulWidget {
   const RequestsPage({super.key});
@@ -43,7 +47,7 @@ class _RequestsPageState extends State<RequestsPage> {
       'Reconnect the target app if its connection was not already intercepted. '
       'Stopping recording keeps existing connections running.';
   static const _activityHint = 'Recent connections appear while the service is running. '
-      'Capture saves HTTP messages and decrypted TLS streams separately.';
+      'Capture saves HTTP messages, WebSocket messages and TCP streams separately.';
 
   final _list = ActivityList();
   late final _keywords = RecordKeywords()..addListener(_restart);
@@ -240,8 +244,7 @@ class _RequestRecord extends StatelessWidget {
     if (item['domainOnly'] == true) return context.tr('Domain only');
     if (_hasStatus) return item['status'].toString();
     if (item['complete'] != true) return context.tr('Active');
-    // A TLS/TCP stream ends without a status code.
-    final ended = item['protocol'] == 'TLS/TCP' && (item['error'] as String? ?? '').isEmpty;
+    final ended = _isStreamProtocol(item['protocol']) && (item['error'] as String? ?? '').isEmpty;
     return context.tr(ended ? 'Complete' : 'Error');
   }
 
@@ -255,10 +258,16 @@ class _RequestRecord extends StatelessWidget {
       RecordLabel(label: method, onPressed: () => onKeyword?.call(method)),
       RecordLabel(label: _state(context)),
       if (item['complete'] != true && _hasStatus) RecordLabel(label: context.tr('Active')),
+      if (item['injected'] == true) RecordLabel(label: context.tr('Injected')),
+      if (item['dropped'] == true) RecordLabel(label: context.tr('Dropped')),
     ]), body: Column(crossAxisAlignment: CrossAxisAlignment.start, spacing: 4, children: [
       Text(item['url']?.toString() ?? '', maxLines: 2, overflow: TextOverflow.ellipsis, style: styles.title),
       Text('${item['protocol'] ?? ''} · ${item['durationMs'] ?? 0} ms · '
           '${context.tr('Body')} ${bytes(item['bytes'] as num? ?? 0)}', style: styles.secondary),
+      if (item['direction'] == 'client' || item['direction'] == 'server')
+        Text('${context.tr(_directionLabel(item['direction'] as String))}'
+          '${item['protocol'] == 'WebSocket' ? ' · ${context.tr(item['opcode'] == 2 ? 'Binary message' : 'Text message')}' : ''}',
+          style: styles.secondary),
       if (rule.isNotEmpty || (item['outbound'] as String? ?? '').isNotEmpty)
         Wrap(spacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
           if (item['originalUrl'] != null) Text(context.tr('Original connection'), style: styles.secondary),
@@ -289,15 +298,26 @@ class _Capture {
 
   /// A domain-only observation holds no HTTP message.
   bool get domainOnly => detail?['domainOnly'] == true || request['method'] == 'TLS';
-  /// A TLS/TCP stream holds a body in each direction, without headers or cookies.
-  bool get rawTCP => metadata['rawTCP'] == true;
+  bool get rawTCP => metadata['rawTCP'] == true || const ['TCP', 'TLS/TCP'].contains(request['protocol']);
+  bool get websocket => request['protocol'] == 'WebSocket';
+  bool get websocketFlow => websocket || message(response: true)['status'] == 101 &&
+    rows(message(response: true)['headers']).any((header) =>
+      header['name']?.toString().toLowerCase() == 'upgrade' &&
+      header['value']?.toString().trim().toLowerCase() == 'websocket');
+  bool get stream => rawTCP || websocket;
+  String get direction => metadata['direction'] as String? ?? '';
+  bool get streamMessage => stream && (direction == 'client' || direction == 'server');
+  String get streamId => metadata['streamId'] as String? ?? '';
+  String get parentId => metadata['parentId'] as String? ?? '';
+  bool get streamActive => detail?['streamActive'] == true;
   String get connectionId => metadata['connectionId']?.toString() ?? '';
 
   Json message({required bool response}) => json(detail?[response ? 'response' : 'request']);
   Json preview({required bool response}) => json(detail?[response ? 'responsePreview' : 'requestPreview']);
 
   /// cURL export needs the whole request and cannot express trailers.
-  bool get replayable => detail != null && !domainOnly && !rawTCP && request['bodyComplete'] == true &&
+  bool get replayable => detail != null && !domainOnly && !stream && request['bodyComplete'] == true &&
+      (request['protocol'] as String? ?? '').startsWith('HTTP/') &&
       request['bodyTruncated'] != true && request['headersTruncated'] != true &&
       rows(request['trailers']).isEmpty && request['trailersTruncated'] != true;
 
@@ -307,12 +327,18 @@ class _Capture {
     final error = detail?['error'] as String? ?? '', note = detail?['note'] as String? ?? '';
     return {
       'URL': request['url'],
-      'Method': request['method'],
+      if (!stream) 'Method': request['method'],
       'Created': localDate(detail?['startedAt']),
       if (original != null) 'Original URL': original,
       'Duration': '${detail?['durationMs'] ?? 0} ms',
-      if (!domainOnly && !rawTCP) 'Status': message(response: true)['status'],
+      if (!domainOnly && !stream) 'Status': message(response: true)['status'],
       'Protocol': request['protocol'],
+      if (streamId.isNotEmpty) 'Stream ID': streamId,
+      if (parentId.isNotEmpty) 'Parent record ID': parentId,
+      if (streamMessage) 'Direction': _directionLabel(direction),
+      if (websocket) 'Message type': metadata['opcode'] == 2 ? 'Binary message' : 'Text message',
+      if (metadata['injected'] == true) 'Injected': true,
+      if (metadata['dropped'] == true) 'Dropped': true,
       if (connectionId.isNotEmpty) 'Connection ID': connectionId,
       (original != null ? 'Original outbound' : 'Outbound'): metadata['outbound'],
       (original != null ? 'Original rule matched' : 'Rule matched'): metadata['rule'],
@@ -330,7 +356,7 @@ class _Capture {
 
 class _RequestDetailPageState extends State<RequestDetailPage> {
   // The summary rows whose values may be too long to share a line with the title.
-  static const _stackedRows = ['URL', 'Original URL', 'Connection ID', 'App', 'Error', 'Note'];
+  static const _stackedRows = ['URL', 'Original URL', 'Connection ID', 'Stream ID', 'Parent record ID', 'App', 'Error', 'Note'];
 
   String _part = 'Response';
   bool _busy = false;
@@ -376,8 +402,8 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
   }
 
   Widget _page({required List<Widget> children, List<IconButtonData> actions = const [],
-      List<PopupMenuItem> menuItems = const [], bool loading = false}) => Scaffold(
-    title: context.tr('Request details'), iconActions: actions, menuItems: menuItems, isLoading: loading,
+      List<PopupMenuItem> menuItems = const [], bool loading = false, String title = 'Request details'}) => Scaffold(
+    title: context.tr(title), iconActions: actions, menuItems: menuItems, isLoading: loading,
     body: Builder(builder: (context) {
       final inset = context.appBarInset, gap = context.contentTopPadding - inset;
       // Scrolling connection rows must not paint beneath the floating title.
@@ -387,8 +413,14 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
     }),
   );
 
-  PopupMenuItem _partItem(String part, {PopupMenuSection? section}) => PopupMenuItem(
-    label: context.tr(part), section: section, checked: part == _part, onPressed: () => setState(() => _part = part));
+  PopupMenuItem _partItem(String part, {String? label, PopupMenuSection? section}) => PopupMenuItem(
+    label: context.tr(label ?? part), section: section, checked: part == _part, onPressed: () => setState(() => _part = part));
+
+  String _summaryValue(String key, dynamic value) => switch (key) {
+    'Direction' || 'Message type' => context.tr(value?.toString() ?? '—'),
+    'Injected' || 'Dropped' => context.tr(value == true ? 'Yes' : 'No'),
+    _ => value?.toString() ?? '—',
+  };
 
   Widget _headers(Json message, bool response) {
     final headers = rows(message['headers']);
@@ -456,15 +488,23 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
     final connectionId = capture.connectionId, linked = connectionId.isNotEmpty;
     final present = linked && _resolveConnection(connectionId);
     final connection = linked ? _cachedConnection : null;
-    return _page(loading: _busy, actions: [
+    return _page(loading: _busy, title: capture.streamMessage ? 'Message details' : 'Request details', actions: [
       IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr('Copy URL'),
         onPressed: loaded ? () => _copy(capture.request['url']?.toString() ?? '') : null),
-      IconButtonData(glyph: AppGlyphs.arrowDown, tooltip: context.tr('Export cURL'),
+      if (!capture.stream) IconButtonData(glyph: AppGlyphs.arrowDown, tooltip: context.tr('Export cURL'),
         onPressed: capture.replayable && !_busy ? _exportCurl : null),
     ], menuItems: [
       if (linked) _partItem('Connection'),
-      if (!capture.domainOnly) for (final part in ['Request', 'Response', if (!capture.rawTCP) 'Cookies'])
-        _partItem(part, section: part == 'Request' ? PopupMenuSection(title: context.tr('Message type')) : null),
+      if (!capture.domainOnly) ...[
+        if (capture.streamMessage) _partItem('Message')
+        else for (final part in ['Request', 'Response', if (!capture.stream) 'Cookies'])
+          _partItem(part, label: capture.rawTCP ? _directionLabel(part == 'Response' ? 'server' : 'client') : null,
+            section: part == 'Request' ? PopupMenuSection(title: context.tr('Message type')) : null),
+      ],
+      if (capture.streamId.isNotEmpty) PopupMenuItem(glyph: AppGlyphs.arrowUp, label: context.tr('Inject message'),
+        onPressed: !_busy && box.running && !box.transitioning && capture.streamActive ? () => openPage(context,
+          StreamInjectionPage(streamId: capture.streamId, websocket: capture.websocketFlow,
+            direction: capture.direction == 'server' ? 'server' : 'client', opcode: (capture.metadata['opcode'] as num?)?.toInt() ?? 1)) : null),
       if (linked) PopupMenuItem(glyph: AppGlyphs.block, label: context.tr('Close underlying connection'),
         onPressed: _canClose(box, connection, present) ? () => _closeConnection(connectionId, shared: true) : null),
     ], children: [
@@ -480,20 +520,22 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
     if (connection != null) ConnectionInfo(connection: connection, present: present)
     else generateSection(title: context.tr('Connection'), items: [
       for (final row in capture.summary.entries)
-        DetailRow.text(title: context.tr(row.key), value: row.value?.toString() ?? '—', stacked: true),
+        DetailRow.text(title: context.tr(row.key), value: _summaryValue(row.key, row.value), stacked: true),
     ], footer: context.tr('The original connection is no longer in recent history. Saved request information remains available.')),
     _RelatedRequests(connectionId: capture.connectionId, connection: connection, currentId: widget.id),
   ];
 
   List<Widget> _messagePart(BoxController box, _Capture capture) {
-    final response = _part == 'Response';
+    final response = capture.streamMessage ? capture.direction == 'server' : _part == 'Response';
     final message = capture.message(response: response);
     return [
       generateGroup([
         for (final row in capture.summary.entries) DetailRow.text(title: context.tr(row.key),
-          value: row.value?.toString() ?? '—', stacked: _stackedRows.contains(row.key)),
+          value: _summaryValue(row.key, row.value), stacked: _stackedRows.contains(row.key)),
         if (capture.connectionId.isNotEmpty) ListItem(title: Text(context.tr('View connection')),
           onTap: () => setState(() => _part = 'Connection')),
+        if (capture.parentId.isNotEmpty) ListItem(title: Text(context.tr(capture.websocket ? 'View WebSocket handshake' : 'View TCP stream')),
+          onTap: () => openPage(context, RequestDetailPage(id: capture.parentId))),
       ]),
       if (capture.domainOnly)
         Padding(padding: const EdgeInsets.all(12), child: Text(context.tr('No HTTP message was captured for this connection')))
@@ -501,10 +543,10 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
         _cookies(capture.request, false),
         _cookies(capture.message(response: true), true),
       ] else ...[
-        if (!capture.rawTCP) _headers(message, response),
-        CapturedBody(key: ValueKey('body-${widget.id}-$_part'), message: message, preview: capture.preview(response: response),
+        if (!capture.stream) _headers(message, response),
+        CapturedBody(key: ValueKey('body-${widget.id}-${response ? 'response' : 'request'}'), message: message, preview: capture.preview(response: response),
           captureId: widget.id, direction: response ? 'response' : 'request'),
-        if (rows(message['trailers']).isNotEmpty) _trailers(message),
+        if (!capture.stream && rows(message['trailers']).isNotEmpty) _trailers(message),
       ],
     ];
   }

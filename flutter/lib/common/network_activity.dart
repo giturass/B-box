@@ -1,7 +1,7 @@
 import 'package:collection/collection.dart';
 import '../box.dart';
 
-/// One HTTP exchange (or recorded TLS stream), or one ordinary connection.
+/// One HTTP exchange, stream message or recorded TCP stream, or one ordinary connection.
 /// Socket traffic is never attributed to each multiplexed HTTP request.
 class ActivityEntry {
   const ActivityEntry({this.connection, this.capture});
@@ -30,7 +30,8 @@ class ActivityList {
   static const _connectionFields = ['id', 'displayDestination', 'destination', 'domain', 'outbound',
     'inbound', 'network', 'protocol', 'rule', 'source', 'process', 'chain'];
   static const _captureFields = ['id', 'connectionId', 'url', 'originalUrl', 'method', 'protocol',
-    'status', 'packages', 'source', 'destination', 'outbound', 'inbound', 'rule', 'error'];
+    'status', 'packages', 'source', 'destination', 'outbound', 'inbound', 'rule', 'error',
+    'streamId', 'parentId', 'direction', 'opcode'];
   final _entries = <String, ActivityEntry>{};
   final _search = <String, (List<Object?>, String)>{};
   List<Json>? _connections, _captures;

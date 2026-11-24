@@ -130,6 +130,11 @@ func ActivateProcessing(prepared *PreparedProcessing, dial RewriteDialFunc, root
 			}
 		}
 		if prepared.scripts != nil {
+			for _, script := range prepared.scripts.stream {
+				if script.source != nil {
+					sources = append(sources, script.source)
+				}
+			}
 			for _, script := range prepared.scripts.http {
 				if script.source != nil {
 					sources = append(sources, script.source)
