@@ -38,51 +38,53 @@ jobs:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-core
       - name: Android ingress-discard map compatibility tests
-        working-directory: .core
+        working-directory: core
         run: go test -ldflags=-checklinkname=0 github.com/sagernet/sing-tun -run '^TestAndroidIngressDiscard' -count=1
       - name: HTTP, routed IP and LAN tests against the matching core
-        working-directory: .core
+        working-directory: core
         run: go test -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI' -count=1
       - name: Configuration node tests with the protocols of the shipped core
-        working-directory: .core
+        working-directory: core
         run: go test -ldflags=-checklinkname=0 -tags=with_xhttp,with_quic,with_wireguard,with_utls,with_clash_api ./experimental/libbox -run '^TestUINode' -count=1
       - name: XHTTP transports and VLESS Encryption handshake and Vision regressions
-        working-directory: .core
+        working-directory: core
         run: |
           go test -race -tags=with_utls -ldflags=-checklinkname=0 github.com/sagernet/sing-vmess/vless -run '^TestBboxVision' -count=1
           go test -race -tags=with_xhttp -ldflags=-checklinkname=0 ./transport/v2rayxhttp ./protocol/vless/encryption -count=1 -timeout=5m
           go test -race -tags=with_xhttp,with_quic,with_utls -ldflags=-checklinkname=0 ./transport/v2rayxhttp ./protocol/vless/encryption -count=1 -timeout=5m
       - name: WARP WireGuard and MASQUE registration, authentication and tunnel regressions
-        working-directory: .core
+        working-directory: core
         run: |
           go test -race -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m
           go test -race -tags=with_quic -ldflags=-checklinkname=0 ./transport/masque -run '^TestWARP' -count=1 -timeout=3m
           go test -tags=with_xhttp,with_quic -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIMASQUE' -count=1
           go test -race -tags=with_xhttp,with_quic,with_wireguard -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUIWARP' -count=1 -timeout=3m
       - name: Routed probe, script and captured body lifecycle race tests
-        working-directory: .core
+        working-directory: core
         run: go test -race -tags=with_xhttp -ldflags=-checklinkname=0 ./experimental/libbox -run '^TestUI(Egress|Route|HTTP|Profile|Processing|CaptureBody)' -count=1
       - name: HTTP/TCP/WebSocket MITM, stream scripts and storage race tests
         id: httpdebug_base
-        working-directory: .core
+        working-directory: core
         run: go test -json -race ./experimental/httpdebug -count=1 -timeout=5m
       - name: HTTP/TCP route race regressions without QUIC
         if: ${{ !cancelled() && (steps.httpdebug_base.outcome == 'success' || steps.httpdebug_base.outcome == 'failure') }}
-        working-directory: .core
+        working-directory: core
         run: go test -json -race -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m
       - name: HTTP/3 and HTTP/TCP/WebSocket race tests with QUIC
         if: ${{ !cancelled() && (steps.httpdebug_base.outcome == 'success' || steps.httpdebug_base.outcome == 'failure') }}
-        working-directory: .core
+        working-directory: core
         run: go test -json -race -tags=with_quic -ldflags=-checklinkname=0 ./experimental/httpdebug -count=1 -timeout=5m
       - name: HTTP/3 QUIC and TCP route race regressions
         if: ${{ !cancelled() && (steps.httpdebug_base.outcome == 'success' || steps.httpdebug_base.outcome == 'failure') }}
-        working-directory: .core
+        working-directory: core
         run: go test -json -race -tags=with_quic -ldflags=-checklinkname=0 ./route -run '^TestBboxHTTPDebug' -count=1 -timeout=5m
   flutter:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+      - name: Check out the submodules checked by the source guardrails
+        run: git submodule update --init --depth 1
       - run: python3 tools/verify_newui.py
       - uses: ./.github/actions/setup-flutter
       - uses: actions/setup-java@v5

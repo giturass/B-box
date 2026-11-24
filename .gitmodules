@@ -1,0 +1,8 @@
+[submodule "flutter/packages/prism_ui"]
+	path = flutter/packages/prism_ui
+	url = https://github.com/giturass/prism_ui
+	branch = b-box
+[submodule "core"]
+	path = core
+	url = https://github.com/giturass/sing-box
+	branch = b-box

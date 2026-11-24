@@ -34,7 +34,7 @@ runs:
           ndk;28.2.13676358
     - name: Build Android libbox
       shell: bash
-      working-directory: .core
+      working-directory: core
       env:
         LIBBOX_PLATFORM: ${{ inputs.platform }}
       run: |

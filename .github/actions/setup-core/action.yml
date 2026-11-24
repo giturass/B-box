@@ -1,5 +1,5 @@
 name: Prepare B-box core
-description: Check out the matching sing-box version and install all B-box patches and bindings.
+description: Check out the B-box sing-box fork submodule and verify its upstream version.
 
 outputs:
   version:
@@ -19,32 +19,20 @@ runs:
         [[ "$go_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "go_version=$go_version" >> "$GITHUB_OUTPUT"
-    - uses: actions/checkout@v5
-      with:
-        repository: SagerNet/sing-box
-        ref: v${{ steps.versions.outputs.version }}
-        path: .core
-        persist-credentials: false
+    - name: Check out the core submodule on its pinned upstream tag
+      shell: bash
+      env:
+        CORE_VERSION: ${{ steps.versions.outputs.version }}
+      run: |
+        git submodule update --init --depth 1 core
+        git -C core fetch --no-tags --depth 256 origin "$(git -C core rev-parse HEAD)"
+        git -C core fetch --no-tags --depth 1 https://github.com/SagerNet/sing-box "refs/tags/v$CORE_VERSION"
+        # The fork branch must stay based on CORE_VERSION_NAME; the local tag
+        # gives the libbox builder that version, as the upstream checkout did.
+        git -C core merge-base --is-ancestor FETCH_HEAD HEAD
+        git -C core tag --force "v$CORE_VERSION" HEAD
+        test -z "$(git -C core status --porcelain)"
     - uses: actions/setup-go@v5
       with:
         go-version: ${{ steps.versions.outputs.go_version }}
-        cache-dependency-path: .core/go.sum
-    - name: Apply patches and install bindings
-      shell: bash
-      run: |
-        git -C .core apply --check ../libbox/libbox-no-legacy.patch
-        git -C .core apply ../libbox/libbox-no-legacy.patch
-        git -C .core apply --check ../libbox/node-profile.patch
-        git -C .core apply ../libbox/node-profile.patch
-        python3 tools/patch_sing_tun.py .core
-        python3 tools/patch_xhttp_vless.py .core
-        python3 tools/patch_warp_masque.py .core
-        python3 tools/patch_httpdebug.py .core
-        cp libbox/ui_*.go .core/experimental/libbox/
-    - name: Resolve the pinned JavaScript, jq and cron runtimes
-      shell: bash
-      working-directory: .core
-      run: |
-        go mod edit -go=1.26.0 -require=github.com/dop251/goja@v0.0.0-20261102223426-a177d211bf60 -require=github.com/dlclark/regexp2/v2@v2.11.0 -require=github.com/itchyny/gojq@v0.12.17 -require=github.com/robfig/cron/v3@v3.0.1
-        python3 ../tools/patch_processing_runtimes.py .
-        go mod tidy
+        cache-dependency-path: core/go.sum

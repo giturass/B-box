@@ -416,7 +416,7 @@
     }
   },
   "adaptedNativeFiles": {
-    "libbox/ui_egress.go": {
+    "core/experimental/libbox/ui_egress.go": {
       "sources": [
         {
           "source": "core/outbound_ip.go",
@@ -572,8 +572,8 @@
           "sourceSHA256": "b3f3c8cf1b0e493b8a38b4e7102b8db4fc0761c6d7e29a7d8a60f82eb1a5dc10",
           "usage": "design-reference",
           "localPaths": [
-            "libbox/httpdebug/rewrite_match.go",
-            "libbox/httpdebug/rewrite_match_test.go"
+            "core/experimental/httpdebug/rewrite_match.go",
+            "core/experimental/httpdebug/rewrite_match_test.go"
           ],
           "changes": "Condition subjects inform B-box's structured JSON match trees and their regression tests. B-box implements recursive all/any groups, same-candidate URL matching and phase validation in its own sing-box HTTP processing engine; it does not import the complete Loon parser or Mihomo configuration."
         }
@@ -590,8 +590,8 @@
           "sourceSHA256": "899a423abfc1dab73a1badb7c661de8e34ac832348b45ac6583b364f745e4bc2",
           "usage": "design-reference",
           "localPaths": [
-            "libbox/httpdebug/script_config.go",
-            "libbox/httpdebug/script_tasks.go"
+            "core/experimental/httpdebug/script_config.go",
+            "core/experimental/httpdebug/script_tasks.go"
           ],
           "changes": "Reference for network-changed, engine-started and profile-reloaded events and runnable cron/event/generic types. B-box implements its own JSON configuration, sing-box lifecycle notifications and cancellable Goja task runner; it does not import module parsers or Mihomo configuration."
         },
@@ -627,8 +627,8 @@
           "usage": "adapted",
           "localPaths": [
             "flutter/lib/common/body_content.dart",
-            "libbox/httpdebug/body_view_proto.go",
-            "libbox/httpdebug/body_view.go"
+            "core/experimental/httpdebug/body_view_proto.go",
+            "core/experimental/httpdebug/body_view.go"
           ],
           "changes": "Implement schema-free numbered fields, repeated values, unsigned 64-bit integers, fixed-width hexadecimal values and inferred text/nested/opaque length-delimited fields. The Dart quick path keeps depth 16, 4096-node and 64 KiB derived-output budgets and falls back to original page bytes for incomplete, invalid or over-budget structures. The adapted Go ReaderAt path validates complete decoded files and streams all fields and frames to UTF-8 view files without the Dart node or total-output budgets, while retaining depth 16 for nesting inference and byte summaries for opaque fields. Support multiple gRPC frames, gRPC-Web binary or independently padded Base64 blocks, and trailers. Declared gRPC +json messages are validated as JSON, with invalid messages displayed as hexadecimal bytes while retaining outer framing and omitting the Protobuf schema notice. The quick path retains compressed message bytes and their declared encoding; the complete path decodes supported grpc-encoding values independently of outer HTTP compression and retains byte summaries when message decoding is unsupported or fails. Capture retention and original export bytes remain independent of both display paths."
         },
@@ -658,10 +658,13 @@
     "repository": "https://github.com/chen08209/prism_ui",
     "version": "0.1.3",
     "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+    "forkRepository": "https://github.com/giturass/prism_ui",
+    "forkBranch": "b-box",
+    "forkCommit": "4fb95855bd916497a41e5c79ff1c6b156bcbe9a3",
     "flclashSubmodule": "plugins/prism_ui",
     "flclashSubmoduleCommit": "63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185",
     "localPath": "packages/prism_ui",
-    "changes": "Runtime source, generated models, shaders, pubspec, license, notices, documentation, analysis settings and upstream tests from the independently pinned Prism UI 0.1.3 revision. The two explicit ScrollCacheExtent rendering imports needed by Flutter 3.47.6 and two scoped authorization-row trailing-width adaptations are recorded in adaptedFiles; the other 189 package files are unmodified. files records local hashes, while adaptedFiles retains original upstream source hashes. The FlClash v0.9.3 submodule reference stays at flclashSubmoduleCommit. Package paths below are relative to localPath; app adaptations and license assets are relative to flutter/.",
+    "changes": "Git submodule at localPath tracking forkBranch of forkRepository, a fork of repository; forkCommit is commit plus the B-box commits. The two explicit ScrollCacheExtent rendering imports needed by Flutter 3.47.6 and two scoped authorization-row trailing-width adaptations are recorded in adaptedFiles; all other package files are unmodified. files records the hashes of the 193 imported fork files, while adaptedFiles retains original upstream source hashes. The FlClash v0.9.3 submodule reference stays at flclashSubmoduleCommit. Package paths below are relative to localPath; app adaptations and license assets are relative to flutter/.",
     "files": {
       "CHANGELOG.md": "27cc0ed4b6cee8c09f36b200c724d419e3f1da24b948c65460699de7c545dde4",
       "LICENSE": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",

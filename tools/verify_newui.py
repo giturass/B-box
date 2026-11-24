@@ -2,6 +2,7 @@
 import re
 import json
 import hashlib
+import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -83,8 +84,8 @@ for path in (native / "flutter").glob("*.kt"):
         errors.append(f"{path.name}: legacy UI fallback is not allowed")
     if "NavController" in source or "navController.navigate" in source:
         errors.append(f"{path.name}: legacy navigation is not allowed")
-for retired in ("flutter/lib/pages/capture_rules.dart", "libbox/option/httpdebug.go", "tools/ebpf",
-                "libbox/httpdebug/wire.go", "flutter/lib/pages/tls_offsets.dart",
+for retired in ("flutter/lib/pages/capture_rules.dart", "core/option/httpdebug.go", "tools/ebpf",
+                "core/experimental/httpdebug/wire.go", "flutter/lib/pages/tls_offsets.dart",
                 "app/src/main/java/io/nekohasekai/sfa/bg/RootCaptureSession.kt",
                 "flutter/lib/pages/privilege.dart", "third_party/libxposed-api",
                 "app/src/main/java/io/nekohasekai/sfa/xposed",
@@ -140,6 +141,20 @@ prism = manifest["prismUi"]
 check_commit(prism["commit"], "prism_ui")
 check_commit(prism["flclashSubmoduleCommit"], "FlClash prism_ui submodule reference")
 prism_root = flutter / prism["localPath"]
+check_commit(prism["forkCommit"], "prism_ui fork")
+modules = subprocess.run(["git", "config", "--file", ".gitmodules", "--get-regexp", r"^submodule\..*\.(path|url|branch)$"],
+                         cwd=ROOT, capture_output=True, text=True).stdout.split("\n")
+for path, url in (("flutter/" + prism["localPath"], prism["forkRepository"]), ("core", "https://github.com/giturass/sing-box")):
+    for key, value in (("path", path), ("url", url), ("branch", "b-box")):
+        if f"submodule.{path}.{key} {value}" not in modules:
+            errors.append(f"{path} must be the {url} b-box submodule")
+    link = subprocess.run(["git", "ls-files", "--stage", "--", path], cwd=ROOT, capture_output=True, text=True).stdout.split()
+    if link[:1] != ["160000"]:
+        errors.append(f"{path} must be tracked as a submodule")
+    elif path != "core" and link[1] != prism["forkCommit"]:
+        errors.append("prism_ui submodule does not match forkCommit in the source manifest")
+if not (prism_root / "pubspec.yaml").is_file():
+    raise SystemExit("\n".join(errors + ["prism_ui submodule is not checked out; run git submodule update --init flutter/packages/prism_ui"]))
 for local, expected in prism["files"].items():
     check_hash(prism_root / local, expected)
 for directory in (prism_root / "lib", prism_root / "shaders", prism_root / "test"):

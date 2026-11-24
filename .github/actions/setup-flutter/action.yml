@@ -4,6 +4,9 @@ description: Use the pinned Flutter SDK and the committed dependency lockfile.
 runs:
   using: composite
   steps:
+    - name: Check out the Prism UI submodule
+      shell: bash
+      run: git submodule update --init --depth 1 flutter/packages/prism_ui
     - uses: subosito/flutter-action@v2
       with:
         flutter-version: '3.47.6'

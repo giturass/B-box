@@ -25,7 +25,7 @@ def main():
     # Match the x/net and x/text versions used by the pinned sing-box core.
     with tempfile.TemporaryDirectory(prefix="engine-", dir=base) as directory:
         project = Path(directory)
-        for file in (ROOT / "libbox/httpdebug").glob("*.go"):
+        for file in (ROOT / "core/experimental/httpdebug").glob("*.go"):
             shutil.copyfile(file, project / file.name)
         (project / "go.mod").write_text(
             "module github.com/sagernet/sing-box/experimental/httpdebug\n\ngo 1.26.0\n\n"

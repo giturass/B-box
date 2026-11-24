@@ -8,7 +8,7 @@
 | --- | --- |
 | [README.md](README.md) | 项目介绍、下载入口和许可声明 |
 | [AGENTS.md](AGENTS.md) | 项目约束、工作方式和验证要求 |
-| [libbox.md](libbox.md) | 相对上游 sing-box/libbox 的补丁、扩展绑定及核心构建差异 |
+| [libbox.md](libbox.md) | 核心子模块相对上游 sing-box/libbox 的改动、扩展绑定及核心构建差异 |
 | [flclash.md](flclash.md) | FlClash UI 的参考版本、组件使用、适配范围及视觉验证 |
 | [app.md](app.md) | 相对 sing-box-for-android 的应用差异、兼容性及构建发布 |
 
@@ -21,7 +21,7 @@
 - 未得到用户明确要求，不在本机执行编译构建。Go 测试、Flutter 分析/测试/AAR 构建、Android 编译和设备测试使用 GitHub Actions。文档、源码和差异的静态检查可在本机执行。
 - 开始前检查工作树，保留用户未提交的改动。上游同步固定比较 SHA，区分已提交差异和工作树差异，核实远端地址后再按任务授权推送。
 - 接口、构建方式和兼容性判断应有当前源码或对应版本的官方文档依据，不凭空增加接口，不将旧验证结果当作当前版本结果。
-- 不提交密钥、密码、`local.properties`、`.local-signing/`、`.core/`、SDK、AAR 或生成的 APK。发布沿用既有签名密钥，不重新生成替代密钥。
+- 不提交密钥、密码、`local.properties`、`.local-signing/`、SDK、AAR 或生成的 APK。发布沿用既有签名密钥，不重新生成替代密钥。
 
 ## 架构与兼容性约束
 
@@ -36,7 +36,8 @@
 ## 上游同步与验证
 
 - Android 上游比较基线维护在 [app.md](app.md)，核心标签由 [version.properties](version.properties) 决定，FlClash 参考提交维护在 [flclash.md](flclash.md) 和来源清单。更新其中一个上游时，不自动改变另两个基线。
-- 更新核心时核对 legacy 补丁、所有 `libbox/ui_*.go` 扩展及生成的绑定，并同步检查统一测试工作流的核心/Flutter/Android smoke 与 Release 构建。官方原版 AAR 缺少 B-box 新增绑定，不能仅凭版本相同直接替换。
+- 核心和 Prism UI 是 fork 子模块：[core](.gitmodules) 为 giturass/sing-box 的 `b-box` 分支，`flutter/packages/prism_ui` 为 giturass/prism_ui 的 `b-box` 分支。修改它们时先在对应 fork 分支提交并推送，再更新本仓库的子模块指针；不要提交指向未推送提交的指针，也不要在本仓库恢复补丁或拷贝源码。
+- 更新核心时将 fork 的 B-box 提交变基到新上游标签，核对 legacy 改动、`.b-box/` 依赖副本、所有 `experimental/libbox/ui_*.go` 扩展及生成的绑定，并同步检查统一测试工作流的核心/Flutter/Android smoke 与 Release 构建。官方原版 AAR 缺少 B-box 新增绑定，不能仅凭版本相同直接替换。
 - 更新 FlClash 时检查源文件及哈希、适配差异、字体/着色器和许可。改动直接导入文件后，应如实更新来源清单及改动说明，不把业务改动伪装为机械包名替换。
 - 按受影响范围验证。本机可运行 `git diff --check` 和 `python3 tools/verify_newui.py`；文档变更还应检查链接和旧引用。后者仅检查源码约束，不证明运行行为。
 - [.github/workflows/newui.yml](.github/workflows/newui.yml) 在各分支代码推送时自动运行 Go 扩展、Flutter 分析/交互/布局、JVM 及 [Android smoke 矩阵](app.md#验证与历史记录)，测试所需 AAR/APK 在同一工作流构建；纯 Markdown 推送跳过。[build-release.yml](.github/workflows/build-release.yml) 仅手动触发，独立构建签名 ARM64 Release 并校验产物，不调用或等待测试工作流。
