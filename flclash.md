@@ -281,6 +281,27 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 
 ### 当前验证记录
 
+2026-11-25 HTTP/3、raw TCP 和 WebSocket 的功能/测试源码 `91817739955a803e8bd1b1fcd319c51a143bc4a5` 已通过 [统一测试运行](https://github.com/giturass/B-box/actions/runs/45485042264) 中的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45485042264/job/138768120173)：分析为 155 项 info、0 warning/error，937 项测试全部成功；日志确认 ARM64 Debug/Release Flutter AAR 均构建成功。[AAR 产物](https://github.com/giturass/B-box/actions/runs/45485042264/artifacts/14962609088) 与 [截图产物](https://github.com/giturass/B-box/actions/runs/45485042264/artifacts/14964367368) 的 `workflow_run.head_sha` 均已核对与该源码一致。核心、JVM 与 Android smoke 的实际结果及边界由 [应用验证记录](app.md#当前验证记录) 维护。
+
+实际逐张查看该次产物 `build/screenshots/requests/` 中的十九张原图：四张 TCP/WebSocket 双向消息详情、十二张注入控件/草稿/等待状态和三张独立 MITM/脚本设置。下表文件名中的花括号表示已经逐张查看的全部组合。
+
+| 截图组 | 可观察结论与视口范围 |
+| --- | --- |
+| `tcp-client-message.png`、`tcp-server-message.png` | 360×900 浅色、1.0 倍字号；分别显示 Client to server / Server to client、父记录 ID、View TCP stream 和 5 B / 5 B 的 `hello` 正文，Text/Hex/Base64 切换及正文操作可见。上方部分元数据已滚出视口，缺省出站、规则和地址保留未知 |
+| `websocket-client-message.png`、`websocket-server-message.png` | 同一尺寸及字号；两个方向、Text message、父记录和 View WebSocket handshake 可读，正文及切换控件可见。Stream ID 标签及更上方字段已滚出视口；这两张只展示文本消息正文 |
+| `injection-websocket-320-1.8-dark-{controls,draft,pending}.png` | 320×568 深色；Stream ID 换行，方向和 Binary message 的长值省略，选择箭头保留。controls 仅显示到取消说明的一部分；draft/pending 显示完整多行草稿及方向/取消说明，等待时顶部取消与进度可见，标题省略。上方 Message type 行经过共享浮动工具栏的渐变背景，仍部分可见，标题和动作可读 |
+| `injection-tcp-320-1.8-dark-{controls,draft,pending}.png` | 同一尺寸；方向长值省略、Content format 可读，TCP 不显示消息类型项。controls 仅露出空输入框上部；draft/pending 的多行草稿完整可见，等待时取消与进度可见、标题省略。滚动后的 Stream ID 在浮动工具栏背景内部分显露 |
+| `injection-websocket-800-1.0-light-{controls,draft,pending}.png` | 800×1000 浅色、1.0 倍字号；右侧弹层内的完整 Stream ID、方向、Binary message、Text、方向及取消说明、输入框均可见。草稿保留三行文字，等待状态显示独立取消与进度，标题完整；当前内容无需滚动即可入视口 |
+| `injection-tcp-800-1.0-light-{controls,draft,pending}.png` | 同一尺寸及右侧弹层；完整方向、内容格式、方向说明和输入框可见，没有 WebSocket 消息类型及取消说明。草稿和等待动作均完整显示，当前内容无需滚动即可入视口 |
+| `independent-mitm-config.png`、`independent-mitm-tcp-quic.png` | 320×900 深色、1.3 倍字号；证书、域名、HTTP/2、HTTP/3、服务器证书校验、Decrypt TCP、QUIC 回退及 JSON 编辑入口可见，长标题自然换行。两张显示相同状态：HTTP/2 与 QUIC 回退开启，其余开关关闭；不能作为协议切换或实际流量接管的证明 |
+| `independent-scripts-cron.png` | 同一尺寸及字号；启用开关、HTTP/Stream/Cron/Event/Generic 入口和计数可读，脚本关闭、Stream 为 0、Cron 为 1。Cron 说明可见，底部 Events 说明只露出开头，资源及后续设置不在当前视口 |
+
+注入窄屏的系统字号输入为 1.8，组件实际缩放上限为 1.4；宽屏为 1.0，同轮布局断言核对了实际缩放。窄屏滚动内容透过工具栏背景是共享 [FloatingHeader](flutter/packages/prism_ui/lib/sheet_header.dart) 的渐变显示方式，不能把背景字段显露等同于控件不可操作；同轮 widget 断言核对了选项、发送和定向取消按钮可命中、发送参数、等待时输入只读及取消后保留草稿。等待截图没有将发出请求显示为已发送。
+
+这些是 Linux widget 截图，使用英文、SDK Roboto、应用 JetBrainsMono 与 Android 桥接替身；未覆盖中文、系统键盘、全部滚动位置、完整动画、真实远程数据或 ARM64 实机视觉，也没有与上游逐像素一致的验收结论。WebSocket 的 HTTP/1.1 Upgrade 协议边界见 [核心协议说明](libbox.md#httphttps-请求调试)；本记录不构成 HTTP/2/3 extended CONNECT 或真实 Android HTTP/3/WebSocket 网络、证书信任和注入的验收。
+
+本机仅执行 `git diff --check`、`python3 tools/verify_newui.py` 和文档链接/标题片段静态检查，并读取该次 Actions 日志、元数据和原图；未在本机编译或运行 Go/Flutter/JVM/设备测试。后续验证记录提交仅更新文档，功能及测试源码固定于上述 `9181773`。以下既有记录只适用于各自列出的此前源码 SHA，不能作为本轮协议扩展或当前 ARM64 实机视觉的通过依据。
+
 2026-11-23 详情页原位完整正文显示、自动内容识别及正文恢复的功能/测试源码 `267d692eae2c4f81755146fcf227ba91ed6a15b9` 已通过 [本次统一测试运行](https://github.com/giturass/B-box/actions/runs/45174354097)中的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45174354097/job/137691694530)：分析为 154 项 info、0 warning/error，920 项测试全部成功；日志确认 ARM64 Debug/Release Flutter AAR 均构建成功。[AAR 产物](https://github.com/giturass/B-box/actions/runs/45174354097/artifacts/14818029846) 与 [截图产物](https://github.com/giturass/B-box/actions/runs/45174354097/artifacts/14819515840) 的 `workflow_run.head_sha` 均已核对与该源码一致；本机只下载截图产物。
 
 实际逐张查看本次 `build/screenshots/body/` 的九张截图：320×568 浅色的 `320-1.8-light-hex.png`、`320-1.8-light-hex-end.png`、`320-1.8-light-base64.png`，360×568 深色的 `360-1.4-dark-hex.png`、`360-1.4-dark-hex-end.png`、`360-1.4-dark-base64.png`，以及 360×800 的 `360-light-image.png`、`360-light-image-zoomed.png`、`360-light-large-image.png`。320 的系统字号输入为 1.8，组件实际缩放上限为 1.4；360 的系统及组件字号均为 1.4，实际缩放值由同轮布局断言核对。
@@ -291,7 +312,7 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 
 本次截图采用英文、SDK Roboto、JetBrainsMono 与 Android 桥接替身，未覆盖中文正文界面、全部图片格式、真实远程数据或 ARM64 实机视觉，也没有上游逐像素一致的验收结论。核心、JVM 与 Android smoke 的结果及边界由 [应用验证记录](app.md#当前验证记录) 维护。本机仅执行静态检查并读取本次 Actions 日志、元数据和截图；后续验证记录提交仅更新文档。
 
-以下记录均仅适用于各自列出的此前源码 SHA；其中独立查看页的截图保留当时实现的历史身份，原位布局与自动内容识别的当前结论以上述 `267d692` 记录为准。
+以下记录均仅适用于各自列出的此前源码 SHA；其中独立查看页的截图保留当时实现的历史身份，该次原位布局与自动内容识别的结论对应上述 `267d692` 源码。
 
 2026-11-23 大正文完整文件读取、字符集分页、活动尾页刷新及派生视图取消恢复的功能/测试源码 `60c56dc182e1a655928aec6c7d3934a1eff34462` 已通过 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45141151663/job/137579236128)：分析为 153 项 info、0 warning/error，880 项测试全部成功；ARM64 Debug/Release Flutter AAR 均构建成功。[AAR 产物](https://github.com/giturass/B-box/actions/runs/45141151663/artifacts/14801733797) 与 [截图产物](https://github.com/giturass/B-box/actions/runs/45141151663/artifacts/14802910862) 的 `workflow_run.head_sha` 均已核对与该源码一致。后台恢复用例在异步操作完成后校验原/新读取器及相同派生页偏移，正文、页码历史、会话及取消断言全部保留。
 

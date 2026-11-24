@@ -333,6 +333,32 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
+2026-11-25 HTTP/3、raw TCP 和 WebSocket 的功能/测试源码 `91817739955a803e8bd1b1fcd319c51a143bc4a5` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45485042264) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[核心作业](https://github.com/giturass/B-box/actions/runs/45485042264/job/138768120786) 使用固定核心 `824dbcfb4dd0a95921840b1737b950cde590241e` 和 Go 1.26.10，实际执行 15 条 Go 测试命令，其中 11 条启用 race，全部使用 `-count=1`；17 次包测试执行全部通过，没有失败、跳过或数据竞争报告。四组抓取与路由结果按顶层用例统计如下，子测试不重复计入顶层数量。
+
+| 核心测试组 | 顶层用例通过 | 实际覆盖 |
+| --- | --- | --- |
+| httpdebug，无 QUIC | 220 | HTTP/TCP/WebSocket、消息脚本、压缩、注入、存储及生命周期 race |
+| route，无 QUIC | 6 | 选定路由、预读回放、缓存所有权与关闭、流量计数及 TCP 半关闭 |
+| httpdebug，`with_quic` | 227 | 上述抓取回归及真实 HTTP/3 QUIC v1/v2、TLS/SNI/ALPN、改写/脚本/HAR、多流、取消与离线 Mock |
+| route，`with_quic` | 6 | 上述 TCP 回归及真实 HTTP/3 原 UDP 路由、连接关联、停服排空、SSE 源站取消与阻塞写入回收 |
+
+两个 route 构建均实际通过预读未完成时停服的 16 次循环、capture/bypass 的预读计数与半关闭，以及客户端 EOF 后仍收到服务器最终响应的子测试。QUIC 构建还实际通过等待物理 UDP 写入结束后取消原路由、写入 deadline 被拒绝时的关闭看门狗和待拨号迟到 socket 回收；协议及脚本合同由 [核心说明](libbox.md#httphttps-请求调试) 维护。[Root CA 作业](https://github.com/giturass/B-box/actions/runs/45485042264/job/138768120590) 的 15 项发布工具、6 项 mount/boot 测试及 ShellCheck 通过。Flutter 分析、交互/布局、ARM64 Debug/Release Flutter AAR 和十九张截图的结果由 [界面验证记录](flclash.md#当前验证记录) 维护。
+
+[Android 作业](https://github.com/giturass/B-box/actions/runs/45485042264/job/138768120744) 完成 x86_64 libbox、Flutter Debug AAR、other/play Kotlin、AIDL 及 [模拟器应用/测试 APK](https://github.com/giturass/B-box/actions/runs/45485042264/artifacts/14964422766) 构建。[JVM 报告](https://github.com/giturass/B-box/actions/runs/45485042264/artifacts/14964338012) 的实际 XML 为 25 个套件、160 个唯一用例，失败、错误和跳过均为 0；`CaptureInjectTasksTest` 的七项任务/定向取消回归全部执行，它们使用原生任务替身。
+
+四份 smoke 的实际 SDK、镜像、页大小及采集来源、UI/native 状态已逐项核对。各原生日志均有 117 个唯一用例严格完成一次 `1→0`，`current` 完整覆盖 1–117，结束为 `OK (117 tests)`；失败、错误及跳过均为 0，合计 468 次原生测试执行成功。新增 `streamScriptsHttp3AndRawTcpRoundTripThroughTheActualAndroidBindings` 验证真实 Android 绑定的配置/schema/记录设置回读；既有 `routedMITMUsesKeystoreAndTheOriginalOutbound` 内的新注入任务 factory 检查覆盖不存在的合法流 ID、重复使用、非法 Base64 和关闭后取消。
+
+| 环境 | 实际页大小（字节） | 原生 / UI | 报告 |
+| --- | --- | --- | --- |
+| [API 24](https://github.com/giturass/B-box/actions/runs/45485042264/job/138773896461) | 4096（`/proc/self/smaps`） | 117 项通过 / 通过 | [14965270632](https://github.com/giturass/B-box/actions/runs/45485042264/artifacts/14965270632) |
+| [API 31](https://github.com/giturass/B-box/actions/runs/45485042264/job/138773896325) | 4096（`getconf`） | 117 项通过 / 通过 | [14965620587](https://github.com/giturass/B-box/actions/runs/45485042264/artifacts/14965620587) |
+| [API 36 / 4 KiB](https://github.com/giturass/B-box/actions/runs/45485042264/job/138773896285) | 4096（`getconf`） | 117 项通过 / 通过 | [14965825968](https://github.com/giturass/B-box/actions/runs/45485042264/artifacts/14965825968) |
+| [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/45485042264/job/138773896265) | 16384（`getconf`） | 117 项通过 / 通过 | [14963704308](https://github.com/giturass/B-box/actions/runs/45485042264/artifacts/14963704308) |
+
+本轮八份 APK、AAR、JVM、截图及 smoke 产物的 `workflow_run.head_sha`、四份 `results.json.sha` 均与上述功能/测试提交一致。设备均为临时 x86_64 模拟器，16 KiB 组的实际镜像为 `system-images;android-36;google_apis_ps16k;x86_64`。新 Android smoke 验证配置和 JNI 任务绑定，未执行真实 Android HTTP/3/WebSocket 网络抓包或消息注入；协议处理由核心真实客户端/服务器及路由 race 回归覆盖，界面交互使用桥接替身。ARM64 实机、第三方应用 CA 信任及证书固定校验的行为仍未验收。
+
+本机仅执行差异、Go 格式、源码/来源约束和文档链接/标题静态检查，并读取本轮 Actions 日志、元数据、报告及截图；未在本机编译或运行动态测试，也未触发签名 Release 或发布。后续验证记录提交仅更新文档，功能及测试源码保持与本轮 `9181773` 一致；下列记录只适用于各自列出的此前源码 SHA。
+
 2026-11-23 请求/响应详情原位正文及自动格式识别的功能/测试源码 `267d692eae2c4f81755146fcf227ba91ed6a15b9` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45174354097) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[核心作业](https://github.com/giturass/B-box/actions/runs/45174354097/job/137691694719) 实际执行 13 条 Go 测试命令，其中 8 条启用 race，全部使用 `-count=1`；15 条包测试结果均为 `ok`，没有零测试或 race 错误，包含正文真实绑定及生命周期、全量 httpdebug race 和后续路由回归。[Root CA 作业](https://github.com/giturass/B-box/actions/runs/45174354097/job/137691694816) 的 15 项发布工具、6 项 mount/boot 测试及 ShellCheck 通过。Flutter 分析、交互/布局、ARM64 AAR 和原位正文截图的结果由 [界面验证记录](flclash.md#当前验证记录) 维护。
 
 [Android 作业](https://github.com/giturass/B-box/actions/runs/45174354097/job/137691694097) 完成本轮 x86_64 libbox、Flutter Debug AAR、other/play Kotlin、AIDL 及 [模拟器应用/测试 APK](https://github.com/giturass/B-box/actions/runs/45174354097/artifacts/14819915212)。实际 Gradle 日志确认 JVM 测试、`play` 编译及应用/测试 APK 构建成功。[JVM 报告](https://github.com/giturass/B-box/actions/runs/45174354097/artifacts/14819745333) 为 24 个套件、153 项测试，失败、错误及跳过均为 0；`CaptureBodyReadersTest` 为 8/8。
