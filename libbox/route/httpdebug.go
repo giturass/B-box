@@ -14,7 +14,6 @@ import (
 	"github.com/sagernet/sing-box/experimental/httpdebug"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/buf"
-	"github.com/sagernet/sing/common/bufio"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 )
@@ -171,7 +170,7 @@ func peekHTTPDebug(ctx context.Context, metadata *adapter.InboundContext, conn n
 		buffer = grown
 	}
 	if !buffer.IsEmpty() {
-		return bufio.NewCachedConn(conn, buffer), err
+		return newDebugCachedConn(conn, buffer), err
 	}
 	buffer.Release()
 	return conn, err

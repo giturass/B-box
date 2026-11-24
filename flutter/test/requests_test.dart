@@ -892,6 +892,7 @@ void main() {
         await tester.pumpAndSettle();
         await capture(tester, '$label-controls');
         final content = find.byKey(const ValueKey('inject-content'));
+        await tester.scrollUntilVisible(content, 120, scrollable: scrollable);
         await Scrollable.ensureVisible(tester.element(content), alignment: .5);
         await tester.enterText(content, 'Message to the selected stream\nSecond line\nFinal line');
         await tester.pumpAndSettle();

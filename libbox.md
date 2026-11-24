@@ -214,6 +214,8 @@ WireGuard 输出结构核对当前核心 [`v1.15.0-alpha.13` 的选项](https://
 
 [路由钩子](libbox/route/httpdebug.go) 将嗅探结果仅用于接管选择。转发继续调用原选定出站的 `ConnectionHandler` 或原连接管理器，保留原目的地址、解析结果、网络策略、TLS 分片、规则、代理组和应用归属。CONNECT/SOCKS 隧道先通过核心握手成功接口响应客户端，再等待请求或 ClientHello。需要观察的流通过普通 stream 路径处理；未命中流保留嗅探读到的所有字节继续原路由。
 
+普通 TCP 路由及抓包嗅探的预读使用 [httpdebug_cache.go](libbox/route/httpdebug_cache.go)，缓存读取、转交和释放与关闭使用同一互斥锁；阻塞网络读写及底层关闭在锁外，停服仍可中断。预读字节按原顺序回放，保留跟踪器、流量计数和半关闭接口。
+
 HTTP 转发保留 Host、原始查询参数、重复响应头和客户端提供的 Forwarded/X-Forwarded 字段。正文边转发边保存前缀，不因存储限额截断实际传输；SSE 立即刷新。请求/响应 trailers 单独保存；并发 HTTP/2 和 HTTP/3 流独立记录，取消保留已收到的正文及未完成标志。HTTP/3 通过原选定 UDP 出站建立 QUIC，客户端与上游分别校验/协商 TLS，复用相同的 HTTP 录制、改写、脚本及 HAR 路径；映射到其他目标仍由 sing-box 路由，可使用 HTTP/1.1/2 出站。
 
 HTTP/3 入站和上游 UDP 由独立生命周期管理；停服先尝试发送 QUIC `CONNECTION_CLOSE`，上游原出站管道封闭写方向，等待处理器完成当前物理 UDP 转发并回调 `onClose` 后再取消路由。仅关闭阶段允许一秒写入宽限，写入 deadline 与直接取消/关闭底层 socket 的看门狗防止阻塞；待拨号和待握手仍立即响应取消，不增加运行中握手或流的固定期限。
@@ -605,6 +607,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](libbox/httpdebug/mitm_hosts.
 - [stream_test.go](libbox/httpdebug/stream_test.go)：普通 TCP 的双向二进制、服务器先发与半关闭、独立数据块和 HAR/cURL 排除，消息改写、反向注入、防递归、消息 ID、drop/abort、脚本取消、过期流及阻塞写取消后的期限恢复。
 - [websocket_test.go](libbox/httpdebug/websocket_test.go)：真实 Upgrade 与握手快照、掩码和分片、文本/二进制、控制帧、压缩上下文、改写/丢弃/注入、前序规则缩小正文后的逐条限额、超限和错误保留、启停记录与关闭/取消。HTTP/2/3 extended CONNECT 不在该文件覆盖范围。
 - [http3_test.go](libbox/httpdebug/http3_test.go)、[httpdebug_quic_test.go](libbox/route/httpdebug_quic_test.go) 与 [httpdebug_rawtcp_test.go](libbox/route/httpdebug_rawtcp_test.go)：固定核心的 HTTP/3 多流、改写/脚本/HAR、证书校验、离线 Mock 和 SSE/停服双端通知，拒绝 deadline 的阻塞写入兜底、取消中的迟到 UDP 拨号、原 UDP 出站停滞管道的退出等待、QUIC v1/v2 Initial 回放及非 HTTP QUIC 透传，以及普通 TCP 原出站和嗅探字节保留。HTTP/3 用例仅在 `with_quic` 下编译。
+- [httpdebug_cache_test.go](libbox/route/httpdebug_cache_test.go)：已嗅探 TCP 读缓存时停服、阻塞网络读写时关闭、转交缓存的生命周期、`WriteTo` 阻塞及短写/错误后的未传字节保留，以及捕获/未命中流的原路由、跟踪器计数和 TCP EOF 后回复；有/无 `with_quic` 的路由步骤均启用 race。
 - [http3_selection_test.go](libbox/httpdebug/http3_selection_test.go)：实际 QUIC TLS ClientHello 的 SNI/ALPN、超过 16 KiB 的握手、应用/端口范围、无 SNI 的已知 IP、关闭选项及截断 ClientHello 不接管。
 - [store_concurrency_test.go](libbox/httpdebug/store_concurrency_test.go)：正文句柄复用和关闭边界、前缀/转发总量、并发双向写入与详情快照，以及模拟慢写时其他记录和清空继续工作、完成状态等待计数提交。
 - [store_activity_test.go](libbox/httpdebug/store_activity_test.go)：摘要关联的持久化、独立正文计数、改写前 URL、旧记录缺省，以及 HAR 选择的去重、顺序、空选择、非法输入、非 HTTP 排除和淘汰后不扩大导出范围；真实 HTTP/1.1 复用连接的用例同时检查摘要与详情的关联一致。
