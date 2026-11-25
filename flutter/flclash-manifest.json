@@ -548,9 +548,11 @@
           "usage": "design",
           "localPaths": [
             "flutter/lib/pages/requests.dart",
-            "flutter/lib/pages/stream_injection.dart"
+            "flutter/lib/pages/stream_injection.dart",
+            "flutter/lib/pages/request_replay.dart",
+            "flutter/lib/pages/breakpoints.dart"
           ],
-          "changes": "Reference for per-message navigation. B-box shares a detail page between ordinary connections and captured records, with copyable connection metadata, related exchanges and HTTP request/response/cookie menus. Expired parents retain observed information without an active close action; closing a captured request's underlying socket explicitly confirms interruption of every request on it. Raw TCP and TLS/TCP aggregate streams have two byte directions; TCP chunks and WebSocket messages show their own direction and optional parent navigation without HTTP headers, cookies or cURL export. Active B-box streams expose independently implemented text/Hex/Base64 injection, WebSocket text/binary opcode selection and request-specific cancellation through the Android bridge. Completed messages refresh while their stream remains active. Domain-only observations have no HTTP message menus."
+          "changes": "Reference for per-message navigation. B-box shares a detail page between ordinary connections and captured records, with copyable connection metadata, related exchanges and HTTP request/response/cookie menus. Expired parents retain observed information without an active close action; closing a captured request's underlying socket explicitly confirms interruption of every request on it. Raw TCP and TLS/TCP aggregate streams have two byte directions; TCP chunks and WebSocket messages show their own direction and optional parent navigation without HTTP headers, cookies or cURL export. Active B-box streams expose independently implemented text/Hex/Base64 injection, WebSocket text/binary opcode selection and request-specific cancellation through the Android bridge. Completed messages refresh while their stream remains active. Parsed HTTP requests add an independently implemented replay form that submits only edited method, URL, header and body fields through the Android bridge with request-specific cancellation and opens the new record. The request list links to independently implemented breakpoint pages for in-memory rules and held HTTP messages, whose request or response fields are edited before continuing or aborting. Domain-only observations have no HTTP message menus."
         },
         {
           "source": "lib/common/constant.dart",
