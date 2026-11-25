@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../widgets.dart';
+import '../common/byte_input.dart';
 import '../components/record.dart';
 
 /// Sends bytes through an intercepted stream whose lifetime is checked by the core.
@@ -40,26 +41,13 @@ class _StreamInjectionPageState extends State<StreamInjectionPage> {
     super.dispose();
   }
 
-  List<int> _bytes() {
-    if (_format == 'Text') return utf8.encode(_content.text);
-    final value = _content.text.replaceAll(RegExp(r'\s+'), '');
-    if (_format == 'Base64') {
-      try { return base64.decode(value); }
-      on FormatException { throw const FormatException('Invalid Base64 message'); }
-    }
-    if (value.length.isOdd || !RegExp(r'^[0-9a-fA-F]*$').hasMatch(value)) {
-      throw const FormatException('Enter hexadecimal byte pairs');
-    }
-    return [for (var offset = 0; offset < value.length; offset += 2) int.parse(value.substring(offset, offset + 2), radix: 16)];
-  }
-
   Future<void> _send() async {
     final box = context.box;
     if (_busy || box.remote || _session != box.sessionRevision || !box.running || box.transitioning) return;
     final requestId = 'stream-${DateTime.now().microsecondsSinceEpoch}-${++_requestSequence}';
     setState(() { _busy = true; _error = null; _requestId = requestId; _canceling = false; });
     try {
-      final data = _bytes();
+      final data = parseByteInput(_format, _content.text);
       if (widget.websocket && _opcode == 1) {
         try { utf8.decode(data); }
         on FormatException { throw const FormatException('WebSocket text messages must contain valid UTF-8'); }
@@ -118,7 +106,7 @@ class _StreamInjectionPageState extends State<StreamInjectionPage> {
             textBuilder: (value) => context.tr(value == 2 ? 'Binary message' : 'Text message'),
             onChanged: (value) { if (!_busy) _changed(() => _opcode = value); }),
           ListItem<String>.options(key: const ValueKey('inject-format'), title: Text(context.tr('Content format')),
-            options: const ['Text', 'Hex', 'Base64'], value: _format,
+            options: byteInputFormats, value: _format,
             textBuilder: context.tr, onChanged: (value) { if (!_busy) _changed(() => _format = value); }),
         ], footer: context.tr('Client to server sends to the upstream. Server to client sends to the captured application.'))),
         if (widget.websocket) ListFooter(text: context.tr('Cancelling a WebSocket write in progress closes its stream to keep message framing valid.')),

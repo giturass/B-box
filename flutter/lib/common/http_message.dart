@@ -9,6 +9,19 @@ String capturedHeader(Iterable<Map<String, dynamic>> headers, String name) {
   return '';
 }
 
+/// One `Name: value` line per header, as the header editors show them.
+String headerLines(Iterable<Map<String, dynamic>> headers) =>
+    headers.map((header) => '${header['name']}: ${header['value']}').join('\n');
+
+/// Reads [headerLines] back; blank lines are skipped. A [FormatException] carries an untranslated message.
+List<Map<String, String>> parseHeaderLines(String text) => [
+  for (final line in const LineSplitter().convert(text))
+    if (line.trim().isNotEmpty) switch (line.indexOf(':')) {
+      > 0 && final separator => {'name': line.substring(0, separator).trim(), 'value': line.substring(separator + 1).trim()},
+      _ => throw const FormatException('Enter each header as Name: value'),
+    },
+];
+
 class CapturedCookie {
   const CapturedCookie({required this.name, required this.value, required this.raw, this.attributes = const []});
   final String name, value, raw;

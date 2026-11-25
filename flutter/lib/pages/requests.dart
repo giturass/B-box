@@ -8,6 +8,8 @@ import '../components/captured_body.dart';
 import '../components/connection_record.dart';
 import '../components/data_subscription.dart';
 import '../components/record.dart';
+import 'breakpoints.dart';
+import 'request_replay.dart';
 import 'request_settings.dart';
 import 'stream_injection.dart';
 
@@ -74,6 +76,11 @@ class _RequestsPageState extends State<RequestsPage> {
     final session = box.sessionRevision;
     if (await confirm(context, 'Close all active connections?', action: 'Close') &&
         mounted && session == box.sessionRevision && box.running) await box.act('connections.closeAll');
+  }
+
+  Future<void> _breakpoints() async {
+    await openPage(context, const BreakpointsPage());
+    if (mounted) setState(() => _revision++);
   }
 
   Future<void> _settings() async {
@@ -155,6 +162,7 @@ class _RequestsPageState extends State<RequestsPage> {
     if (!view.box.remote) ...[
       PopupMenuItem(glyph: AppGlyphs.sliders, label: context.tr('Capture settings'),
         onPressed: _busy || view.capturing || !view.loaded ? null : _settings),
+      PopupMenuItem(glyph: AppGlyphs.playPause(1), label: context.tr('Breakpoints'), onPressed: _breakpoints),
       PopupMenuItem(glyph: AppGlyphs.arrowDown, label: context.tr('Export HAR'),
         onPressed: _busy || (view.page['harCount'] as num? ?? 0) == 0 ? null : () => _exportHar(view)),
       PopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Clear captured requests'),
@@ -195,11 +203,15 @@ class _RequestsPageState extends State<RequestsPage> {
     final box = view.box, page = view.page, capturing = view.capturing, error = view.error;
     final pageError = page['error'] as String? ?? '';
     final canToggle = !_busy && view.loaded && box.running && !box.transitioning;
+    final state = json(view.snapshot?['state']);
+    final rules = state['breakpointRules'] as num? ?? 0, paused = state['pausedMessages'] as num? ?? 0;
     return [
       generateGroup([
         ListItem.toggle(key: const ValueKey('capture-toggle'), title: Text(context.tr('Capture requests')),
           subtitle: Text(context.tr(capturing ? 'Capturing new requests and streams' : 'Capture stopped')), value: capturing,
           onChanged: canToggle ? (_) => _act(capturing ? 'capture.stop' : 'capture.start') : null),
+        if (rules > 0 || paused > 0) ListItem(key: const ValueKey('capture-breakpoints'), title: Text(context.tr('Breakpoints')),
+          subtitle: Text('$rules ${context.tr('active rules')} · $paused ${context.tr('paused')}'), onTap: _breakpoints),
       ]),
       if (!box.running) Padding(padding: const EdgeInsets.all(12),
         child: Text(context.tr('Start the local service before capturing requests'))),
@@ -315,8 +327,12 @@ class _Capture {
   Json message({required bool response}) => json(detail?[response ? 'response' : 'request']);
   Json preview({required bool response}) => json(detail?[response ? 'responsePreview' : 'requestPreview']);
 
+  /// A replay can replace truncated headers or an incomplete body, so any parsed HTTP request qualifies.
+  bool get replayable => detail != null && !domainOnly && !stream && !websocketFlow &&
+      (request['protocol'] as String? ?? '').startsWith('HTTP/');
+
   /// cURL export needs the whole request and cannot express trailers.
-  bool get replayable => detail != null && !domainOnly && !stream && request['bodyComplete'] == true &&
+  bool get exportable => detail != null && !domainOnly && !stream && request['bodyComplete'] == true &&
       (request['protocol'] as String? ?? '').startsWith('HTTP/') &&
       request['bodyTruncated'] != true && request['headersTruncated'] != true &&
       rows(request['trailers']).isEmpty && request['trailersTruncated'] != true;
@@ -483,6 +499,11 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
     ]);
   }
 
+  Future<void> _replay(_Capture capture) async {
+    final id = await openPage<String>(context, RequestReplayPage(id: widget.id!, request: capture.request));
+    if (id != null && mounted) openPage(context, RequestDetailPage(id: id));
+  }
+
   Widget _captureDetail(BoxController box, _Capture capture, Object? error, VoidCallback refresh) {
     final loaded = capture.detail != null;
     final connectionId = capture.connectionId, linked = connectionId.isNotEmpty;
@@ -492,7 +513,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
       IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr('Copy URL'),
         onPressed: loaded ? () => _copy(capture.request['url']?.toString() ?? '') : null),
       if (!capture.stream) IconButtonData(glyph: AppGlyphs.arrowDown, tooltip: context.tr('Export cURL'),
-        onPressed: capture.replayable && !_busy ? _exportCurl : null),
+        onPressed: capture.exportable && !_busy ? _exportCurl : null),
     ], menuItems: [
       if (linked) _partItem('Connection'),
       if (!capture.domainOnly) ...[
@@ -501,6 +522,8 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
           _partItem(part, label: capture.rawTCP ? _directionLabel(part == 'Response' ? 'server' : 'client') : null,
             section: part == 'Request' ? PopupMenuSection(title: context.tr('Message type')) : null),
       ],
+      if (capture.replayable) PopupMenuItem(glyph: AppGlyphs.send, label: context.tr('Replay request'),
+        onPressed: !_busy && box.running && !box.transitioning ? () => _replay(capture) : null),
       if (capture.streamId.isNotEmpty) PopupMenuItem(glyph: AppGlyphs.arrowUp, label: context.tr('Inject message'),
         onPressed: !_busy && box.running && !box.transitioning && capture.streamActive ? () => openPage(context,
           StreamInjectionPage(streamId: capture.streamId, websocket: capture.websocketFlow,
