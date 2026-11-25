@@ -21,6 +21,9 @@ List<int> parseByteInput(String format, String text) {
 String? formatByteInput(String format, List<int> bytes) {
   if (format == 'Base64') return base64.encode(bytes);
   if (format == 'Hex') return bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join(' ');
-  try { return utf8.decode(bytes); }
-  on FormatException { return null; }
+  try {
+    // The decoder drops a leading byte order mark; it is kept so that unedited text still encodes to [bytes].
+    final marked = bytes.length >= 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf;
+    return (marked ? '\u{feff}' : '') + utf8.decode(bytes);
+  } on FormatException { return null; }
 }

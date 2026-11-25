@@ -274,7 +274,7 @@ class HttpRewriteConfigPage extends StatelessWidget {
       ]),
       generateSection(items: [
         for (final (title, key, initial) in sections)
-          ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(title), subtitle: Text('${store.entries([...path, key]).length}'),
+          ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr(title)), subtitle: Text('${store.entries([...path, key]).length}'),
             widget: ConfigListPage(store: store, title: title, path: [...path, key], initial: {'pattern': pattern, 'disabled': true, ...initial},
               showHttpMatchHelp: true)),
       ], footer: context.tr('New example rules are disabled. Edit their pattern and content, then set disabled to false.')),
@@ -686,13 +686,7 @@ class _ConfigListPageState extends State<ConfigListPage> with WidgetsBindingObse
     super.dispose();
   }
 
-  String _label(Json entry, int index) {
-    for (final key in ['name', 'tag', 'action', 'type']) {
-      final value = entry[key]?.toString();
-      if (value != null && value.isNotEmpty) return value;
-    }
-    return '${context.tr(title)} ${index + 1}';
-  }
+  String _label(Json entry, int index) => configEntryName(entry) ?? '${context.tr(title)} ${index + 1}';
 
   Future<void> _run(int index, {required ProfileConfigStore expectedStore, required String expectedRevision,
     required String expectedType, required int expectedEpoch}) async {
@@ -808,7 +802,7 @@ class _ConfigListPageState extends State<ConfigListPage> with WidgetsBindingObse
               return ContextMenuRegion(key: ValueKey('config-entry-$index'), menuItems: menu,
                 child: Card(radius: AppCorner.xl, onPressed: blocked ? null : () => _edit(context, index), child: ListItem(
                 leading: GlyphIcon(type == null ? AppGlyphs.profiles : AppGlyphs.code), title: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: Text(entry['url']?.toString() ?? entry['path']?.toString() ?? entry['server']?.toString() ?? jsonEncode(entry), maxLines: 2, overflow: TextOverflow.ellipsis),
+                subtitle: Text(configEntrySummary(entry), maxLines: 2, overflow: TextOverflow.ellipsis),
                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                   if (running) Padding(padding: const EdgeInsets.only(right: 8),
                     child: ActivityIndicator(key: ValueKey('script-running-$index'), size: 18, semanticLabel: context.tr('Running script'))),
@@ -916,6 +910,18 @@ class _ScriptOutputDialogState extends State<ScriptOutputDialog> {
   }
 }
 
+/// The name a list entry is known by, when it carries one.
+String? configEntryName(Json entry) {
+  for (final key in ['name', 'tag', 'action', 'type']) {
+    final value = entry[key]?.toString();
+    if (value != null && value.isNotEmpty) return value;
+  }
+  return null;
+}
+
+String configEntrySummary(Json entry) =>
+  entry['url']?.toString() ?? entry['path']?.toString() ?? entry['server']?.toString() ?? jsonEncode(entry);
+
 class ConfigOrderPage extends StatefulWidget {
   const ConfigOrderPage({super.key, required this.store, required this.title, required this.path});
   final ProfileConfigStore store;
@@ -953,7 +959,8 @@ class _ConfigOrderPageState extends State<ConfigOrderPage> {
         onReorderItem: (old, next) { if (!_saving) setState(() => _entries.insert(next, _entries.removeAt(old))); },
         itemBuilder: (context, index) => ReorderDragStartListener(key: ObjectKey(_entries[index]), index: index,
           child: ListItem(trailing: SortHandle(index: index),
-            title: Text((_entries[index]['tag'] ?? _entries[index]['action'] ?? '${index + 1}').toString()))),
+            // A position would move with the drag, so an unnamed entry shows its content.
+            title: Text(configEntryName(_entries[index]) ?? configEntrySummary(_entries[index]), maxLines: 2, overflow: TextOverflow.ellipsis))),
       ))),
     ]),
   ));

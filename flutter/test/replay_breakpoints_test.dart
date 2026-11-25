@@ -134,6 +134,7 @@ void main() {
     expect(() => parseByteInput('Base64', '!'), throwsFormatException);
     expect(formatByteInput('Text', [0xc3, 0xa9]), 'é');
     expect(formatByteInput('Text', [0xff]), isNull);
+    expect(parseByteInput('Text', formatByteInput('Text', [0xef, 0xbb, 0xbf, 0x68])!), [0xef, 0xbb, 0xbf, 0x68]);
     expect(formatByteInput('Hex', [0xc3, 0xa9, 0]), 'c3 a9 00');
     expect(formatByteInput('Base64', [0xc3, 0xa9]), 'w6k=');
   });
@@ -363,6 +364,14 @@ void main() {
     await press(tester, 'Continue');
     expect(arguments('capture.breakpoint.resolve'), {'id': 'p1', 'decision': {'action': 'continue'}});
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a held body that starts with a byte order mark continues unchanged', (tester) async {
+    await mount(tester);
+    hold('response', body: '\u{feff}hi');
+    await open(tester, const PausedMessagePage(id: 'p1'));
+    await press(tester, 'Continue');
+    expect(arguments('capture.breakpoint.resolve'), {'id': 'p1', 'decision': {'action': 'continue'}});
   });
 
   testWidgets('a held response validates its status and a streamed body is not editable', (tester) async {
