@@ -333,6 +333,30 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
+2026-11-25 核心与 Prism UI 的 fork 子模块迁移、依赖副本核验及浅克隆维护竞态修正的功能/测试源码 `50d9af3c06188caf421ca80720c7630ee64c2db9` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45519227015) 的全部 8 个作业。核心子模块固定为 `205d9dcbd760d9926a4a2fcd56ab9f8c938fd2a5`，Prism UI 固定为 `4fb95855bd916497a41e5c79ff1c6b156bcbe9a3`；三个上游比较基线保持各自独立，集成方式分别见 [核心说明](libbox.md#基线与集成方式) 和 [界面来源](flclash.md#参考版本与来源清单)。
+
+[核心作业](https://github.com/giturass/B-box/actions/runs/45519227015/job/138886536556) 实际检出上述 fork 提交，通过 `v1.15.0-alpha.13` 的祖先检查和四份依赖副本哈希核验，使用 Go 1.26.10 执行 15 条测试命令，其中 11 条启用 race、全部使用 `-count=1`；17 次包测试执行全部成功。四组抓取与路由 JSON 结果的顶层用例数如下，失败、跳过及数据竞争报告均为 0。
+
+| 核心测试组 | 顶层用例通过 |
+| --- | --- |
+| httpdebug，无 QUIC | 220 |
+| route，无 QUIC | 6 |
+| httpdebug，`with_quic` | 227 |
+| route，`with_quic` | 6 |
+
+[Root CA 作业](https://github.com/giturass/B-box/actions/runs/45519227015/job/138886536586) 的 15 项发布工具、6 项 mount/boot 测试及 ShellCheck 通过。Flutter 分析、交互/布局、ARM64 Debug/Release Flutter AAR 及截图审查结果由 [界面验证记录](flclash.md#当前验证记录) 维护。[Android 作业](https://github.com/giturass/B-box/actions/runs/45519227015/job/138886536392) 完成 x86_64 libbox、Flutter Debug AAR、other/play Kotlin、AIDL 及 [模拟器应用/测试 APK](https://github.com/giturass/B-box/actions/runs/45519227015/artifacts/14979985633) 构建；[JVM 报告](https://github.com/giturass/B-box/actions/runs/45519227015/artifacts/14979881241) 的实际 XML 为 25 个套件、160 个唯一用例，失败、错误和跳过均为 0。
+
+四份 smoke 的实际 SDK、镜像、页大小及采集来源、UI/native 状态已核对。每份原生日志均有 117 个唯一用例严格完成一次 `1→0`，`current` 完整覆盖 1–117，结束为 `OK (117 tests)`，合计 468 次原生测试执行成功。每组 11 次服务创建失败均对应已通过的端口占用或 Wi-Fi 缺权限恢复负例，没有测试外的同类错误；四份界面服务错误日志均为空。
+
+| 环境 | 实际页大小（字节） | 原生 / UI | 报告 |
+| --- | --- | --- | --- |
+| [API 24](https://github.com/giturass/B-box/actions/runs/45519227015/job/138889037235) | 4096（`/proc/self/smaps`） | 117 项通过 / 通过 | [14979578346](https://github.com/giturass/B-box/actions/runs/45519227015/artifacts/14979578346) |
+| [API 31](https://github.com/giturass/B-box/actions/runs/45519227015/job/138889037341) | 4096（`getconf`） | 117 项通过 / 通过 | [14980515612](https://github.com/giturass/B-box/actions/runs/45519227015/artifacts/14980515612) |
+| [API 36 / 4 KiB](https://github.com/giturass/B-box/actions/runs/45519227015/job/138889037386) | 4096（`getconf`） | 117 项通过 / 通过 | [14980880613](https://github.com/giturass/B-box/actions/runs/45519227015/artifacts/14980880613) |
+| [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/45519227015/job/138889037286) | 16384（`getconf`） | 117 项通过 / 通过 | [14980585811](https://github.com/giturass/B-box/actions/runs/45519227015/artifacts/14980585811) |
+
+本轮八份产物的 `workflow_run.head_sha` 和四份 `results.json.sha` 均与上述源码一致。统一测试覆盖 Linux 回归和 x86_64 Android 模拟器，不代表 ARM64 实机、真实网络切换、Root CA 模块安装/重启、第三方应用 MITM 或性能容量已验收。本机只执行源码约束、来源哈希、差异和文档链接检查；后续验证记录提交仅更新文档，功能及测试源码保持与 `50d9af3` 一致，下列记录仅适用于各自列出的此前源码 SHA。
+
 2026-11-25 HTTP/3、raw TCP 和 WebSocket 的功能/测试源码 `91817739955a803e8bd1b1fcd319c51a143bc4a5` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45485042264) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[核心作业](https://github.com/giturass/B-box/actions/runs/45485042264/job/138768120786) 使用固定核心 `824dbcfb4dd0a95921840b1737b950cde590241e` 和 Go 1.26.10，实际执行 15 条 Go 测试命令，其中 11 条启用 race，全部使用 `-count=1`；17 次包测试执行全部通过，没有失败、跳过或数据竞争报告。四组抓取与路由结果按顶层用例统计如下，子测试不重复计入顶层数量。
 
 | 核心测试组 | 顶层用例通过 | 实际覆盖 |

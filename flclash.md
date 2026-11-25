@@ -281,6 +281,12 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 
 ### 当前验证记录
 
+2026-11-25 核心与 Prism UI 的 fork 子模块迁移功能/测试源码 `50d9af3c06188caf421ca80720c7630ee64c2db9` 已通过 [统一测试运行](https://github.com/giturass/B-box/actions/runs/45519227015) 中的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45519227015/job/138886536753)。作业实际检出 Prism UI `4fb95855bd916497a41e5c79ff1c6b156bcbe9a3`，来源/许可约束检查通过；分析为 155 项 info、0 warning/error，937 项应用与 Prism 测试全部成功，没有失败或跳过；ARM64 Debug/Release Flutter AAR 均构建成功。已从 GitHub API 核对运行、作业及 [AAR 产物](https://github.com/giturass/B-box/actions/runs/45519227015/artifacts/14977804418)、[截图产物](https://github.com/giturass/B-box/actions/runs/45519227015/artifacts/14980045835) 均关联上述源码 SHA，并重新下载 Flutter 日志和截图 ZIP，后者 SHA-256 与 GitHub 的 artifact digest 一致。
+
+本次截图产物包含 292 张 PNG；实际逐张查看与下方 `9181773` 记录同名的十九张 `build/screenshots/requests/` 原图：四张 TCP/WebSocket 双向消息详情、十二张注入控件/草稿/等待状态和三张独立 MITM/脚本设置。与 [前轮截图产物](https://github.com/giturass/B-box/actions/runs/45485042264/artifacts/14964367368) 比较，十五张 SHA-256 完全一致；四张 `injection-{websocket,tcp}-{320-1.8-dark,800-1.0-light}-pending.png` 的差异仅限顶部进度环的动画相位，其余像素一致。消息方向、正文与切换入口可读，窄屏长值省略及工具栏渐变显露与前轮相同，多行草稿和等待时取消/进度可见，宽屏弹层内容完整入视口；本次没有扩大既有视觉覆盖。
+
+这十九张仍为采用英文、SDK Roboto、JetBrainsMono 和 Android 桥接替身的 Linux widget 截图，未覆盖中文、系统键盘、全部滚动位置、完整动画、真实远程数据、真实 Android HTTP/3/WebSocket 流量及 ARM64 实机视觉，也没有与上游逐像素一致的验收结论。核心、JVM、Android smoke 及签名 Release 的实际结果与边界由 [应用验证记录](app.md#当前验证记录) 维护。本机仅执行差异与文档静态检查并读取 Actions 元数据、日志及原图，未编译或运行动态测试；验证记录补记不改变上述功能/测试源码。下列既有记录只适用于各自列出的此前 SHA。
+
 2026-11-25 HTTP/3、raw TCP 和 WebSocket 的功能/测试源码 `91817739955a803e8bd1b1fcd319c51a143bc4a5` 已通过 [统一测试运行](https://github.com/giturass/B-box/actions/runs/45485042264) 中的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45485042264/job/138768120173)：分析为 155 项 info、0 warning/error，937 项测试全部成功；日志确认 ARM64 Debug/Release Flutter AAR 均构建成功。[AAR 产物](https://github.com/giturass/B-box/actions/runs/45485042264/artifacts/14962609088) 与 [截图产物](https://github.com/giturass/B-box/actions/runs/45485042264/artifacts/14964367368) 的 `workflow_run.head_sha` 均已核对与该源码一致。核心、JVM 与 Android smoke 的实际结果及边界由 [应用验证记录](app.md#当前验证记录) 维护。
 
 实际逐张查看该次产物 `build/screenshots/requests/` 中的十九张原图：四张 TCP/WebSocket 双向消息详情、十二张注入控件/草稿/等待状态和三张独立 MITM/脚本设置。下表文件名中的花括号表示已经逐张查看的全部组合。
