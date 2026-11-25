@@ -355,7 +355,11 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 | [API 36 / 4 KiB](https://github.com/giturass/B-box/actions/runs/45519227015/job/138889037386) | 4096（`getconf`） | 117 项通过 / 通过 | [14980880613](https://github.com/giturass/B-box/actions/runs/45519227015/artifacts/14980880613) |
 | [API 36 / 16 KiB](https://github.com/giturass/B-box/actions/runs/45519227015/job/138889037286) | 16384（`getconf`） | 117 项通过 / 通过 | [14980585811](https://github.com/giturass/B-box/actions/runs/45519227015/artifacts/14980585811) |
 
-本轮八份产物的 `workflow_run.head_sha` 和四份 `results.json.sha` 均与上述源码一致。统一测试覆盖 Linux 回归和 x86_64 Android 模拟器，不代表 ARM64 实机、真实网络切换、Root CA 模块安装/重启、第三方应用 MITM 或性能容量已验收。本机只执行源码约束、来源哈希、差异和文档链接检查；后续验证记录提交仅更新文档，功能及测试源码保持与 `50d9af3` 一致，下列记录仅适用于各自列出的此前源码 SHA。
+同一源码的 [ARM64 签名 Release 运行](https://github.com/giturass/B-box/actions/runs/45531839417) 使用 `publish_release=false`，核心、Flutter 和应用三个作业全部通过；两份 AAR 均来自本次运行，实际检出的子模块 SHA 与上述指针一致。[应用作业](https://github.com/giturass/B-box/actions/runs/45531839417/job/138930217559) 使用既有签名密钥、保留 R8 构建，并通过最低 API 24、ARM64、安装身份/版本、启动入口、MITM assets 和 APK v2 签名校验，生成更新元数据；发布步骤跳过，签名密钥清理成功。该工作流不运行测试，测试结论来自上面的统一工作流。
+
+已下载并静态核对 [APK 与更新元数据产物](https://github.com/giturass/B-box/actions/runs/45531839417/artifacts/14984189485)：ZIP SHA-256 与 GitHub artifact digest 一致，APK 只包含 `arm64-v8a` 原生库；元数据的安装身份 `io.ericlee.bfa`、应用版本 `1.0.1` / `749`、文件名 `B-box-1.0.1-arm64-v8a.apk` 均符合版本文件。APK 实际大小为 49,579,027 字节，SHA-256 为 `9cdde41a0fb381fb79717a18468eb356ae1de8499b97b46559db73195be64b51`，与元数据一致。三个 Release 产物的 `workflow_run.head_sha` 均为 `50d9af3`。
+
+统一测试的八份产物的 `workflow_run.head_sha` 和四份 `results.json.sha` 均与上述源码一致。统一测试覆盖 Linux 回归和 x86_64 Android 模拟器，不代表 ARM64 实机、真实网络切换、Root CA 模块安装/重启、第三方应用 MITM 或性能容量已验收。本机只执行源码约束、来源哈希、差异、文档链接及产物静态检查；后续验证记录提交仅更新文档，功能及测试源码保持与 `50d9af3` 一致，下列记录仅适用于各自列出的此前源码 SHA。
 
 2026-11-25 HTTP/3、raw TCP 和 WebSocket 的功能/测试源码 `91817739955a803e8bd1b1fcd319c51a143bc4a5` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45485042264) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。[核心作业](https://github.com/giturass/B-box/actions/runs/45485042264/job/138768120786) 使用固定核心 `824dbcfb4dd0a95921840b1737b950cde590241e` 和 Go 1.26.10，实际执行 15 条 Go 测试命令，其中 11 条启用 race，全部使用 `-count=1`；17 次包测试执行全部通过，没有失败、跳过或数据竞争报告。四组抓取与路由结果按顶层用例统计如下，子测试不重复计入顶层数量。
 
