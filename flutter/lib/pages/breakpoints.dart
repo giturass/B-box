@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/services.dart' show TextInputAction;
 
 import '../widgets.dart';
 import '../common/byte_input.dart';

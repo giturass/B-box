@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:b_box_ui/main.dart';
 import 'package:b_box_ui/widgets.dart';
 import 'package:b_box_ui/common/byte_input.dart';
