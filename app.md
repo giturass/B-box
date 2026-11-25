@@ -335,6 +335,10 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
+2026-11-25 请求重放、HTTP 断点及正文查看器拆分的功能/测试源码 `1aa3875b462b1c8e2e381647a71704cc486ef100` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45621358974) 的全部 8 个作业，核心子模块固定为 `94b69093d2867435035188df8e439f6f0d033a0a`。[核心作业](https://github.com/giturass/B-box/actions/runs/45621358974/job/139230069229) 中 `experimental/httpdebug` 在无 QUIC 与 `with_quic` 两次 race 运行里，`TestReplay*` 2 项和 `TestBreakpoint*` 6 项均通过；`TestUICaptureReplay*` 由 libbox 的 `^TestUI` 步骤及 race 步骤的筛选覆盖，这两步未输出逐用例结果，仅确认包测试成功且没有数据竞争报告。[Android 作业](https://github.com/giturass/B-box/actions/runs/45621358974/job/139230068867) 的 `testOtherDebugUnitTest`（含 [CaptureInjectTasksTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/CaptureInjectTasksTest.kt) 的重放用例）与 Debug APK 构建成功；API 24/31/36 及 36 的 16 KB 页 smoke 作业全部成功，但仪器测试没有重放或断点用例。Flutter 结果见 [界面验证记录](flclash.md#当前验证记录)。
+
+未覆盖：真实 Android 流量下的重放与断点、断点桥接方法的 JVM 用例、ARM64 实机及签名 Release 的功能验收。本机仅执行 `git diff --check`、`python3 tools/verify_newui.py` 并读取 Actions 元数据与日志，未编译或运行动态测试。下列既有记录只适用于各自列出的此前 SHA。
+
 2026-11-25 核心与 Prism UI 的 fork 子模块迁移、依赖副本核验及浅克隆维护竞态修正的功能/测试源码 `50d9af3c06188caf421ca80720c7630ee64c2db9` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45519227015) 的全部 8 个作业。核心子模块固定为 `205d9dcbd760d9926a4a2fcd56ab9f8c938fd2a5`，Prism UI 固定为 `4fb95855bd916497a41e5c79ff1c6b156bcbe9a3`；三个上游比较基线保持各自独立，集成方式分别见 [核心说明](libbox.md#基线与集成方式) 和 [界面来源](flclash.md#参考版本与来源清单)。
 
 [核心作业](https://github.com/giturass/B-box/actions/runs/45519227015/job/138886536556) 实际检出上述 fork 提交，通过 `v1.15.0-alpha.13` 的祖先检查和四份依赖副本哈希核验，使用 Go 1.26.10 执行 15 条测试命令，其中 11 条启用 race、全部使用 `-count=1`；17 次包测试执行全部成功。四组抓取与路由 JSON 结果的顶层用例数如下，失败、跳过及数据竞争报告均为 0。
