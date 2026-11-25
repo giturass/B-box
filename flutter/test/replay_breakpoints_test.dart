@@ -72,7 +72,8 @@ void main() {
   }
 
   Future<void> open(WidgetTester tester, Widget page) async {
-    openPage(tester.element(find.byType(HomePage)), page);
+    // An earlier page leaves the home page offstage.
+    openPage(tester.element(find.byType(HomePage, skipOffstage: false)), page);
     await tester.pumpAndSettle();
   }
 
@@ -310,7 +311,11 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('breakpoint-rule-0')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Delete').hitTestable());
+    // The last row starts below the edge of the sheet.
+    final delete = find.byKey(const ValueKey('breakpoint-delete'));
+    await tester.dragUntilVisible(delete, find.byKey(const ValueKey('breakpoint-rule-enabled')), const Offset(0, -100));
+    await tester.pumpAndSettle();
+    await tester.tap(delete);
     await tester.pumpAndSettle();
     expect(arguments('capture.breakpoints.set'), {'config': {'enabled': false, 'rules': []}});
     expect(find.text('No breakpoint rules'), findsOneWidget);
