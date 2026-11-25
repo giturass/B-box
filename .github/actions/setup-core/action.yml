@@ -23,6 +23,11 @@ runs:
       shell: bash
       env:
         CORE_VERSION: ${{ steps.versions.outputs.version }}
+        # Each fetch would otherwise start detached auto-maintenance, whose
+        # repack rewrites the shallow file while the next fetch updates it.
+        GIT_CONFIG_COUNT: '1'
+        GIT_CONFIG_KEY_0: maintenance.auto
+        GIT_CONFIG_VALUE_0: 'false'
       run: |
         git submodule update --init --depth 1 core
         git -C core fetch --no-tags --depth 256 origin "$(git -C core rev-parse HEAD)"
