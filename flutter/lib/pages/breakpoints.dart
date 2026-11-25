@@ -183,7 +183,8 @@ class _PausedMessagePageState extends State<PausedMessagePage> {
   @override void didChangeDependencies() {
     super.didChangeDependencies();
     _session ??= context.box.sessionRevision;
-    if (!_requested) { _requested = true; _load(context.box); }
+    // Held messages belong to the local service; a remote session is never asked for one.
+    if (!_requested && !context.box.remote) { _requested = true; _load(context.box); }
   }
 
   @override void dispose() {
