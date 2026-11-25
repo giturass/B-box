@@ -39,6 +39,34 @@ class CaptureInjectTasksTest {
         fun release() = gate.countDown()
     }
 
+    private class Replay(
+        private val gate: CountDownLatch = CountDownLatch(0),
+        private val afterSend: () -> Unit = {},
+    ) : CaptureReplayNative {
+        val entered = CompletableDeferred<Unit>()
+        val closes = AtomicInteger()
+        var arguments: List<String>? = null
+
+        override fun replay(id: String, optionsJSON: String): String {
+            arguments = listOf(id, optionsJSON)
+            entered.complete(Unit)
+            check(gate.await(5, TimeUnit.SECONDS)) { "Native replay was not released" }
+            afterSend()
+            return "{\"id\":\"next\",\"status\":200}"
+        }
+
+        override fun close() {
+            closes.incrementAndGet()
+            gate.countDown()
+        }
+    }
+
+    private fun replays(native: Replay, generation: AtomicLong = AtomicLong(1)) = CaptureReplayTasks(
+        localSession = generation::get,
+        checkSession = { check(it == generation.get()) { "Local command session changed" } },
+        createTask = { native },
+    )
+
     private fun tasks(native: Native, generation: AtomicLong = AtomicLong(1)) = CaptureInjectTasks(
         localSession = generation::get,
         checkSession = { check(it == generation.get()) { "Local command session changed" } },
@@ -152,11 +180,14 @@ class CaptureInjectTasksTest {
         })
         val native = Native(CountDownLatch(1))
         val injections = tasks(native)
-        val tasks = CaptureTasks(bodies, injections)
+        val replay = Replay(CountDownLatch(1))
+        val replays = replays(replay)
+        val tasks = CaptureTasks(bodies, injections, replays)
         try {
             val read = async(Dispatchers.Default) { bodies.read("reader", "record", false, 0, false) }
             val injection = async(Dispatchers.Default) { injections.inject("write", "stream", "server", 2, "AAH/") }
-            withTimeout(5_000) { readEntered.await(); native.entered.await() }
+            val resend = async(Dispatchers.Default) { replays.replay("resend", "record", "{}") }
+            withTimeout(5_000) { readEntered.await(); native.entered.await(); replay.entered.await() }
             var clears = 0
             tasks.clearRecords { clears++ }
             withTimeout(5_000) { read.join() }
@@ -166,9 +197,53 @@ class CaptureInjectTasksTest {
             assertFalse(injection.isCompleted)
             assertFalse(injection.isCancelled)
             assertEquals(0, native.closes.get())
+            assertFalse(resend.isCompleted)
+            assertEquals(0, replay.closes.get())
             native.release()
             assertTrue(withTimeout(5_000) { injection.await() })
             assertEquals(1, native.closes.get())
+            tasks.cancelAll()
+            withTimeout(5_000) { resend.join() }
+            assertTrue(resend.isCancelled)
+            assertEquals(1, replay.closes.get())
         } finally { tasks.close() }
+    }
+
+    @Test fun replayReturnsTheNativeResultAndClosesItsTaskOnce() = runBlocking {
+        val replay = Replay()
+        val tasks = replays(replay)
+        assertEquals("{\"id\":\"next\",\"status\":200}", tasks.replay("first", "record", "{\"method\":\"POST\"}"))
+        assertEquals(listOf("record", "{\"method\":\"POST\"}"), replay.arguments)
+        assertEquals(1, replay.closes.get())
+        assertFalse(tasks.cancel("first"))
+        assertTrue(runCatching { tasks.replay("blank", " ", "{}") }.exceptionOrNull() is IllegalArgumentException)
+        tasks.close()
+        assertTrue(runCatching { tasks.replay("closed", "record", "{}") }.exceptionOrNull() is IllegalStateException)
+        assertEquals(1, replay.closes.get())
+    }
+
+    @Test fun cancellingAReplayClosesTheBlockedNativeSendAndReportsCancellation() = runBlocking {
+        val replay = Replay(CountDownLatch(1))
+        val tasks = replays(replay)
+        try {
+            val running = async(Dispatchers.Default) { tasks.replay("slow", "record", "{}") }
+            withTimeout(5_000) { replay.entered.await() }
+            assertTrue(runCatching { tasks.replay("slow", "record", "{}") }.exceptionOrNull() is IllegalArgumentException)
+            assertTrue(tasks.cancel("slow"))
+            withTimeout(5_000) { running.join() }
+            assertTrue(running.isCancelled)
+            assertEquals(1, replay.closes.get())
+        } finally { tasks.close() }
+    }
+
+    @Test fun replayFinishedAfterASessionChangeIsNotReportedToTheNewSession() = runBlocking {
+        val generation = AtomicLong(1)
+        val replay = Replay(afterSend = { generation.incrementAndGet() })
+        val tasks = replays(replay, generation)
+        val failure = runCatching { tasks.replay("session", "record", "{}") }.exceptionOrNull()
+        assertTrue(failure is IllegalStateException)
+        assertEquals("Local command session changed", failure?.message)
+        assertEquals(1, replay.closes.get())
+        tasks.close()
     }
 }

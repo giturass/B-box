@@ -33,7 +33,8 @@ internal class BoxCapture(private val activity: BoxHost) : Closeable {
     private val certificate = MitmCertificate(activity)
     private val bodyReaders = CaptureBodyReaders(File(activity.cacheDir, "capture-body-views"))
     private val injectTasks = CaptureInjectTasks()
-    private val captureTasks = CaptureTasks(bodyReaders, injectTasks)
+    private val replayTasks = CaptureReplayTasks()
+    private val captureTasks = CaptureTasks(bodyReaders, injectTasks, replayTasks)
 
     private companion object {
         val mutex = Mutex()
@@ -50,7 +51,10 @@ internal class BoxCapture(private val activity: BoxHost) : Closeable {
             bodyReaders.closeReader(args["readerId"] as? String ?: error("Missing body reader ID"))
         }
         if (method == "capture.inject.cancel") return injectTasks.cancel(args["requestId"] as? String ?: error("Missing injection request ID"))
+        if (method == "capture.replay.cancel") return replayTasks.cancel(args["requestId"] as? String ?: error("Missing replay request ID"))
         requireLocal()
+        if (method == "capture.replay") return replay(args)
+        if (method.startsWith("capture.breakpoint")) return breakpoints(method, args)
         if (method == "capture.inject") {
             val opcode = args["opcode"]?.let { raw ->
                 val value = raw as? Number ?: error("Invalid stream message opcode")
@@ -173,6 +177,46 @@ internal class BoxCapture(private val activity: BoxHost) : Closeable {
             return jsonObject(JSONObject(value))
         } finally {
             if (!args.containsKey("readerId")) withContext(NonCancellable + Dispatchers.IO) { bodyReaders.closeReader(readerId) }
+        }
+    }
+
+    /** The record is read from the saved history; the send belongs to the running service instance. */
+    private suspend fun replay(args: Map<String, Any?>): Any? {
+        val id = args["id"] as? String ?: error("Missing request ID")
+        val options = args["options"]?.let { it as? Map<*, *> ?: error("Invalid replay options") } ?: emptyMap<Any?, Any?>()
+        require(activity.serviceStatus.value == Status.Started) { "Start the local service before replaying a request" }
+        val session = CommandTarget.localSession()
+        withContext(Dispatchers.IO) {
+            CommandTarget.requireLocalSession(session)
+            Libbox.openUICapture(captures.absolutePath)
+            CommandTarget.requireLocalSession(session)
+        }
+        return jsonObject(JSONObject(replayTasks.replay(
+            args["requestId"] as? String ?: UUID.randomUUID().toString(), id, JSONObject(options).toString())))
+    }
+
+    /** Rules and held messages are process state of the local core; nothing here is saved. */
+    private suspend fun breakpoints(method: String, args: Map<String, Any?>): Any? {
+        val session = CommandTarget.localSession()
+        return withContext(Dispatchers.IO) {
+            CommandTarget.requireLocalSession(session)
+            val result: Any? = when (method) {
+                "capture.breakpoints" -> jsonObject(JSONObject(Libbox.readUICaptureBreakpoints()))
+                "capture.breakpoints.set" -> {
+                    val config = args["config"] as? Map<*, *> ?: error("Missing breakpoint settings")
+                    jsonObject(JSONObject(Libbox.setUICaptureBreakpoints(JSONObject(config).toString())))
+                }
+                "capture.breakpoint.detail" -> jsonObject(JSONObject(
+                    Libbox.readUICapturePausedMessage(args["id"] as? String ?: error("Missing paused message ID"))))
+                "capture.breakpoint.resolve" -> {
+                    val decision = args["decision"] as? Map<*, *> ?: error("Missing breakpoint decision")
+                    Libbox.resolveUICaptureBreakpoint(args["id"] as? String ?: error("Missing paused message ID"), JSONObject(decision).toString())
+                    true
+                }
+                else -> error("Unknown breakpoint operation")
+            }
+            CommandTarget.requireLocalSession(session)
+            result
         }
     }
 
