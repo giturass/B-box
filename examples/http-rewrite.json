@@ -103,18 +103,8 @@
           "regex": "old-result",
           "replacement": "new-result"
         },
-        {
-          "name": "Request JSON",
-          "pattern": "^https?://api\\.example\\.test/json$",
-          "phase": "request",
-          "jq": ".debug = true"
-        },
-        {
-          "name": "Response JSON",
-          "pattern": "^https?://api\\.example\\.test/json$",
-          "phase": "response",
-          "jq": "del(.debug) | .source = \"B-box\""
-        },
+        "http-request-jq ^https?://api\\.example\\.test/json$ '.debug = true'",
+        "http-response-jq ^https?://api\\.example\\.test/json$ 'del(.debug) | .source = \"B-box\"'",
         {
           "name": "Lookaround and internal backreference",
           "pattern": "^https?://api\\.example\\.test/echo$",

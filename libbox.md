@@ -373,6 +373,28 @@ HTTPS MITM 需准备并安装 CA，入口见 [配置编辑](flclash.md#配置页
 
 该对象放入 `experimental.http_rewrite.body_rewrite`。条件主体的固定 FlClash 设计参考由 [来源说明](flclash.md#参考版本与来源清单) 维护；上述结构化 `match` 是 B-box 的 JSON 接口。
 
+#### Surge 行写法
+
+`url_rewrite`、`header_rewrite`、`body_rewrite` 和 `map_local` 的每一项可以是上述对象，也可以是一行字符串，语法为 Surge 对应段落的一行，由 [surge_line.go](https://github.com/giturass/sing-box/blob/b-box/experimental/httpdebug/surge_line.go) 解析；格式化和保存时原样保留该行。行内无法表达 `name`、`match` 和 `disabled`，需要它们时使用对象。同一列表内两种写法可以混用，顺序即执行顺序。
+
+| 列表 | 行语法 | 依据 |
+| --- | --- | --- |
+| `url_rewrite` | `<正则> <替换> [header\|302\|307\|reject]`，省略类型为 `header`；`reject` 的替换值写 `-` | [URL Rewrite](https://manual.nssurge.com/http/url-rewrite.html) |
+| `header_rewrite` | `[http-request\|http-response] <URL 正则> header-add\|header-del\|header-replace\|header-replace-regex <头名> [值] [模板]`，省略阶段为请求；值取到行尾 | [Header Rewrite](https://manual.nssurge.com/http/header-rewrite.html) |
+| `body_rewrite` | `http-request\|http-response <URL 正则> <正则> <替换> [<正则> <替换>…]`，多组按顺序执行；`http-request-jq\|http-response-jq <URL 正则> '<jq 表达式>'` | [Body Rewrite](https://manual.nssurge.com/http/body-rewrite.html) |
+| `map_local` | `<URL 正则> data-type=text\|base64\|tiny-gif\|file data="…" status-code=200 header="a:b\|c:d" update-interval=秒`，省略 `data-type` 为 `file` | [Map Local](https://manual.nssurge.com/http/map-local.html) |
+
+jq 行是 JSON 正文规则的推荐写法：
+
+```json
+"body_rewrite": [
+  "http-response-jq ^https?://api\\.example\\.test/json$ 'del(.debug) | .source = \"B-box\"'"
+]
+```
+
+表达式外层的一对单引号被去除，jq 自身没有单引号字符串；双引号不去除。正文正则行按空白分段，正则或替换值含空格时使用对象写法。Map Local 的引号值结束于下一个已知参数名之前或行尾的引号；`header` 不含冒号时按 Base64 的头部文本解码。对象的 `update_interval` 与行内 `update-interval` 等价，只用于文件和 URL 数据，Surge 的 `-1` 不支持。对象写法的 `jq` 字段继续有效。
+
+
 [正则实现](https://github.com/giturass/sing-box/blob/b-box/experimental/httpdebug/rewrite_regex.go) 对普通表达式使用 Go RE2，对扩展语法回退 regexp2，支持正向/负向前查找 `(?=…)`/`(?!…)`、正向/负向后查找 `(?<=…)`/`(?<!…)`，以及正则内部数字和命名反向引用。替换模板保留 `$1`、`${name}`、`$$`，中文和 emoji 按字节位置正确切片；正文 `^`/`$` 按行匹配，索引按实际捕获组数量分配。表达式、捕获组、替换次数、回溯栈和并发不设 B-box 配额；输出遵守用户正文限额。回溯执行持续检查当前请求取消，每次调用使用独立 runner 缓存，不修改共享表达式的期限；不支持从右向左模式。
 
 | 能力 / 字段 | 规则内容及行为 |
@@ -380,7 +402,7 @@ HTTPS MITM 需准备并安装 CA，入口见 [配置编辑](flclash.md#配置页
 | Header Rewrite / `header_rewrite` | `phase`: request/response；`operation`: add、delete、replace、replace_regex；指定 `header`，普通操作用 `value`，正则用 `regex`/`replacement`。add 保留重复字段；replace 仅替换已存在字段，新增或覆盖可依次 delete/add。请求 Host 仅允许 replace/replace_regex |
 | URL Rewrite / `url_rewrite` | `action`: header 透明改写并更新 Host，302/307 返回重定向，reject 返回 403；`reject-200` 返回 200 空正文，`reject-dict` 返回 200 和 `{}`（application/json），用于迁移模块时保留空响应语义，不改变已有 reject。`replacement` 为绝对 HTTP(S) URL 模板，header 另支持 `ws://`，保留原 Upgrade 头并使用 HTTP 传输。302/307 支持 `{{{GATEWAY_ADDRESS}}}`，取运行中核心默认接口的真实网关，IPv6 加方括号，无网关时跳过。首条命中处理，展开后非法目标丢弃并保留当前目标 |
 | Map Remote / `map_remote` | `replacement` 为绝对 HTTP(S) URL，默认更新 Host，`preserve_host: true` 保留 Host；首条命中生效。与 URL header 同时匹配时决定最终目标 |
-| Body Rewrite / `body_rewrite` | `phase`、`pattern`/`match`，使用正文 `regex`/`replacement` 或 `jq`，二者互斥；匹配规则依次执行 |
+| Body Rewrite / `body_rewrite` | `phase`、`pattern`/`match`，使用正文 `regex`/`replacement` 或 `jq`，二者互斥；匹配规则依次执行。JSON 规则推荐写成 [jq 行](#surge-行写法) |
 | Map Local / `map_local` | 首条匹配返回本地响应，`status` 默认 200，接受 200～999；`headers` 为 `{name,value}` 数组；`data_type` 支持 text、base64、tiny-gif、file，`data` 为内容或路径/URL；可用 `resource` 引用资源，与 data/data_type 互斥。为兼容已有 B-box JSON，省略类型仍按 text 处理 |
 
 [jq](https://github.com/giturass/sing-box/blob/b-box/experimental/httpdebug/rewrite_json.go) 支持请求和响应的完整 JSON 值、保留大整数，多个输出值以换行连接。非法 JSON/表达式、执行失败、取消或超过用户输出限额时跳过该规则并告警；无输出（如 `empty`）保持原文。表达式、输出值数量和输出嵌套不设 B-box 配额，执行使用当前请求的 context；无外部模块、文件、输入和环境变量加载器。gojq 与原版 jq 并非逐项完全等价。
@@ -655,6 +677,7 @@ MITM 与 TLS：
 
 - [rewrite_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/httpdebug/rewrite_test.go)：配置校验、改写管线与记录内容、HTTPS 离线 Mock 及停止记录后继续处理、映射地址拨号与 TLS 校验、超限和流式响应保持原样、脚本隔离/二进制/错误、正文上限与 HTTP 分帧、Upgrade 保留协议并跳过正文、替换与分组，以及跨目标改写保留原始连接 ID。
 - [rewrite_match_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/httpdebug/rewrite_match_test.go)：嵌套 all/any、方法/状态/重复及空头/Host 条件、同 URL 候选及顶层捕获、所有改写和 HTTP 脚本的原报文快照、未命中不读正文、短路/取消/并发隔离、HTTP/1 与 HTTP/2 离线 Mock，以及非法条件与请求阶段响应条件拒绝。
+- [surge_line_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/httpdebug/surge_line_test.go)：四类 Surge 行的解析与原样保存、对象与行混用、畸形行拒绝，以及多组正文替换的执行顺序。
 - [surge_rewrite_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/httpdebug/surge_rewrite_test.go)：四种前后查找、数字/命名反向引用及 Unicode 替换位置，原生正则的取消与并发使用，URL 候选、WebSocket、网关重定向和非法目标，jq 正文规则及失败时保留原报文，jq 先于脚本执行，正文大小缺省值与非标准 Mock 状态码。
 - [surge_compatibility_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/httpdebug/surge_compatibility_test.go)：空正文与参数缺省、会话信息、`$utils.ungzip` 的子视图/失败/预留释放、调试备注、空响应快捷动作，以及 HTTP/1 和 HTTP/2 的脚本 abort；HTTP/2 中核对后续请求仍复用连接。
 - [surge_resources_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/httpdebug/surge_resources_test.go)：内嵌资源的内容类型，配置校验不加载文件或下载资源，Map Local 读取配置目录内文件并拒绝目录逃逸、FIFO 等非普通文件，URL 资源缓存、并发去重和离线重载，远程脚本自动刷新并保留上次可用版本，本地脚本的 `debug` 重载及加载失败时透传上游，刷新随服务停止。
