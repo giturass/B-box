@@ -248,6 +248,7 @@ void main() {
     await open(tester, ScriptsConfigPage(store: store));
     await capture(tester, 'independent-scripts-cron');
     final list = find.descendant(of: find.byType(ScriptsConfigPage), matching: find.byType(ListView)).first;
+    expect(find.descendant(of: list, matching: find.byType(ListFooter)), findsNothing);
     expect(tester.getTopLeft(list).dy, greaterThanOrEqualTo(tester.getBottomLeft(find.text('Scripts')).dy));
     expect(find.byKey(const ValueKey('cron-scripts')), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -570,6 +571,10 @@ void main() {
     addTearDown(store.dispose);
     await store.load();
     await open(tester, MitmHostsEditor(store: store));
+    expect(find.descendant(of: find.byType(MitmHostsEditor), matching: find.byType(ListFooter)), findsNothing);
+    final input = tester.widget<TextField>(find.byKey(const ValueKey('mitm-domain-input')));
+    expect(input.decoration?.hintText, isNull);
+    expect(input.controller!.text, '-private.test\n*api?.test:8443\nexisting.test');
     await tester.tap(find.text('Add captured domains')); await tester.pumpAndSettle();
     expect(find.byType(CaptureDomainsPage), findsOneWidget);
     await tester.tap(find.text('pinned.test')); await tester.pumpAndSettle();

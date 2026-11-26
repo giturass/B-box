@@ -381,11 +381,10 @@ class _MitmHostsEditorState extends State<MitmHostsEditor> {
   }
   @override Widget build(BuildContext context) => BoxEditGuard(dirty: _dirty, busy: _busy, child: FormPage(
     title: 'Decryption domains', saving: _busy, error: _error, onSave: _save, children: [
-      ListFooter(text: context.tr('Supports * and ? wildcards, - exclusions and :port (:0 for all ports). First match wins; put exclusions first. Leave empty to decrypt nothing.')),
-      TextField(key: const ValueKey('mitm-domain-input'), controller: _hosts, minLines: 4, maxLines: 8, readOnly: _busy,
-        autocorrect: false, enableSuggestions: false, keyboardType: TextInputType.multiline,
-        decoration: const InputDecoration(hintText: '-private.example.com\n*.example.com\napi.example.net:8443'),
-        onChanged: (_) => setState(() => _dirty = true)),
+      Semantics(label: context.tr('Decryption domains'),
+        child: TextField(key: const ValueKey('mitm-domain-input'), controller: _hosts, minLines: 4, maxLines: 8, readOnly: _busy,
+          autocorrect: false, enableSuggestions: false, keyboardType: TextInputType.multiline,
+          onChanged: (_) => setState(() => _dirty = true))),
       ListItem(key: const ValueKey('add-https-hosts'), title: Text(context.tr('Add captured domains')), onTap: _busy ? null : () async {
         final selected = await openPage<List<String>>(context, const CaptureDomainsPage(select: true));
         if (selected != null && selected.isNotEmpty && mounted) setState(() { _hosts.text = {..._lines(), ...selected}.join('\n'); _dirty = true; });
@@ -401,8 +400,7 @@ class ScriptsConfigPage extends StatelessWidget {
   @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) {
     final revision = store.revision;
     if (context.box.remote) return const BoxPage(title: 'Scripts', children: [EmptyState('Disconnect remote session to edit local profiles')]);
-    return ProcessingConfigScaffold(title: 'Scripts', store: store, children: [
-      ListFooter(text: context.tr('HTTP, stream, cron, event and generic scripts run independently of HTTP rewriting. Encrypted traffic uses the MITM domain settings.')),
+    return ProcessingConfigScaffold(title: 'Scripts', store: store, showProfileName: false, children: [
       generateSection(items: [
         ListItem.toggle(key: const ValueKey('scripts-enabled'), title: Text(context.tr('Enable scripts')),
           value: store.value([...path, 'enabled']) == true,
@@ -437,17 +435,14 @@ class ScriptsConfigPage extends StatelessWidget {
             'name': 'Generic script', 'disabled': true, 'timeout_ms': 5000,
             'source': r'$done({title: "B-box", content: "Script completed"});',
           })),
-      ], footer: context.tr('Cron accepts five fields, or six with seconds first. The default timezone follows the device when the service starts.')),
-      ListFooter(text: context.tr('Cron runs while the local service is running. Missed intervals are not replayed.')),
-      ListFooter(text: context.tr('Events: network-changed for network changes, engine-started for engine startup, and profile-reloaded after configuration reload. Generic scripts run only on request.')),
-      ListFooter(text: context.tr('Save and enable a cron, event or generic script, then use Run script in its menu. The selected local profile must be running. MITM is not required.')),
+      ]),
       generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Script resources')),
           widget: ProcessingResourcesPage(store: store, section: 'scripts')),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit script options')),
           widget: ConfigValueEditor(title: 'Scripts', initial: store.value(path) ?? const {'enabled': false},
             onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
-      ], footer: context.tr('New example rules are disabled. Edit their pattern and content, then set disabled to false.')),
+      ]),
     ]);
   });
 }
