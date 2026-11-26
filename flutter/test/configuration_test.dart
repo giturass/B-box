@@ -19,6 +19,25 @@ void main() {
     expect(() => decodeConfigJson('// b-box-local-nodes: [1]\n$source'), throwsFormatException);
   });
 
+  test('rewrite lists keep Surge rule lines beside objects', () async {
+    const channel = MethodChannel('test.config-lines');
+    const line = r"http-response-jq ^https?://api\.example\.test/json$ '.debug = true'";
+    final content = jsonEncode({'experimental': {'http_rewrite': {'body_rewrite': [line, {'pattern': 'p', 'phase': 'response', 'jq': '.'}]}}});
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async =>
+      call.method == 'profiles.config' ? {'content': content, 'formatted': content, 'revision': 'revision-1', 'stats': {}} : null);
+    final box = BoxController(channel: channel, events: const Stream.empty());
+    final store = ProfileConfigStore(box, {'id': 7});
+    addTearDown(() { store.dispose(); box.dispose(); messenger.setMockMethodCallHandler(channel, null); });
+    await store.load();
+    final items = store.items(['experimental', 'http_rewrite', 'body_rewrite']);
+    expect(items, [line, {'pattern': 'p', 'phase': 'response', 'jq': '.'}]);
+    expect(configEntryName(items.first), isNull);
+    expect(configEntrySummary(items.first), line);
+    expect(configEntrySummary(items.last), jsonEncode(items.last));
+    expect(store.items(['experimental', 'missing']), isEmpty);
+  });
+
   test('config changes retain unrelated sing-box fields and rejected writes retain the loaded config', () async {
     const channel = MethodChannel('test.config-store');
     final original = <String, dynamic>{

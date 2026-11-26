@@ -178,6 +178,20 @@ XHTTP 与 VLESS Encryption 使用现有节点链接、订阅及 sing-box JSON �
 
 MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、HTTP/3、服务器证书校验、“解密TCP”和 QUIC 回退设置；证书入口独立于配置加载。页面顶部不显示配置名或解密说明，TCP 和 QUIC 开关仅显示标题。域名入口只显示标题，完整域名及排除项在二级编辑器查看和修改，保留输入顺序及通配符、端口后缀，新增抓取域名追加在列表末尾。端口、应用等额外筛选通过同页 JSON 编辑入口修改，见 [MITM 配置](libbox.md#独立-mitm-配置)。HTTP 改写页面依次显示 URL Rewrite、Header Rewrite、Body Rewrite（含 jq）、Map Local / API Mock、Map Remote，下方提供资源及完整 JSON 编辑入口；脚本独立编辑启用状态、HTTP、Stream、Cron、事件、Generic 和资源。改写规则和 HTTP 脚本的 JSON 表单提供复合匹配字段说明及可选中的示例，条件由原生完整配置校验，不在界面重复实现语义校验。脚本及改写资源页提供“导入本地资源”、已有资源的 JSON 编辑及整个资源字典编辑；导入期间禁用重复提交，取消保留原配置，成功后显示可供规则引用的资源名，失败显示原因。文件位置、修订检查和备份边界见 [Android 导入流程](app.md#配置处理生命周期)。复合匹配、前后查找/反向引用、URL 资源及独立正文限额通过 JSON 表单配置，字段及运行行为见 [libbox.md](libbox.md#json-配置中的-http-改写)。新建规则/任务示例默认禁用。
 
+#### Surge 模块导入
+
+HTTP 改写的四个列表（URL、Header、Body、Map Local）中，条目可以是 JSON 对象或一行 [Surge 写法](libbox.md#surge-行写法)。列表页保留行条目的原文：标题沿用序号，摘要显示该行，编辑器以 JSON 字符串显示，删除和排序不改动其他条目；Map Remote、脚本及其他列表仍只接受对象。
+
+HTTP 改写页的“导入 Surge 模块”打开 [粘贴表单](flutter/lib/pages/configuration.dart)，由 [surge_module.dart](flutter/lib/common/surge_module.dart) 在界面内解析 `.sgmodule` 文本，依据 Surge [Module](https://manual.nssurge.com/profile/module.html) 与 [Scripting](https://manual.nssurge.com/scripting/overview.html)：
+
+- `#!name`、`#!desc` 显示在摘要中；`#!arguments` 声明的参数各有一个输入框，默认值预填，`{{{名称}}}` 在导入前替换。
+- `[MITM]` 的 `hostname` 合并到 `experimental.mitm.hosts`：`%INSERT%` 放在最前，`%APPEND%` 和不带操作符的写法追加到末尾。导入是一次性合并而非可撤销的覆盖层，因此不带操作符时不替换已有域名；`[MITM]` 的其他键不导入。
+- `[URL Rewrite]`、`[Header Rewrite]`、`[Body Rewrite]`、`[Map Local]` 的每一行原样加到对应列表最前，由核心在保存校验时解析。
+- `[Script]` 的 `http-request`/`http-response`、`cron`、`event`、`generic` 转为 `experimental.scripts` 下的对象，支持现行写法和旧写法；`timeout` 由秒换算为毫秒，`engine`、`wake-system` 忽略。`rule`、`dns`、`notification` 事件、缺少 `script-path`/`pattern`/`cronexp` 的行不导入。
+- 其他段落不导入；摘要列出各类数量及未导入项。
+
+已存在的相同条目不重复添加，MITM、HTTP 改写和脚本的开关不改变。保存携带打开表单时的修订并经核心校验，核心不支持的行使整次导入失败并保留输入。只支持粘贴文本，不提供 URL 安装、模块开关或自动更新；脚本的远程 `script-path` 由核心按 [资源加载](libbox.md#文件和-url-资源加载) 处理。解析和合并由 [surge_module_test.dart](flutter/test/surge_module_test.dart) 覆盖，粘贴表单没有 widget 测试。
+
 字段修改通过 ProfileConfigStore.set，本地资源导入通过独立桥接；二者均保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
 
 Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事件表单可选择网络变化、引擎启动及配置重载。运行要求当前配置已在本地服务中成功生效、脚本及任务已启用，编辑/保存/加载或原生应用配置期间禁用；HTTP 规则仍由实际请求触发。任务按原数组下标及修订发送，允许同名和未命名条目，运行中显示进度并提供“取消脚本运行”，等待该次请求退出后才允许重试。结果通过共享 Prism 弹层显示可选中、可复制的任务名、错误、结果和 console 文本，字符串及 panel 的 title/content 可读显示，空值显示“无输出”，长文本置于有界滚动区。

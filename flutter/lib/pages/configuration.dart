@@ -7,6 +7,7 @@ import 'profile_editor.dart' show JsonEditorController;
 import 'mitm_certificate.dart';
 import 'capture_domains.dart';
 import '../components/form.dart';
+import '../common/surge_module.dart';
 
 const configEncoder = JsonEncoder.withIndent('  ');
 
@@ -71,6 +72,11 @@ class ProfileConfigStore extends ChangeNotifier {
   }
 
   List<Json> entries(List<String> path) => rows(value(path));
+  /// List items as written: an HTTP rewrite list may hold Surge lines beside objects.
+  List<Object?> items(List<String> path) => switch (value(path)) {
+    final List list => [for (final item in list) item is String ? item : json(item)],
+    _ => [],
+  };
   List<String> tags(List<String> path) => entries(path).map((entry) => entry['tag']).whereType<String>().toList();
 
   bool isScriptRunning(String type, int index) => _runningScripts.containsKey((type, index));
@@ -274,19 +280,107 @@ class HttpRewriteConfigPage extends StatelessWidget {
       ]),
       generateSection(items: [
         for (final (title, key, initial) in sections)
-          ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr(title)), subtitle: Text('${store.entries([...path, key]).length}'),
+          ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr(title)), subtitle: Text('${store.items([...path, key]).length}'),
             widget: ConfigListPage(store: store, title: title, path: [...path, key], initial: {'pattern': pattern, 'disabled': true, ...initial},
-              showHttpMatchHelp: true)),
+              showHttpMatchHelp: true, allowLines: key != 'map_remote')),
       ], footer: context.tr('New example rules are disabled. Edit their pattern and content, then set disabled to false.')),
       generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Rewrite resources')),
           widget: ProcessingResourcesPage(store: store, section: 'http_rewrite')),
+        ListItem.open(key: const ValueKey('import-surge-module'), leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Import Surge module')),
+          widget: SurgeModulePage(store: store)),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit HTTP rewrite options')),
           widget: ConfigValueEditor(title: 'HTTP rewriting', initial: store.value(path) ?? const {'enabled': false},
             onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
       ]),
     ])));
   });
+}
+
+/// Merges a pasted Surge module into the profile once. Unlike a Surge module
+/// it is not a removable overlay: the imported entries become profile content.
+class SurgeModulePage extends StatefulWidget {
+  const SurgeModulePage({super.key, required this.store});
+  final ProfileConfigStore store;
+  @override State<SurgeModulePage> createState() => _SurgeModulePageState();
+}
+class _SurgeModulePageState extends State<SurgeModulePage> {
+  final _text = TextEditingController();
+  final _values = <String, TextEditingController>{};
+  late final String _revision;
+  bool _saving = false;
+  String? _error;
+
+  @override void initState() {
+    super.initState();
+    _revision = widget.store.revision;
+    _text.addListener(_changed);
+  }
+
+  void _changed() {
+    final declared = parseSurgeModule(_text.text).arguments;
+    for (final name in _values.keys.toList()) {
+      if (!declared.containsKey(name)) _values.remove(name)!.dispose();
+    }
+    declared.forEach((name, fallback) => _values.putIfAbsent(name, () => TextEditingController(text: fallback)..addListener(_refresh)));
+    _refresh();
+  }
+
+  void _refresh() { if (mounted) setState(() {}); }
+
+  SurgeModule get _module => parseSurgeModule(_text.text, values: {for (final entry in _values.entries) entry.key: entry.value.text});
+
+  Future<void> _import() async {
+    final module = _module;
+    if (module.isEmpty) {
+      setState(() => _error = context.tr('Nothing in this module can be imported'));
+      return;
+    }
+    setState(() { _saving = true; _error = null; });
+    try {
+      final store = widget.store;
+      final saved = await store.set(['experimental'], applySurgeModule(store.value(['experimental']), module),
+        expectedRevision: _revision, rethrowFailure: true);
+      if (mounted && saved) context.safeNestedPop();
+    } catch (failure) { if (mounted) setState(() => _error = BoxController.describe(failure)); }
+    finally { if (mounted) setState(() => _saving = false); }
+  }
+
+  @override void dispose() {
+    _text.dispose();
+    for (final controller in _values.values) { controller.dispose(); }
+    super.dispose();
+  }
+
+  @override Widget build(BuildContext context) {
+    final module = _module;
+    const mono = TextStyle(fontFamily: 'JetBrainsMono', fontSize: 13, height: 1.6);
+    final summary = [
+      if (module.name.isNotEmpty) module.name,
+      if (module.description.isNotEmpty) module.description,
+      '${context.tr('Decryption domains')}: ${module.hostCount}',
+      for (final (title, key) in const [('URL Rewrite', 'url_rewrite'), ('Header Rewrite', 'header_rewrite'), ('Body Rewrite', 'body_rewrite'), ('Map Local / API Mock', 'map_local')])
+        '${context.tr(title)}: ${module.rewrites[key]!.length}',
+      '${context.tr('Scripts')}: ${module.scriptCount}',
+      if (module.skipped.isNotEmpty) '${context.tr('Not imported')}: ${module.skipped.join(', ')}',
+    ].join('\n');
+    return BoxEditGuard(dirty: _text.text.isNotEmpty, busy: _saving, child: BoxPage(title: 'Import Surge module', loading: _saving,
+      confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'), onPressed: _saving ? null : _import),
+      children: [
+        if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: SelectableText(_error!, style: TextStyle(color: context.colorScheme.error))),
+        BoxField(label: context.tr('Module'), borderRadius: AppRadius.md,
+          child: TextField(key: const ValueKey('surge-module-text'), controller: _text, readOnly: _saving, maxLines: 14, minLines: 6,
+            autocorrect: false, enableSuggestions: false, smartDashesType: SmartDashesType.disabled, smartQuotesType: SmartQuotesType.disabled,
+            textAlignVertical: TextAlignVertical.top, style: mono)),
+        for (final entry in _values.entries)
+          Padding(padding: const EdgeInsets.only(top: 12), child: BoxField(label: entry.key,
+            child: TextField(key: ValueKey('surge-module-argument-${entry.key}'), controller: entry.value, readOnly: _saving,
+              autocorrect: false, enableSuggestions: false, style: mono))),
+        if (_text.text.trim().isNotEmpty)
+          Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 0), child: SelectableText(summary, key: const ValueKey('surge-module-summary'))),
+        ListFooter(text: context.tr('Paste the text of a .sgmodule file. Its MITM hostnames, rewrite lines and scripts are added above the existing entries of this profile; the switches for MITM, HTTP rewriting and scripts stay as they are. Other sections are not imported.')),
+      ]));
+  }
 }
 
 class MitmPage extends StatelessWidget {
@@ -580,11 +674,13 @@ class LogConfigPage extends StatelessWidget {
 
 class ConfigListPage extends StatefulWidget {
   const ConfigListPage({super.key, required this.store, required this.title, required this.path, required this.initial,
-    this.showHttpMatchHelp = false, this.showStreamScriptHelp = false, this.scriptType});
+    this.showHttpMatchHelp = false, this.showStreamScriptHelp = false, this.scriptType, this.allowLines = false});
   final ProfileConfigStore store;
   final String title;
   final List<String> path;
   final Json initial;
+  /// Items may also be a Surge rule line, kept as a JSON string.
+  final bool allowLines;
   final bool showHttpMatchHelp;
   final bool showStreamScriptHelp;
   final String? scriptType;
@@ -688,7 +784,7 @@ class _ConfigListPageState extends State<ConfigListPage> with WidgetsBindingObse
     super.dispose();
   }
 
-  String _label(Json entry, int index) => configEntryName(entry) ?? '${context.tr(title)} ${index + 1}';
+  String _label(Object? entry, int index) => configEntryName(entry) ?? '${context.tr(title)} ${index + 1}';
 
   Future<void> _run(int index, {required ProfileConfigStore expectedStore, required String expectedRevision,
     required String expectedType, required int expectedEpoch}) async {
@@ -733,10 +829,10 @@ class _ConfigListPageState extends State<ConfigListPage> with WidgetsBindingObse
   }
 
   Future<void> _edit(BuildContext context, [int? index]) async {
-    final entries = List<Json>.of(store.entries(path));
+    final entries = store.items(path);
     final revision = store.revision;
     final value = index == null ? Map<String, dynamic>.of(widget.initial) : entries[index];
-    if (index == null && value['tag'] is String) {
+    if (index == null && value is Json && value['tag'] is String) {
       final base = value['tag'] as String, tags = store.tags(path).toSet();
       var suffix = 2;
       while (tags.contains(value['tag'])) { value['tag'] = '$base-${suffix++}'; }
@@ -747,9 +843,10 @@ class _ConfigListPageState extends State<ConfigListPage> with WidgetsBindingObse
       await openForm(context, ConfigValueEditor(title: index == null ? 'Add' : 'Edit', initial: value,
         showHttpMatchHelp: widget.showHttpMatchHelp, showStreamScriptHelp: widget.showStreamScriptHelp,
         scriptType: widget.scriptType, onSave: (value) async {
-        if (value is! Map) throw const FormatException('JSON object required');
-        final next = List<Json>.of(entries);
-        if (index == null) next.add(json(value)); else next[index] = json(value);
+        final line = widget.allowLines && value is String && value.trim().isNotEmpty;
+        if (value is! Map && !line) throw FormatException(widget.allowLines ? 'JSON object or rule line required' : 'JSON object required');
+        final next = List<Object?>.of(entries), item = line ? value : json(value);
+        if (index == null) next.add(item); else next[index] = item;
         return store.set(path, next, expectedRevision: revision, rethrowFailure: true);
       }));
     } finally { if (mounted) setState(() => _editing = false); }
@@ -764,7 +861,7 @@ class _ConfigListPageState extends State<ConfigListPage> with WidgetsBindingObse
 
   @override Widget build(BuildContext context) {
     if (context.box.remote) return BoxPage(title: title, children: const [EmptyState('Disconnect remote session to edit local profiles')]);
-    final entries = store.entries(path);
+    final entries = store.items(path);
     final blocked = !store.ready || store.saving || store.loading || _editing;
     return PopScope(onPopInvokedWithResult: (didPop, _) {
       if (didPop) { _visible = false; _invalidateRuns(); }
@@ -796,7 +893,7 @@ class _ConfigListPageState extends State<ConfigListPage> with WidgetsBindingObse
                 PopupMenuItem(glyph: AppGlyphs.delete, label: context.tr('Delete'), danger: true, onPressed: blocked ? null : () async {
                   _invalidateRuns();
                   if (await confirm(context, 'Delete', message: label.toString())) {
-                    final next = List<Json>.of(entries)..removeAt(index);
+                    final next = List<Object?>.of(entries)..removeAt(index);
                     await store.set(path, next, expectedRevision: revision);
                   }
                 }),
@@ -913,7 +1010,8 @@ class _ScriptOutputDialogState extends State<ScriptOutputDialog> {
 }
 
 /// The name a list entry is known by, when it carries one.
-String? configEntryName(Json entry) {
+String? configEntryName(Object? entry) {
+  if (entry is! Map) return null;
   for (final key in ['name', 'tag', 'action', 'type']) {
     final value = entry[key]?.toString();
     if (value != null && value.isNotEmpty) return value;
@@ -921,7 +1019,7 @@ String? configEntryName(Json entry) {
   return null;
 }
 
-String configEntrySummary(Json entry) =>
+String configEntrySummary(Object? entry) => entry is! Map ? '$entry' :
   entry['url']?.toString() ?? entry['path']?.toString() ?? entry['server']?.toString() ?? jsonEncode(entry);
 
 class ConfigOrderPage extends StatefulWidget {
@@ -932,22 +1030,24 @@ class ConfigOrderPage extends StatefulWidget {
   @override State<ConfigOrderPage> createState() => _ConfigOrderPageState();
 }
 class _ConfigOrderPageState extends State<ConfigOrderPage> {
-  late final List<Json> _entries;
+  // Each row has its own identity, so two equal rule lines keep distinct keys.
+  late final List<List<Object?>> _entries;
   late final String _original, _revision;
+  List<Object?> get _values => [for (final entry in _entries) entry.single];
   bool _saving = false;
   String? _error;
   @override void initState() {
     super.initState();
-    _entries = List<Json>.of(widget.store.entries(widget.path));
-    _original = jsonEncode(_entries);
+    _entries = [for (final item in widget.store.items(widget.path)) [item]];
+    _original = jsonEncode(_values);
     _revision = widget.store.revision;
   }
-  @override Widget build(BuildContext context) => BoxEditGuard(dirty: jsonEncode(_entries) != _original, busy: _saving,
+  @override Widget build(BuildContext context) => BoxEditGuard(dirty: jsonEncode(_values) != _original, busy: _saving,
     child: Scaffold(title: context.tr('Reorder'), isLoading: _saving,
     confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'), onPressed: _saving ? null : () async {
       setState(() => _saving = true);
       try {
-        final saved = await widget.store.set(widget.path, _entries, expectedRevision: _revision, rethrowFailure: true);
+        final saved = await widget.store.set(widget.path, _values, expectedRevision: _revision, rethrowFailure: true);
         if (mounted && saved) context.safeNestedPop();
       } catch (failure) { if (mounted) setState(() => _error = BoxController.describe(failure)); }
       finally { if (mounted) setState(() => _saving = false); }
@@ -962,7 +1062,7 @@ class _ConfigOrderPageState extends State<ConfigOrderPage> {
         itemBuilder: (context, index) => ReorderDragStartListener(key: ObjectKey(_entries[index]), index: index,
           child: ListItem(trailing: SortHandle(index: index),
             // A position would move with the drag, so an unnamed entry shows its content.
-            title: Text(configEntryName(_entries[index]) ?? configEntrySummary(_entries[index]), maxLines: 2, overflow: TextOverflow.ellipsis))),
+            title: Text(configEntryName(_entries[index].single) ?? configEntrySummary(_entries[index].single), maxLines: 2, overflow: TextOverflow.ellipsis))),
       ))),
     ]),
   ));
