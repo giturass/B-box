@@ -22,6 +22,11 @@ bool _messageChanged(Json before, Json after) =>
   capturedHeader(rows(before['headers']), 'content-type') != capturedHeader(rows(after['headers']), 'content-type') ||
   capturedHeader(rows(before['headers']), 'grpc-encoding') != capturedHeader(rows(after['headers']), 'grpc-encoding');
 
+const _pageFields = ['text', 'encoding', 'source', 'offset', 'nextOffset', 'hasMore', 'truncated', 'error', 'charset', 'displayText'];
+
+/// A Dart-side failure keeps its untranslated message; a bridge failure is described as it arrived.
+String _failureText(Object failure) => failure is FormatException ? failure.message : BoxController.describe(failure);
+
 bool _healthyPage(Json page, CapturedBodyContent content) => content.error == null &&
   page['source'] != 'raw' && page['truncated'] != true && (page['error']?.toString() ?? '').isEmpty;
 
@@ -97,6 +102,15 @@ class CapturedBodyReader extends ChangeNotifier {
   bool? _bodyComplete, _bodyTruncated;
   bool _pageCurrent = true;
 
+  // The detail's first page as last classified beside a later shown page, and what it was read from.
+  List<Object?>? _previewKey;
+  CapturedBodyContent? _previewContent;
+  // The text forms derived from the pages, kept while those pages stay the same.
+  Json? _derivedTextPage;
+  String _derivedTextValue = '';
+  CapturedBodyContent? _base64Content;
+  String _base64Value = '';
+
   // The complete-file format recognised from the first page, and the snapshot that named it.
   String? _automaticFormat;
   Json _formatMessage = {};
@@ -114,11 +128,12 @@ class CapturedBodyReader extends ChangeNotifier {
   Json get message => _message;
   CapturedBodyContent get content => _content;
   String get contentType => _contentType;
+  /// The last failure: an untranslated key from this reader, or the bridge's own text.
+  String? get error => _error;
   /// The original page as the bridge returned it: text, or Base64 of its bytes.
   String get pageText => _text;
   int get offset => _offsetOf(_page);
   bool get loading => _loading;
-  String? get error => _error;
   bool get formatted => _formatted;
   /// Whether results and actions still belong to a visible body of the session it was opened in.
   bool get current => !_disposed && _visible && _sessionCurrent;
@@ -200,8 +215,36 @@ class CapturedBodyReader extends ChangeNotifier {
   bool get canRetryView => _failedDerivedFormat != null && _nativeFormat == _failedDerivedFormat;
 
   String get shownText => view == CapturedBodyView.base64 ?
-    (_page['encoding'] == 'base64' ? _text : base64Encode(_content.bytes)) : usingDerived && _derivedPage != null
-      ? _derivedText(_derivedPage!) : _formatted ? _pretty ?? _content.text : _content.text;
+    (_page['encoding'] == 'base64' ? _text : _pageBase64) : usingDerived && _derivedPage != null
+      ? _shownDerivedText(_derivedPage!) : _formatted ? _pretty ?? _content.text : _content.text;
+
+  String get _pageBase64 {
+    if (!identical(_base64Content, _content)) {
+      _base64Value = base64Encode(_content.bytes);
+      _base64Content = _content;
+    }
+    return _base64Value;
+  }
+
+  String _shownDerivedText(Json page) {
+    if (!identical(_derivedTextPage, page)) {
+      _derivedTextValue = _derivedText(page);
+      _derivedTextPage = page;
+    }
+    return _derivedTextValue;
+  }
+
+  /// Classifies the detail's first page only when it or the metadata it is read with changed.
+  CapturedBodyContent _readPreview(Json preview, Json snapshot) {
+    final merged = {..._message, ...snapshot}, headers = rows(merged['headers']);
+    final key = [for (final field in _pageFields) preview[field], merged['bodyComplete'], merged['bodyTruncated'],
+      capturedHeader(headers, 'content-type'), capturedHeader(headers, 'grpc-encoding')];
+    if (_previewContent == null || !listEquals(key, _previewKey)) {
+      _previewContent = readCapturedBody(_message, {...preview, 'message': snapshot});
+      _previewKey = key;
+    }
+    return _previewContent!;
+  }
 
   String get contentLabel => switch (usingDerived ? _nativeViewFormat :
       _nativeFormat != _failedDerivedFormat ? _nativeFormat : null) {
@@ -257,7 +300,7 @@ class CapturedBodyReader extends ChangeNotifier {
     final replace = offset == 0 && !_loading && (sourceMatches || recovered != null) && freshPreview;
     _update(replace ? recovered ?? {...preview, 'message': snapshot} : _page, message: latest);
     if (!replace && preview.isNotEmpty && !_messageBehind(snapshot, _message)) {
-      _rememberFormat(preview, readCapturedBody(_message, {...preview, 'message': snapshot}));
+      _rememberFormat(preview, _readPreview(preview, snapshot));
     }
     // Metadata is live on every page. Only the current last page needs to be
     // reread when a stream grows; its offset and previous-page history stay.
@@ -352,8 +395,7 @@ class CapturedBodyReader extends ChangeNotifier {
     final grpcEncoding = capturedHeader(rows(_message['headers']), 'grpc-encoding');
     final same = _page.isNotEmpty && contentType == _contentType && grpcEncoding == _grpcEncoding &&
       _message['bodyComplete'] == _bodyComplete && _message['bodyTruncated'] == _bodyTruncated && pageCurrent == _pageCurrent &&
-      ['text', 'encoding', 'source', 'offset', 'nextOffset', 'hasMore', 'truncated', 'error', 'charset', 'displayText']
-        .every((field) => page[field] == _page[field]);
+      _pageFields.every((field) => page[field] == _page[field]);
     _page = {...page, 'message': Map<String, dynamic>.of(snapshot)};
     _pageCurrent = pageCurrent;
     if (same) {
@@ -483,7 +525,7 @@ class CapturedBodyReader extends ChangeNotifier {
       });
       if (move != _PageMove.refresh) onReplaced();
     } catch (failure) {
-      if (current && generation == _generation) _change(() => _error = BoxController.describe(failure));
+      if (current && generation == _generation) _change(() => _error = _failureText(failure));
     } finally {
       if (!_disposed && generation == _generation) {
         _change(() => _loading = false);
@@ -530,7 +572,7 @@ class CapturedBodyReader extends ChangeNotifier {
     } catch (failure) {
       if (current && generation == _generation) {
         _change(() {
-          _error = BoxController.describe(failure);
+          _error = _failureText(failure);
           _failedDerivedFormat = format;
         });
       }

@@ -142,7 +142,8 @@ class ErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) => EmptyState(
     'Error',
-    message: BoxController.describe(error),
+    // A failure raised in Dart carries an untranslated key; EmptyState translates either text.
+    message: switch (error) { FormatException(:final message) => message, _ => BoxController.describe(error) },
     action: retry == null ? null : FilledButton(onPressed: retry, child: Text(context.tr('Retry'))),
   );
 }

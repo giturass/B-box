@@ -775,6 +775,28 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('typed injection content keeps its bytes when its format changes', (tester) async {
+    await mount(tester);
+    await open(tester, const StreamInjectionPage(streamId: 'stream-convert', websocket: false));
+    final content = find.byKey(const ValueKey('inject-content'));
+    String typed() => tester.widget<TextField>(content).controller!.text;
+    await tester.ensureVisible(content);
+    await tester.enterText(content, 'hi');
+    await tester.pumpAndSettle();
+    await chooseInjectionOption(tester, 'inject-format', 'Hex');
+    expect(typed(), '68 69');
+    await tester.ensureVisible(content);
+    await tester.enterText(content, '68 ff');
+    await tester.pumpAndSettle();
+    await chooseInjectionOption(tester, 'inject-format', 'Text');
+    expect(find.text('This content is not UTF-8 text'), findsOneWidget);
+    expect(typed(), '68 ff');
+    await chooseInjectionOption(tester, 'inject-format', 'Base64');
+    expect(typed(), 'aP8=');
+    expect(calls.where((call) => call.method == 'capture.inject'), isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('remote sessions cannot open local stream injection', (tester) async {
     await mount(tester, remote: true);
     await open(tester, const StreamInjectionPage(streamId: 'old-local-stream', websocket: true));

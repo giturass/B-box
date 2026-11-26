@@ -70,12 +70,12 @@ class _RequestReplayPageState extends State<RequestReplayPage> {
       final failure = result['error'] as String? ?? '';
       setState(() { _dirty = false; _busy = false; });
       Navigator.pop(context, result['id'] as String?);
-      box.messages.add(failure.isEmpty ? context.tr('Request replayed') : failure);
+      box.messages.add(context.tr(failure.isEmpty ? 'Request replayed' : failure));
     } catch (failure) {
       final cancellation = _cancellations[requestId];
       final cancelled = cancellation != null && await cancellation;
-      if (mounted) setState(() => _error = cancelled ? context.tr('Replay cancelled')
-        : failure is FormatException ? context.tr(failure.message) : BoxController.describe(failure));
+      if (mounted) setState(() => _error = context.tr(cancelled ? 'Replay cancelled'
+        : failure is FormatException ? failure.message : BoxController.describe(failure)));
     } finally {
       _cancellations.remove(requestId);
       if (mounted && _requestId == requestId) setState(() { _busy = false; _requestId = null; });
@@ -97,6 +97,24 @@ class _RequestReplayPageState extends State<RequestReplayPage> {
 
   void _changed(VoidCallback update) => setState(() { update(); _dirty = true; _error = null; });
 
+  // Typing rebuilds the page only when what it shows changes.
+  void _edited() {
+    if (!_dirty || _error != null) setState(() { _dirty = true; _error = null; });
+  }
+
+  /// A typed body keeps its bytes when the way it is written changes; the captured body has no typed form.
+  void _setSource(String source) {
+    if (_busy || source == _source) return;
+    String? text;
+    if (_source != _capturedBody && source != _capturedBody) {
+      try { text = formatByteInput(source, parseByteInput(_source, _body.text)); }
+      on FormatException catch (failure) { setState(() => _error = context.tr(failure.message)); return; }
+      if (text == null) { setState(() => _error = context.tr('This body is not UTF-8 text')); return; }
+    }
+    final converted = text;
+    _changed(() { _source = source; if (converted != null) _body.text = converted; });
+  }
+
   Widget _field(String label, String key, TextEditingController controller, {bool multiline = false}) => Padding(
     padding: const EdgeInsets.only(bottom: 12),
     child: BoxField(label: context.tr(label), borderRadius: AppRadius.md,
@@ -105,7 +123,7 @@ class _RequestReplayPageState extends State<RequestReplayPage> {
         keyboardType: multiline ? TextInputType.multiline : TextInputType.url,
         autocorrect: false, enableSuggestions: false,
         smartDashesType: SmartDashesType.disabled, smartQuotesType: SmartQuotesType.disabled,
-        style: _monospace, onChanged: (_) => _changed(() {}))));
+        style: _monospace, onChanged: (_) => _edited())));
 
   @override Widget build(BuildContext context) {
     final box = context.watchBox(BoxAspect.connections);
@@ -127,7 +145,7 @@ class _RequestReplayPageState extends State<RequestReplayPage> {
         AbsorbPointer(absorbing: _busy, child: generateSection(items: [
           ListItem<String>.options(key: const ValueKey('replay-body-source'), title: Text(context.tr('Body')),
             options: const [_capturedBody, ...byteInputFormats], value: _source,
-            textBuilder: context.tr, onChanged: (value) { if (!_busy) _changed(() => _source = value); }),
+            textBuilder: context.tr, onChanged: _setSource),
         ], footer: context.tr('A replacement body is sent as entered: Content-Length is recalculated and Content-Encoding is removed.'))),
         if (_source != _capturedBody) _field('Replacement body', 'replay-body', _body, multiline: true),
         ListFooter(text: context.tr('The request is sent through the routing of the running service and saved as a new record. '

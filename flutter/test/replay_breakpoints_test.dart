@@ -210,6 +210,30 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('a typed replay body keeps its bytes when its format changes', (tester) async {
+    await mount(tester);
+    await open(tester, RequestReplayPage(id: 'one', request: request));
+    String body() => tester.widget<TextField>(find.byKey(const ValueKey('replay-body'))).controller!.text;
+    await choose(tester, 'replay-body-source', 'Text');
+    await enter(tester, 'replay-body', 'hi');
+    await choose(tester, 'replay-body-source', 'Hex');
+    expect(body(), '68 69');
+    await enter(tester, 'replay-body', '68 ff');
+    await choose(tester, 'replay-body-source', 'Text');
+    expect(find.text('This body is not UTF-8 text'), findsOneWidget);
+    expect(body(), '68 ff');
+    await choose(tester, 'replay-body-source', 'Base64');
+    expect(find.text('This body is not UTF-8 text'), findsNothing);
+    expect(body(), 'aP8=');
+    // The captured body has no typed form, so passing through it leaves what was typed as it is.
+    await choose(tester, 'replay-body-source', 'Captured body');
+    expect(find.byKey(const ValueKey('replay-body')), findsNothing);
+    await choose(tester, 'replay-body-source', 'Hex');
+    expect(body(), 'aP8=');
+    expect(calls.where((call) => call.method == 'capture.replay'), isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('an unchanged replay sends no options and a running one is cancelled by request ID', (tester) async {
     await mount(tester);
     final pending = Completer<dynamic>();

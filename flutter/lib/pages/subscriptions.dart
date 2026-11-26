@@ -92,7 +92,7 @@ class _SubscriptionFormState extends State<SubscriptionForm> {
   late final _url = TextEditingController(text: _initial['url'] as String? ?? '');
   late final _interval = TextEditingController(text: (_initial['interval'] ?? 60).toString());
   late bool _auto = _initial['autoUpdate'] != false;
-  bool _saving = false, _attempted = false, _saved = false;
+  bool _saving = false, _attempted = false, _saved = false, _closed = false;
   bool get _editing => _sourceId != null;
   bool get _dirty => _name.text != (_initial['name'] as String? ?? '') ||
     _url.text != (_initial['url'] as String? ?? '') ||
@@ -139,14 +139,24 @@ class _SubscriptionFormState extends State<SubscriptionForm> {
       if (mounted) {
         if (!_editing) box.messages.add(subscriptionReportMessage(context, json(result), name: _name.text.trim()));
         setState(() => _saved = true);
-        if (ModalRoute.of(context)?.isCurrent != false) context.safeNestedPop(true);
+        _closeSaved();
       }
     } catch (error) { box.report(error); }
     if (mounted) setState(() => _saving = false);
   }
 
+  /// A save that finished under another route closes the form once it is in front again.
+  void _closeSaved() {
+    if (!_saved || _closed || ModalRoute.of(context)?.isCurrent == false) return;
+    _closed = true;
+    context.safeNestedPop(true);
+  }
+
   @override Widget build(BuildContext context) {
     final remote = context.box.remote;
+    if (_saved && !_closed && ModalRoute.of(context)?.isCurrent != false) {
+      WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _closeSaved(); });
+    }
     final issue = _attempted ? _issue : null;
     return BoxEditGuard(dirty: !_saved && _dirty, busy: _saving,
       child: remote ? const BoxPage(title: 'Node subscriptions',

@@ -16,6 +16,21 @@ class _LogsPageState extends State<LogsPage> {
     'info': 4, 'debug': 5, 'trace': 6,
   };
   List<Json>? _paused;
+  // Records keep their identity between updates, so each is lowered once however often the list is filtered.
+  static final _searchText = Expando<String>();
+  List<Json>? _filteredFrom, _filtered;
+  String? _filteredBy;
+
+  /// The records of [source] that match; kept until the list, the words or the level change.
+  List<Json> _filter(List<Json> source, String query, String? defaultLevel) {
+    final by = '$_level\n$defaultLevel\n$query';
+    if (identical(source, _filteredFrom) && by == _filteredBy) return _filtered!;
+    final words = query.split(RegExp(r'\s+'));
+    _filteredFrom = source;
+    _filteredBy = by;
+    return _filtered = source.where((item) => _matchesLevel(item, defaultLevel) &&
+      words.every((_searchText[item] ??= '${item['level']} ${item['message']}'.toLowerCase()).contains)).toList();
+  }
   late final _scroll = ScrollController(initialScrollOffset: double.maxFinite);
   late final _physics = FollowEndScrollPhysics(isFollowing: () => _paused == null);
   @override void dispose() { _keywords.dispose(); _scroll.dispose(); super.dispose(); }
@@ -43,11 +58,7 @@ class _LogsPageState extends State<LogsPage> {
   @override Widget build(BuildContext context) {
     final box = context.watchBox(BoxAspect.logs);
     final query = _keywords.queryWith(_query);
-    final words = query.toLowerCase().trim().split(RegExp(r'\s+'));
-    final logs = (_paused ?? box.logs).where((item) =>
-      _matchesLevel(item, box.defaultLogLevel) &&
-      words.every(([item['level'], item['message']].join(' ').toLowerCase()).contains),
-    ).toList();
+    final logs = _filter(_paused ?? box.logs, query.toLowerCase().trim(), box.defaultLogLevel);
     return BoxDataSubscription(data: BoxData.logs, child: Scaffold(
       title: context.tr('Logs'),
       keywords: _keywords,

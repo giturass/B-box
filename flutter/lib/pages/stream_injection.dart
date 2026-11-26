@@ -61,8 +61,8 @@ class _StreamInjectionPageState extends State<StreamInjectionPage> {
     } catch (failure) {
       final cancellation = _cancellations[requestId];
       final cancelled = cancellation != null && await cancellation;
-      if (mounted) setState(() => _error = cancelled ? context.tr('Injection cancelled')
-        : failure is FormatException ? context.tr(failure.message) : BoxController.describe(failure));
+      if (mounted) setState(() => _error = context.tr(cancelled ? 'Injection cancelled'
+        : failure is FormatException ? failure.message : BoxController.describe(failure)));
     } finally {
       _cancellations.remove(requestId);
       if (mounted && _requestId == requestId) setState(() { _busy = false; _requestId = null; });
@@ -83,6 +83,21 @@ class _StreamInjectionPageState extends State<StreamInjectionPage> {
   }
 
   void _changed(VoidCallback update) => setState(() { update(); _dirty = true; _error = null; });
+
+  // Typing rebuilds the page only when what it shows changes.
+  void _edited() {
+    if (!_dirty || _error != null) setState(() { _dirty = true; _error = null; });
+  }
+
+  /// Typed content keeps its bytes when the way it is written changes.
+  void _setFormat(String format) {
+    if (_busy || format == _format) return;
+    final String? text;
+    try { text = formatByteInput(format, parseByteInput(_format, _content.text)); }
+    on FormatException catch (failure) { setState(() => _error = context.tr(failure.message)); return; }
+    if (text == null) { setState(() => _error = context.tr('This content is not UTF-8 text')); return; }
+    _changed(() { _format = format; _content.text = text; });
+  }
 
   @override Widget build(BuildContext context) {
     final box = context.watchBox(BoxAspect.connections);
@@ -107,7 +122,7 @@ class _StreamInjectionPageState extends State<StreamInjectionPage> {
             onChanged: (value) { if (!_busy) _changed(() => _opcode = value); }),
           ListItem<String>.options(key: const ValueKey('inject-format'), title: Text(context.tr('Content format')),
             options: byteInputFormats, value: _format,
-            textBuilder: context.tr, onChanged: (value) { if (!_busy) _changed(() => _format = value); }),
+            textBuilder: context.tr, onChanged: _setFormat),
         ], footer: context.tr('Client to server sends to the upstream. Server to client sends to the captured application.'))),
         if (widget.websocket) ListFooter(text: context.tr('Cancelling a WebSocket write in progress closes its stream to keep message framing valid.')),
         BoxField(label: context.tr('Message content'), borderRadius: AppRadius.md,
@@ -115,7 +130,7 @@ class _StreamInjectionPageState extends State<StreamInjectionPage> {
             minLines: 6, maxLines: 16, keyboardType: TextInputType.multiline, autocorrect: false, enableSuggestions: false,
             smartDashesType: SmartDashesType.disabled, smartQuotesType: SmartQuotesType.disabled,
             style: const TextStyle(fontFamily: 'JetBrainsMono', fontSize: 13, height: 1.6),
-            onChanged: (_) => _changed(() {}))),
+            onChanged: (_) => _edited())),
       ]));
   }
 }

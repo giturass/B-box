@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/services.dart' show TextInputAction;
 
 import '../widgets.dart';
@@ -13,6 +14,7 @@ class RequestSettingsPage extends StatefulWidget {
 
 class _RequestSettingsPageState extends State<RequestSettingsPage> {
   late final _ports = TextEditingController(text: (widget.initial['ports'] as List? ?? [80, 443, 8080, 8443]).join(', '));
+  // The core reads a limit of 0 as its default of 64 KiB, so that is what an unset limit shows; -1 keeps whole bodies.
   late final _initialBodyLimit = (widget.initial['bodyLimit'] as num? ?? 65536).toInt();
   late final _bodyLimit = TextEditingController(text: (_initialBodyLimit > 0 ? _initialBodyLimit : 65536).toString());
   late bool _completeBodies = widget.initial['bodyLimit'] == -1;
@@ -25,22 +27,26 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
   List<String> _lines(String value) => value.trim().split(RegExp(r'[\s,;]+')).where((item) => item.isNotEmpty).toSet().toList();
 
   Future<void> _save() async {
-    if (_busy || context.box.remote) return;
+    final box = context.box, session = box.sessionRevision;
+    if (_busy || box.remote) return;
     setState(() { _busy = true; _error = null; });
     try {
       final ports = _lines(_ports.text).map((port) => RegExp(r'^\d+$').hasMatch(port) ? int.tryParse(port) : null).toList();
       if (ports.isEmpty || ports.any((port) => port == null || port < 1 || port > 65535)) throw const FormatException('Ports must be between 1 and 65535');
       final bodyLimit = _completeBodies ? -1 : int.tryParse(_bodyLimit.text.trim());
       if (bodyLimit == null || !_completeBodies && bodyLimit < 1) throw const FormatException('Body limit must be a positive number of bytes');
-      await context.box.call('capture.configure', {'revision': widget.source['revision'], 'config': {
+      await box.call('capture.configure', {'revision': widget.source['revision'], 'config': {
         'version': 3, 'packages': _packages, 'ports': ports,
         'bodyLimit': bodyLimit,
         'extractHosts': _extract,
         'rawTCP': _rawTCP,
       }});
-      if (mounted) { setState(() { _dirty = false; _busy = false; }); Navigator.pop(context); }
+      if (!mounted) return;
+      setState(() { _dirty = false; _busy = false; });
+      // The route on top is only known to be this form while the session it was opened in lasts.
+      if (!box.remote && box.sessionRevision == session) Navigator.pop(context);
     } catch (error) {
-      if (mounted) setState(() { _error = error is FormatException ? context.tr(error.message) : BoxController.describe(error); _busy = false; });
+      if (mounted) setState(() { _error = context.tr(error is FormatException ? error.message : BoxController.describe(error)); _busy = false; });
     }
   }
 
@@ -75,8 +81,9 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
       generateSection(title: context.tr('Filters and storage'), items: [
         ListItem(leading: const GlyphIcon(AppGlyphs.appsList), title: Text(context.tr('Capture applications')),
           subtitle: Text(_packages.isEmpty ? context.tr('All applications') : _packages.join(', ')), onTap: () async {
+            final box = context.box, session = box.sessionRevision;
             final selected = await openPage<List<String>>(context, CaptureAppsPage(selected: _packages));
-            if (selected != null && mounted) setState(() { _packages = selected; _dirty = true; });
+            if (selected != null && mounted && !box.remote && box.sessionRevision == session) setState(() { _packages = selected; _dirty = true; });
           }),
         ListItem.toggle(title: Text(context.tr('Save complete bodies')), value: _completeBodies,
           onChanged: (value) => setState(() { _completeBodies = value; _dirty = true; })),
@@ -95,14 +102,16 @@ class CaptureAppsPage extends StatefulWidget {
 }
 
 class _CaptureAppsPageState extends State<CaptureAppsPage> {
-  late final _selected = widget.selected.toSet();
+  late final _initial = widget.selected.toSet(), _selected = widget.selected.toSet();
   Future<List<Json>>? _apps;
   String _query = '';
   @override void didChangeDependencies() {
     super.didChangeDependencies();
-    _apps ??= context.box.call('apps.list', {'system': true, 'refresh': true}).then(rows);
+    if (!context.box.remote) _apps ??= context.box.call('apps.list', {'system': true, 'refresh': true}).then(rows);
   }
-  @override Widget build(BuildContext context) => Scaffold(title: context.tr('Capture applications'),
+  @override Widget build(BuildContext context) => context.box.remote
+    ? const BoxPage(title: 'Capture applications', children: [EmptyState('HTTP debugging is only available for the local service')])
+    : BoxEditGuard(dirty: !setEquals(_selected, _initial), child: Scaffold(title: context.tr('Capture applications'),
     searchState: AppBarSearchState(onSearch: (query) => setState(() => _query = query.toLowerCase())),
     confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Done'), onPressed: () => Navigator.pop(context, _selected.toList()..sort())),
     iconActions: [IconButtonData(glyph: AppGlyphs.clearAll, tooltip: context.tr('All applications'), onPressed: () => setState(_selected.clear))],
@@ -122,5 +131,5 @@ class _CaptureAppsPageState extends State<CaptureAppsPage> {
           return ListItem.checkbox(title: Text(app['name']?.toString() ?? package), subtitle: Text(package), value: _selected.contains(package),
             onChanged: (_) => setState(() { if (!_selected.add(package)) _selected.remove(package); }));
         });
-    }));
+    })));
 }

@@ -12,17 +12,28 @@ class _CaptureDomainsPageState extends State<CaptureDomainsPage> {
   Future<List<String>>? _domains;
   final _selected = <String>{};
   bool _busy = false;
+  int? _session;
 
-  Future<List<String>> _load() => context.box.call('capture.domains', {'query': widget.query}).then((value) {
-    final domains = (value as List? ?? []).cast<String>();
-    // A domain that is no longer listed cannot be unchecked, so it is not kept selected.
-    if (mounted && _selected.any((host) => !domains.contains(host))) setState(() => _selected.retainAll(domains));
-    return domains;
-  });
+  Future<List<String>> _load() {
+    final box = context.box, session = box.sessionRevision;
+    return box.call('capture.domains', {'query': widget.query}).then((value) {
+      final domains = (value as List? ?? []).cast<String>();
+      // A domain that is no longer listed cannot be unchecked, so it is not kept selected.
+      if (mounted && !box.remote && session == box.sessionRevision && _selected.any((host) => !domains.contains(host))) {
+        setState(() => _selected.retainAll(domains));
+      }
+      return domains;
+    });
+  }
 
   @override void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!context.box.remote) _domains ??= _load();
+    final box = context.box;
+    if (box.remote || _session == box.sessionRevision) return;
+    // Another session has its own records; what was listed and selected belongs to the previous one.
+    _session = box.sessionRevision;
+    _selected.clear();
+    _domains = _load();
   }
 
   Future<void> _copy(String text) async {
@@ -43,8 +54,10 @@ class _CaptureDomainsPageState extends State<CaptureDomainsPage> {
         iconActions: [
           IconButtonData(glyph: AppGlyphs.copy, tooltip: context.tr('Copy domains'), onPressed: domains.isEmpty ? null : () => _copy(domains.join('\n'))),
           if (!widget.select) IconButtonData(glyph: AppGlyphs.arrowDown, tooltip: context.tr('Export domains'), onPressed: domains.isEmpty || _busy ? null : () async {
+            final box = context.box;
+            if (box.remote || _session != box.sessionRevision) return;
             setState(() => _busy = true);
-            await context.box.act('capture.export', {'format': 'domains', 'query': widget.query});
+            await box.act('capture.export', {'format': 'domains', 'query': widget.query});
             if (mounted) setState(() => _busy = false);
           }),
           IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Refresh'), onPressed: () => setState(() => _domains = _load())),

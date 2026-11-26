@@ -145,7 +145,10 @@ class _CapturedBodyState extends State<CapturedBody> with AutomaticKeepAliveClie
         Text(context.tr('Body could not be fully decoded.'), style: subtitle),
       if (page['source'] == 'raw') Text(context.tr('Showing saved bytes without decoding.'), style: subtitle),
       if ((page['error'] as String? ?? '').isNotEmpty) Text(page['error'] as String, style: subtitle),
-      if (reader.content.error != null) Text(context.tr('Body data could not be read.'), style: subtitle),
+      if (reader.content.error != null) ...[
+        Text(context.tr('Body data could not be read.'), style: subtitle),
+        Text(context.tr(reader.content.error!), style: caption),
+      ],
       if (message['bodyComplete'] != true) Text(context.tr('Body stream is incomplete'), style: subtitle),
     ];
   }
@@ -195,7 +198,7 @@ class _CapturedBodyState extends State<CapturedBody> with AutomaticKeepAliveClie
         ..._notes(),
         if (readable) _shown(MediaQuery.sizeOf(context).height * .7)
         else SelectableText(reader.pageText, key: const ValueKey('captured-body-text'), style: context.listSubtitleStyle),
-        if (reader.error != null) Text(reader.error!, style: context.listSubtitleStyle),
+        if (reader.error != null) Text(context.tr(reader.error!), style: context.listSubtitleStyle),
         if (reader.opening) Text(context.tr('Loading'), style: context.listCaptionStyle),
         if (reader.canRetryView)
           TextButton(onPressed: reader.loading ? null : reader.retryView, child: Text(context.tr('Retry body view'))),

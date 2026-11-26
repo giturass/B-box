@@ -65,9 +65,10 @@ class _RequestsPageState extends State<RequestsPage> {
       _list.parents(box.connections, includeText: query.trim().isNotEmpty);
 
   Future<void> _act(String method, [Json arguments = const {}]) async {
-    if (_busy || context.box.remote) return;
+    final box = context.box;
+    if (_busy || box.remote) return;
     setState(() => _busy = true);
-    await context.box.act(method, arguments);
+    await box.act(method, arguments);
     if (mounted) setState(() { _busy = false; _revision++; });
   }
 
@@ -95,13 +96,16 @@ class _RequestsPageState extends State<RequestsPage> {
     finally { if (mounted) setState(() { _busy = false; _revision++; }); }
   }
 
-  Future<void> _exportHar(_Activity view) => _act('capture.export', {'format': 'har', 'selection': {
-    'query': view.query, 'filter': view.filter, 'sort': _sort, 'parents': _parents(view.box, view.query),
-  }});
+  Future<void> _exportHar(_Activity view) async {
+    if (view.box.remote || view.session != view.box.sessionRevision) return;
+    await _act('capture.export', {'format': 'har', 'selection': {
+      'query': view.query, 'filter': view.filter, 'sort': _sort, 'parents': _parents(view.box, view.query),
+    }});
+  }
 
   Future<void> _clearCaptures(_Activity view) async {
     if (await confirm(context, 'Clear captured requests?', action: 'Clear') &&
-        mounted && view.session == view.box.sessionRevision) await _act('capture.clear');
+        mounted && !view.box.remote && view.session == view.box.sessionRevision) await _act('capture.clear');
   }
 
   @override Widget build(BuildContext context) {
@@ -412,8 +416,10 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
   }
 
   Future<void> _exportCurl() async {
+    final box = context.box;
+    if (_busy || box.remote || _session != box.sessionRevision) return;
     setState(() => _busy = true);
-    await context.box.act('capture.export', {'format': 'curl', 'id': widget.id});
+    await box.act('capture.export', {'format': 'curl', 'id': widget.id});
     if (mounted) setState(() => _busy = false);
   }
 
@@ -500,8 +506,9 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
   }
 
   Future<void> _replay(_Capture capture) async {
+    final box = context.box;
     final id = await openPage<String>(context, RequestReplayPage(id: widget.id!, request: capture.request));
-    if (id != null && mounted) openPage(context, RequestDetailPage(id: id));
+    if (id != null && mounted && !box.remote && _session == box.sessionRevision) openPage(context, RequestDetailPage(id: id));
   }
 
   Widget _captureDetail(BoxController box, _Capture capture, Object? error, VoidCallback refresh) {

@@ -29,15 +29,18 @@ class _BreakpointsPageState extends State<BreakpointsPage> {
   bool _busy = false;
 
   Future<void> _apply(bool enabled, List<Json> rules) async {
-    if (_busy) return;
+    final box = context.box;
+    if (_busy || box.remote) return;
     setState(() => _busy = true);
-    try { await context.box.act('capture.breakpoints.set', {'config': {'enabled': enabled, 'rules': rules}}); }
+    try { await box.act('capture.breakpoints.set', {'config': {'enabled': enabled, 'rules': rules}}); }
     finally { if (mounted) setState(() { _busy = false; _revision++; }); }
   }
 
   Future<void> _editRule(bool enabled, List<Json> rules, int? index) async {
+    final box = context.box, session = box.sessionRevision;
     final result = await openForm<Json>(context, BreakpointRulePage(rule: index == null ? null : rules[index]));
-    if (result == null || !mounted) return;
+    // The rules that were read belong to the session they were edited in.
+    if (result == null || !mounted || box.remote || box.sessionRevision != session) return;
     final next = [...rules];
     if (result['delete'] == true) { if (index != null) next.removeAt(index); }
     else if (index == null) { next.add(result); }
@@ -195,8 +198,8 @@ class _PausedMessagePageState extends State<PausedMessagePage> {
   Future<void> _load(BoxController box) async {
     try {
       final message = json(await box.call('capture.breakpoint.detail', {'id': widget.id}));
-      if (mounted) setState(() => _show(message));
-    } catch (error) { if (mounted) setState(() => _loadError = error); }
+      if (mounted && !box.remote && _session == box.sessionRevision) setState(() => _show(message));
+    } catch (error) { if (mounted && !box.remote && _session == box.sessionRevision) setState(() => _loadError = error); }
   }
 
   void _show(Json message) {
@@ -252,20 +255,24 @@ class _PausedMessagePageState extends State<PausedMessagePage> {
     if (_busy || _message == null || box.remote || _session != box.sessionRevision) return;
     if (abort && !await confirm(context, 'Abort this exchange',
       message: 'The client connection is closed without a response.', action: 'Abort')) return;
-    if (!mounted) return;
+    // The decision belongs to the session that holds the message, which may have changed while the dialog was open.
+    if (!mounted || _busy || box.remote || _session != box.sessionRevision) return;
     setState(() { _busy = true; _error = null; });
     try {
       await box.call('capture.breakpoint.resolve', {'id': widget.id, 'decision': abort ? {'action': 'abort'} : _decision()});
-      if (!mounted) return;
+      if (!mounted || box.remote || _session != box.sessionRevision) return;
       setState(() => _dirty = false);
       Navigator.pop(context);
       box.messages.add(context.tr(abort ? 'Exchange aborted' : 'Message resumed'));
     } catch (failure) {
-      if (mounted) setState(() => _error = failure is FormatException ? context.tr(failure.message) : BoxController.describe(failure));
+      if (mounted) setState(() => _error = context.tr(failure is FormatException ? failure.message : BoxController.describe(failure)));
     } finally { if (mounted) setState(() => _busy = false); }
   }
 
-  void _changed(VoidCallback update) => setState(() { update(); _dirty = true; _error = null; });
+  // A body of up to 256 KiB is edited here, so typing rebuilds the page only when what it shows changes.
+  void _edited() {
+    if (!_dirty || _error != null) setState(() { _dirty = true; _error = null; });
+  }
 
   Widget _field(String label, String key, TextEditingController controller,
       {bool multiline = false, TextInputType keyboardType = TextInputType.url}) => Padding(
@@ -276,7 +283,7 @@ class _PausedMessagePageState extends State<PausedMessagePage> {
         keyboardType: multiline ? TextInputType.multiline : keyboardType,
         autocorrect: false, enableSuggestions: false,
         smartDashesType: SmartDashesType.disabled, smartQuotesType: SmartQuotesType.disabled,
-        style: _monospace, onChanged: (_) => _changed(() {}))));
+        style: _monospace, onChanged: (_) => _edited())));
 
   @override Widget build(BuildContext context) {
     final box = context.watchBox(BoxAspect.connections), message = _message;
