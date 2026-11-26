@@ -7,7 +7,7 @@ import 'profile_editor.dart' show JsonEditorController;
 import 'mitm_certificate.dart';
 import 'capture_domains.dart';
 import '../components/form.dart';
-import '../common/surge_module.dart';
+import 'surge_modules.dart';
 
 const configEncoder = JsonEncoder.withIndent('  ');
 
@@ -83,7 +83,7 @@ class ProfileConfigStore extends ChangeNotifier {
   String? scriptRequestId(String type, int index) => _runningScripts[(type, index)];
   bool isScriptCanceling(String type, int index) => _cancelingScripts.contains(scriptRequestId(type, index));
 
-  bool canRunScript(String type, int index) {
+  bool canRunScript(String type, int index, {String? moduleRevision}) {
     if (_disposed || !ready || loading || saving || revision.isEmpty ||
         !const {'cron', 'event', 'generic'}.contains(type) || box.remote ||
         !box.running || box.transitioning || box.serviceSettingsChanging ||
@@ -91,12 +91,13 @@ class ProfileConfigStore extends ChangeNotifier {
         (box.dashboard['processingGeneration'] as num? ?? 0) <= 0 ||
         box.selectedProfileId != profile['id'] || value([...ScriptsConfigPage.path, 'enabled']) != true ||
         isScriptRunning(type, index)) return false;
+    if (moduleRevision != null) return moduleRevision == revision && index >= 0;
     final scripts = entries([...ScriptsConfigPage.path, type]);
     return index >= 0 && index < scripts.length && scripts[index]['disabled'] != true;
   }
 
-  Future<Json?> runScript(String type, int index, {required String requestId}) async {
-    if (!canRunScript(type, index)) return null;
+  Future<Json?> runScript(String type, int index, {required String requestId, String? moduleRevision}) async {
+    if (!canRunScript(type, index, moduleRevision: moduleRevision)) return null;
     final key = (type, index);
     _runningScripts[key] = requestId;
     notifyListeners();
@@ -197,7 +198,8 @@ enum ProfileConfigSection {
   ruleSets('Rule sets', AppGlyphs.resources),
   mitm('MITM', AppGlyphs.lock),
   httpRewrite('HTTP rewriting', AppGlyphs.code),
-  scripts('Scripts', AppGlyphs.code);
+  scripts('Scripts', AppGlyphs.code),
+  modules('Modules', AppGlyphs.puzzle);
 
   const ProfileConfigSection(this.title, this.glyph);
   final String title;
@@ -244,6 +246,7 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
         ProfileConfigSection.mitm => MitmConfigPage(store: store),
         ProfileConfigSection.httpRewrite => HttpRewriteConfigPage(store: store),
         ProfileConfigSection.scripts => ScriptsConfigPage(store: store),
+        ProfileConfigSection.modules => SurgeModulesPage(store: store),
       };
     });
   }
@@ -287,100 +290,12 @@ class HttpRewriteConfigPage extends StatelessWidget {
       generateSection(items: [
         ListItem.open(leading: const GlyphIcon(AppGlyphs.resources), title: Text(context.tr('Rewrite resources')),
           widget: ProcessingResourcesPage(store: store, section: 'http_rewrite')),
-        ListItem.open(key: const ValueKey('import-surge-module'), leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Import Surge module')),
-          widget: SurgeModulePage(store: store)),
         ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit HTTP rewrite options')),
           widget: ConfigValueEditor(title: 'HTTP rewriting', initial: store.value(path) ?? const {'enabled': false},
             onSave: (value) => store.set(path, value, expectedRevision: revision, rethrowFailure: true))),
       ]),
     ])));
   });
-}
-
-/// Merges a pasted Surge module into the profile once. Unlike a Surge module
-/// it is not a removable overlay: the imported entries become profile content.
-class SurgeModulePage extends StatefulWidget {
-  const SurgeModulePage({super.key, required this.store});
-  final ProfileConfigStore store;
-  @override State<SurgeModulePage> createState() => _SurgeModulePageState();
-}
-class _SurgeModulePageState extends State<SurgeModulePage> {
-  final _text = TextEditingController();
-  final _values = <String, TextEditingController>{};
-  late final String _revision;
-  bool _saving = false;
-  String? _error;
-
-  @override void initState() {
-    super.initState();
-    _revision = widget.store.revision;
-    _text.addListener(_changed);
-  }
-
-  void _changed() {
-    final declared = parseSurgeModule(_text.text).arguments;
-    for (final name in _values.keys.toList()) {
-      if (!declared.containsKey(name)) _values.remove(name)!.dispose();
-    }
-    declared.forEach((name, fallback) => _values.putIfAbsent(name, () => TextEditingController(text: fallback)..addListener(_refresh)));
-    _refresh();
-  }
-
-  void _refresh() { if (mounted) setState(() {}); }
-
-  SurgeModule get _module => parseSurgeModule(_text.text, values: {for (final entry in _values.entries) entry.key: entry.value.text});
-
-  Future<void> _import() async {
-    final module = _module;
-    if (module.isEmpty) {
-      setState(() => _error = context.tr('Nothing in this module can be imported'));
-      return;
-    }
-    setState(() { _saving = true; _error = null; });
-    try {
-      final store = widget.store;
-      final saved = await store.set(['experimental'], applySurgeModule(store.value(['experimental']), module),
-        expectedRevision: _revision, rethrowFailure: true);
-      if (mounted && saved) context.safeNestedPop();
-    } catch (failure) { if (mounted) setState(() => _error = BoxController.describe(failure)); }
-    finally { if (mounted) setState(() => _saving = false); }
-  }
-
-  @override void dispose() {
-    _text.dispose();
-    for (final controller in _values.values) { controller.dispose(); }
-    super.dispose();
-  }
-
-  @override Widget build(BuildContext context) {
-    final module = _module;
-    const mono = TextStyle(fontFamily: 'JetBrainsMono', fontSize: 13, height: 1.6);
-    final summary = [
-      if (module.name.isNotEmpty) module.name,
-      if (module.description.isNotEmpty) module.description,
-      '${context.tr('Decryption domains')}: ${module.hostCount}',
-      for (final (title, key) in const [('URL Rewrite', 'url_rewrite'), ('Header Rewrite', 'header_rewrite'), ('Body Rewrite', 'body_rewrite'), ('Map Local / API Mock', 'map_local')])
-        '${context.tr(title)}: ${module.rewrites[key]!.length}',
-      '${context.tr('Scripts')}: ${module.scriptCount}',
-      if (module.skipped.isNotEmpty) '${context.tr('Not imported')}: ${module.skipped.join(', ')}',
-    ].join('\n');
-    return BoxEditGuard(dirty: _text.text.isNotEmpty, busy: _saving, child: BoxPage(title: 'Import Surge module', loading: _saving,
-      confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'), onPressed: _saving ? null : _import),
-      children: [
-        if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: SelectableText(_error!, style: TextStyle(color: context.colorScheme.error))),
-        BoxField(label: context.tr('Module'), borderRadius: AppRadius.md,
-          child: TextField(key: const ValueKey('surge-module-text'), controller: _text, readOnly: _saving, maxLines: 14, minLines: 6,
-            autocorrect: false, enableSuggestions: false, smartDashesType: SmartDashesType.disabled, smartQuotesType: SmartQuotesType.disabled,
-            textAlignVertical: TextAlignVertical.top, style: mono)),
-        for (final entry in _values.entries)
-          Padding(padding: const EdgeInsets.only(top: 12), child: BoxField(label: entry.key,
-            child: TextField(key: ValueKey('surge-module-argument-${entry.key}'), controller: entry.value, readOnly: _saving,
-              autocorrect: false, enableSuggestions: false, style: mono))),
-        if (_text.text.trim().isNotEmpty)
-          Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 0), child: SelectableText(summary, key: const ValueKey('surge-module-summary'))),
-        ListFooter(text: context.tr('Paste the text of a .sgmodule file. Its MITM hostnames, rewrite lines and scripts are added above the existing entries of this profile; the switches for MITM, HTTP rewriting and scripts stay as they are. Other sections are not imported.')),
-      ]));
-  }
 }
 
 class MitmPage extends StatelessWidget {

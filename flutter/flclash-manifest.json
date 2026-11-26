@@ -20,6 +20,17 @@
     "lib/ui/ui.dart": "3cc5a827f5ee549cc2848d61fef99b9342bd34671e734ae9725c504ee9e39046"
   },
   "adaptedFiles": {
+    "test/surge_module_test.dart": {
+      "source": "lib/views/config/mitm_modules.dart",
+      "sourceSHA256": "7e41fbeac56bf26a79d27ef9122e27e568d555a2a78bd46f63a256d3364687bd",
+      "changes": "Freeze the populated list presentation with two English fixture rows and inert actions for a zero-tolerance RGBA comparison. This reference does not cover other screens or replace comparison on Android."
+    },
+    "lib/pages/surge_modules.dart": {
+      "source": "lib/views/config/mitm_modules.dart",
+      "sourceSHA256": "7e41fbeac56bf26a79d27ef9122e27e568d555a2a78bd46f63a256d3364687bd",
+      "supportingSources": [{"source": "lib/features/mitm/module_editor.dart", "sourceSHA256": "aee1681b64ccd2fb272473e02d859c87b2f5ad9bbddab717c792b7a7e2b23f4f"}],
+      "changes": "Adapt the module list, sort mode, add menu, source rows, attachment and argument sections, rule drill-down and script consent to profile-scoped sing-box modules. B-box uses its profile revision checks, libbox diagnostics, code editor and cancellable script execution instead of FlClash providers, filesystem and engine. The entry is after Scripts on the profile Edit page, not in MITM."
+    },
     "lib/components/profile_panel.dart": {
       "source": "lib/views/dashboard/widgets/profiles.dart",
       "sourceSHA256": "b7be96228167a2e4e13506df4a1b6cb031ab313e4fa6edee299d5d26e321539d",

@@ -199,7 +199,9 @@ libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理�
 
 每次成功应用配置推进 `dashboard.processingGeneration`，相同 JSON 重载也使用新代次；`processingApplying` 表示原生正在读取、应用或确认重载配置，初次启动仍以 Starting 状态阻止调试。桥接在配置应用、服务/会话变化、UI 退出及请求取消时结束相关手动任务，并等待 JNI 调用退出；不同任务可独立执行，取消只按本次请求身份操作。取消先标记运行协程，再关闭原生任务，宿主关闭期间才附着的任务同样使用该顺序，避免关闭唤醒结果等待者后被误报为正常完成；请求登记保留至原生任务实际退出。运行结果包含本次 `$done` 的 JSON、错误和 console 输出；实际脚本数据和输出不写入配置、备份或独立调试历史。界面的迟到结果隔离与展示见 [脚本配置](flclash.md#配置页与内核差异)。
 
-一元 gRPC 脚本的 `grpc_mode` 与空响应快捷动作使用同一 JSON 校验、格式化和保存通路，不新增平台绑定。Surge 模块导入同样只经这条通路写入 JSON，见 [界面说明](flclash.md#surge-模块导入)。HTTP/2、消息与 trailers 处理及脚本宿主行为见 [一元 gRPC 正文脚本](libbox.md#一元-grpc-正文脚本)；脚本主动 abort 关闭当前 HTTP/1 连接或 HTTP/2 流，请求页仍保留实际错误记录。
+一元 gRPC 脚本的 `grpc_mode` 与空响应快捷动作使用同一 JSON 校验、格式化和保存通路，不新增平台绑定。HTTP/2、消息与 trailers 处理及脚本宿主行为见 [一元 gRPC 正文脚本](libbox.md#一元-grpc-正文脚本)；脚本主动 abort 关闭当前 HTTP/1 连接或 HTTP/2 流，请求页仍保留实际错误记录。
+
+[Surge 模块页](flclash.md#surge-模块导入) 经 `profiles.moduleFile` 读取用户选取的 UTF-8 文本或二进制附件；`profiles.moduleFetch` 用可取消的 libbox HTTP 任务读取指定 URL（1 分钟期限），单次文件和响应均限 4 MiB。`profiles.moduleDescribe` 预览候选内容；`profiles.moduleDetails` 核对磁盘修订并返回当前配置中可调试任务的下标。I/O 前后检查本地会话，获取内容本身不写配置。安装、排序、开关、更新和移除仍通过 `profiles.write` 的修订检查、原子写入及服务回滚，不新建模块数据库或在启动时更新远程模块。
 
 脚本持久数据保存在私有 `noBackupFilesDir/http-debug/captures/script-storage/`，使用默认共享或显式命名空间；URL 资源缓存位于同级 `resource-cache/`。二者不设固定容量配额；清空记录、启停录制不删除它们，处理配置激活时只回收已无引用的资源缓存及未提交临时文件。脚本持久数据不会因移除规则或重载自动删除。配置/备份携带资源引用、命名空间和联网限制，订阅不会导入或覆盖这些设置。实际存储值和下载缓存留在本机，不加入配置导出、应用备份或系统自动备份；应用内备份也不额外打包引用的本地文件。原子提交及失败保留旧缓存分别见 [存储](libbox.md#脚本持久存储)和[资源加载](libbox.md#文件和-url-资源加载)。
 

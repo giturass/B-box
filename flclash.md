@@ -182,15 +182,9 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 HTTP 改写的四个列表（URL、Header、Body、Map Local）中，条目可以是 JSON 对象或一行 [Surge 写法](libbox.md#surge-行写法)。列表页保留行条目的原文：标题沿用序号，摘要显示该行，编辑器以 JSON 字符串显示，删除和排序不改动其他条目；Map Remote、脚本及其他列表仍只接受对象。
 
-HTTP 改写页的“导入 Surge 模块”打开 [粘贴表单](flutter/lib/pages/configuration.dart)，由 [surge_module.dart](flutter/lib/common/surge_module.dart) 在界面内解析 `.sgmodule` 文本，依据 Surge [Module](https://manual.nssurge.com/profile/module.html) 与 [Scripting](https://manual.nssurge.com/scripting/overview.html)：
+配置文件 → 修改 → **脚本**下面是**模块**。该入口打开[模块管理页](flutter/lib/pages/surge_modules.dart)，不在 HTTP 改写页或 MITM 页重复放置。模块页按固定 FlClash v0.9.3 的 `mitm_modules.dart` 适配：Prism 排序列表、脚本空态、“新建 / 通过 URL 导入 / 通过文件导入”菜单、来源和更新时间、附件、参数、规则及忽略原因。长按本地模块可编辑、远程模块可手动更新，两者均可删除。支持粘贴到新建编辑器；不后台轮询模块 URL。取材、文件哈希及编辑器差异见[来源清单](flutter/flclash-manifest.json)。共享组件和截图留样不等于已和上游完成逐像素或实机验收。
 
-- `#!name`、`#!desc` 显示在摘要中；`#!arguments` 声明的参数各有一个输入框，默认值预填，`{{{名称}}}` 在导入前替换。
-- `[MITM]` 的 `hostname` 合并到 `experimental.mitm.hosts`：`%INSERT%` 放在最前，`%APPEND%` 和不带操作符的写法追加到末尾。导入是一次性合并而非可撤销的覆盖层，因此不带操作符时不替换已有域名；`[MITM]` 的其他键不导入。
-- `[URL Rewrite]`、`[Header Rewrite]`、`[Body Rewrite]`、`[Map Local]` 的每一行原样加到对应列表最前，由核心在保存校验时解析。
-- `[Script]` 的 `http-request`/`http-response`、`cron`、`event`、`generic` 转为 `experimental.scripts` 下的对象，支持现行写法和旧写法；`timeout` 由秒换算为毫秒，`engine`、`wake-system` 忽略。`rule`、`dns`、`notification` 事件、缺少 `script-path`/`pattern`/`cronexp` 的行不导入。
-- 其他段落不导入；摘要列出各类数量及未导入项。
-
-已存在的相同条目不重复添加，MITM、HTTP 改写和脚本的开关不改变。保存携带打开表单时的修订并经核心校验，核心不支持的行使整次导入失败并保留输入。只支持粘贴文本，不提供 URL 安装、模块开关或自动更新；脚本的远程 `script-path` 由核心按 [资源加载](libbox.md#文件和-url-资源加载) 处理。解析和合并由 [surge_module_test.dart](flutter/test/surge_module_test.dart) 覆盖，粘贴表单没有 widget 测试。
+详情和运行时使用[同一核心解析器](libbox.md#配置内的-surge-模块)。启用含脚本的模块先提示风险，更新、附件或参数修改后若仍含脚本则重新确认；拒绝后保留新内容但关闭模块。下载失败或配置修订变化不覆盖原内容。仅已在本机生效的配置提供 Cron/event/generic 的“立即运行”。该功能是 Surge [Module](https://manual.nssurge.com/profile/module.html) 的 sing-box 适配，不导入整份 Clash 配置，也不是 Loon、Quantumult X 或 Stash 解析器。
 
 字段修改通过 ProfileConfigStore.set，本地资源导入通过独立桥接；二者均保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
 

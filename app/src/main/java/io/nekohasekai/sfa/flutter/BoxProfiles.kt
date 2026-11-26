@@ -80,11 +80,18 @@ internal class BoxProfiles(
             "ruleSets" to (route?.optJSONArray("rule_set")?.length() ?: 0),
             "dnsServers" to (root.optJSONObject("dns")?.optJSONArray("servers")?.length() ?: 0),
             "endpoints" to (root.optJSONArray("endpoints")?.length() ?: 0),
+            "modules" to (root.optJSONObject("experimental")?.optJSONArray("modules")?.length() ?: 0),
         ))
     }
 
     suspend fun stats(id: Long): Any? = mutex.withLock {
         if (File(get(id).typed.path).length() > 8L * 1024 * 1024) null else configLocked(id)["stats"]
+    }
+
+    suspend fun moduleDetails(id: Long, expectedRevision: String, moduleId: String): String {
+        val content = mutex.withLock { File(get(id).typed.path).readText() }
+        require(revision(content) == expectedRevision) { "Configuration changed; reload it before saving" }
+        return Libbox.describeProfileSurgeModule(content, moduleId)
     }
 
     suspend fun writeContent(id: Long, content: String, expectedRevision: String): Map<String, Any?> = mutex.withLock {

@@ -1,86 +1,89 @@
-import 'package:b_box_ui/common/surge_module.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
+import 'package:b_box_ui/main.dart';
+import 'package:b_box_ui/pages/configuration.dart';
+import 'package:b_box_ui/pages/surge_modules.dart';
+import 'package:b_box_ui/widgets.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-const _module = r'''
-#!name=Example
-#!desc=Rewrites the example API
-#!arguments=host:api.example.test,flag:on
+class _ModuleListReference extends StatelessWidget {
+  const _ModuleListReference();
+  Widget row(BuildContext context, int index) => SortableItem(key: ValueKey(index), index: index,
+    child: ContextMenuRegion(menuItems: const [], child: ItemPositionProvider(position: ItemPosition.get(index, 2), child: DecorationListItem(
+      contentPadding: const EdgeInsets.only(left: 16), title: Text(index == 0 ? 'First' : 'Second', maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(index == 0 ? 'Local' : 'Remote', style: context.listCaptionStyle),
+      trailing: Padding(padding: const EdgeInsetsDirectional.only(end: 8), child: Switch(value: index == 1, onChanged: (_) {})), onPressed: () {},
+    ))));
+  @override Widget build(BuildContext context) => Scaffold(title: 'Modules', canSort: true,
+    actions: [PopupAnchor(targetBuilder: (open) => IconButton(tooltip: 'Add', onPressed: open, icon: const GlyphIcon(AppGlyphs.addCircle)),
+      popupBuilder: (_) => PopupMenu(items: const []))],
+    body: NullStatusSwitcher(isEmpty: false, nullStatus: const NullStatus(illustration: NullStatusIllustration.scripts, label: 'No module yet'),
+      child: PrismReorderableListView(padding: const EdgeInsets.all(16).copyWith(top: context.contentTopPadding, bottom: 16 + context.bottomInset),
+        itemCount: 2, itemBuilder: (_, index) => row(context, index), proxyDecorator: (_, index, animation) => commonProxyDecorator(row(context, index), index, animation),
+        onReorderItem: (_, _) {})));
+}
 
-[MITM]
-hostname = %APPEND% {{{host}}}, *.example.test:8443
-h2 = true
-
-[URL Rewrite]
-# a comment
-^https?://{{{host}}}/old https://{{{host}}}/new 302
-
-[Header Rewrite]
-http-request ^https?://{{{host}}}/ header-add X-Flag {{{flag}}}
-
-[Body Rewrite]
-http-response-jq ^https?://{{{host}}}/json$ '.debug = true'
-
-[Map Local]
-^https?://{{{host}}}/mock data-type=text data="{}" status-code=200
-
-[Script]
-reply = type=http-response,pattern=^https?://{{{host}}}/a{1,3}$,script-path=https://example.test/reply.js,requires-body=true,max-size=-1,timeout=10,argument="a,b"
-nightly = type=cron,cronexp="0 2 * * *",script-path=cron.js
-http-request ^https?://{{{host}}}/legacy script-path=legacy.js,binary-body-mode=true,requires-body=true
-started = type=event,event-name=engine-started,script-path=started.js
-notice = type=event,event-name=notification,script-path=notice.js
-resolver = type=dns,script-path=dns.js
-manual = script-path=manual.js,debug=true
-broken = type=generic
-
-[Rule]
-DOMAIN,example.test,DIRECT
-DOMAIN,example.org,DIRECT
-''';
+Future<Uint8List> _capture(WidgetTester tester, GlobalKey frame, String name) async => (await tester.runAsync(() async {
+  final image = await (frame.currentContext!.findRenderObject()! as RenderRepaintBoundary).toImage();
+  try {
+    final file = File('build/screenshots/surge-modules/$name.png');
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes((await image.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List());
+    return (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!.buffer.asUint8List();
+  } finally { image.dispose(); }
+}))!;
 
 void main() {
-  test('a Surge module is reduced to MITM hosts, rewrite lines and scripts', () {
-    final module = parseSurgeModule(_module, values: {'flag': 'off'});
-    expect(module.name, 'Example');
-    expect(module.description, 'Rewrites the example API');
-    expect(module.arguments, {'host': 'api.example.test', 'flag': 'on'});
-    expect(module.hosts, ['api.example.test', '*.example.test:8443']);
-    expect(module.frontHosts, isEmpty);
-    expect(module.rewrites, {
-      'url_rewrite': [r'^https?://api.example.test/old https://api.example.test/new 302'],
-      'header_rewrite': [r'http-request ^https?://api.example.test/ header-add X-Flag off'],
-      'body_rewrite': [r"http-response-jq ^https?://api.example.test/json$ '.debug = true'"],
-      'map_local': [r'^https?://api.example.test/mock data-type=text data="{}" status-code=200'],
-    });
-    expect(module.scripts['http'], [
-      {'name': 'reply', 'script_path': 'https://example.test/reply.js', 'timeout_ms': 10000, 'argument': 'a,b',
-        'pattern': r'^https?://api.example.test/a{1,3}$', 'phase': 'response', 'requires_body': true, 'max_body_bytes': -1},
-      {'name': 'legacy.js', 'script_path': 'legacy.js', 'pattern': r'^https?://api.example.test/legacy', 'phase': 'request',
-        'requires_body': true, 'binary_body': true},
-    ]);
-    expect(module.scripts['cron'], [{'name': 'nightly', 'script_path': 'cron.js', 'cron': '0 2 * * *'}]);
-    expect(module.scripts['event'], [{'name': 'started', 'script_path': 'started.js', 'event': 'engine-started'}]);
-    expect(module.scripts['generic'], [{'name': 'manual', 'script_path': 'manual.js', 'debug': true}]);
-    expect(module.skipped, ['[MITM] h2', '[Script] notice (event-name=notification)', '[Script] resolver (type=dns)',
-      '[Script] broken (script-path)', '[Rule] × 2']);
-    expect(module.isEmpty, isFalse);
-    expect(parseSurgeModule('[Rule]\nFINAL,DIRECT').isEmpty, isTrue);
+  test('Modules follows Scripts on the profile Edit page', () {
+    expect(ProfileConfigSection.values.skipWhile((section) => section != ProfileConfigSection.scripts).take(2),
+      [ProfileConfigSection.scripts, ProfileConfigSection.modules]);
   });
 
-  test('module entries go above the existing ones without repeating or enabling anything', () {
-    final module = parseSurgeModule('[MITM]\nhostname = %INSERT% first.test, kept.test\n[Body Rewrite]\nnew line\nold line\n'
-      '[Script]\njob = type=cron,cronexp="0 2 * * *",script-path=cron.js');
-    final before = {
-      'cache_file': {'enabled': true},
-      'mitm': {'enabled': false, 'hosts': ['kept.test']},
-      'http_rewrite': {'body_rewrite': ['old line', {'pattern': 'p', 'phase': 'response', 'jq': '.'}]},
-    };
-    final after = applySurgeModule(before, module);
-    expect(after['cache_file'], {'enabled': true});
-    expect(after['mitm'], {'enabled': false, 'hosts': ['first.test', 'kept.test']});
-    expect(after['http_rewrite'], {'body_rewrite': ['new line', 'old line', {'pattern': 'p', 'phase': 'response', 'jq': '.'}]});
-    expect(after['scripts'], {'cron': [{'name': 'job', 'script_path': 'cron.js', 'cron': '0 2 * * *'}]});
-    expect(before['mitm'], {'enabled': false, 'hosts': ['kept.test']});
-    expect(applySurgeModule(after, module), after);
+  testWidgets('module list pixels match the FlClash v0.9.3 fixture and edits keep the base profile', (tester) async {
+    const channel = MethodChannel('test.surge-modules');
+    const source = '#!name=First\n[Rule]\nDOMAIN,example.test,REJECT';
+    var content = jsonEncode({'route': {'final':'kept'}, 'experimental': {'modules': [
+      {'id':'one', 'name':'First', 'content':source},
+      {'id':'two', 'name':'Second', 'url':'https://example.test/module', 'content':'[Rule]\nFINAL,DIRECT', 'enabled':true},
+    ]}}), revision = 'initial';
+    int writes = 0;
+    Json wire() => {'formatted':content, 'content':content, 'revision':revision};
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'ready': return {'version':'test', 'coreVersion':'test', 'preferences':{'locale':'en'}, 'dashboard':{'status':'Stopped'}};
+        case 'profiles.config': return wire();
+        case 'profiles.moduleDescribe': return jsonEncode({'name':'First', 'hasScripts':false});
+        case 'profiles.moduleDetails': return jsonEncode({'description':'Test module', 'lines':{'rule':[{'text':'DOMAIN,example.test,REJECT'}]}});
+        case 'profiles.write': final args = json(call.arguments); expect(args['revision'], revision); content = args['content'] as String; revision = 'write-${++writes}'; return wire();
+      }
+      return null;
+    });
+    final box = BoxController(channel: channel, events: const Stream.empty()), store = ProfileConfigStore(box, {'id':7});
+    final reference = ValueNotifier(true), frame = GlobalKey();
+    addTearDown(() async { await tester.pumpWidget(const SizedBox()); reference.dispose(); store.dispose(); messenger.setMockMethodCallHandler(channel, null); });
+    await store.load();
+    await tester.pumpWidget(BoxApp(controller: box));
+    await tester.pumpAndSettle();
+    openPage(tester.element(find.byType(HomePage)), ValueListenableBuilder<bool>(valueListenable: reference, builder: (_, upstream, _) => RepaintBoundary(key: frame,
+      child: upstream ? const _ModuleListReference() : ListenableBuilder(listenable: store, builder: (_, _) => SurgeModulesPage(store: store)))));
+    await tester.pumpAndSettle();
+    final expected = await _capture(tester, frame, 'reference-list');
+    reference.value = false; await tester.pumpAndSettle();
+    final actual = await _capture(tester, frame, 'bbox-list');
+    expect(listEquals(actual, expected), isTrue, reason: 'Full RGBA list images must match; both PNGs are in the Actions artifacts.');
+    await tester.tap(find.byType(Switch).hitTestable().first); await tester.pumpAndSettle();
+    expect(writes, 1); expect(store.entries(['experimental','modules']).first['enabled'], true); expect(store.value(['route']), {'final':'kept'});
+    await tester.tap(find.text('First').hitTestable()); await tester.pumpAndSettle();
+    expect(find.text('Test module'), findsOneWidget); expect(find.text('Add local file'), findsOneWidget);
+    await tester.ensureVisible(find.text('Routing rules').last); await tester.tap(find.text('Routing rules').last); await tester.pumpAndSettle();
+    expect(find.text('DOMAIN,example.test,REJECT'), findsOneWidget);
   });
 }
