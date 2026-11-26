@@ -442,6 +442,7 @@ HTTP 规则指定 `pattern` 或 [复合 `match`](#json-配置中的-http-改写)
 - `$done()`/`$done({})` 保持当前报文并结束执行；请求可返回 url/headers/body/response/abort，以及 B-box 的 method；响应可返回 status/headers/body/abort。Mock response 支持 status/headers/body，状态码 200～999。`abort: true` 终止当前 HTTP/1 连接或 HTTP/2 流。
 - body 默认 UTF-8，`binary_body: true` 用 Uint8Array。替换当前 body 要求 requires_body，Mock response.body 不要求读取请求正文。
 - `full_headers: true` 以 `{field,value}` 数组保留重复头，返回值接受数组/对象，普通输入对象每字段只取首值。
+- 各类脚本均提供 `$environment["surge-version"] = "B-box"`，供 BoxJS 等脚本选择 Surge 兼容的 HTTP 和持久存储接口。该字符串是兼容标识，不是 Surge 版本号；不提供虚构的构建号、系统通知或 Surge 控制 API。
 - 非空 `argument` 通过 `$argument` 提供；未配置或为空时不注入该全局，避免脚本把缺省参数当成空 JSON。`$script` 有 name/type/binaryBodyMode/startTime/sessionID，name 优先取配置名称，startTime 为 Unix 秒数，sessionID 每次执行独立生成。console.log/info/warn/error/debug 进入服务日志，对象按 JSON 输出，不设每次执行的条数或单条截断配额；HTTP 脚本 `debug: true` 还将同一内容附到请求备注。
 
 各类脚本的 `timeout_ms` 均默认 5000，正整数使用可表示的毫秒期限，`-1` 不增加期限；资源加载、网络、定时器和执行共享调用方期限及服务取消。每次使用独立 Goja VM，不设固定解释器数量或 B-box 调用栈配额。JS 原生正则在回溯循环中检查同一 VM 的中断，不另加匹配时限；一个 VM 的取消不会影响共享编译代码的其他 VM。Goja 并非 WebView 或进程级内存隔离。
@@ -530,14 +531,15 @@ Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`ti
 
 ##### Yfamily 模块回放
 
-[回放入口](tools/surge_catalog/run.py) 从 [Yfamily 目录的固定原文快照](https://github.com/RoaycL/Surge/tree/04e93ac904d9f7a3005eea3b6f90e29b29073b66/upstreams/yfamilys) 取 422 份模块、从作者的[固定提交](https://github.com/deezertidal/Surge_Module/tree/7c1bb21e3cb86c04278c43bc22947899753c7cf4/files) 取 13 个面板脚本。入口对清单、全部原文和每个可执行脚本校验 SHA-256；不会下载或执行目录中的其他脚本。使用快照是因为测试时原站 `/surge` 返回 HTTP 403。
+[回放入口](tools/surge_catalog/run.py) 从 [Yfamily 目录的固定原文快照](https://github.com/RoaycL/Surge/tree/04e93ac904d9f7a3005eea3b6f90e29b29073b66/upstreams/yfamilys) 取 422 份模块、从作者的[固定提交](https://github.com/deezertidal/Surge_Module/tree/7c1bb21e3cb86c04278c43bc22947899753c7cf4/files) 取 13 个面板脚本，另取 [BoxJS 脚本](https://github.com/chavyleung/scripts/blob/bfab3c906f3d5d126e9094f15730e025f7f32128/box/chavy.boxjs.js)及其 [0.19.30 页面](https://github.com/chavyleung/scripts/blob/6088379117e7ed224cf1f582f9abfe91b74e7619/box/chavy.boxjs.html)。清单、模块、脚本和页面均校验 SHA-256；不执行目录中的其他脚本。使用快照是因为测试时原站 `/surge` 返回 HTTP 403。
 
-[用例](tools/surge_catalog/catalog_test.go) 分两层：全目录逐份解析并调用应用保存时使用的 `CheckConfig`；其中 **24 份**原模块还实际经过 `StartOrReloadService`，核对请求或脚本输出。代理请求走真实 SOCKS 入站，面板脚本通过运行服务取资源；仅测试域名可路由到回环 HTTP/TLS 源站，其余拒绝。客户端校验证书、不跟随跳转。CA 仅在进程内受信，不安装到系统；数据是可重复的测试输入，不是实时行情、榜单或第三方应用联调。
+[用例](tools/surge_catalog/catalog_test.go) 分两层：全目录逐份解析并调用应用保存时使用的 `CheckConfig`；其中 **25 份**原模块另有 `StartOrReloadService` 回放，核对请求或脚本输出。代理请求走真实 SOCKS 入站，脚本通过运行服务取资源；仅测试域名可路由到回环 HTTP/TLS 源站，其余拒绝。客户端校验证书、不跟随跳转。CA 仅在进程内受信，不安装到系统；数据是可重复的测试输入，不是实时行情、榜单或第三方应用联调。
 
 | 模块 | 实际观测 | 未覆盖或已知差异 |
 | --- | --- | --- |
 | MultiSearch | 12 个快捷入口全部返回 302 和各自完整的 `Location`，包括带 `#` 的中英翻译；普通搜索透传，关闭改写总开关或禁用模块后相同输入透传，再次启用恢复跳转 | 核对 [Surge URL Rewrite 语义](https://manual.nssurge.com/http/url-rewrite.html)，未在 Surge 客户端执行 |
 | AdBlock | 264 条改写均被识别；同一 `/ad/banner` 在 HTTP 和 HTTPS 下均返回 403，没有 HTTP 请求到达源站；`/news` 透传，禁用后 `/ad/banner` 透传 | 只回放了代表路径，未逐条访问各厂商 App；403 是 B-box 的响应，不作为 Surge 状态码的实测结论 |
+| BoxJS | `http://boxjs.com/` 首次加载并注入页面数据；`POST /api/saveData` 保存测试值，服务重载后的独立 `GET /query/data/…` 读回原值；再次打开首页未重复下载 HTML | 模块的 `[General] force-http-engine-hosts` 仍忽略。原版脚本和页面经本地测试源站提供；未验证 Android 浏览器渲染、外部订阅、通知或 Surge 控制功能 |
 | 13 份信息面板 | 从注册面板执行原版 JS，断言标题及由输入算出的正文。涵盖汇率（`USD=0.125 → 8.00`、`JPY=21 → 21.00`）、加密货币的 9 次连续请求、历史上的今天、热榜、新书、汽车、两次请求的辟谣、电影、天气、电视剧、网易云音乐、QQ 音乐及 Billboard | 另以独立用例验证 [Panel](https://manual.nssurge.com/tools/panel.md) 和 [generic](https://manual.nssurge.com/scripting/generic.md) 规定的 `$input`、`button`、`auto-interval`，以及编辑器上下文隔离、错误绑定与停用；不是 UI 实机证明 |
 | 另 9 份模块的请求规则 | 每次只启用一份：4in1、知乎网页优化、喜马拉雅、知乎去广告、高德、哔哩哔哩、微博轻享版、YouTubeAd、双语字幕。逐份校验命中后的状态/跳转/空正文或 GIF，以及同主机不匹配路径确实到达源站。`REJECT-TINYGIF` 的响应以 GIF 解码器确认为 1×1 透明像素 | 对照[官方拒绝策略](https://manual.nssurge.com/policies/reject.md)；这里验证指定规则，未执行这些模块中的附带脚本，未验证拒绝风暴下的自动丢包行为 |
 
@@ -546,6 +548,8 @@ Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`ti
 此次配置校验为 **422/422**。逐行结果：**378** 份无忽略行、**42** 份部分识别、**2** 份没有可用行；后两类不能视为完整支持。`max-size=0` 不当作无限制（[文档](https://manual.nssurge.com/scripting/http-response.md) 明确指定 `-1`），URL 层的 `REJECT-DROP` 不以 403 冒充静默丢包。`--report <文件>` 保存每份模块的识别/忽略行数、原因和实际通过的测试名。`--live-rates` 另行用固定脚本、当前公开接口和独立 HTTPS 取数做联网交叉检查；默认回放不依赖行情可用性。
 
 本机带 `--live-rates --report` 的回放通过 78 个测试/子测试，包括哔哩哔哩原模块的 `[Map Local]`：实际获取哈希固定的 `reject-dict.json`，开屏请求得到 `{}`、没有到达原站。联网汇率子测试不开 MITM，原版 `rates.js` 通过服务访问公共汇率 API；面板给出 1 美元兑 **6.67 元人民币**、1 元人民币兑 **23.83 日元**，与独立 HTTPS 请求对照一致（接口数据日期 2026-11-26）。Android 主机限制了 Linux 测试进程的 netlink 接口枚举；这些用例通过明确路由运行，不代表已验证 VPN 自动接口选择。既有 `^Test(MITM|Surge|Rewrite)` 也在本机通过。
+
+2026-11-27 BoxJS 修复在 Termux 本机验证：应用工作树基于 `14948ab30500b032b1420c496f05de53c6d14a12`，核心为 `9b48041d8b4d6b9e86e67cc2d298acb5b59eaacc`。默认目录回放（不含 `--live-rates`）通过 78 个测试/子测试，含 `TestYFamilyCatalog/boxjs`；`go test ./experimental/httpdebug` 全包通过（未启用 race 或 QUIC），`python3 tools/verify_newui.py` 通过。本次未使用 GitHub Actions，也未构建或安装 APK。
 
 要在已安装 Surge 的 Mac 上对照一个原本失败的请求，启用相同快照的 MultiSearch、开启对应主机的 MITM，并使用该测试配置的本地代理端口和**公有** CA 证书。下例不跟随跳转、不需要私钥，只输出状态码与 `Location`（curl 7.84+）。应记录 Surge 版本；另一个翻译入口将 `trc` 换为 `tre`。
 
@@ -570,6 +574,8 @@ curl -q --noproxy '' --proxy http://127.0.0.1:6152 --cacert surge-test-ca.pem -s
 | `binary-mode` / `full-header-mode` | 默认 false；分别返回 Uint8Array 或保留重复响应头的 `{field,value}` 数组 |
 | `insecure` | 默认 false；true 仅关闭该客户端请求的 TLS 证书校验 |
 | `policy` | 当前实例中真实 outbound tag（含 selector）；未知 tag 回调报错，无直连回退。不支持 Surge `policy-descriptor`，会明确报错 |
+
+`$httpClient` 将 `X-Surge-Skip-Scripting` 作为本地控制头处理：接受布尔值或字符串 `true`/`false`，不向目标服务器发送。B-box 的脚本请求始终不递归进入脚本；此头不会改变路由、目标限制或证书校验。其他头仍须是有效字符串。
 
 各类脚本默认允许经核心主动联网。`http_client.allowed_origins` 可限制精确 HTTP(S) origin：省略/null 不限制，显式 `[]` 禁止，格式化保留区别。不设条数配额，无通配符、凭据、非根路径、查询或片段；规范化大小写、末尾点及默认端口，不能用 Host 或重定向越过限制，每跳校验。允许列表与 MITM 域名独立。
 

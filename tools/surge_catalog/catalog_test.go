@@ -180,6 +180,9 @@ func TestYFamilyCatalog(t *testing.T) {
 		})
 	}
 	modules = append(modules, option.ModuleOptions{ID: "contract", Content: "[Panel]\nContract=title=Waiting,script-name=context,update-interval=60\n[Script]\ncontext=script-path=context.js", Attachments: map[string]string{"context.js": base64.StdEncoding.EncodeToString([]byte(`$done({title:$trigger,content:typeof $input==='undefined'?'editor':[$input.purpose,$input.position,$input.panelName].join('|')})`))}})
+	modules = append(modules, option.ModuleOptions{ID: "boxjs", URL: "https://yfamilys.com/module/boxjs.sgmodule", Content: read("module-boxjs.sgmodule")})
+	boxScript, boxPage := read("chavy.boxjs.js"), read("chavy.boxjs.html")
+	var boxPageDownloads atomic.Int32
 	fixtures := map[string]string{
 		"lishishangdejintian.bmcx.com/":                   `1980年12月1日 <a href='/1__lishishangdejintianchaxun/' target='_blank'>样例事件</a>`,
 		"tophub.today/n/x9ozB4KoXb":                       `<td class="al"><a href="/l?e=abc" target="_blank">样例新闻</a></td> <td>9</td>`,
@@ -222,10 +225,22 @@ func TestYFamilyCatalog(t *testing.T) {
 			return
 		}
 		switch request.Host {
+		case "cdn.jsdelivr.net":
+			if request.URL.Path != "/gh/chavyleung/scripts@0.19.30/box/chavy.boxjs.html" || request.Method != http.MethodGet || request.Header.Get("X-Surge-Skip-Scripting") != "" {
+				t.Errorf("unexpected BoxJS page fetch: %s %s, headers %v", request.Method, request.URL.Path, request.Header)
+				http.NotFound(writer, request)
+				return
+			}
+			boxPageDownloads.Add(1)
+			io.WriteString(writer, boxPage)
 		case "www.google.com", "api.21jingji.com":
 			hits.Add(1)
 			fmt.Fprint(writer, request.URL.RequestURI())
 		case "raw.githubusercontent.com":
+			if request.URL.Path == "/chavyleung/scripts/master/box/chavy.boxjs.js" {
+				io.WriteString(writer, boxScript)
+				return
+			}
 			if request.URL.Path == "/deezertidal/Surge_Module/master/files/reject-dict.json" {
 				resources.Add(1)
 				fmt.Fprint(writer, dictionary)
@@ -254,7 +269,7 @@ func TestYFamilyCatalog(t *testing.T) {
 	plain := httptest.NewServer(origin)
 	defer plain.Close()
 	secure := httptest.NewUnstartedServer(origin)
-	hosts := []string{"www.google.com", "api.21jingji.com", "raw.githubusercontent.com", "api.exchangerate-api.com"}
+	hosts := []string{"www.google.com", "api.21jingji.com", "raw.githubusercontent.com", "api.exchangerate-api.com", "boxjs.com", "cdn.jsdelivr.net"}
 	seen := map[string]bool{"raw.githubusercontent.com": true}
 	for host := range ruleHosts {
 		if host != "www.google.com" {
@@ -457,6 +472,50 @@ func TestYFamilyCatalog(t *testing.T) {
 	}
 	apply(t, true, true)
 	probe(t, "re-enabled-search", search, 302, "https://github.com/search?q=sing-box")
+	t.Run("boxjs", func(t *testing.T) {
+		const home = "http://boxjs.com/"
+		exchange := func(method, path, payload string) string {
+			t.Helper()
+			request, err := http.NewRequest(method, home+path, strings.NewReader(payload))
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Header.Set("Referer", home)
+			if payload != "" {
+				request.Header.Set("Content-Type", "application/json")
+			}
+			response, err := client.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			body, err := io.ReadAll(response.Body)
+			if err != nil || response.StatusCode != http.StatusOK {
+				t.Fatalf("%s %s: %s (%v)", method, path, response.Status, err)
+			}
+			return string(body)
+		}
+		checkPage := func() {
+			t.Helper()
+			body := exchange(http.MethodGet, "", "")
+			if !strings.Contains(body, "<title>BoxJs</title>") || !strings.Contains(body, `"env":"Surge"`) || boxPageDownloads.Load() != 1 {
+				t.Fatalf("BoxJS page was not rendered from a single download: size=%d downloads=%d", len(body), boxPageDownloads.Load())
+			}
+		}
+		checkValue := func(method, path, payload string) {
+			t.Helper()
+			body := exchange(method, path, payload)
+			var result struct{ Key, Val string }
+			if err := json.Unmarshal([]byte(body), &result); err != nil || result.Key != "bbox-catalog" || result.Val != "fixture-only" {
+				t.Fatalf("%s %s did not return the stored value: %.200q (%v)", method, path, body, err)
+			}
+		}
+		checkPage()
+		checkValue(http.MethodPost, "api/saveData", `{"key":"bbox-catalog","val":"fixture-only"}`)
+		apply(t, true, true)
+		checkValue(http.MethodGet, "query/data/bbox-catalog", "")
+		checkPage()
+	})
 	scriptsEnabled = false
 	for _, sample := range ruleSamples {
 		t.Run("request/"+sample.file, func(t *testing.T) {

@@ -73,6 +73,12 @@ def main():
             checked(target.read_bytes(), digest)
         with ThreadPoolExecutor(max_workers=4) as pool:
             list(pool.map(script, SCRIPTS.items()))
+        boxjs = directory / 'chavy.boxjs.js'
+        download('https://raw.githubusercontent.com/chavyleung/scripts/bfab3c906f3d5d126e9094f15730e025f7f32128/box/chavy.boxjs.js', boxjs)
+        checked(boxjs.read_bytes(), '24ab4513d9b210d3921f87660175ddf408f2c4728a01ecb391082e82d8f8ffa6')
+        boxjs_page = directory / 'chavy.boxjs.html'
+        download('https://raw.githubusercontent.com/chavyleung/scripts/6088379117e7ed224cf1f582f9abfe91b74e7619/box/chavy.boxjs.html', boxjs_page)
+        checked(boxjs_page.read_bytes(), '7b404a56bc82f51b66bbc35d795fc9b16d8b9d47eab72af31e076b73fc5d4723')
         resource = directory / 'reject-dict.json'
         download(f'{AUTHOR}/reject-dict.json', resource)
         checked(resource.read_bytes(), '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a')
@@ -87,7 +93,7 @@ def main():
                 raise ValueError('Cannot independently verify the live CNY quote and its TLS route')
             (directory / 'live.json').write_text(json.dumps({'date': quote['date'], 'USD': quote['rates']['USD'], 'JPY': quote['rates']['JPY'],
                 'address': address, 'roots': roots}))
-        print(f'Pinned: {len(manifest)} module sources, {len(SCRIPTS)} executable scripts.', flush=True)
+        print(f'Pinned: {len(manifest)} module sources, {len(SCRIPTS)} panel scripts and BoxJS.', flush=True)
         overlay = directory / 'overlay.json'
         target = core / 'experimental/libbox/yfamily_catalog_test.go'
         overlay.write_text(json.dumps({'Replace': {str(target): str(Path(__file__).with_name('catalog_test.go').resolve())}}))
@@ -111,7 +117,7 @@ def main():
                     tests.append(name)
             if process.wait():
                 raise SystemExit('Catalog replay failed; no passing report written.')
-        print(f'PASS: {len(tests)} tests/subtests including the 24 original module scenarios.', flush=True)
+        print(f'PASS: {len(tests)} tests/subtests including the original module scenarios.', flush=True)
         if args.report:
             report = {'snapshot': SNAPSHOT, 'manifestSHA256': MANIFEST, 'inventory': json.loads(inventory.read_bytes()), 'passedTests': sorted(tests)}
             if args.live_rates:
