@@ -203,7 +203,11 @@ libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理�
 
 [Surge 模块页](flclash.md#surge-模块导入) 经 `profiles.moduleFile` 读取用户选取的 UTF-8 文本或二进制附件；`profiles.moduleFetch` 用可取消的 libbox HTTP 任务读取指定 URL（1 分钟期限），单次文件和响应均限 4 MiB。`profiles.moduleDescribe` 预览候选内容；`profiles.moduleDetails` 核对磁盘修订并返回当前配置中可调试任务的下标。I/O 前后检查本地会话，获取内容本身不写配置。安装、排序、开关、更新和移除仍通过 `profiles.write` 的修订检查、原子写入及服务回滚，不新建模块数据库或在启动时更新远程模块。
 
+`profiles.modulePanels` 返回指定修订中启用的面板。刷新经过本地运行服务、配置修订、模块 ID、面板名和 generic 下标核对；无 `update-interval` 的面板不能请求自动执行。脚本出错或未返回非空标题不会替换上次成功结果。[面板缓存](app/src/main/java/io/nekohasekai/sfa/flutter/BoxPanelCache.kt) 按配置、修订、模块和面板名隔离，只写显示字段和时间戳，不写脚本日志。每份配置最多使用 1 MiB 私有缓存，同目录原子替换；系统清除缓存后回退到模块静态内容。
+
 脚本持久数据保存在私有 `noBackupFilesDir/http-debug/captures/script-storage/`，使用默认共享或显式命名空间；URL 资源缓存位于同级 `resource-cache/`。二者不设固定容量配额；清空记录、启停录制不删除它们，处理配置激活时只回收已无引用的资源缓存及未提交临时文件。脚本持久数据不会因移除规则或重载自动删除。配置/备份携带资源引用、命名空间和联网限制，订阅不会导入或覆盖这些设置。实际存储值和下载缓存留在本机，不加入配置导出、应用备份或系统自动备份；应用内备份也不额外打包引用的本地文件。原子提交及失败保留旧缓存分别见 [存储](libbox.md#脚本持久存储)和[资源加载](libbox.md#文件和-url-资源加载)。
+
+2026-11-27 在 Termux 用 Kotlin/JVM、Android JSON 实现和 JUnit 4.13.2 直接运行[面板缓存测试](app/src/androidTest/java/io/nekohasekai/sfa/flutter/BoxPanelCacheTest.kt)，2 项通过：重开仍可读取最后成功值，错误输出不覆盖、配置/修订/同名面板不串值，缓存超限淘汰旧项。源码基线及核心运行记录见[模块回放](libbox.md#yfamily-模块回放)。这不是 Android 仪器测试或 Flutter 页面实测；本次未构建 APK 或触发 Actions。
 
 所有保存继续经过 ProfileContent 修订检查、完整 Libbox.checkConfig、原子写入及失败恢复。配置应用、恢复和后台启动使用同一入口；失败不能留下部分生效的处理或被报告为启动成功。旧嵌套配置的保守迁移见 [核心说明](libbox.md#旧抓包配置清理)。
 
@@ -277,6 +281,8 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 | [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入/导出、Android 入口与进程边界、旧 UI/更新依赖、退役抓包/特权增强实现残留及 Root 事务编号的静态检查 |
 | [newui.yml](.github/workflows/newui.yml) | 各分支代码 push 自动触发，也支持目标为 `dev` / `newui` 的 PR 及手动触发；仅 Markdown 的 push/PR 跳过。统一运行 Root CA 挂载/补查、Go 扩展/XHTTP/VLESS Encryption/HTTP/MITM/重定向布局、Flutter 分析/交互/布局、JVM、`play` 编译及 API 24/31/36 smoke，API 36 另运行 `google_apis_ps16k`；同时构建验证所需的 AAR 和 x86_64 模拟器 APK |
 | [build-release.yml](.github/workflows/build-release.yml) | 仅手动触发；独立并行准备核心/Flutter Release 库，构建签名 ARM64 APK、校验安装身份/产物及可选发布，不运行测试 |
+
+固定来源的 Surge 模块按需在本地回放，不加入统一工作流，也不替代 Android smoke；样本、断言和与 Surge 客户端对照的边界见 [Yfamily 模块回放](libbox.md#yfamily-模块回放)。
 
 ### JVM 回归
 

@@ -400,7 +400,7 @@ jq 行是 JSON 正文规则的推荐写法：
 | 能力 / 字段 | 规则内容及行为 |
 | --- | --- |
 | Header Rewrite / `header_rewrite` | `phase`: request/response；`operation`: add、delete、replace、replace_regex；指定 `header`，普通操作用 `value`，正则用 `regex`/`replacement`。add 保留重复字段；replace 仅替换已存在字段，新增或覆盖可依次 delete/add。请求 Host 仅允许 replace/replace_regex |
-| URL Rewrite / `url_rewrite` | `action`: header 透明改写并更新 Host，302/307 返回重定向，reject 返回 403；`reject-200` 返回 200 空正文，`reject-dict` 返回 200 和 `{}`（application/json），用于迁移模块时保留空响应语义，不改变已有 reject。`replacement` 为绝对 HTTP(S) URL 模板，header 另支持 `ws://`，保留原 Upgrade 头并使用 HTTP 传输。302/307 支持 `{{{GATEWAY_ADDRESS}}}`，取运行中核心默认接口的真实网关，IPv6 加方括号，无网关时跳过。首条命中处理，展开后非法目标丢弃并保留当前目标 |
+| URL Rewrite / `url_rewrite` | `action`: header 透明改写并更新 Host，302/307 返回重定向，reject 返回 403；`reject-200` 返回 200 空正文，`reject-dict` 返回 200 和 `{}`（application/json），用于迁移模块时保留空响应语义，不改变已有 reject；`reject-tinygif` 返回 1×1 透明 GIF。`replacement` 为绝对 HTTP(S) URL 模板，header 另支持 `ws://`，保留原 Upgrade 头并使用 HTTP 传输。302/307 支持 `{{{GATEWAY_ADDRESS}}}`，取运行中核心默认接口的真实网关，IPv6 加方括号，无网关时跳过。首条命中处理，展开后非法目标丢弃并保留当前目标 |
 | Map Remote / `map_remote` | `replacement` 为绝对 HTTP(S) URL，默认更新 Host，`preserve_host: true` 保留 Host；首条命中生效。与 URL header 同时匹配时决定最终目标 |
 | Body Rewrite / `body_rewrite` | `phase`、`pattern`/`match`，使用正文 `regex`/`replacement` 或 `jq`，二者互斥；匹配规则依次执行。JSON 规则推荐写成 [jq 行](#surge-行写法) |
 | Map Local / `map_local` | 首条匹配返回本地响应，`status` 默认 200，接受 200～999；`headers` 为 `{name,value}` 数组；`data_type` 支持 text、base64、tiny-gif、file，`data` 为内容或路径/URL；可用 `resource` 引用资源，与 data/data_type 互斥。为兼容已有 B-box JSON，省略类型仍按 text 处理 |
@@ -522,7 +522,37 @@ Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`ti
 
 参数只替换已声明的 `{{{名称}}}`，不递归展开；替换后变为空行或以 `#`、`;`、`//` 开头的行不执行。模块中声明过脚本仍提示来源风险。
 
-`[Rule]` 支持域名、CIDR、源/目标端口、进程、包名、SSID、网络协议及类型、配置中的规则集标签、嵌套 AND/OR/NOT 和 FINAL。DIRECT 使用只存在于有效配置的直连出口，REJECT / REJECT-DROP / REJECT-NO-DROP 使用对应拒绝动作，其他策略须为当前配置的出站或端点标签。URL-REGEX 的 REJECT / REJECT-200 / REJECT-DICT 转为 HTTP 改写，仍受改写开关限制。模块分流规则排在基础规则前；不支持的条件或修饰符跳过整行，不放宽匹配，也不隐式下载外部规则集。`[Host]` 支持精确域名的静态 IP。MITM hostname、四组改写行、HTTP/Cron/event/generic 脚本和参数均由同一解析器描述；不支持的行返回原因。Cron/event/generic 追加在基础任务后，保留调试下标。远程相对资源相对于模块 URL 解析；本地相对资源仅从该模块的附件读取。
+`[Rule]` 支持域名、CIDR、源/目标端口、进程、包名、SSID、网络协议及类型、配置中的规则集标签、嵌套 AND/OR/NOT 和 FINAL。DIRECT 使用只存在于有效配置的直连出口，REJECT / REJECT-DROP / REJECT-NO-DROP 使用对应拒绝动作，其他策略须为当前配置的出站或端点标签。URL-REGEX 的 REJECT / REJECT-200 / REJECT-DICT / REJECT-TINYGIF 转为 HTTP 改写，仍受改写开关限制。模块分流规则排在基础规则前；不支持的条件或修饰符跳过整行，不放宽匹配，也不隐式下载外部规则集。`[Host]` 支持精确域名的静态 IP。MITM hostname、四组改写行、HTTP/Cron/event/generic 脚本和参数均由同一解析器描述；不支持的行返回原因。Cron/event/generic 追加在基础任务后，保留调试下标。远程相对资源相对于模块 URL 解析；本地相对资源仅从该模块的附件读取。
+
+`[Panel]` 解析静态字段（含 `content` 的 `\n`）、`style`、图标、刷新间隔和 `script-name`。面板可位于脚本声明之前，只绑定本模块内唯一同名的 generic；缺失、重名或不支持的字段有诊断。面板索引包含基础任务和此前启用模块的偏移，禁用的模块不注册。实际执行与普通 generic 共用任务互斥、取消和服务生命周期；编辑器运行不会得到面板 `$input`。展示与缓存见 [界面说明](flclash.md#surge-模块导入)。
+
+按 [Surge 模块文档](https://manual.nssurge.com/profile/module.md)，`hostname = …` 替换基础主机列表，`%APPEND%` 追加，`%INSERT%` 前插。候选项使用运行时的主机语法校验；追加/前插中的非法正向主机不会扩大为整域。非法排除项或非法覆盖阻止配置生效，不通过丢掉约束来提高“兼容率”。保存的原文不变。
+
+##### Yfamily 模块回放
+
+[回放入口](tools/surge_catalog/run.py) 从 [Yfamily 目录的固定原文快照](https://github.com/RoaycL/Surge/tree/04e93ac904d9f7a3005eea3b6f90e29b29073b66/upstreams/yfamilys) 取 422 份模块、从作者的[固定提交](https://github.com/deezertidal/Surge_Module/tree/7c1bb21e3cb86c04278c43bc22947899753c7cf4/files) 取 13 个面板脚本。入口对清单、全部原文和每个可执行脚本校验 SHA-256；不会下载或执行目录中的其他脚本。使用快照是因为测试时原站 `/surge` 返回 HTTP 403。
+
+[用例](tools/surge_catalog/catalog_test.go) 分两层：全目录逐份解析并调用应用保存时使用的 `CheckConfig`；其中 **24 份**原模块还实际经过 `StartOrReloadService`，核对请求或脚本输出。代理请求走真实 SOCKS 入站，面板脚本通过运行服务取资源；仅测试域名可路由到回环 HTTP/TLS 源站，其余拒绝。客户端校验证书、不跟随跳转。CA 仅在进程内受信，不安装到系统；数据是可重复的测试输入，不是实时行情、榜单或第三方应用联调。
+
+| 模块 | 实际观测 | 未覆盖或已知差异 |
+| --- | --- | --- |
+| MultiSearch | 12 个快捷入口全部返回 302 和各自完整的 `Location`，包括带 `#` 的中英翻译；普通搜索透传，关闭改写总开关或禁用模块后相同输入透传，再次启用恢复跳转 | 核对 [Surge URL Rewrite 语义](https://manual.nssurge.com/http/url-rewrite.html)，未在 Surge 客户端执行 |
+| AdBlock | 264 条改写均被识别；同一 `/ad/banner` 在 HTTP 和 HTTPS 下均返回 403，没有 HTTP 请求到达源站；`/news` 透传，禁用后 `/ad/banner` 透传 | 只回放了代表路径，未逐条访问各厂商 App；403 是 B-box 的响应，不作为 Surge 状态码的实测结论 |
+| 13 份信息面板 | 从注册面板执行原版 JS，断言标题及由输入算出的正文。涵盖汇率（`USD=0.125 → 8.00`、`JPY=21 → 21.00`）、加密货币的 9 次连续请求、历史上的今天、热榜、新书、汽车、两次请求的辟谣、电影、天气、电视剧、网易云音乐、QQ 音乐及 Billboard | 另以独立用例验证 [Panel](https://manual.nssurge.com/tools/panel.md) 和 [generic](https://manual.nssurge.com/scripting/generic.md) 规定的 `$input`、`button`、`auto-interval`，以及编辑器上下文隔离、错误绑定与停用；不是 UI 实机证明 |
+| 另 9 份模块的请求规则 | 每次只启用一份：4in1、知乎网页优化、喜马拉雅、知乎去广告、高德、哔哩哔哩、微博轻享版、YouTubeAd、双语字幕。逐份校验命中后的状态/跳转/空正文或 GIF，以及同主机不匹配路径确实到达源站。`REJECT-TINYGIF` 的响应以 GIF 解码器确认为 1×1 透明像素 | 对照[官方拒绝策略](https://manual.nssurge.com/policies/reject.md)；这里验证指定规则，未执行这些模块中的附带脚本，未验证拒绝风暴下的自动丢包行为 |
+
+2026-11-27 在 Termux 运行 `TMPDIR="$HOME/tmp" GOOS=linux GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-p=3 GOMAXPROCS=4 python3 tools/surge_catalog/run.py`（Go 1.27.4）。应用工作树基于 `0cd16255e306b55a2ec94acb8a60726bcf3a664b`，核心工作树基于 `666e9d8655be47e66ca9613d44a3dbf1941ded40`。修复前 `trc`、`tre` 的响应 `Location` 经客户端请求 URL 校验被丢弃，面板行被忽略，21 条透明 GIF 规则不被识别，4 份配置的主机错误只在保存阶段被发现。目录回放按需在本地启动，不加入 GitHub Actions；没有用旧 APK、发布工作流或其他提交的测试替代当前工作树的结果。
+
+此次配置校验为 **422/422**。逐行结果：**378** 份无忽略行、**42** 份部分识别、**2** 份没有可用行；后两类不能视为完整支持。`max-size=0` 不当作无限制（[文档](https://manual.nssurge.com/scripting/http-response.md) 明确指定 `-1`），URL 层的 `REJECT-DROP` 不以 403 冒充静默丢包。`--report <文件>` 保存每份模块的识别/忽略行数、原因和实际通过的测试名。`--live-rates` 另行用固定脚本、当前公开接口和独立 HTTPS 取数做联网交叉检查；默认回放不依赖行情可用性。
+
+本机带 `--live-rates --report` 的回放通过 78 个测试/子测试，包括哔哩哔哩原模块的 `[Map Local]`：实际获取哈希固定的 `reject-dict.json`，开屏请求得到 `{}`、没有到达原站。联网汇率子测试不开 MITM，原版 `rates.js` 通过服务访问公共汇率 API；面板给出 1 美元兑 **6.67 元人民币**、1 元人民币兑 **23.83 日元**，与独立 HTTPS 请求对照一致（接口数据日期 2026-11-26）。Android 主机限制了 Linux 测试进程的 netlink 接口枚举；这些用例通过明确路由运行，不代表已验证 VPN 自动接口选择。既有 `^Test(MITM|Surge|Rewrite)` 也在本机通过。
+
+要在已安装 Surge 的 Mac 上对照一个原本失败的请求，启用相同快照的 MultiSearch、开启对应主机的 MITM，并使用该测试配置的本地代理端口和**公有** CA 证书。下例不跟随跳转、不需要私钥，只输出状态码与 `Location`（curl 7.84+）。应记录 Surge 版本；另一个翻译入口将 `trc` 换为 `tre`。
+
+```sh
+curl -q --noproxy '' --proxy http://127.0.0.1:6152 --cacert surge-test-ca.pem -sS --max-time 10 -o /dev/null \
+  -w '%{http_code} %header{location}\n' 'https://www.google.com/search?q=trc+sing-box&source=catalog'
+```
 
 #### 脚本解压工具
 

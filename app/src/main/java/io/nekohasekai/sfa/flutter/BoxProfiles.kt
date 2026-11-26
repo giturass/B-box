@@ -88,10 +88,15 @@ internal class BoxProfiles(
         if (File(get(id).typed.path).length() > 8L * 1024 * 1024) null else configLocked(id)["stats"]
     }
 
-    suspend fun moduleDetails(id: Long, expectedRevision: String, moduleId: String): String {
-        val content = mutex.withLock { File(get(id).typed.path).readText() }
+    suspend fun <T> withRevision(id: Long, expectedRevision: String, use: (String) -> T): T = mutex.withLock {
+        val content = File(get(id).typed.path).readText()
         require(revision(content) == expectedRevision) { "Configuration changed; reload it before saving" }
-        return Libbox.describeProfileSurgeModule(content, moduleId)
+        use(content)
+    }
+
+    suspend fun moduleDetails(id: Long, expectedRevision: String, moduleId: String? = null): String {
+        val content = withRevision(id, expectedRevision) { it }
+        return if (moduleId == null) Libbox.describeProfileSurgePanels(content) else Libbox.describeProfileSurgeModule(content, moduleId)
     }
 
     suspend fun writeContent(id: Long, content: String, expectedRevision: String): Map<String, Any?> = mutex.withLock {

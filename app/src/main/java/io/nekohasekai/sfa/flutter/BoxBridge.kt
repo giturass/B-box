@@ -115,6 +115,7 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
         recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
     }
     private val capture = BoxCapture(activity)
+    private val panels = BoxPanelCache(activity.cacheDir)
     private val scripts = BoxScripts(
         prepare = { request, created ->
             val session = CommandTarget.localSession()
@@ -314,7 +315,17 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
     }
 
     private suspend fun invokeScripts(method: String, args: Map<String, Any?>): Any? = when (method) {
-        "scripts.run" -> scripts.run(ScriptRunRequest.read(args))
+        "scripts.run" -> {
+            val request = ScriptRunRequest.read(args)
+            val session = if (request.moduleId == null) null else CommandTarget.localSession()
+            val output = scripts.run(request)
+            if (request.moduleId == null || output["error"] != "") output else localProfiles(requireNotNull(session)) {
+                profiles.withRevision(request.profileId, request.revision) {
+                    val panel = panels.save(request.profileId, request.revision, request.moduleId, requireNotNull(request.panelName), output.getValue("result") as String)
+                    mapOf("panel" to panel.toString())
+                }
+            }
+        }
         "scripts.cancel" -> scripts.cancel(args.string("requestId"))
         else -> error("Unknown script operation")
     }
@@ -500,7 +511,7 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
             "profiles.delete" -> changeProfiles { profiles.delete(args.id()) }
             "profiles.reorder" -> changeProfiles { profiles.reorder((args["ids"] as List<*>).map { (it as Number).toLong() }) }
             "profiles.importFile" -> return importProfile()
-            "profiles.moduleFile", "profiles.moduleFetch", "profiles.moduleDescribe", "profiles.moduleDetails" -> return moduleInput(method, args)
+            "profiles.moduleFile", "profiles.moduleFetch", "profiles.moduleDescribe", "profiles.moduleDetails", "profiles.modulePanels" -> return moduleInput(method, args)
             "profiles.importResource" -> return importResource(args)
             "profiles.scan.image" -> return scanImage()
             "profiles.scan" -> return withContext(Dispatchers.Default) { qrScanner.scan(args.string("session"), args.string("text")) }
@@ -558,6 +569,11 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
                 HTTPClient.withTask { it.moduleGet(url, HTTPClient.userAgent).unwrap }
             }
             "profiles.moduleDescribe" -> withContext(Dispatchers.Default) { Libbox.describeSurgeModule(args.string("module")) }
+            "profiles.modulePanels" -> withContext(Dispatchers.IO) {
+                val id = args.id()
+                val revision = args.string("revision")
+                panels.withCached(id, revision, profiles.moduleDetails(id, revision))
+            }
             else -> withContext(Dispatchers.IO) { profiles.moduleDetails(args.id(), args.string("revision"), args.string("moduleId")) }
         }
         CommandTarget.requireLocalSession(session)

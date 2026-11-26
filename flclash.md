@@ -44,7 +44,7 @@ Flutter 承担仪表盘、配置、工具、设置及所有子页面的导航；
 
 v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹窗和返回保护；原生操作消息交给 `BannerHost`，采用 Prism 的工具栏避让间距，复制和保存失败反馈期间仍可使用顶部按钮。B-box 表单在输入框上方保留字段标签，脏草稿确认及保存期间禁止退出继续由 `BoxEditGuard` 处理。搜索使用新版回调，连接/日志的可删除关键词由页面维护，并与输入文字共同过滤；排序列表使用 Prism 的最终索引回调，代理标签页显式管理控制器并按组名保留选择。网络速度卡片跟进新版 1.45 最小比例、数值下方的背景曲线及独立重绘区域；外观预览改用逐形状模糊，调色和分组标签按新版测量接口适配。状态参考渲染器同步到 v0.9.3，采用上游普通状态，不引入其 Root 服务边框含义。
 
-本次同步更新分组列表的边距和行高、折叠弹簧、导航与路由快照，同时更新按钮生成模型及 `liquid_glass.frag`；字体和许可正文未变。[代理列表](flutter/lib/components/proxy_list.dart)用同一弹簧驱动当前视口内的行与标题箭头，展开后仍按需构建；[工具栏](flutter/lib/ui/scaffold/scaffold.dart)和[搜索栏](flutter/lib/ui/scaffold/scaffold_search.dart)传入视图上下文计算边距，因此两者列为适配文件。[列表行](flutter/lib/ui/list_item.dart)保留长值截断并使用当前字号的一行或两行度量；配置卡保留两行间距、更新时间提示和固定选中标记。[日志流](flutter/lib/pages/logs.dart)继续显式启用 `anchorAtEnd`，固定导航栏继续保留 64 dp 高度及底部安全区。
+本次同步更新分组列表的边距和行高、折叠弹簧、导航与路由快照，同时更新按钮生成模型及 `liquid_glass.frag`；字体和许可正文未变。[代理列表](flutter/lib/components/proxy_list.dart)用 Prism 弹簧驱动视口内的行，展开后仍按需构建。分组按钮按 FlClash v0.9.3 引用的 `ExpandIcon` 显示实心三角：收起时朝下，展开时朝上，200 ms 转半圈，遵循减少动效设置。[工具栏](flutter/lib/ui/scaffold/scaffold.dart)和[搜索栏](flutter/lib/ui/scaffold/scaffold_search.dart)传入视图上下文计算边距，因此两者列为适配文件。[列表行](flutter/lib/ui/list_item.dart)保留长值截断并使用当前字号的一行或两行度量；配置卡保留两行间距、更新时间提示和固定选中标记。[日志流](flutter/lib/pages/logs.dart)继续显式启用 `anchorAtEnd`，固定导航栏继续保留 64 dp 高度及底部安全区。
 
 | 区域 | 主要实现 | 当前适配 |
 | --- | --- | --- |
@@ -184,11 +184,15 @@ MITM 页面首先提供单一证书入口，再显示 HTTPS、域名、HTTP/2、
 
 HTTP 改写的四个列表（URL、Header、Body、Map Local）中，条目可以是 JSON 对象或一行 [Surge 写法](libbox.md#surge-行写法)。列表页保留行条目的原文：标题沿用序号，摘要显示该行，编辑器以 JSON 字符串显示，删除和排序不改动其他条目；Map Remote、脚本及其他列表仍只接受对象。
 
-配置文件 → 修改 → **脚本**下面是**模块**。该入口打开[模块管理页](flutter/lib/pages/surge_modules.dart)，不在 HTTP 改写页或 MITM 页重复放置。模块页按固定 FlClash v0.9.3 的 `mitm_modules.dart` 适配：Prism 排序列表、脚本空态、“新建 / 通过 URL 导入 / 通过文件导入”菜单、来源和更新时间、附件、参数、规则及忽略原因。长按本地模块可编辑、远程模块可手动更新，两者均可删除。支持粘贴到新建编辑器；不后台轮询模块 URL。取材、文件哈希及编辑器差异见[来源清单](flutter/flclash-manifest.json)。共享组件和截图留样不等于已和上游完成逐像素或实机验收。
+配置文件 → 修改 → **脚本**下面是**模块**。该入口打开[模块管理页](flutter/lib/pages/surge_modules.dart)，不在 HTTP 改写页或 MITM 页重复放置。模块页按固定 FlClash v0.9.3 的 `mitm_modules.dart` 适配：Prism 排序列表、脚本空态、“新建 / 通过 URL 导入 / 通过文件导入”菜单、来源和更新时间、附件、参数、规则及忽略原因。长按本地模块可编辑；长按远程模块可更新、复制完整 URL 或编辑 URL，两者均可删除。更换来源先下载并检查新内容，成功才同时替换地址和内容。支持粘贴到新建编辑器；不后台轮询模块 URL。取材、文件哈希及编辑器差异见[来源清单](flutter/flclash-manifest.json)。
 
-详情和运行时使用[同一核心解析器](libbox.md#配置内的-surge-模块)。URL 输入支持 HTTP(S) 和 `surge:///install-module?url=…`；含脚本的模块启用前先提示风险，已启用模块的原文、附件或参数变化后若仍含脚本则重新确认；拒绝后保留新内容但关闭模块。下载失败或配置修订变化不覆盖原内容。仅已在本机生效的配置提供 Cron/event/generic 的“立即运行”。该功能是 Surge [Module](https://manual.nssurge.com/profile/module.html) 的 sing-box 适配，不导入整份 Clash 配置，也不是 Loon、Quantumult X 或 Stash 解析器。
+详情和运行时使用[同一核心解析器](libbox.md#配置内的-surge-模块)。URL 输入支持 HTTP(S) 和 `surge:///install-module?url=…`。批量导入跳过重复来源，所有新内容下载、解析成功后按原修订一次保存；失败不留下半批模块。新导入的脚本模块默认关闭；原文、来源 URL 或附件改变后仍含脚本的，也须手动开启。列表和详情直接标注脚本风险，开关不再弹出二次确认；调节已安装模块的参数不改变其启用状态。详情提示相关的配置总开关是否关闭，但不会替用户打开。仅已在本机生效的配置提供 Cron/event/generic 的“立即运行”。该功能是 Surge [Module](https://manual.nssurge.com/profile/module.html) 的 sing-box 适配，不导入整份 Clash 配置，也不是 Loon、Quantumult X 或 Stash 解析器。
 
-[模块回归](flutter/test/surge_module_test.dart) 覆盖入口顺序、安装链接、含脚本的远程更新、修订冲突和下载失败；使用 SDK Roboto 和固定 FlClash 展示树对照英文 390×844 的双行列表、本地模块详情和单条分流规则。原始截图在 `newui-validation` 产物的 `build/screenshots/surge-modules/`。这些夹具不覆盖编辑器、风险弹窗、深色/中文布局或真机字体。
+启用时检查核心实际识别的条目，不以出现 `[Script]` 等段名作为可用证明。远程更新没有可用条目时保留旧内容；本地模块可先停用保存，再补齐附件。包含忽略行的模块安装后会提示，详情显示首个原因并可逐行查看。
+
+代理组右上菜单 → **信息面板**展示当前本地配置中已启用的模块面板；也可从该模块详情进入。未刷新时显示静态标题和多行正文。刷新调用面板绑定的脚本，不是“立即运行”的调试弹窗；成功后显示结果，失败时原结果与错误同时可见。`update-interval` 只在页面进入或恢复前台时检查，没有间隔的面板仅手动刷新。四种 `style` 与部分 SF Symbol 映射到 Android 字形，其余用通用图标，不保证字形一致。核心侧原模块的实际结果见[回放记录](libbox.md#yfamily-模块回放)。
+
+[模块回归](flutter/test/surge_module_test.dart) 包含长按来源菜单、详情重试、脚本开关与参数、批量导入、修订冲突和下载失败用例；另使用 SDK Roboto 和固定 FlClash 展示树对照英文 390×844 的双行列表、本地模块详情和单条分流规则。原始截图在 `newui-validation` 产物的 `build/screenshots/surge-modules/`。这些夹具不覆盖所有模块格式、编辑器、深色/中文布局或真机字体。
 
 字段修改通过 ProfileConfigStore.set，本地资源导入通过独立桥接；二者均保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
 
@@ -294,6 +298,8 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 - [captured_body_test.dart](flutter/test/captured_body_test.dart)：详情内完整正文查看、自动内容识别、显示方式与原文/派生复制、原页历史和字节来源、二进制行懒加载、图片缩放/失败回退、文本横向滚动与折行；活动正文的末页追加、读取器复用、完成停轮询、迟到详情/分页以及写入追平后清除截断。完整跨页图片检查文件读取和解码尺寸；完整 JSON/Protobuf/gRPC 检查派生 UTF-8 页、独立偏移/页码、原计数和原页复制不变，以及首页识别在分页中保持、实际内容与 MIME 不一致时的显示和未知二进制回退。取消用例覆盖后台/返回前台的派生页恢复、覆盖页面、销毁、直接远程切换和同帧远程往返，确认关闭发生在迟到结果前且恢复使用新读取器；失败保留原页并可重试。窄屏大字号布局和图片交互截图由统一测试工作流生成，使用保存正文的桥接替身，不作为实机验收。
 
 ### 当前验证记录
+
+2026-11-27 代理组按钮、证书说明和模块交互修正基于 `0cd16255e306b55a2ec94acb8a60726bcf3a664b` 的工作树。本机执行 `git diff --check` 和 `python3 tools/verify_newui.py`；[证书页布局用例](flutter/test/requests_test.dart) 新增对两段页脚文字实际边界的检查，含 320 dp 中文大字号。此工作树尚未运行 Actions 或实机验证，旧截图和作业不代表本次通过。
 
 2026-11-26 模块管理功能与测试源码 `ecab7c4c0a791e4718d437efe7128d512f3ca44c`，核心 `a11207f66c42a6335d1f655846d498edf60380b3`。[统一验证 #45840908000](https://github.com/giturass/B-box/actions/runs/45840908000) 全部通过：[Flutter 作业](https://github.com/giturass/B-box/actions/runs/45840908000/job/139982157737) 完成分析（159 项 info）、1021 项测试（另 1 项跳过）及 AAR 构建；另有核心、Root CA、Android JVM/APK 和 API 24、31、36（4 KiB / 16 KiB）四组 smoke。实际下载 `newui-validation`，确认 `surge-modules` 下列表、详情、规则行的三对 PNG 分别逐字节相同，且使用可读的 Roboto 字形。仅限[该节所列夹具](#surge-模块导入)，不是整个 FlClash 应用或 Android 真机全状态的零差异结论。本次未触发 Release。
 

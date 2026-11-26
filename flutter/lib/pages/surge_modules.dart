@@ -1,17 +1,27 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'package:flutter/foundation.dart' show mapEquals;
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../components/code_editor.dart';
 import '../components/profile_card.dart';
 import '../widgets.dart';
 import 'configuration.dart';
+import 'surge_panels.dart';
 
 const _path = ['experimental', 'modules'];
+final _scriptSection = RegExp(r'^[^\S\n]*\[[^\S\n]*script[^\S\n]*\][^\S\n]*$', multiLine: true, caseSensitive: false);
+final _supportedSection = RegExp(r'^[^\S\n]*\[[^\S\n]*(?:MITM|Rule|Host|Panel|Script|URL Rewrite|Header Rewrite|Body Rewrite|Map Local)[^\S\n]*\][^\S\n]*$', multiLine: true, caseSensitive: false);
+const _scriptRisk = 'Its scripts can read and change traffic for matching hosts, including cookies and tokens, and send requests. Only enable scripts from a source you trust.';
+const _scriptsOff = 'New or changed module scripts are off. Review the source before enabling the module.';
+const _noLines = 'No module lines can be applied with the current arguments and attachments.';
+const _partial = 'Some module lines were ignored. See Ignored lines in the module details.';
+typedef _PreparedModule = ({Json item, bool scriptsOff, bool ignored});
 const _sections = {
   'mitm': 'Hostname', 'url rewrite': 'URL rewrite', 'header rewrite': 'Header rewrite',
   'body rewrite': 'Body rewrite', 'map local': 'Map local', 'script': 'Script', 'host': 'Host',
-  'rule': 'Routing rules', 'ignored': 'Ignored lines',
+  'rule': 'Routing rules', 'panel': 'Panel declarations', 'ignored': 'Ignored lines',
 };
 
 extension _ModuleLabels on BuildContext {
@@ -25,6 +35,8 @@ extension _ModuleLabels on BuildContext {
       ('unsupported section ', '不支持此段：'), ('unsupported script type: ', '不支持此类脚本：'),
       ('unsupported script parameter: ', '不支持此脚本参数：'),
       ('missing module attachment or unsupported URL: ', '缺少模块附件或链接不受支持：'),
+      ('invalid MITM host ', '无效的 MITM 主机：'), ('missing or ambiguous generic panel script: ', '面板脚本不存在或重名：'),
+      ('duplicate panel name: ', '面板名称重复：'), ('unsupported panel field: ', '不支持的面板字段：'),
     ]) {
       if (value.startsWith(prefix)) return '$label${value.substring(prefix.length)}';
     }
@@ -37,11 +49,14 @@ extension _ModuleLabels on BuildContext {
 
 String moduleCount(BuildContext context, int count) => context.tr(count == 1 ? '1 item' : '{count} items').replaceAll('{count}', '$count');
 
+bool _hasApplicableLines(Json lines) => lines.entries.any((entry) => entry.key != 'ignored' && entry.value is List && (entry.value as List).isNotEmpty);
+
 List<String> surgeModuleUrls(String text) {
   final urls = <String>{};
   for (final token in text.trim().split(RegExp(r'\s+'))) {
     var uri = Uri.tryParse(token);
-    if (uri != null && uri.scheme == 'surge' && '${uri.host}${uri.path}'.replaceAll('/', '') == 'install-module') {
+    if (uri != null && uri.scheme == 'surge' && ((uri.host.isEmpty && const {'install-module', '/install-module', '/install-module/'}.contains(uri.path)) ||
+        (uri.host == 'install-module' && (uri.path.isEmpty || uri.path == '/')))) {
       uri = Uri.tryParse(uri.queryParameters['url'] ?? '');
     }
     if (uri == null || !{'http','https'}.contains(uri.scheme) || uri.host.isEmpty) throw const FormatException('Enter an HTTP or HTTPS URL');
@@ -61,11 +76,11 @@ class ModuleActions extends ChangeNotifier {
   Json? find(String id) => modules.where((item) => item['id'] == id).firstOrNull;
 
   void check(String revision) {
-    if (!local || store.revision != revision || store.loading) throw StateError('Configuration changed; reload it before saving');
+    if (!local || !store.ready || store.revision != revision || store.loading) throw StateError('Configuration changed; reload it before saving');
   }
 
   Future<bool> action(String key, Future<void> Function() body) async {
-    if (!local || working != null || store.saving) return false;
+    if (!local || working != null || store.saving || store.loading || !store.ready) return false;
     working = key; notifyListeners();
     try { await body(); return true; }
     catch (failure) { if (local) store.box.report(failure); return false; }
@@ -89,32 +104,41 @@ class ModuleActions extends ChangeNotifier {
     'id': store.profile['id'], 'revision': revision, 'moduleId': id,
   }) as String));
 
-  Future<bool> consent(BuildContext context) => confirm(context, 'Run scripts from this module?',
-    message: 'Its scripts can read and change traffic for matching hosts, including cookies and tokens, and send requests. Only enable scripts from a source you trust.', action: 'Turn on');
-
-  Future<void> save(BuildContext context, Json candidate, String revision, {String? fallback}) async {
+  Future<_PreparedModule> _prepare(BuildContext context, Json candidate, String revision, {String? fallback}) async {
     check(revision);
     final previous = candidate['id'] == null ? null : find(candidate['id'] as String);
     final info = await describe(candidate);
     check(revision);
     final content = candidate['content'] as String;
-    if (!RegExp(r'^\s*\[(?:MITM|Rule|Host|Script|URL Rewrite|Header Rewrite|Body Rewrite|Map Local)\]\s*$', multiLine: true, caseSensitive: false).hasMatch(content)) {
-      throw const FormatException('No supported Surge module section');
-    }
     if (!context.mounted) throw StateError('Module editor closed');
-    final enabled = previous == null || previous['enabled'] == true;
-    final changed = previous == null || previous['content'] != content ||
-      jsonEncode(previous['attachments']) != jsonEncode(candidate['attachments']) || jsonEncode(previous['arguments']) != jsonEncode(candidate['arguments']);
-    final needsConsent = enabled && changed && info['hasScripts'] == true;
-    final name = info['name'] as String? ?? '';
-    final next = <String,dynamic>{...candidate, 'id': candidate['id'] ?? _newId(),
-      'name': name.isNotEmpty ? name : (fallback ?? candidate['name'] ?? context.tr('Module')), 'enabled': enabled && !needsConsent,
-      'updated_at': DateTime.now().millisecondsSinceEpoch};
-    await put(next, revision);
-    if (needsConsent && local && context.mounted) {
-      final savedRevision = store.revision;
-      if (await consent(context) && local && context.mounted) await put({...next, 'enabled': true}, savedRevision);
+    final lines = json(info['lines']), ignored = rows(lines['ignored']);
+    final applicable = _hasApplicableLines(lines);
+    final canRepair = (candidate['url'] as String? ?? '').isEmpty || (previous == null && rows(info['arguments']).isNotEmpty);
+    if (!applicable && (!canRepair || !_supportedSection.hasMatch(content.trimLeft()))) {
+      final issue = ignored.firstOrNull?['issue'] as String?;
+      throw FormatException([context.tr(_noLines), if (issue != null) context.moduleIssue(issue)].join(' '));
     }
+    final enabled = previous == null || previous['enabled'] == true;
+    final changed = previous == null || previous['content'] != content || previous['url'] != candidate['url'] ||
+      !mapEquals(json(previous['attachments']), json(candidate['attachments']));
+    final name = info['name'] as String? ?? '', hasScripts = info['hasScripts'] as bool;
+    final scriptsOff = enabled && changed && hasScripts;
+    return (item: <String, dynamic>{...candidate, 'id': candidate['id'] ?? _newId(),
+      'name': name.isNotEmpty ? name : (fallback ?? candidate['name'] ?? context.tr('Module')), 'enabled': applicable && enabled && !scriptsOff,
+      'updated_at': DateTime.now().millisecondsSinceEpoch}, scriptsOff: scriptsOff, ignored: ignored.isNotEmpty);
+  }
+
+  Future<void> save(BuildContext context, Json candidate, String revision, {String? fallback}) async {
+    final next = await _prepare(context, candidate, revision, fallback: fallback);
+    await put(next.item, revision);
+    if (context.mounted) _reportImport(context, [next]);
+  }
+
+  void _reportImport(BuildContext context, List<_PreparedModule> imported) {
+    if (!local) return;
+    final notices = [if (imported.any((entry) => entry.scriptsOff)) context.tr(_scriptsOff),
+      if (imported.any((entry) => entry.ignored)) context.tr(_partial)];
+    if (notices.isNotEmpty) store.box.messages.add(notices.join('\n'));
   }
 
   String _newId() {
@@ -122,21 +146,66 @@ class ModuleActions extends ChangeNotifier {
     return List.generate(16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
   }
 
-  Future<void> toggle(BuildContext context, Json item, bool enabled, String revision) async {
+  Future<bool> toggle(BuildContext context, Json item, bool enabled, String revision) => action(item['id'] as String, () async {
+    check(revision);
+    if (enabled) {
+      final warning = context.tr(_noLines);
+      if (!_hasApplicableLines(json((await describe(item))['lines']))) throw FormatException(warning);
+    }
+    await put({...item, 'enabled': enabled}, revision);
+  });
+
+  Future<void> copyUrl(BuildContext context, Json item, String revision) async {
+    try {
+      check(revision);
+      await Clipboard.setData(ClipboardData(text: item['url'] as String));
+      if (local && context.mounted) store.box.messages.add(context.tr('Copied'));
+    } catch (failure) { if (local) store.box.report(failure); }
+  }
+
+  Future<void> update(BuildContext context, Json item, String revision, {bool editUrl = false}) async {
+    if (!local || !context.mounted) return;
+    var url = item['url'] as String;
+    if (editUrl) {
+      final value = await showBoxDialog<String>(context: context, builder: (context) => InputDialog(
+        title: context.tr('Edit URL'), value: url, keyboardType: TextInputType.url, validator: (value) {
+          try {
+            final urls = surgeModuleUrls(value ?? '');
+            if (urls.length != 1) return context.tr('Enter an HTTP or HTTPS URL');
+            if (modules.any((other) => other['id'] != item['id'] && other['url'] == urls.single)) return context.tr('Module already exists');
+            return null;
+          } on FormatException { return context.tr('Enter an HTTP or HTTPS URL'); }
+        }));
+      if (!context.mounted || value == null) return;
+      final next = surgeModuleUrls(value).single;
+      if (next == url) return;
+      url = next;
+    }
     await action(item['id'] as String, () async {
       check(revision);
-      if (enabled && (await describe(item))['hasScripts'] == true) {
-        if (!context.mounted || !await consent(context)) return;
-      }
-      if (context.mounted) await put({...item, 'enabled': enabled}, revision);
+      final content = await store.box.call('profiles.moduleFetch', {'url': url});
+      if (context.mounted) await save(context, {...item, 'url': url, 'content': content}, revision);
     });
   }
 
-  Future<void> update(BuildContext context, Json item, String revision) async {
-    await action(item['id'] as String, () async {
-      final content = await store.box.call('profiles.moduleFetch', {'url': item['url']});
-      if (context.mounted) await save(context, {...item, 'content': content}, revision);
-    });
+  Future<void> importUrls(BuildContext context, String text, String revision) async {
+    check(revision);
+    final known = modules.map((item) => item['url']).toSet();
+    final urls = surgeModuleUrls(text).where((url) => !known.contains(url));
+    final added = <_PreparedModule>[];
+    for (final url in urls) {
+      check(revision);
+      if (!context.mounted) return;
+      final content = await store.box.call('profiles.moduleFetch', {'url': url});
+      if (!context.mounted) return;
+      final uri = Uri.parse(url);
+      final name = uri.pathSegments.lastOrNull;
+      added.add(await _prepare(context, {'url': url, 'content': content}, revision, fallback: name == null || name.isEmpty ? uri.host : name));
+    }
+    if (added.isEmpty) throw const FormatException('Module already exists');
+    if (!context.mounted) return;
+    await write([...modules, ...added.map((entry) => entry.item)], revision);
+    if (context.mounted) _reportImport(context, added);
   }
 
   Future<void> edit(BuildContext context, Json? item, String revision) => BaseNavigator.push<void>(context,
@@ -156,57 +225,55 @@ class _SurgeModulesPageState extends State<SurgeModulesPage> {
   @override void dispose() { actions.dispose(); super.dispose(); }
 
   Future<void> _import(bool remote) async {
-    var revision = widget.store.revision;
-    await actions.action('import', () async {
-      if (!remote) {
-        final file = await widget.store.box.call('profiles.moduleFile');
-        if (!mounted || file == null) return;
-        final data = json(file);
-        await actions.save(context, {'content': data['content']}, revision, fallback: data['name'] as String?);
-        return;
-      }
+    final revision = widget.store.revision;
+    if (remote) {
       final text = await showBoxDialog<String>(context: context, builder: (context) => InputDialog(
-        title: context.moduleTr('Import from URL'), value: '', keyboardType: TextInputType.url));
+        title: context.moduleTr('Import from URL'), value: '', keyboardType: TextInputType.url, validator: (value) {
+          try { surgeModuleUrls(value ?? ''); return null; } on FormatException { return context.tr('Enter an HTTP or HTTPS URL'); }
+        }));
       if (!mounted || text == null) return;
-      final urls = surgeModuleUrls(text).toSet();
-      final known = actions.modules.map((item) => item['url']).toSet();
-      urls.removeAll(known.whereType<String>());
-      if (urls.isEmpty) throw const FormatException('Module already exists');
-      for (final url in urls) {
-        if (!mounted) return;
-        actions.check(revision);
-        final uri = Uri.parse(url);
-        final content = await widget.store.box.call('profiles.moduleFetch', {'url': url});
-        if (!mounted) return;
-        await actions.save(context, {'url': url, 'content': content}, revision, fallback: uri.pathSegments.lastOrNull ?? uri.host);
-        if (!mounted) return;
-        revision = widget.store.revision;
-      }
+      await actions.action('import', () => actions.importUrls(context, text, revision));
+      return;
+    }
+    await actions.action('import', () async {
+      final file = await widget.store.box.call('profiles.moduleFile');
+      if (!mounted || file == null) return;
+      final data = json(file);
+      await actions.save(context, {'content': data['content']}, revision, fallback: data['name'] as String?);
     });
   }
 
-  @override Widget build(BuildContext context) => ListenableBuilder(listenable: actions, builder: (context, _) {
+  @override Widget build(BuildContext context) => ListenableBuilder(listenable: Listenable.merge([actions, widget.store, widget.store.box.stateChanges]), builder: (context, _) {
+    if (!actions.local) return const BoxPage(title: 'Modules', children: [EmptyState('Disconnect remote session to edit local profiles')]);
     final modules = actions.modules, revision = widget.store.revision;
-    final available = actions.local && actions.working == null && !widget.store.saving;
+    final available = actions.local && actions.working == null && !widget.store.saving && !widget.store.loading;
     Widget row(int index) {
-      final item = modules[index], id = item['id'] as String, remote = item['url'] != null;
+      final item = modules[index], id = item['id'] as String, remote = (item['url'] as String? ?? '').isNotEmpty;
+      final source = context.tr(remote ? 'Remote' : 'Local');
       return SortableItem(key: ValueKey(id), index: index, child: ContextMenuRegion(menuItems: !available ? null : [
-        if (remote) PopupMenuItem(glyph: AppGlyphs.sync, label: context.tr('Update'), onPressed: () => actions.update(context, item, revision))
-        else PopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => actions.edit(context, item, revision)),
-        PopupMenuItem(danger: true, glyph: AppGlyphs.delete, label: context.tr('Delete'), onPressed: () => actions.action(id, () async {
-          if (await confirm(context, 'Tip', message: 'Delete this module?')) await actions.write(actions.modules.where((entry) => entry['id'] != id).toList(), revision);
-        })),
+        if (remote) ...[
+          PopupMenuItem(glyph: AppGlyphs.sync, label: context.tr('Update'), onPressed: () => actions.update(context, item, revision)),
+          PopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Copy URL'), onPressed: () => actions.copyUrl(context, item, revision)),
+          PopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit URL'), onPressed: () => actions.update(context, item, revision, editUrl: true)),
+        ] else PopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => actions.edit(context, item, revision)),
+        PopupMenuItem(danger: true, glyph: AppGlyphs.delete, label: context.tr('Delete'), onPressed: () async {
+          if (await confirm(context, 'Tip', message: 'Delete this module?') && context.mounted) {
+            await actions.action(id, () => actions.write(actions.modules.where((entry) => entry['id'] != id).toList(), revision));
+          }
+        }),
       ], child: ItemPositionProvider(position: ItemPosition.get(index, modules.length), child: DecorationListItem(
         contentPadding: const EdgeInsets.only(left: 16), title: Text(item['name'] as String? ?? context.tr('Module'), maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text(context.tr(remote ? 'Remote' : 'Local'), style: context.listCaptionStyle),
+        subtitle: Text(_scriptSection.hasMatch(item['content'] as String? ?? '')
+          ? '$source · ${context.tr('Only enable scripts you trust')}' : source, style: context.listCaptionStyle),
         trailing: Padding(padding: const EdgeInsetsDirectional.only(end: 8), child: actions.working == id
           ? const Padding(padding: EdgeInsetsDirectional.only(end: 8), child: ActivityIndicator(size: 24))
           : Switch(value: item['enabled'] == true, onChanged: available ? (value) => actions.toggle(context, item, value, revision) : null)),
         onPressed: () => BaseNavigator.push(context, _ModuleDetail(actions: actions, id: id)),
       ))));
     }
-    return Scaffold(title: context.tr('Modules'), canSort: modules.length > 1, isLoading: actions.working == 'import' || widget.store.saving,
-      actions: [PopupAnchor(targetBuilder: (open) => IconButton(tooltip: context.tr('Add'), onPressed: available ? open : null, icon: const GlyphIcon(AppGlyphs.addCircle)),
+    return Scaffold(title: context.tr('Modules'), canSort: modules.length > 1, isLoading: actions.working == 'import' || widget.store.saving || widget.store.loading,
+      actions: [if (widget.store.error != null) IconButton(tooltip: context.tr('Reload'), onPressed: available ? widget.store.load : null, icon: const GlyphIcon(AppGlyphs.refresh)),
+        PopupAnchor(targetBuilder: (open) => IconButton(tooltip: context.tr('Add'), onPressed: available ? open : null, icon: const GlyphIcon(AppGlyphs.addCircle)),
         popupBuilder: (_) => PopupMenu(items: [
           PopupMenuItem(glyph: AppGlyphs.compose, label: context.tr('New module'), onPressed: () => actions.edit(context, null, revision)),
           PopupMenuItem(glyph: AppGlyphs.cloudDownload, label: context.moduleTr('Import from URL'), onPressed: () => _import(true)),
@@ -294,34 +361,46 @@ class _ModuleDetailState extends State<_ModuleDetail> {
     });
   }
 
-  Widget _argument(Json item, Json arg, String revision) {
+  Widget _argument(Json item, Json arg, String revision, bool busy) {
     final key = arg['name'] as String, fallback = arg['default'] as String;
     final value = json(item['arguments'])[key] as String? ?? fallback;
     void save(String? next) {
-      if (next != null) actions.action(widget.id, () => actions.save(context, {...item, 'arguments': {...json(item['arguments']), key: next}}, revision));
+      if (next != null && next != value) actions.action(widget.id, () => actions.put({...item, 'arguments': {...json(item['arguments']), key: next}}, revision));
     }
-    if (fallback == 'true' || fallback == 'false') return ListItem.toggle(title: Text(key), value: value == 'true', onChanged: (enabled) => save('$enabled'));
+    if (fallback == 'true' || fallback == 'false') return ListItem.toggle(title: Text(key), value: value == 'true', onChanged: busy ? null : (enabled) => save('$enabled'));
+    if (busy) return ListItem(title: Text(key), subtitle: value.isEmpty ? null : Text(value));
     return ListItem.input(title: Text(key), subtitle: value.isEmpty ? null : Text(value), dialogTitle: key, value: value, onChanged: save);
   }
 
-  @override Widget build(BuildContext context) => ListenableBuilder(listenable: Listenable.merge([actions, actions.store, actions.store.box]), builder: (context, _) {
+  @override Widget build(BuildContext context) => ListenableBuilder(listenable: Listenable.merge([actions, actions.store, actions.store.box.stateChanges]), builder: (context, _) {
     final item = actions.find(widget.id), revision = actions.store.revision;
     if (!actions.local || item == null) return Scaffold(title: context.tr('Module'), body: NullStatus(label: context.tr('No module yet'), illustration: NullStatusIllustration.scripts));
     if (loaded != revision) { loaded = revision; details = actions.details(widget.id, revision); }
     return FutureBuilder<Json>(future: details, builder: (context, snapshot) {
-      if (snapshot.hasError) return Scaffold(title: context.tr('Module'), body: ErrorState(snapshot.error!, retry: actions.store.load));
-      final info = snapshot.connectionState == ConnectionState.done ? snapshot.data : null;
+      if (snapshot.hasError && snapshot.connectionState == ConnectionState.done) return Scaffold(title: context.tr('Module'), body: ErrorState(snapshot.error!, retry: () async {
+        await actions.store.load();
+        if (mounted && actions.local && loaded == revision && actions.store.revision == revision) setState(() => loaded = null);
+      }));
+      final refreshing = snapshot.connectionState != ConnectionState.done, info = snapshot.data;
       final system = info?['system'] as String? ?? '';
-      final about = [if ((info?['description'] as String? ?? '').isNotEmpty) info!['description'],
-        if (system.isNotEmpty && !system.toLowerCase().contains('android')) context.tr('Written for {system}; some lines may not match apps on this device.').replaceAll('{system}', system)].join('\n\n');
-      final remote = item['url'] != null, busy = actions.working != null || actions.store.saving;
       final lines = json(info?['lines']);
-      return Scaffold(title: item['name'] as String? ?? context.tr('Module'), body: NullStatusSwitcher(isLoading: info == null, child: ListView(
+      bool hasLines(String section) => lines[section] is List && (lines[section] as List).isNotEmpty;
+      final about = [if (info?['hasScripts'] == true) context.tr(_scriptRisk),
+        if (hasLines('ignored')) ...[context.tr(_partial), context.moduleIssue(rows(lines['ignored']).first['issue'] as String)],
+        if (hasLines('script') && actions.store.value([...ScriptsConfigPage.path, 'enabled']) != true) context.tr('Scripts are off in this profile.'),
+        if (hasLines('mitm') && actions.store.value([...MitmConfigPage.path, 'enabled']) != true) context.tr('HTTPS decryption is off in this profile.'),
+        if (const ['url rewrite','header rewrite','body rewrite','map local'].any(hasLines) && actions.store.value([...HttpRewriteConfigPage.path, 'enabled']) != true) context.tr('HTTP rewriting is off in this profile.'),
+        if ((info?['description'] as String? ?? '').isNotEmpty) info!['description'],
+        if (system.isNotEmpty && !system.toLowerCase().contains('android')) context.tr('Written for {system}; some lines may not match apps on this device.').replaceAll('{system}', system)].join('\n\n');
+      final url = item['url'] as String? ?? '';
+      final remote = url.isNotEmpty, busy = refreshing || actions.working != null || actions.store.saving || actions.store.loading;
+      return Scaffold(title: item['name'] as String? ?? context.tr('Module'), body: NullStatusSwitcher(isLoading: info == null, child: IgnorePointer(ignoring: refreshing, child: ListView(
         padding: EdgeInsets.fromLTRB(16, context.sectionsTopPadding, 16, 16 + context.bottomInset), children: [
           generateSection(items: [ListItem.toggle(title: Text(context.moduleTr('Enabled')), value: item['enabled'] == true,
             onChanged: busy ? null : (enabled) => actions.toggle(context, item, enabled, revision))], footer: about.isEmpty ? null : about),
           generateSection(title: context.moduleTr('Source'), items: [
-            ListItem(title: Text(context.moduleTr('Source')), subtitle: Text(item['url'] as String? ?? context.tr('Local'))),
+            ListItem(title: Text(context.moduleTr('Source')), subtitle: Text(remote ? url : context.tr('Local')),
+              trailing: remote ? IconButton(tooltip: context.tr('Copy URL'), icon: const GlyphIcon(AppGlyphs.copy), onPressed: () => actions.copyUrl(context, item, revision)) : null),
             ListItem(title: Text(context.tr('Last updated')), trailing: item['updated_at'] == null ? Text('', style: context.listCaptionStyle)
               : ProfileUpdateTime(milliseconds: item['updated_at'] as int, style: context.listCaptionStyle, compact: false)),
             ListItem(title: Text(context.tr(remote ? 'Update' : 'Edit')), trailing: remote && actions.working == widget.id ? const ActivityIndicator(size: 24) : null,
@@ -334,13 +413,15 @@ class _ModuleDetailState extends State<_ModuleDetail> {
           ]),
           if (rows(info?['arguments']).isNotEmpty) generateSection(title: context.tr('Arguments'),
             footer: (info?['argumentHelp'] as String? ?? '').isEmpty ? null : info!['argumentHelp'] as String,
-            items: [for (final arg in rows(info?['arguments'])) _argument(item, arg, revision)]),
+            items: [for (final arg in rows(info?['arguments'])) _argument(item, arg, revision, busy)]),
           if (info != null) generateSection(title: context.tr('Rules'), items: [
-            for (final entry in _sections.entries) if (rows(lines[entry.key]).isNotEmpty)
-              ListItem.open(title: Text(context.moduleTr(entry.value)), subtitle: Text(moduleCount(context, rows(lines[entry.key]).length)),
-                widget: _ModuleLines(actions: actions, id: widget.id, revision: revision, title: entry.value, lines: rows(lines[entry.key]))),
+            if (hasLines('panel') && item['enabled'] == true && actions.store.box.selectedProfileId == actions.store.profile['id'])
+              ListItem.open(title: Text(context.tr('Information panels')), widget: SurgePanelsPage(moduleId: widget.id, profileId: actions.store.box.selectedProfileId)),
+            for (final entry in _sections.entries) if (lines[entry.key] case final List section when section.isNotEmpty)
+              ListItem.open(title: Text(context.moduleTr(entry.value)), subtitle: Text(moduleCount(context, section.length)),
+                widget: _ModuleLines(actions: actions, id: widget.id, revision: revision, title: entry.value, lines: section.cast<Json>())),
           ], footer: context.tr('Routing rules go in front of the profile’s own.')),
-        ])));
+        ]))));
     });
   });
 }

@@ -96,7 +96,8 @@ class ProfileConfigStore extends ChangeNotifier {
     return index >= 0 && index < scripts.length && scripts[index]['disabled'] != true;
   }
 
-  Future<Json?> runScript(String type, int index, {required String requestId, String? moduleRevision}) async {
+  Future<Json?> runScript(String type, int index, {required String requestId, String? moduleRevision,
+      String? moduleId, String? panelName, bool automatic = false}) async {
     if (!canRunScript(type, index, moduleRevision: moduleRevision)) return null;
     final key = (type, index);
     _runningScripts[key] = requestId;
@@ -104,6 +105,7 @@ class ProfileConfigStore extends ChangeNotifier {
     try {
       final output = await box.call('scripts.run', {
         'profileId': profile['id'], 'revision': revision, 'type': type, 'index': index, 'requestId': requestId,
+        if (panelName != null) ...{'moduleId': moduleId, 'panelName': panelName, 'automatic': automatic},
       });
       return output == null ? null : json(output);
     } finally {

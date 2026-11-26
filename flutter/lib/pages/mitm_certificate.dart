@@ -76,7 +76,7 @@ class _MitmCertificatePageState extends State<MitmCertificatePage> with WidgetsB
     return BoxPage(title: 'MITM certificate', loading: _busy, actions: [
       IconButtonData(glyph: AppGlyphs.refresh, tooltip: context.tr('Refresh trust'), onPressed: _busy ? null : _refresh),
     ], children: [
-      ListFooter(text: context.tr('HTTPS decryption requires the target app to trust this CA. Apps with certificate pinning or their own trust store may reject it; remove those domains from the MITM domain list.')),
+      ListFooter(last: true, text: context.tr('HTTPS decryption requires the target app to trust this CA. Apps with certificate pinning or their own trust store may reject it; remove those domains from the MITM domain list.')),
       if (_error != null) ErrorState(_error!, retry: _refresh),
       if (_state != null) generateSection(title: context.tr('Certificate'), items: [
         ListItem(title: Text(context.tr(exists ? trust : 'No MITM certificate')),
@@ -91,7 +91,7 @@ class _MitmCertificatePageState extends State<MitmCertificatePage> with WidgetsB
           subtitle: _state!['captureActive'] == true || _state!['mitmActive'] == true ? Text(context.tr('Stop capture and the local service before changing the MITM certificate')) : null,
           onTap: _busy || _state!['captureActive'] == true || _state!['mitmActive'] == true ? null : () => _run('capture.ca.generate')),
       ]),
-      if (exists) generateSection(title: context.tr('Install and export'), footer: context.tr('On Android 11 or later, export the certificate first, then choose CA certificate in Android security settings. For system trust, install the exported module with Magisk, KernelSU or APatch and reboot.'), items: [
+      if (exists) generateSection(title: context.tr('Install and export'), items: [
         ListItem(key: const ValueKey('mitm-ca-export'), title: Text(context.tr('Export public CA certificate')),
           onTap: _busy || !usable ? null : () => _run('capture.ca.export')),
         ListItem(key: const ValueKey('mitm-ca-install'), title: Text(context.tr('Open certificate settings')),
@@ -99,7 +99,8 @@ class _MitmCertificatePageState extends State<MitmCertificatePage> with WidgetsB
         ListItem(key: const ValueKey('mitm-ca-module'), title: Text(context.tr('Export system CA module')),
           onTap: _busy || !usable ? null : () => _run('capture.ca.module')),
       ]),
-      ListFooter(text: context.tr('The private signing key stays on this device. Exports contain only the public CA. Regeneration requires replacing installed certificates; remove system modules in the root manager and reboot.')),
+      if (exists) ListFooter(last: true, text: context.tr('On Android 11 or later, export the certificate first, then choose CA certificate in Android security settings. For system trust, install the exported module with Magisk, KernelSU or APatch and reboot.')),
+      ListFooter(last: true, text: context.tr('The private signing key stays on this device. Exports contain only the public CA. Regeneration requires replacing installed certificates; remove system modules in the root manager and reboot.')),
     ]);
   }
 }

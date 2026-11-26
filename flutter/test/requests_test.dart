@@ -50,8 +50,8 @@ void main() {
     });
   }
 
-  Future<void> mount(WidgetTester tester, {bool remote = false, bool dark = false, double scale = 1, Size size = const Size(360, 900)}) async {
-    tester.binding.platformDispatcher.localesTestValue = const [Locale('en')];
+  Future<void> mount(WidgetTester tester, {bool remote = false, bool dark = false, double scale = 1, Size size = const Size(360, 900), String language = 'en'}) async {
+    tester.binding.platformDispatcher.localesTestValue = [Locale(language)];
     addTearDown(tester.binding.platformDispatcher.clearLocalesTestValue);
     tester.platformDispatcher.textScaleFactorTestValue = scale;
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
@@ -1475,17 +1475,22 @@ void main() {
     expect(find.text('Present in system CA store'), findsNothing);
   });
 
-  for (final dark in [false, true]) {
-    testWidgets('MITM certificate layout fits narrow screens dark=$dark', (tester) async {
-      await mount(tester, dark: dark, scale: dark ? 1.5 : 1, size: const Size(360, 900));
+  for (final (dark, language) in [(false, 'en'), (true, 'en'), (true, 'zh')]) {
+    testWidgets('MITM certificate footnotes do not overlap dark=$dark language=$language', (tester) async {
+      final variant = '${dark ? 'dark-large' : 'light'}${language == 'zh' ? '-zh' : ''}';
+      await mount(tester, dark: dark, scale: dark ? 1.4 : 1, size: Size(language == 'zh' ? 320 : 360, 900), language: language);
       caState = {'exists': true, 'revision': 'layout-ca', 'subject': 'CN=B-box MITM 0123456789abcdef', 'fingerprint': 'ab' * 32,
         'expiresAt': 1893456000000, 'valid': true, 'keyAvailable': true, 'systemTrusted': false, 'userTrusted': false};
       await open(tester, const MitmCertificatePage());
-      await capture(tester, 'mitm-certificate-${dark ? 'dark-large' : 'light'}');
-      final module = find.byKey(const ValueKey('mitm-ca-module'));
-      await tester.scrollUntilVisible(module, 200, scrollable: find.descendant(of: find.byType(MitmCertificatePage), matching: find.byType(Scrollable)).first);
+      await capture(tester, 'mitm-certificate-$variant');
+      final install = find.textContaining(language == 'zh' ? 'Android 11 及以上' : 'On Android 11 or later'),
+        privacy = find.textContaining(language == 'zh' ? '签名私钥保留' : 'The private signing key stays');
+      final scrollable = find.descendant(of: find.byType(MitmCertificatePage), matching: find.byType(Scrollable)).first;
+      await tester.scrollUntilVisible(privacy, 200, scrollable: scrollable);
       await tester.pumpAndSettle();
-      await capture(tester, 'mitm-certificate-export-${dark ? 'dark-large' : 'light'}');
+      expect(tester.getRect(privacy).top, greaterThan(tester.getRect(install).bottom));
+      expect(tester.getRect(privacy).bottom, lessThanOrEqualTo(tester.getRect(scrollable).bottom + 1));
+      await capture(tester, 'mitm-certificate-export-$variant');
       expect(tester.takeException(), isNull);
     });
   }
