@@ -57,24 +57,28 @@ class ProfileCard extends StatelessWidget {
 }
 
 /// Uses the reference's 365-day years and 30-day months for compact ages.
-String profileUpdateLabel(int? milliseconds, DateTime now, {required bool chinese}) {
+String profileUpdateLabel(int? milliseconds, DateTime now, {required bool chinese, bool compact = true}) {
   if (milliseconds == null || milliseconds <= 0) return chinese ? '未知' : 'Unknown';
   final elapsed = now.difference(DateTime.fromMillisecondsSinceEpoch(milliseconds));
   for (final (count, en, zh) in [
     (elapsed.inDays ~/ 365, 'y', '年'), (elapsed.inDays ~/ 30, 'mo', '个月'),
     (elapsed.inDays, 'd', '天'), (elapsed.inHours, 'h', '小时'), (elapsed.inMinutes, 'm', '分钟'),
   ]) {
-    if (count > 0) return chinese ? '$count ${zh}前' : '$count$en ago';
+    if (count <= 0) continue;
+    if (chinese) return '$count ${zh}前';
+    if (compact) return '$count$en ago';
+    final unit = const {'y':'year','mo':'month','d':'day','h':'hour','m':'minute'}[en]!;
+    return '$count $unit${count == 1 ? '' : 's'} ago';
   }
   return chinese ? '刚刚' : 'Just now';
 }
 
 class ProfileUpdateTime extends StatefulWidget {
-  const ProfileUpdateTime({super.key, required this.milliseconds, this.style, this.showLabel = false,
+  const ProfileUpdateTime({super.key, required this.milliseconds, this.style, this.showLabel = false, this.compact = true,
     this.tooltipTriggerMode = TooltipTriggerMode.longPress});
   final int? milliseconds;
   final TextStyle? style;
-  final bool showLabel;
+  final bool showLabel, compact;
   final TooltipTriggerMode tooltipTriggerMode;
   @override State<ProfileUpdateTime> createState() => _ProfileUpdateTimeState();
 }
@@ -106,7 +110,7 @@ class _ProfileUpdateTimeState extends State<ProfileUpdateTime> with WidgetsBindi
   }
   @override Widget build(BuildContext context) {
     final age = profileUpdateLabel(widget.milliseconds, DateTime.now(),
-      chinese: Localizations.localeOf(context).languageCode == 'zh');
+      chinese: Localizations.localeOf(context).languageCode == 'zh', compact: widget.compact);
     final date = (widget.milliseconds ?? 0) <= 0 ? context.tr('Unknown') : localDate(widget.milliseconds);
     return Tooltip(
       message: '${context.tr('Last updated')}: $date',

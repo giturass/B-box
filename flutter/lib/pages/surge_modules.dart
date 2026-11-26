@@ -290,7 +290,7 @@ class _ModuleDetailState extends State<_ModuleDetail> {
       final info = snapshot.connectionState == ConnectionState.done ? snapshot.data : null;
       final system = info?['system'] as String? ?? '';
       final about = [if ((info?['description'] as String? ?? '').isNotEmpty) info!['description'],
-        if (system.isNotEmpty && !system.toLowerCase().contains('android')) context.tr('Written for {system}; some lines may not apply to this device.').replaceAll('{system}', system)].join('\n\n');
+        if (system.isNotEmpty && !system.toLowerCase().contains('android')) context.tr('Written for {system}; some lines may not match apps on this device.').replaceAll('{system}', system)].join('\n\n');
       final remote = item['url'] != null, busy = actions.working != null || actions.store.saving;
       final lines = json(info?['lines']);
       return Scaffold(title: item['name'] as String? ?? context.tr('Module'), body: NullStatusSwitcher(isLoading: info == null, child: ListView(
@@ -299,11 +299,12 @@ class _ModuleDetailState extends State<_ModuleDetail> {
             onChanged: busy ? null : (enabled) => actions.toggle(context, item, enabled, revision))], footer: about.isEmpty ? null : about),
           generateSection(title: context.moduleTr('Source'), items: [
             ListItem(title: Text(context.moduleTr('Source')), subtitle: Text(item['url'] as String? ?? context.tr('Local'))),
-            ListItem(title: Text(context.tr('Last updated')), trailing: ProfileUpdateTime(milliseconds: item['updated_at'] as int?, style: context.listCaptionStyle)),
+            ListItem(title: Text(context.tr('Last updated')), trailing: item['updated_at'] == null ? Text('', style: context.listCaptionStyle)
+              : ProfileUpdateTime(milliseconds: item['updated_at'] as int, style: context.listCaptionStyle, compact: false)),
             ListItem(title: Text(context.tr(remote ? 'Update' : 'Edit')), trailing: remote && actions.working == widget.id ? const ActivityIndicator(size: 24) : null,
               onTap: busy ? null : () => remote ? actions.update(context, item, revision) : actions.edit(context, item, revision)),
           ]),
-          if (!remote) generateSection(title: context.tr('Attachments'), footer: context.tr('Refer to attachments by file name, for example script-path=a.js.'), items: [
+          if (!remote) generateSection(title: context.tr('Attachments'), footer: context.tr('Lines refer to attachments by file name, as in script-path=a.js.'), items: [
             for (final name in json(item['attachments']).keys) ContextMenuRegion(menuItems: [PopupMenuItem(danger: true, glyph: AppGlyphs.delete,
               label: context.tr('Delete'), onPressed: () => _attachment(item, revision, remove: name))], child: ListItem(title: Text(name))),
             ListItem(title: Text(context.tr('Add local file')), onTap: busy ? null : () => _attachment(item, revision)),
@@ -315,7 +316,7 @@ class _ModuleDetailState extends State<_ModuleDetail> {
             for (final entry in _sections.entries) if (rows(lines[entry.key]).isNotEmpty)
               ListItem.open(title: Text(context.moduleTr(entry.value)), subtitle: Text(moduleCount(context, rows(lines[entry.key]).length)),
                 widget: _ModuleLines(actions: actions, id: widget.id, revision: revision, title: entry.value, lines: rows(lines[entry.key]))),
-          ], footer: context.tr('Module routing rules come before the profile’s own rules.')),
+          ], footer: context.tr('Routing rules go in front of the profile’s own.')),
         ])));
     });
   });
