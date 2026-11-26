@@ -92,11 +92,12 @@ class _StreamInjectionPageState extends State<StreamInjectionPage> {
   /// Typed content keeps its bytes when the way it is written changes.
   void _setFormat(String format) {
     if (_busy || format == _format) return;
-    final String? text;
+    String? text;
     try { text = formatByteInput(format, parseByteInput(_format, _content.text)); }
     on FormatException catch (failure) { setState(() => _error = context.tr(failure.message)); return; }
     if (text == null) { setState(() => _error = context.tr('This content is not UTF-8 text')); return; }
-    _changed(() { _format = format; _content.text = text; });
+    final converted = text;
+    _changed(() { _format = format; _content.text = converted; });
   }
 
   @override Widget build(BuildContext context) {
