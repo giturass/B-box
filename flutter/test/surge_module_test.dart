@@ -99,10 +99,13 @@ void main() {
     final box = BoxController(channel:channel,events:const Stream.empty()), store = ProfileConfigStore(box, {'id':7});
     await store.load(); await tester.pumpWidget(BoxApp(controller:box)); await tester.pumpAndSettle();
     final actions = ModuleActions(store), context = tester.element(find.byType(HomePage));
-    addTearDown(() async { await tester.pumpWidget(const SizedBox()); actions.dispose(); store.dispose(); messenger.setMockMethodCallHandler(channel, null); });
+    final errors = <String>[];
+    final capture = box.messages.stream.listen(errors.add);
+    addTearDown(() async { await tester.pumpWidget(const SizedBox()); await capture.cancel(); actions.dispose(); store.dispose(); messenger.setMockMethodCallHandler(channel, null); });
     final updating = actions.update(context, actions.find('m')!, revision);
-    await tester.pumpAndSettle(); expect(find.text('Run scripts from this module?'), findsOneWidget);
-    expect(writes,0); await tester.tap(find.text('Cancel').last); await tester.pumpAndSettle(); await updating;
+    await tester.pumpAndSettle(); expect(writes,1,reason: errors.join('\n')); expect(actions.find('m')?['enabled'],false);
+    expect(find.text('Run scripts from this module?'), findsOneWidget, reason: errors.join('\n'));
+    await tester.tap(find.text('Cancel').last); await tester.pumpAndSettle(); await updating;
     expect(actions.find('m')?['content'],updated); expect(actions.find('m')?['enabled'],false);
     final pending = Completer<String>(); fetch = pending.future;
     final stale = actions.update(context, actions.find('m')!, revision); await tester.pump(); revision = 'external'; await store.load();

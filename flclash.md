@@ -186,6 +186,8 @@ HTTP 改写的四个列表（URL、Header、Body、Map Local）中，条目可�
 
 详情和运行时使用[同一核心解析器](libbox.md#配置内的-surge-模块)。URL 输入支持 HTTP(S) 和 `surge:///install-module?url=…`；含脚本的模块启用前先提示风险，已启用模块的原文、附件或参数变化后若仍含脚本则重新确认；拒绝后保留新内容但关闭模块。下载失败或配置修订变化不覆盖原内容。仅已在本机生效的配置提供 Cron/event/generic 的“立即运行”。该功能是 Surge [Module](https://manual.nssurge.com/profile/module.html) 的 sing-box 适配，不导入整份 Clash 配置，也不是 Loon、Quantumult X 或 Stash 解析器。
 
+[模块回归](flutter/test/surge_module_test.dart) 覆盖入口顺序、安装链接、含脚本的远程更新、修订冲突和下载失败；使用 SDK Roboto 和固定 FlClash 展示树对照英文 390×844 的双行列表、本地模块详情和单条分流规则。原始截图在 `newui-validation` 产物的 `build/screenshots/surge-modules/`。这些夹具不覆盖编辑器、风险弹窗、深色/中文布局或真机字体。
+
 字段修改通过 ProfileConfigStore.set，本地资源导入通过独立桥接；二者均保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
 
 Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事件表单可选择网络变化、引擎启动及配置重载。运行要求当前配置已在本地服务中成功生效、脚本及任务已启用，编辑/保存/加载或原生应用配置期间禁用；HTTP 规则仍由实际请求触发。任务按原数组下标及修订发送，允许同名和未命名条目，运行中显示进度并提供“取消脚本运行”，等待该次请求退出后才允许重试。结果通过共享 Prism 弹层显示可选中、可复制的任务名、错误、结果和 console 文本，字符串及 panel 的 title/content 可读显示，空值显示“无输出”，长文本置于有界滚动区。

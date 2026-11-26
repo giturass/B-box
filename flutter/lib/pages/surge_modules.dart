@@ -18,6 +18,21 @@ extension _ModuleLabels on BuildContext {
   String moduleTr(String value) => Localizations.localeOf(this).languageCode == 'zh' ? const {
     'Source':'来源', 'Enabled':'已开启', 'Routing rules':'分流规则', 'Import from URL':'通过URL导入',
   }[value] ?? tr(value) : value;
+
+  String moduleIssue(String value) {
+    if (Localizations.localeOf(this).languageCode != 'zh') return value;
+    for (final (prefix, label) in const [
+      ('unsupported section ', '不支持此段：'), ('unsupported script type: ', '不支持此类脚本：'),
+      ('unsupported script parameter: ', '不支持此脚本参数：'),
+      ('missing module attachment or unsupported URL: ', '缺少模块附件或链接不受支持：'),
+    ]) {
+      if (value.startsWith(prefix)) return '$label${value.substring(prefix.length)}';
+    }
+    return const {'unsupported route condition or modifier':'不支持此规则条件或修饰符', 'unsupported MITM setting':'不支持此设置',
+      'Conditional block':'不支持条件块', 'unsupported URL-REGEX policy':'不支持此 URL-REGEX 策略', 'invalid URL-REGEX rule':'无效的 URL-REGEX 规则',
+      'not an IP address':'不是 IP 地址', 'expected an exact hostname and IP addresses':'需要确切的主机名和 IP 地址',
+      'Module argument expansion is too large':'模块参数展开后过大'}[value] ?? value;
+  }
 }
 
 String moduleCount(BuildContext context, int count) => context.tr(count == 1 ? '1 item' : '{count} items').replaceAll('{count}', '$count');
@@ -87,16 +102,24 @@ class ModuleActions extends ChangeNotifier {
       throw const FormatException('No supported Surge module section');
     }
     if (!context.mounted) throw StateError('Module editor closed');
-    var enabled = previous == null || previous['enabled'] == true;
+    final enabled = previous == null || previous['enabled'] == true;
     final changed = previous == null || previous['content'] != content ||
       jsonEncode(previous['attachments']) != jsonEncode(candidate['attachments']) || jsonEncode(previous['arguments']) != jsonEncode(candidate['arguments']);
-    if (enabled && changed && info['hasScripts'] == true) enabled = await consent(context);
-    if (!context.mounted) throw StateError('Module editor closed');
+    final needsConsent = enabled && changed && info['hasScripts'] == true;
     final name = info['name'] as String? ?? '';
+    final next = <String,dynamic>{...candidate, 'id': candidate['id'] ?? _newId(),
+      'name': name.isNotEmpty ? name : (fallback ?? candidate['name'] ?? context.tr('Module')), 'enabled': enabled && !needsConsent,
+      'updated_at': DateTime.now().millisecondsSinceEpoch};
+    await put(next, revision);
+    if (needsConsent && local && context.mounted) {
+      final savedRevision = store.revision;
+      if (await consent(context) && local && context.mounted) await put({...next, 'enabled': true}, savedRevision);
+    }
+  }
+
+  String _newId() {
     final random = Random.secure();
-    await put({...candidate, 'id': candidate['id'] ?? List.generate(16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join(),
-      'name': name.isNotEmpty ? name : (fallback ?? candidate['name'] ?? context.tr('Module')), 'enabled': enabled,
-      'updated_at': DateTime.now().millisecondsSinceEpoch}, revision);
+    return List.generate(16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
   }
 
   Future<void> toggle(BuildContext context, Json item, bool enabled, String revision) async {
@@ -376,7 +399,7 @@ class _ModuleLinesState extends State<_ModuleLines> with WidgetsBindingObserver 
       final running = store.isScriptRunning(kind, index), canRun = visible && widget.actions.find(widget.id)?['enabled'] == true && store.canRunScript(kind, index, moduleRevision: widget.revision);
       return ItemPositionProvider(position: ItemPosition.get(position, widget.lines.length), child: ContextMenuRegion(menuItems: canRun ? [
         PopupMenuItem(glyph: AppGlyphs.playPause(0), label: context.tr('Run now'), onPressed: () => _run(line, kind, index, epoch)),
-      ] : null, child: DecorationListItem(title: Text(line['text'] as String), subtitle: line['issue'] == null ? null : Text(line['issue'] as String, style: context.listCaptionStyle),
+      ] : null, child: DecorationListItem(title: Text(line['text'] as String), subtitle: line['issue'] == null ? null : Text(context.moduleIssue(line['issue'] as String), style: context.listCaptionStyle),
         trailing: running ? const ActivityIndicator(size: 24) : null)));
     }));
 }
