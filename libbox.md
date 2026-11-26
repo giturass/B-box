@@ -518,6 +518,8 @@ Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`ti
 
 `experimental.modules` 按顺序保存模块：唯一 `id`、`name`、`enabled`、原文 `content`、可选 `url`、`arguments`、`updated_at`（Unix 毫秒）及按文件名索引的 base64 `attachments`。格式化和备份保留原文，不把模块写进基础规则。`CheckConfig`、CA 需求判断和服务启动使用同一展开函数；禁用或删除模块后，其规则从有效配置中消失，不改变三个独立处理开关。实现与回归见 [ui_modules.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_modules.go) 和 [ui_modules_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_modules_test.go)。
 
+展开只取配置值，不将 JSON 注释写入临时的有效配置。保存的配置仍可保留[本地节点标记](#节点导入与配置合并)；模块正文、URL 和正则字符串里的 `//` 不作为 JSON 注释处理。
+
 参数只替换已声明的 `{{{名称}}}`，不递归展开；替换后变为空行或以 `#`、`;`、`//` 开头的行不执行。模块中声明过脚本仍提示来源风险。
 
 `[Rule]` 支持域名、CIDR、源/目标端口、进程、包名、SSID、网络协议及类型、配置中的规则集标签、嵌套 AND/OR/NOT 和 FINAL。DIRECT 使用只存在于有效配置的直连出口，REJECT / REJECT-DROP / REJECT-NO-DROP 使用对应拒绝动作，其他策略须为当前配置的出站或端点标签。URL-REGEX 的 REJECT / REJECT-200 / REJECT-DICT 转为 HTTP 改写，仍受改写开关限制。模块分流规则排在基础规则前；不支持的条件或修饰符跳过整行，不放宽匹配，也不隐式下载外部规则集。`[Host]` 支持精确域名的静态 IP。MITM hostname、四组改写行、HTTP/Cron/event/generic 脚本和参数均由同一解析器描述；不支持的行返回原因。Cron/event/generic 追加在基础任务后，保留调试下标。远程相对资源相对于模块 URL 解析；本地相对资源仅从该模块的附件读取。
