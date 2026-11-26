@@ -354,9 +354,11 @@ class MitmHostsEditor extends StatefulWidget {
 }
 class _MitmHostsEditorState extends State<MitmHostsEditor> {
   late final _hosts = TextEditingController(text: (widget.store.value([...MitmConfigPage.path, 'hosts']) as List? ?? []).join('\n'));
-  late final _revision = widget.store.revision;
+  // Read when the editor opens: a lazy read at save time would always match the store.
+  late final String _revision;
   bool _busy = false, _dirty = false;
   String? _error;
+  @override void initState() { super.initState(); _revision = widget.store.revision; }
   List<String> _lines() => _hosts.text.split(RegExp(r'[\s,;]+')).where((host) => host.isNotEmpty).toSet().toList();
   @override void dispose() { _hosts.dispose(); super.dispose(); }
   Future<void> _save() async {
@@ -510,11 +512,11 @@ class DnsConfigPage extends StatelessWidget {
         value: store.value(const ['dns', 'final']) as String? ?? '', textBuilder: (value) => value.isEmpty ? context.tr('Default') : value,
         onChanged: (value) => store.set(const ['dns', 'final'], value, remove: value.isEmpty)),
       ListItem.toggle(title: Text(context.tr('Reverse mapping')), value: store.value(const ['dns', 'reverse_mapping']) == true,
-        onChanged: (value) => store.set(const ['dns', 'reverse_mapping'], value)),
+        onChanged: store.saving ? null : (value) => store.set(const ['dns', 'reverse_mapping'], value)),
       ListItem.toggle(title: Text(context.tr('Disable DNS cache')), value: store.value(const ['dns', 'disable_cache']) == true,
-        onChanged: (value) => store.set(const ['dns', 'disable_cache'], value)),
+        onChanged: store.saving ? null : (value) => store.set(const ['dns', 'disable_cache'], value)),
       ListItem.toggle(title: Text(context.tr('Disable DNS cache expiration')), value: store.value(const ['dns', 'disable_expire']) == true,
-        onChanged: (value) => store.set(const ['dns', 'disable_expire'], value)),
+        onChanged: store.saving ? null : (value) => store.set(const ['dns', 'disable_expire'], value)),
       ListItem.input(title: Text(context.tr('DNS cache capacity')), dialogTitle: context.tr('DNS cache capacity'),
         value: '${store.value(const ['dns', 'cache_capacity']) ?? 0}', keyboardType: TextInputType.number,
         validator: (value) { final number = int.tryParse(value ?? ''); return number != null && number >= 0 && number <= 0xffffffff ? null : context.tr('Invalid value'); },
@@ -536,7 +538,7 @@ class RouteConfigPage extends StatelessWidget {
         value: store.value(const ['route', 'final']) as String? ?? '', textBuilder: (value) => value.isEmpty ? context.tr('Default') : value,
         onChanged: (value) => store.set(const ['route', 'final'], value, remove: value.isEmpty)),
       ListItem.toggle(title: Text(context.tr('Find process')), value: store.value(const ['route', 'find_process']) == true,
-        onChanged: (value) => store.set(const ['route', 'find_process'], value)),
+        onChanged: store.saving ? null : (value) => store.set(const ['route', 'find_process'], value)),
     ]),
     generateSection(items: [ListItem.open(leading: const GlyphIcon(AppGlyphs.code), title: Text(context.tr('Edit route options')),
       widget: ConfigValueEditor(title: 'Routing rules', initial: store.value(const ['route']) ?? {},
@@ -566,12 +568,12 @@ class LogConfigPage extends StatelessWidget {
   @override Widget build(BuildContext context) => ListenableBuilder(listenable: store, builder: (context, _) => BoxPage(title: 'Logs', loading: store.saving, children: [
     generateSection(items: [
       ListItem.toggle(title: Text(context.tr('Enable logging')), value: store.value(const ['log', 'disabled']) != true,
-        onChanged: (value) => store.set(const ['log', 'disabled'], !value)),
+        onChanged: store.saving ? null : (value) => store.set(const ['log', 'disabled'], !value)),
       ListItem<String>.options(title: Text(context.tr('Log level')), options: const ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'panic'],
         value: store.value(const ['log', 'level']) as String? ?? 'info', textBuilder: (value) => context.tr('${value[0].toUpperCase()}${value.substring(1)}'),
         onChanged: (value) => store.set(const ['log', 'level'], value)),
       ListItem.toggle(title: Text(context.tr('Log timestamps')), value: store.value(const ['log', 'timestamp']) == true,
-        onChanged: (value) => store.set(const ['log', 'timestamp'], value)),
+        onChanged: store.saving ? null : (value) => store.set(const ['log', 'timestamp'], value)),
     ]),
   ]));
 }

@@ -28,7 +28,7 @@ class _RequestSettingsPageState extends State<RequestSettingsPage> {
     if (_busy || context.box.remote) return;
     setState(() { _busy = true; _error = null; });
     try {
-      final ports = _lines(_ports.text).map(int.tryParse).toList();
+      final ports = _lines(_ports.text).map((port) => RegExp(r'^\d+$').hasMatch(port) ? int.tryParse(port) : null).toList();
       if (ports.isEmpty || ports.any((port) => port == null || port < 1 || port > 65535)) throw const FormatException('Ports must be between 1 and 65535');
       final bodyLimit = _completeBodies ? -1 : int.tryParse(_bodyLimit.text.trim());
       if (bodyLimit == null || !_completeBodies && bodyLimit < 1) throw const FormatException('Body limit must be a positive number of bytes');

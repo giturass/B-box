@@ -213,29 +213,44 @@ class _CapturedBodyState extends State<CapturedBody> with AutomaticKeepAliveClie
 }
 
 /// One page of text, wrapped to the card or scrolled sideways at its own width.
-class _BodyText extends StatelessWidget {
+class _BodyText extends StatefulWidget {
   const _BodyText({required this.text, required this.wrap, required this.maxHeight, required this.vertical, required this.horizontal});
   final String text;
   final bool wrap;
   final double maxHeight;
   final ScrollController vertical, horizontal;
+  @override State<_BodyText> createState() => _BodyTextState();
+}
+
+class _BodyTextState extends State<_BodyText> {
+  // The page's own width is laid out once; the detail page rebuilds on every connection event.
+  (String, TextStyle, TextScaler)? _measured;
+  double _textWidth = 0;
+
+  double _measure(TextStyle style, TextScaler scaler) {
+    final key = (widget.text, style, scaler);
+    if (key != _measured) {
+      final measure = TextPainter(text: TextSpan(text: widget.text, style: style), textDirection: TextDirection.ltr,
+        textScaler: scaler)..layout();
+      _textWidth = measure.width + 4;
+      measure.dispose();
+      _measured = key;
+    }
+    return _textWidth;
+  }
 
   @override Widget build(BuildContext context) {
-    final style = _monospace(context);
+    final style = _monospace(context), scaler = MediaQuery.textScalerOf(context);
+    final wrap = widget.wrap;
     return LayoutBuilder(builder: (context, constraints) {
       var width = constraints.maxWidth;
-      if (!wrap) {
-        final measure = TextPainter(text: TextSpan(text: text, style: style), textDirection: TextDirection.ltr,
-          textScaler: MediaQuery.textScalerOf(context))..layout();
-        width = math.max(width, measure.width + 4);
-        measure.dispose();
-      }
-      Widget child = SizedBox(width: width, child: Directionality(textDirection: TextDirection.ltr, child: SelectableText(text,
+      if (!wrap) width = math.max(width, _measure(style, scaler));
+      Widget child = SizedBox(width: width, child: Directionality(textDirection: TextDirection.ltr, child: SelectableText(widget.text,
         key: const ValueKey('captured-body-text'), style: style)));
-      if (!wrap) child = Scrollbar(controller: horizontal,
-        child: SingleChildScrollView(controller: horizontal, primary: false, scrollDirection: Axis.horizontal, child: child));
-      return ConstrainedBox(constraints: BoxConstraints(maxHeight: maxHeight), child: Scrollbar(controller: vertical,
-        child: SingleChildScrollView(controller: vertical, primary: false, child: child)));
+      if (!wrap) child = Scrollbar(controller: widget.horizontal,
+        child: SingleChildScrollView(controller: widget.horizontal, primary: false, scrollDirection: Axis.horizontal, child: child));
+      return ConstrainedBox(constraints: BoxConstraints(maxHeight: widget.maxHeight), child: Scrollbar(controller: widget.vertical,
+        child: SingleChildScrollView(controller: widget.vertical, primary: false, child: child)));
     });
   }
 }

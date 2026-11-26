@@ -13,8 +13,12 @@ class _CaptureDomainsPageState extends State<CaptureDomainsPage> {
   final _selected = <String>{};
   bool _busy = false;
 
-  Future<List<String>> _load() => context.box.call('capture.domains', {'query': widget.query})
-    .then((value) => (value as List? ?? []).cast<String>());
+  Future<List<String>> _load() => context.box.call('capture.domains', {'query': widget.query}).then((value) {
+    final domains = (value as List? ?? []).cast<String>();
+    // A domain that is no longer listed cannot be unchecked, so it is not kept selected.
+    if (mounted && _selected.any((host) => !domains.contains(host))) setState(() => _selected.retainAll(domains));
+    return domains;
+  });
 
   @override void didChangeDependencies() {
     super.didChangeDependencies();
@@ -22,8 +26,11 @@ class _CaptureDomainsPageState extends State<CaptureDomainsPage> {
   }
 
   Future<void> _copy(String text) async {
-    await Clipboard.setData(ClipboardData(text: text));
-    if (mounted) context.box.messages.add(context.tr('Copied'));
+    final box = context.box;
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+      if (mounted) box.messages.add(context.tr('Copied'));
+    } catch (failure) { if (mounted) box.report(failure); }
   }
 
   @override Widget build(BuildContext context) {
