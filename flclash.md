@@ -184,7 +184,7 @@ HTTP 改写的四个列表（URL、Header、Body、Map Local）中，条目可�
 
 配置文件 → 修改 → **脚本**下面是**模块**。该入口打开[模块管理页](flutter/lib/pages/surge_modules.dart)，不在 HTTP 改写页或 MITM 页重复放置。模块页按固定 FlClash v0.9.3 的 `mitm_modules.dart` 适配：Prism 排序列表、脚本空态、“新建 / 通过 URL 导入 / 通过文件导入”菜单、来源和更新时间、附件、参数、规则及忽略原因。长按本地模块可编辑、远程模块可手动更新，两者均可删除。支持粘贴到新建编辑器；不后台轮询模块 URL。取材、文件哈希及编辑器差异见[来源清单](flutter/flclash-manifest.json)。共享组件和截图留样不等于已和上游完成逐像素或实机验收。
 
-详情和运行时使用[同一核心解析器](libbox.md#配置内的-surge-模块)。启用含脚本的模块先提示风险，更新、附件或参数修改后若仍含脚本则重新确认；拒绝后保留新内容但关闭模块。下载失败或配置修订变化不覆盖原内容。仅已在本机生效的配置提供 Cron/event/generic 的“立即运行”。该功能是 Surge [Module](https://manual.nssurge.com/profile/module.html) 的 sing-box 适配，不导入整份 Clash 配置，也不是 Loon、Quantumult X 或 Stash 解析器。
+详情和运行时使用[同一核心解析器](libbox.md#配置内的-surge-模块)。URL 输入支持 HTTP(S) 和 `surge:///install-module?url=…`；含脚本的模块启用前先提示风险，已启用模块的原文、附件或参数变化后若仍含脚本则重新确认；拒绝后保留新内容但关闭模块。下载失败或配置修订变化不覆盖原内容。仅已在本机生效的配置提供 Cron/event/generic 的“立即运行”。该功能是 Surge [Module](https://manual.nssurge.com/profile/module.html) 的 sing-box 适配，不导入整份 Clash 配置，也不是 Loon、Quantumult X 或 Stash 解析器。
 
 字段修改通过 ProfileConfigStore.set，本地资源导入通过独立桥接；二者均保留其他字段、修订及原生校验/失败恢复；关闭失败表单前保留草稿。CA 不写入配置，活跃 MITM 或手动记录时禁用重新生成，独立脚本/改写不占用证书。映射请求详情继续把连接出站/规则标为原连接。
 

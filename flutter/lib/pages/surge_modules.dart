@@ -22,6 +22,19 @@ extension _ModuleLabels on BuildContext {
 
 String moduleCount(BuildContext context, int count) => context.tr(count == 1 ? '1 item' : '{count} items').replaceAll('{count}', '$count');
 
+List<String> surgeModuleUrls(String text) {
+  final urls = <String>{};
+  for (final token in text.trim().split(RegExp(r'\s+'))) {
+    var uri = Uri.tryParse(token);
+    if (uri != null && uri.scheme == 'surge' && '${uri.host}${uri.path}'.replaceAll('/', '') == 'install-module') {
+      uri = Uri.tryParse(uri.queryParameters['url'] ?? '');
+    }
+    if (uri == null || !{'http','https'}.contains(uri.scheme) || uri.host.isEmpty) throw const FormatException('Enter an HTTP or HTTPS URL');
+    urls.add(uri.toString());
+  }
+  return urls.toList();
+}
+
 class ModuleActions extends ChangeNotifier {
   ModuleActions(this.store) : session = store.box.sessionRevision;
   final ProfileConfigStore store;
@@ -132,15 +145,14 @@ class _SurgeModulesPageState extends State<SurgeModulesPage> {
       final text = await showBoxDialog<String>(context: context, builder: (context) => InputDialog(
         title: context.moduleTr('Import from URL'), value: '', keyboardType: TextInputType.url));
       if (!mounted || text == null) return;
-      final urls = text.trim().split(RegExp(r'\s+')).toSet();
+      final urls = surgeModuleUrls(text).toSet();
       final known = actions.modules.map((item) => item['url']).toSet();
       urls.removeAll(known.whereType<String>());
       if (urls.isEmpty) throw const FormatException('Module already exists');
       for (final url in urls) {
         if (!mounted) return;
         actions.check(revision);
-        final uri = Uri.tryParse(url);
-        if (uri == null || !{'https','http'}.contains(uri.scheme) || uri.host.isEmpty) throw const FormatException('Enter an HTTP or HTTPS URL');
+        final uri = Uri.parse(url);
         final content = await widget.store.box.call('profiles.moduleFetch', {'url': url});
         if (!mounted) return;
         await actions.save(context, {'url': url, 'content': content}, revision, fallback: uri.pathSegments.lastOrNull ?? uri.host);
@@ -194,24 +206,39 @@ class _ModuleEditor extends StatefulWidget {
 
 class _ModuleEditorState extends State<_ModuleEditor> {
   final undo = UndoHistoryController();
+  final query = TextEditingController();
   late final String initial;
   late final TextEditingController text;
-  bool saving = false;
-  @override void initState() {
-    super.initState(); initial = widget.item?['content'] as String? ?? '#!name=Module\n#!desc=\n\n[URL Rewrite]\n\n[MITM]\nhostname = %APPEND%\n';
+  bool saving = false, searching = false, initialized = false;
+  @override void didChangeDependencies() {
+    super.didChangeDependencies(); if (initialized) return; initialized = true;
+    initial = widget.item?['content'] as String? ?? '#!name=${context.tr('Module')}\n#!desc=\n\n[URL Rewrite]\n\n[MITM]\nhostname = %APPEND%\n';
     text = TextEditingController(text: initial);
   }
-  @override void dispose() { text.dispose(); undo.dispose(); super.dispose(); }
+  @override void dispose() { text.dispose(); undo.dispose(); query.dispose(); super.dispose(); }
+  void _nextMatch() {
+    if (query.text.isEmpty) return;
+    var offset = text.text.indexOf(query.text, text.selection.isValid ? text.selection.end : 0);
+    if (offset < 0) offset = text.text.indexOf(query.text);
+    if (offset >= 0) text.selection = TextSelection(baseOffset: offset, extentOffset: offset + query.text.length);
+  }
   Future<void> _save() async {
     setState(() => saving = true);
     final ok = await widget.actions.action('editor', () => widget.actions.save(context, {...?widget.item, 'content': text.text}, widget.revision));
     if (!mounted) return;
     if (ok) { Navigator.pop(context); } else { setState(() => saving = false); }
   }
-  @override Widget build(BuildContext context) => ListenableBuilder(listenable: text, builder: (context, _) => BoxEditGuard(dirty: text.text != initial, busy: saving,
+  @override Widget build(BuildContext context) => ListenableBuilder(listenable: Listenable.merge([text, undo]), builder: (context, _) => BoxEditGuard(dirty: text.text != initial, busy: saving,
     child: Scaffold(title: widget.item?['name'] as String? ?? context.tr('New module'), isLoading: saving,
-      confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'), onPressed: saving ? null : _save),
-      body: Surface(child: Padding(padding: EdgeInsets.only(top: context.appBarInset, bottom: context.bottomInset), child: CodeEditor(controller: text, undoController: undo, readOnly: saving))))));
+      confirmationAction: IconButtonData(glyph: AppGlyphs.check, tooltip: context.tr('Save'), onPressed: saving || text.text == initial ? null : _save),
+      iconActions: [IconButtonData(glyph: AppGlyphs.search, tooltip: context.tr('Search'), onPressed: () => setState(() => searching = !searching))],
+      menuItems: [PopupMenuItem(glyph: AppGlyphs.undo, label: context.tr('Undo'), onPressed: !saving && undo.value.canUndo ? undo.undo : null),
+        PopupMenuItem(glyph: AppGlyphs.redo, label: context.tr('Redo'), onPressed: !saving && undo.value.canRedo ? undo.redo : null)],
+      body: Surface(child: Padding(padding: EdgeInsets.only(top: context.appBarInset, bottom: context.bottomInset), child: Column(children: [
+        if (searching) Padding(padding: const EdgeInsets.all(12), child: TextField(controller: query, autofocus: true, onSubmitted: (_) => _nextMatch(),
+          decoration: InputDecoration(hintText: context.tr('Search'), suffixIcon: IconButton(icon: const GlyphIcon(AppGlyphs.arrowDown), onPressed: _nextMatch)))),
+        Expanded(child: CodeEditor(controller: text, undoController: undo, readOnly: saving)),
+      ]))))));
 }
 
 class _ModuleDetail extends StatefulWidget {
@@ -310,7 +337,7 @@ class _ModuleLinesState extends State<_ModuleLines> with WidgetsBindingObserver 
   Object? identity;
   ProfileConfigStore get store => widget.actions.store;
   bool get current => widget.actions.local && store.revision == widget.revision;
-  @override void initState() { super.initState(); store.addListener(_changed); store.box.addListener(_changed); WidgetsBinding.instance.addObserver(this); identity = _identity(); }
+  @override void initState() { super.initState(); store.addListener(_changed); store.box.stateChanges.addListener(_changed); WidgetsBinding.instance.addObserver(this); identity = _identity(); }
   Object _identity() => (store.revision, store.box.sessionRevision, store.box.profilesRevision, store.box.selectedProfileId, store.box.dashboard['status'],
     store.box.dashboard['processingGeneration'], store.box.dashboard['processingApplying'], store.box.serviceSettingsChanging, store.saving, store.loading);
   void _invalidate() {
@@ -328,7 +355,7 @@ class _ModuleLinesState extends State<_ModuleLines> with WidgetsBindingObserver 
   }
   @override void didChangeDependencies() { super.didChangeDependencies(); _visibility(); }
   @override void didChangeAppLifecycleState(AppLifecycleState state) { _visibility(); if (mounted) setState(() {}); }
-  @override void dispose() { store.removeListener(_changed); store.box.removeListener(_changed); WidgetsBinding.instance.removeObserver(this); visible = false; _invalidate(); invalidation.dispose(); super.dispose(); }
+  @override void dispose() { store.removeListener(_changed); store.box.stateChanges.removeListener(_changed); WidgetsBinding.instance.removeObserver(this); visible = false; _invalidate(); invalidation.dispose(); super.dispose(); }
 
   Future<void> _run(Json line, String kind, int index, int epoch) async {
     bool valid() => mounted && visible && current && invalidation.value == epoch;
@@ -338,7 +365,7 @@ class _ModuleLinesState extends State<_ModuleLines> with WidgetsBindingObserver 
     try { output = await store.runScript(kind, index, requestId: request, moduleRevision: widget.revision); }
     catch (failure) { output = {'error': BoxController.describe(failure)}; }
     finally { requests.remove(request); }
-    if (!valid() || output == null) return;
+    if (!mounted || !valid() || output == null) return;
     await showBoxDialog<void>(context: context, builder: (_) => ScriptOutputDialog(name: line['text'] as String, output: output!, invalidation: invalidation, isValid: valid));
   }
 

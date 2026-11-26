@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:b_box_ui/main.dart';
@@ -41,9 +40,48 @@ Future<Uint8List> _capture(WidgetTester tester, GlobalKey frame, String name) as
 }))!;
 
 void main() {
+  test('Surge installation links only resolve to HTTP(S) modules', () {
+    const link = 'https://example.test/module?version=2';
+    expect(surgeModuleUrls('surge:///install-module?url=${Uri.encodeComponent(link)} $link'), [link]);
+    expect(() => surgeModuleUrls('surge:///install-module?url=file%3A%2F%2F%2Fconfig'), throwsFormatException);
+  });
   test('Modules follows Scripts on the profile Edit page', () {
     expect(ProfileConfigSection.values.skipWhile((section) => section != ProfileConfigSection.scripts).take(2),
       [ProfileConfigSection.scripts, ProfileConfigSection.modules]);
+  });
+
+  testWidgets('script-bearing updates require consent; failed or stale downloads preserve the stored module', (tester) async {
+    const channel = MethodChannel('test.surge-updates');
+    const old = '[Rule]\nDOMAIN,example.test,REJECT', updated = '[Script]\nhelper=type=generic,script-path=helper.js';
+    var revision = 'r1', writes = 0;
+    var content = jsonEncode({'experimental':{'modules':[{'id':'m','url':'https://example.test/source','enabled':true,'name':'One','content':old}]}});
+    Json wire() => {'formatted':content,'revision':revision};
+    var fetch = Future<String>.value(updated);
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'ready': return {'preferences':{'locale':'en'}, 'dashboard':{'status':'Stopped'}};
+        case 'profiles.config': return wire();
+        case 'profiles.moduleFetch': return await fetch;
+        case 'profiles.moduleDescribe': return jsonEncode({'name':'One', 'hasScripts':true});
+        case 'profiles.write': final args = json(call.arguments); expect(args['revision'],revision); writes++; content = args['content'] as String; revision = 'r2'; return wire();
+      }
+      return null;
+    });
+    final box = BoxController(channel:channel,events:const Stream.empty()), store = ProfileConfigStore(box, {'id':7});
+    await store.load(); await tester.pumpWidget(BoxApp(controller:box)); await tester.pumpAndSettle();
+    final actions = ModuleActions(store), context = tester.element(find.byType(HomePage));
+    addTearDown(() async { await tester.pumpWidget(const SizedBox()); actions.dispose(); store.dispose(); messenger.setMockMethodCallHandler(channel, null); });
+    final updating = actions.update(context, actions.find('m')!, revision);
+    await tester.pumpAndSettle(); expect(find.text('Run scripts from this module?'), findsOneWidget);
+    expect(writes,0); await tester.tap(find.text('Cancel').last); await tester.pumpAndSettle(); await updating;
+    expect(actions.find('m')?['content'],updated); expect(actions.find('m')?['enabled'],false);
+    final pending = Completer<String>(); fetch = pending.future;
+    final stale = actions.update(context, actions.find('m')!, revision); await tester.pump(); revision = 'external'; await store.load();
+    pending.complete(old); await tester.pumpAndSettle(); await stale; expect(writes,1); expect(actions.find('m')?['content'],updated);
+    final failed = Completer<String>(); fetch = failed.future;
+    final failure = actions.update(context, actions.find('m')!, revision); await tester.pump(); failed.completeError(PlatformException(code:'http',message:'HTTP 404'));
+    await tester.pumpAndSettle(); await failure; expect(writes,1); expect(actions.find('m')?['content'],updated);
   });
 
   testWidgets('module list pixels match the FlClash v0.9.3 fixture and edits keep the base profile', (tester) async {
