@@ -40,8 +40,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(ProxyListView), findsOneWidget);
     expect(find.byType(ProxyNodeCard), findsNothing);
+    final chevron = find.descendant(of: find.byType(ProxyGroupHeader), matching: find.byWidgetPredicate(
+      (widget) => widget is RotationTransition && widget.child is GlyphIcon &&
+          (widget.child as GlyphIcon).glyph == AppGlyphs.chevronDown));
+    double chevronTurns() => tester.widget<RotationTransition>(chevron).turns.value;
+    expect(chevronTurns(), -0.25);
     await tester.tap(find.byTooltip('Show more'));
     await tester.pumpAndSettle();
+    expect(chevronTurns(), 0);
     expect(json(preferences['proxyUnfolded'])['local:1'], ['Large group']);
     expect(find.byType(ProxyNodeCard).evaluate().length, inInclusiveRange(1, 40));
     final selected = find.descendant(of: find.byType(ProxyNodeCard), matching: find.text('Node 150'));
@@ -62,6 +68,7 @@ void main() {
     expect(find.byType(ProxyNodeCard).evaluate(), isNotEmpty);
     await tester.tap(find.byTooltip('Show less'));
     await tester.pumpAndSettle();
+    expect(chevronTurns(), -0.25);
     expect(find.byType(ProxyNodeCard), findsNothing);
     expect(json(preferences['proxyUnfolded'])['local:1'], isEmpty);
     expect(tester.takeException(), isNull);

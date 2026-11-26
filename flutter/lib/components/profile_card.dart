@@ -11,7 +11,7 @@ String profileDisplayName(BuildContext context, Json profile) {
 double profileCardHeight(BuildContext context) {
   final measure = MeasureScope.of(context);
   return measure.textHeight(AppTextStyle.headline) + 4 +
-      measure.textHeight(AppTextStyle.footnote) + 2 * listRowVerticalPadding;
+      measure.textHeight(AppTextStyle.footnote) + 2 * listTwoLineRowVerticalPadding;
 }
 
 class ProfileCard extends StatelessWidget {
@@ -29,7 +29,7 @@ class ProfileCard extends StatelessWidget {
       child: Card(radius: AppCorner.xl, isSelected: selected, enterActionsOnRight: true,
         onPressed: onPressed,
         child: ListItem(
-          minTileHeight: profileCardHeight(context), minVerticalPadding: listRowVerticalPadding,
+          minTileHeight: profileCardHeight(context), minVerticalPadding: listTwoLineRowVerticalPadding,
           title: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
             Text(profileDisplayName(context, profile), style: titleStyle,
               strutStyle: StrutStyle.fromTextStyle(DefaultTextStyle.of(context).style.merge(titleStyle), forceStrutHeight: true),

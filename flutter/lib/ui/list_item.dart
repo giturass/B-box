@@ -83,7 +83,7 @@ class ListItem<T> extends StatelessWidget {
   final Widget? trailing;
   final _ListItemAction _action;
   final double? horizontalTitleGap;
-  final double minVerticalPadding;
+  final double? minVerticalPadding;
   final double? minTileHeight;
   final void Function()? onTap;
 
@@ -97,7 +97,7 @@ class ListItem<T> extends StatelessWidget {
     this.horizontalTitleGap,
     this.onTap,
     this.minTileHeight,
-    this.minVerticalPadding = listRowVerticalPadding,
+    this.minVerticalPadding,
     this.alignment = ListRowAlignment.center,
   }) : _action = const _DefaultAction();
 
@@ -113,7 +113,7 @@ class ListItem<T> extends StatelessWidget {
     bool forceFull = true,
     this.horizontalTitleGap,
     this.minTileHeight,
-    this.minVerticalPadding = listRowVerticalPadding,
+    this.minVerticalPadding,
     this.alignment = ListRowAlignment.center,
   }) : _action = _OpenAction(
          widget: widget,
@@ -134,7 +134,7 @@ class ListItem<T> extends StatelessWidget {
     required ValueChanged<T> onChanged,
     this.horizontalTitleGap,
     this.minTileHeight,
-    this.minVerticalPadding = listRowVerticalPadding,
+    this.minVerticalPadding,
     this.alignment = ListRowAlignment.center,
   }) : _action = _OptionsAction<T>(
          options: options,
@@ -162,7 +162,7 @@ class ListItem<T> extends StatelessWidget {
     String? resetValue,
     this.horizontalTitleGap,
     this.minTileHeight,
-    this.minVerticalPadding = listRowVerticalPadding,
+    this.minVerticalPadding,
     this.alignment = ListRowAlignment.center,
   }) : _action = _InputAction(
          title: dialogTitle,
@@ -186,7 +186,7 @@ class ListItem<T> extends StatelessWidget {
     ValueChanged<bool?>? onChanged,
     this.horizontalTitleGap,
     this.minTileHeight,
-    this.minVerticalPadding = listRowVerticalPadding,
+    this.minVerticalPadding,
     this.alignment = ListRowAlignment.center,
   }) : _action = _CheckboxAction(value: value, onChanged: onChanged),
        trailing = null,
@@ -202,7 +202,7 @@ class ListItem<T> extends StatelessWidget {
     ValueChanged<bool>? onChanged,
     this.horizontalTitleGap,
     this.minTileHeight,
-    this.minVerticalPadding = listRowVerticalPadding,
+    this.minVerticalPadding,
     this.alignment = ListRowAlignment.center,
   }) : _action = _ToggleAction(value: value, onChanged: onChanged),
        trailing = null,
@@ -226,6 +226,9 @@ class ListItem<T> extends StatelessWidget {
           trailing: trailing ?? this.trailing,
           contentPadding: padding,
           horizontalTitleGap: horizontalTitleGap,
+          minVerticalPadding: minVerticalPadding,
+          minHeight: minTileHeight,
+          alignment: alignment,
           onPressed: onTap,
         ),
       );
@@ -238,7 +241,7 @@ class ListItem<T> extends StatelessWidget {
       padding: padding,
       horizontalTitleGap: horizontalTitleGap,
       minVerticalPadding: minVerticalPadding,
-      minHeight: minTileHeight ?? listRowMinHeight,
+      minHeight: minTileHeight,
       alignment: alignment,
     );
     if (onTap == null) {

@@ -15,9 +15,7 @@
     "lib/ui/profile_id.dart": "9762e4c05a9108a8a5f9f2e2a8e5f6c211f0370013198d5a4e7ee3ca14792279",
     "lib/ui/qr_code.dart": "e8141bc5f8c4d7e9cf8ac33e1a044e194ab17c404282f8be6d126373ff805923",
     "lib/ui/qr_matrix.dart": "842f779809a20045d6fed2a763e5b166143f46cc532c5e2d1126465f1ffd5b87",
-    "lib/ui/scaffold/scaffold.dart": "9ebbfb1bb0293e97ff366f52834dd6a8a31b4357b6afe067ea2a6bfbb2b9d52e",
     "lib/ui/scaffold/scaffold_actions.dart": "0d3fee5a534de3f5b5e101c91e887558deb6145358544ae10fde7d213c9e2557",
-    "lib/ui/scaffold/scaffold_search.dart": "da30487fd6fecc575f3a420f9808446bb962789beb08655e8fb88323014f0858",
     "lib/ui/setting_text_card.dart": "0f0473dc9f542f67de7d2d98edbd71e3bef025369ff256e4cdb89a70b0845146",
     "lib/ui/ui.dart": "3cc5a827f5ee549cc2848d61fef99b9342bd34671e734ae9725c504ee9e39046"
   },
@@ -162,12 +160,12 @@
     "lib/pages/about.dart": {
       "source": "lib/views/about.dart",
       "sourceSHA256": "a6c3de2a21cc8baa6be882a049d5ba16f88342e94d0c405de3d3346c920552ab",
-      "changes": "Hero footprint, version and license pills, update control and link badges retained with B-box branding and B-box release metadata. The 96dp brand image fills a single AppShape clip edge to edge, removing the surrounding inset surface. Application and sing-box core versions are displayed independently. The update control reopens Android-owned download progress and the prepared installer state; the B-box update dialog provides download, cancellation, verification, retry and Android installer permission guidance using versionCode-only bridge commands. Incomplete release checks remain explicit and unverified or incompatible artifacts use the release page. Migrated to the v0.9.3 prism_ui types and presentation. Reports the independently pinned Prism UI 0.1.3 library alongside the unchanged FlClash v0.9.3 UI reference."
+      "changes": "Hero footprint, version and license pills, update control and link badges retained with B-box branding and B-box release metadata. The 96dp brand image fills a single AppShape clip edge to edge, removing the surrounding inset surface. Application and sing-box core versions are displayed independently. The update control reopens Android-owned download progress and the prepared installer state; the B-box update dialog provides download, cancellation, verification, retry and Android installer permission guidance using versionCode-only bridge commands. Incomplete release checks remain explicit and unverified or incompatible artifacts use the release page. Migrated to the v0.9.3 prism_ui types and presentation. Reports the independently pinned Prism UI source commit alongside the unchanged FlClash v0.9.3 UI reference."
     },
     "lib/components/proxy_list.dart": {
       "source": "lib/views/proxies/list.dart",
       "sourceSHA256": "fa71e7b9d6d8dea7b1935a31b3ae80bcb565273ed45e04801f532ade8f400e9a",
-      "changes": "Pinned rounded group headers, fixed-extent lazy rows, folding motion and group controls adapted to real sing-box groups. Fold state persists per profile; no external group icon URLs are invented. Migrated to the v0.9.3 prism_ui types and presentation. Accepts a top inset override for use beneath the merged profile-file strip; pinned group headers and reveal calculations use the remaining proxy viewport. A revision value from the page rebuilds the cached rows when the marked nodes change. Configured groups while stopped use the same pinned headers, locate controls and selection captions as live groups; latency controls stay visible and are disabled until the core runs."
+      "changes": "Pinned rounded group headers, fixed-extent lazy rows, folding motion and group controls adapted to real sing-box groups. Fold state persists per profile; no external group icon URLs are invented. Migrated to the v0.9.3 prism_ui types and presentation. Accepts a top inset override for use beneath the merged profile-file strip; pinned group headers and reveal calculations use the remaining proxy viewport. A revision value from the page rebuilds the cached rows when the marked nodes change. Configured groups while stopped use the same pinned headers, locate controls and selection captions as live groups; latency controls stay visible and are disabled until the core runs. The visible rows and header chevron share the Prism UnfoldMotion spring, including when motion is disabled; the settled list still builds lazily."
     },
     "lib/components/proxy_card.dart": {
       "source": "lib/views/proxies/card.dart",
@@ -187,7 +185,7 @@
     "lib/components/form.dart": {
       "source": "lib/features/form/form_row.dart",
       "sourceSHA256": "573523cde6588821f2e77a04e062f9a0ef78746443c2e8cec10a8cf816c031c2",
-      "changes": "Grouped rows and end-aligned text/secret fields retained. Uses the inherited B-box measurement scope and local error handling; the form scroll viewport stays below the shared title. Migrated to the v0.9.3 prism_ui types and presentation."
+      "changes": "Grouped rows and end-aligned text/secret fields retained. Uses the inherited B-box measurement scope and local error handling; the form scroll viewport stays below the shared title. Migrated to the v0.9.3 prism_ui types and presentation. The trailing field uses the context-sensitive Prism row height."
     },
     "lib/pages/backup.dart": {
       "source": "lib/views/backup_and_restore.dart",
@@ -262,7 +260,7 @@
           "sourceSHA256": "a539e15957a3cdb3f4cb2a1718aaa12bc2d398ebf08f949cca4b4812b1245439"
         }
       ],
-      "changes": "Profile row height, title strut, selected badge, updating transition and compact update-age labels retained. Uses Room timestamps for local content saves and remote subscription updates; missing timestamps show unknown. Refresh is scoped to visible/resumed pages. Does not invent subscription quotas or expiry badges absent from the native model. Accept a disabled selection callback while retaining the profile metadata and context menu. Migrated to the v0.9.3 prism_ui types and presentation. The shared timestamp accepts a configurable tooltip trigger and an optional Updated prefix (更新于 in Chinese) for the dashboard; the profile list retains its existing interaction and compact age. The selected row shows the shared checkmark badge in both the merged page and picker; editing remains in the context menu. The native default-profile identity uses a localized default name until the user renames it. The update-time AnimatedSwitcher takes flexible width beside the fixed selection badge under Prism UI 0.1.3 trailing constraints, retaining the existing one-line ellipsis and full-date tooltip."
+      "changes": "Profile row height, title strut, selected badge, updating transition and compact update-age labels retained. Uses Room timestamps for local content saves and remote subscription updates; missing timestamps show unknown. Refresh is scoped to visible/resumed pages. Does not invent subscription quotas or expiry badges absent from the native model. Accept a disabled selection callback while retaining the profile metadata and context menu. Migrated to the v0.9.3 prism_ui types and presentation. The shared timestamp accepts a configurable tooltip trigger and an optional Updated prefix (更新于 in Chinese) for the dashboard; the profile list retains its existing interaction and compact age. The selected row shows the shared checkmark badge in both the merged page and picker; editing remains in the context menu. The native default-profile identity uses a localized default name until the user renames it. The update-time AnimatedSwitcher takes flexible width beside the fixed selection badge under Prism UI 0.1.3 trailing constraints, retaining the existing one-line ellipsis and full-date tooltip. Keep the profile strip height and row padding in sync using the two-line row metric."
     },
     "lib/main.dart": {
       "source": "lib/application.dart",
@@ -282,7 +280,7 @@
     "lib/ui/list_item.dart": {
       "source": "lib/ui/list_item.dart",
       "sourceSHA256": "e3e71e418d72ab423732b00dd412e87ce5633ceeb9f5ac2b0c9ea0e56d2e0afb",
-      "changes": "FlClash v0.9.3 list item behavior retained. Wrap the options value in Flexible while preserving its 160 dp maximum, so Prism UI 0.1.3 ListRow trailing constraints leave the title and picker visible for long values on narrow or scaled layouts. Popup selection and the full value passed to B-box actions remain unchanged."
+      "changes": "FlClash v0.9.3 list item behavior retained. Wrap the options value in Flexible while preserving its 160 dp maximum, so Prism UI 0.1.3 ListRow trailing constraints leave the title and picker visible for long values on narrow or scaled layouts. Popup selection and the full value passed to B-box actions remain unchanged. Forward explicit height, padding and alignment in grouped and standalone rows; otherwise use Prism defaults for the active text scale and subtitle."
     },
     "lib/components/battery_optimization.dart": {
       "source": "lib/views/config/on_demand.dart",
@@ -301,7 +299,7 @@
           "sourceSHA256": "a468bdd94f3f4d7917413dc4c746150b136982c738254c04b11e5831663e0080"
         }
       ],
-      "changes": "Extract the battery prerequisite row and authorization button with the original TooltipLabel, error-container and default-authorized colors, MinFilledButtonTheme, ElasticButton, 12 dp horizontal padding, nominal 80 by 40 dp minimum, opposite-label invisible width reservation and 24 dp initial-state indicator. Initial reads alone hide the button; requests remain visually unchanged while native and controller guards prevent duplicate prompts. Android-backed status reads on entry, foreground return and awaited prompt completion replace Riverpod and the FlClash plugin. Authorized presses are no-ops. B-box retains its existing Service section position. Opt out of the independently pinned Prism UI 0.1.3 trailing limit only for this row to preserve the FlClash submodule width and inherited text wrapping."
+      "changes": "Extract the battery prerequisite row and authorization button with the original TooltipLabel, error-container and default-authorized colors, MinFilledButtonTheme, ElasticButton, 12 dp horizontal padding, nominal 80 by 40 dp minimum, opposite-label invisible width reservation and 24 dp initial-state indicator. Initial reads alone hide the button; requests remain visually unchanged while native and controller guards prevent duplicate prompts. Android-backed status reads on entry, foreground return and awaited prompt completion replace Riverpod and the FlClash plugin. Authorized presses are no-ops. B-box retains its existing Service section position. Preserve the FlClash row height, padding, section corners, separator inset and unrestricted trailing action explicitly."
     },
     "test/support/flclash_battery_reference.dart": {
       "source": "lib/views/config/on_demand.dart",
@@ -335,84 +333,100 @@
         },
         {
           "repository": "https://github.com/chen08209/prism_ui",
-          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "commit": "cae9a43572bddb9b20b9350ef7fde3f434a758c7",
           "source": "lib/common_button.dart",
-          "sourceSHA256": "fff6795c7b5dde539cb7e81135594aa3ca14e07bd8aecb6d36808a507b5c44a7"
+          "sourceSHA256": "bba7ac948ce32c3c12c23553be59ae7b9d00ad5ddc09b2434d127407abf81df0"
         },
         {
           "repository": "https://github.com/chen08209/prism_ui",
-          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "commit": "cae9a43572bddb9b20b9350ef7fde3f434a758c7",
           "source": "lib/button.dart",
           "sourceSHA256": "c309ab70f2c330ab4ce384e28dc57a415f5c106b19723462585c9332a9c49cd9"
         },
         {
           "repository": "https://github.com/chen08209/prism_ui",
-          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "commit": "cae9a43572bddb9b20b9350ef7fde3f434a758c7",
           "source": "lib/text.dart",
           "sourceSHA256": "f75c9e4009fe95f7fa9b1ebefd269b29ce0b3dbd973d2f6c9091ee502468cf78"
         },
         {
           "repository": "https://github.com/chen08209/prism_ui",
-          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "commit": "cae9a43572bddb9b20b9350ef7fde3f434a758c7",
           "source": "lib/theme.dart",
-          "sourceSHA256": "73669d3c7f9f2384323ba17a4236cccdb2476f4a067b5a524d40c74a7a2ae775"
+          "sourceSHA256": "27b2e821e933beed7495f85620f68e66b10010c245158472492be470718c8342"
         },
         {
           "repository": "https://github.com/chen08209/prism_ui",
-          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "commit": "cae9a43572bddb9b20b9350ef7fde3f434a758c7",
           "source": "lib/context.dart",
-          "sourceSHA256": "1ef8a07775cc5b6700e53a8ea750d10194ea8496b60942a732f5fa5874ee49df"
+          "sourceSHA256": "1ecbb77c2f21d4c729745e5fa9f62c2da731612e22a74d214f10ba8832e93c7d"
         },
         {
           "repository": "https://github.com/chen08209/prism_ui",
-          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "commit": "cae9a43572bddb9b20b9350ef7fde3f434a758c7",
           "source": "lib/loading.dart",
           "sourceSHA256": "0039e9492ee31af4af4f0ab223c0ef52c7736d1f3627785da3d9948d9bc4d0f8"
         },
         {
           "repository": "https://github.com/chen08209/prism_ui",
-          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "commit": "cae9a43572bddb9b20b9350ef7fde3f434a758c7",
           "source": "lib/typography.dart",
           "sourceSHA256": "2911e41b4f3a934ed584de823ee32aace107401501a58040e2972b7004d0fa3a"
         },
         {
           "repository": "https://github.com/chen08209/prism_ui",
-          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "commit": "cae9a43572bddb9b20b9350ef7fde3f434a758c7",
           "source": "lib/card.dart",
-          "sourceSHA256": "92037c4b518d6d4fa8d7622e59560e0e1003d0c64e8c4318812476f009409bc2"
+          "sourceSHA256": "0b35ed2a452f4b6f341772a96c99b957b7efecfa63bb6a83cde54a0c1af623ff"
         },
         {
           "repository": "https://github.com/chen08209/prism_ui",
-          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "commit": "cae9a43572bddb9b20b9350ef7fde3f434a758c7",
           "source": "lib/card_surface.dart",
           "sourceSHA256": "252260e9f8ce0d58b0b51cf87f04780233429ca5ae9d637bff2183315ba34f89"
         },
         {
           "repository": "https://github.com/chen08209/prism_ui",
-          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "commit": "cae9a43572bddb9b20b9350ef7fde3f434a758c7",
           "source": "lib/press_surface.dart",
           "sourceSHA256": "3ec0fa44403ca12680b1b356bcd022adb9c7c7ab6c8ec94851ab4c165978d394"
         },
         {
           "repository": "https://github.com/chen08209/prism_ui",
-          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "commit": "cae9a43572bddb9b20b9350ef7fde3f434a758c7",
           "source": "lib/shape.dart",
-          "sourceSHA256": "2d8a73ab0dd6c1622153b5002840c2582b91b8020251b2f5b169ba9a1d5f6edf"
+          "sourceSHA256": "27be695e42c74eab10285d5715070434ea14efc3a5ace7a381ed649faf0d87fa"
         },
         {
           "repository": "https://github.com/chen08209/prism_ui",
-          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "commit": "cae9a43572bddb9b20b9350ef7fde3f434a758c7",
           "source": "lib/theme_data.dart",
           "sourceSHA256": "693a2b1c3684f22e3275c1ccc21615ea4227c2fa10d688eed3e34fe340e81649"
         },
         {
           "repository": "https://github.com/chen08209/prism_ui",
-          "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+          "commit": "63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185",
           "source": "lib/metrics.dart",
           "sourceSHA256": "df5e8b4979415de530ac1ff1d80bc9ec48ae276ab4e7a4777305e57f143285f0"
+        },
+        {
+          "repository": "https://github.com/chen08209/prism_ui",
+          "commit": "63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185",
+          "source": "lib/context.dart",
+          "sourceSHA256": "1ef8a07775cc5b6700e53a8ea750d10194ea8496b60942a732f5fa5874ee49df"
         }
       ],
-      "changes": "Frozen zero-tolerance battery-row comparison oracle. Preserve the extracted on-demand authorization item, tooltip title, opposite-label width reservation and initial-state indicator; provider/action/localization reads use independent fixtures and literal upstream labels. Freeze the complete original ListRow renderer, DecorationListItem and row separator from the FlClash reference submodule, retaining their geometry and text rules with only private class renaming/import isolation. Preserve upstream optional constructor parameters and explicitly suppress unused_element_parameter after making those types private. Shared runtime button, surface, typography and indicator dependencies retain the independently pinned Prism UI 0.1.3 revision; their rendering declarations used by this row were checked against the reference submodule. The new unused typography emphasis helper and corrected press-cancel callback remain shared-library changes. Supporting sources distinguish the frozen submodule renderer from these current runtime dependencies. The oracle does not import the B-box battery component or the adapted ListRow implementation. Tests use the same Android theme, viewport, text scale and readable fonts; repeating indicator input is frozen at the same progress for both images, and complete raw RGBA equality is required."
+      "changes": "Frozen zero-tolerance battery-row comparison oracle. Preserve the extracted on-demand authorization item, tooltip title, opposite-label width reservation and initial-state indicator; provider/action/localization reads use independent fixtures and literal upstream labels. Freeze the complete original ListRow renderer, DecorationListItem and row separator from the FlClash reference submodule, retaining their geometry and text rules with only private class renaming/import isolation. Preserve upstream optional constructor parameters and explicitly suppress unused_element_parameter after making those types private. The original vertical padding, minimum height and regular text styles are fixed independently of current list metrics. Supporting sources distinguish the frozen FlClash submodule declarations from shared runtime components. The oracle does not use the production battery row or adapted ListRow. Compare full RGBA buffers with identical animation inputs and zero tolerance."
+    },
+    "lib/ui/scaffold/scaffold.dart": {
+      "source": "lib/ui/scaffold/scaffold.dart",
+      "sourceSHA256": "9ebbfb1bb0293e97ff366f52834dd6a8a31b4357b6afe067ea2a6bfbb2b9d52e",
+      "changes": "Pass the view context to Prism appBarActionInset for the toolbar margin; all other FlClash source is unchanged."
+    },
+    "lib/ui/scaffold/scaffold_search.dart": {
+      "source": "lib/ui/scaffold/scaffold_search.dart",
+      "sourceSHA256": "da30487fd6fecc575f3a420f9808446bb962789beb08655e8fb88323014f0858",
+      "changes": "Pass the view context to Prism appBarActionInset for the toolbar margin; all other FlClash source is unchanged."
     }
   },
   "adaptedNativeFiles": {
@@ -660,14 +674,14 @@
   "prismUi": {
     "repository": "https://github.com/chen08209/prism_ui",
     "version": "0.1.3",
-    "commit": "7831ade349ede896aedb8a5757dc9c3fe88081d5",
+    "commit": "cae9a43572bddb9b20b9350ef7fde3f434a758c7",
     "forkRepository": "https://github.com/giturass/prism_ui",
     "forkBranch": "b-box",
-    "forkCommit": "4fb95855bd916497a41e5c79ff1c6b156bcbe9a3",
+    "forkCommit": "a7234e8aa5c4aec74f21ac9d1efa08feb5557d47",
     "flclashSubmodule": "plugins/prism_ui",
     "flclashSubmoduleCommit": "63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185",
     "localPath": "packages/prism_ui",
-    "changes": "Git submodule at localPath tracking forkBranch of forkRepository, a fork of repository; forkCommit is commit plus the B-box commits. The two explicit ScrollCacheExtent rendering imports needed by Flutter 3.47.6 and two scoped authorization-row trailing-width adaptations are recorded in adaptedFiles; all other package files are unmodified. files records the hashes of the 193 imported fork files, while adaptedFiles retains original upstream source hashes. The FlClash v0.9.3 submodule reference stays at flclashSubmoduleCommit. Package paths below are relative to localPath; app adaptations and license assets are relative to flutter/.",
+    "changes": "The b-box submodule merges the pinned upstream main commit after v0.1.3; the package version is unchanged. The only fork changes are the two Flutter 3.47.6 rendering imports and the two authorization-row layout adaptations listed below. files records actual fork hashes; adaptedFiles records original upstream hashes. The FlClash reference submodule stays independently pinned at flclashSubmoduleCommit.",
     "files": {
       "CHANGELOG.md": "27cc0ed4b6cee8c09f36b200c724d419e3f1da24b948c65460699de7c545dde4",
       "LICENSE": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
@@ -675,31 +689,32 @@
       "README.md": "05b86325d385f0786e4fd68a9fc54eb93885129d4d24eac541e237751ca07d3b",
       "analysis_options.yaml": "ff51ea917a53364b47aac0e3f40400ffe1419b4ff06c156dd28fec746717090b",
       "lib/activate_box.dart": "c0b6795d8284a63bee12de01ae307a6629e9eab8d9a0659d7f43991832c9afd2",
-      "lib/animated_entries.dart": "b26e8dea653d6947a0256dfdfee58c792bf2c33de3f7529f6f12091f9fb240f3",
+      "lib/animated_entries.dart": "d6a8bcfa79b425d30d55bcbec11c4a0b98a98e06cf6c20a48c4f732abbbd2d3e",
       "lib/animated_visibility.dart": "42dddcdd7d1119375263a9cf6134636ab7030a0e5d805f8e8be47594fb17d615",
       "lib/app.dart": "98c8a7c68e17a33c5071bc17bd9e4754f1cb88b44cee1a3a1e2c83102dfbe6e2",
       "lib/banner.dart": "c3aa285d14b0a6b87787c9df13889e22ef11323e559ed2507bd71098a26521ad",
-      "lib/bar_item_presence.dart": "1a42cef6c5eff50793386add3a471bf1973299a48ff776b2644410cbfad3406e",
+      "lib/bar_item_presence.dart": "76869f4ddcaaa200e88deeb73f675f72d45383c26d5208ed1f22680917e52e0c",
       "lib/builder.dart": "f30437e033fe340f74d180b5ebc78829d2689cdd378a212e81acd538d57de61c",
       "lib/button.dart": "c309ab70f2c330ab4ce384e28dc57a415f5c106b19723462585c9332a9c49cd9",
-      "lib/card.dart": "92037c4b518d6d4fa8d7622e59560e0e1003d0c64e8c4318812476f009409bc2",
+      "lib/card.dart": "0b35ed2a452f4b6f341772a96c99b957b7efecfa63bb6a83cde54a0c1af623ff",
       "lib/card_surface.dart": "252260e9f8ce0d58b0b51cf87f04780233429ca5ae9d637bff2183315ba34f89",
       "lib/caret_popup.dart": "5408252a65ccb72fe44e8781453b42b6c5d53162aeeb0d95d512c39bbb384f67",
-      "lib/checkbox.dart": "a52024f64488d761a95d9aa3ff784f990f1a49e3e16c4920d2a1d3ff076d04e9",
-      "lib/chip.dart": "a8a7462ca5b03ebfb6182253d38c0eb0190e00b63fd6b1be216f0e2efc96297e",
-      "lib/collapsible_section.dart": "6329364a05dfc1dff26d304369086d911318bff5db4de12b48eeb45ef2ee20a1",
+      "lib/checkbox.dart": "37f1d37fc818e8b7e771d6d39f4e7d7d279754d2a41ae3b4b0bc54cc62df9f14",
+      "lib/chip.dart": "76f3ee04185ba0614557e2651f86618984e33eb96c28b68e5e923567c6f02028",
+      "lib/collapsible_section.dart": "d4d753df230fe6e9a3eb5a62e0222fcb04c4d62093efcdd6f02fa2c96f4621e9",
       "lib/color.dart": "ef2a1385d3ad7d3f3bf000e3335b08e4d3ae78f871a72ead1eb0d48d3a2a7eee",
       "lib/color_scheme.dart": "b79d5f08df22d85825bbe9c6adedcd0d88c80a1dd6767b2f3b566c097f24a64c",
-      "lib/common_button.dart": "fff6795c7b5dde539cb7e81135594aa3ca14e07bd8aecb6d36808a507b5c44a7",
-      "lib/context.dart": "1ef8a07775cc5b6700e53a8ea750d10194ea8496b60942a732f5fa5874ee49df",
-      "lib/context_menu.dart": "abf06fd9c7a0f9dafb7a539fceaa327568185bf2eafceb9e955c48525d670583",
-      "lib/deferred_push.dart": "2bf4cf35ee51f40b82baa031f14548a60e00de45697c56994b17f7c7ba635a04",
+      "lib/common_button.dart": "bba7ac948ce32c3c12c23553be59ae7b9d00ad5ddc09b2434d127407abf81df0",
+      "lib/connected_button.dart": "c4881ab3ea3ad5cc17ab1289a8e6c5c8ce80bc3c6c036d381325adb20892772a",
+      "lib/context.dart": "1ecbb77c2f21d4c729745e5fa9f62c2da731612e22a74d214f10ba8832e93c7d",
+      "lib/context_menu.dart": "f1cabcea302289c5d2954001ac4d6345bbab987b026efb780f71164c8ad598b9",
+      "lib/deferred_push.dart": "af397ba31df0d1b8a9f963ac2b4e0c369f3990094ffa07f6176a426ddca78698",
       "lib/dialog.dart": "895ffdbf6fbe54b0519e0558b5d7ed244b4a61beef6981550a3df2ae72feac59",
       "lib/disabled_mask.dart": "7b4a199d0075f90e8fb35508603fe6a0719392be049aac5d9211348550cb0532",
       "lib/divider.dart": "d363e19b5aa0d5a17044e2beac44a4152798c4009e2ba132e71c6d00ae7131aa",
       "lib/drag_back.dart": "c673acd90adf9455c73623582bb8a0d40009f619801d1fde486472300f608e1c",
       "lib/edit_menu.dart": "a7c450ea2166d019f24e2f2b6879fa26a8da1bcea336f5ec3b7f18d2c92bdd75",
-      "lib/effect.dart": "67f207094bba12387547e29af8e527661b29d7fd733c08636ab506ffe1c08224",
+      "lib/effect.dart": "ae13013fbcfd8e69f9c38c296b3285958c48757b550039719349c298aebc15f2",
       "lib/fade_box.dart": "9931b9a163fa652825931fa4f244c557ac08f6b446590835ed71a7471cdf3845",
       "lib/fade_through.dart": "64f23e5afa83d6fde48804458d3cd0ffa2c99adf1bc47784c892ed06e0f243a1",
       "lib/focus.dart": "080450fa2d2a16c6fceddab10805edacce0ace534107b66d1f15acf4973711b6",
@@ -711,7 +726,7 @@
       "lib/font.dart": "2345957377a076b6ba32b60b449b1b6f927205c1090dba56a4a79be127ecbb57",
       "lib/foot_bar.dart": "41c4a84ef168f844ec189ee666966cab3eb0310598482c19c11edf9646c289e2",
       "lib/form_sheet.dart": "d154f9cc4e6bb2eeabc4c233e81f66c3a19dcb8273469481fbdc7525d1636ffe",
-      "lib/generated/models.freezed.dart": "70f1e995e47670e85ce9522271f393a7d11e2a182b2bf3ce3a43d45951b4b156",
+      "lib/generated/models.freezed.dart": "9f075a6c6c39e95eb06e972538edab30c88ee9e40ea00d132984d4dc76d52053",
       "lib/goo.dart": "082289b0c053f582fbedfb84077abfa95b31b706018d8002248b472acd23f1fd",
       "lib/hct/color_math.dart": "d52df85a7aa98862aac20aff4f659e83ed6622bce197782c84f54bd4044e6ceb",
       "lib/hct/dynamic_color.dart": "3e7f2a41a1b641f73a5f0e7d42ea3f6b097cc31ccdbcdc5a323fee5a219da930",
@@ -725,7 +740,7 @@
       "lib/icons/caption_icon.dart": "d3c4ab9194f5d12f3a3e1b6357c14cd964172997d03d9d7c40613f928df850fd",
       "lib/icons/glyph.dart": "8495b339abf5dd4bca8a4b87a26d4973f5efd0f6d8cb277acdb4c44514da0218",
       "lib/icons/glyph_icon.dart": "cc70a276032a5cfd5a077b523543d380a83b82720e7ac12356682639a9530cd6",
-      "lib/icons/glyph_painter.dart": "3fb75af55fde1f740d969cbe48a0cc6b85e162ca443df2f065805fba50521893",
+      "lib/icons/glyph_painter.dart": "14f4ea37aa630e8bc750654c9087d3692f5696cf34bb067a951927e75bd0ec72",
       "lib/icons/glyphs.dart": "32d2fc873bf21805a3974e3eb2d2e440fa02f3bd24906bc937b9e9dd0e5ad20b",
       "lib/icons/icons.dart": "7ed6b75b708c842dde23f363fb44971d0c66d01b830c1cb06188cd0506709f9e",
       "lib/inherited.dart": "7000c29be35c064f5c807b70faa8467b7d5385c9ad5e3b8c192a808ed2423326",
@@ -739,41 +754,44 @@
       "lib/l10n.dart": "2dabcd6efe4525115daed03488e82699ee2e3767d8d27edc708df8e1ecc07e71",
       "lib/line_chart.dart": "27ffa8f5b6d064f0a511e42c137868b29bbb2607eefc3a8d90498eb065b84444",
       "lib/linear_progress.dart": "b81010bc6a0f503599f8bea7e3e5e7c52045c6199345c62e26ca2875f64eed51",
-      "lib/liquid_glass.dart": "e71b88315f590dc4e3b0908727c08897cf9f4763a33e7def1d00e4093efcb66d",
-      "lib/liquid_glass_capture.dart": "6abd0b2f5fae7f748d32fe39457d9f624da398e42da49c0f4f67d6adb290e4b6",
-      "lib/list.dart": "651ce5d8d617887ea776ea7c40491b4d9d8dc10ef0301f15a34a9a57ae247a1c",
-      "lib/list_row.dart": "94cc9b09511a0e609a2e2c43bf7866ab79ccebb91f124dc2514f74c8a5d60022",
+      "lib/liquid_glass.dart": "ad9df2106a7dc3928da704c3c4b2611d38678915392b57d6af957013b2499a75",
+      "lib/liquid_glass_capture.dart": "01cb41cf4e9de1d2772a5760e5be983eaaa9b127e47df0192c906798eeeccff3",
+      "lib/list.dart": "151d1f3f7824afb6198142ade08f7b3fcf148ef60d46ee886acd1c6402cd4084",
+      "lib/list_row.dart": "e839600a23edf738b7198549a2e0ccea13cf31ac5101fb87511f3eae226e5976",
       "lib/list_row_separator.dart": "b1c09367c59536a0e213d61d2c0f01d3eedf26a3a7ca35eaec26d702abbc8853",
-      "lib/list_selected.dart": "9ab53f47a66b5fd3fd157ab7f8acb0366c515f1923412606f8ffd0b826c72e10",
+      "lib/list_selected.dart": "0c1cf68f1fa4b38193e1486b9b1ed0c029e046b322aa53ae64044e8ce4e8c2c0",
+      "lib/list_text.dart": "856315ebc116c4e0e138ff9bcda48b3aeed32982aa9470ca3abb1ee436deafdc",
       "lib/loading.dart": "0039e9492ee31af4af4f0ab223c0ef52c7736d1f3627785da3d9948d9bc4d0f8",
-      "lib/measure.dart": "42bebf51cb2a21df29c86ed9bdf8f22ab7618546eea04899d29b4a2647570a94",
-      "lib/metrics.dart": "df5e8b4979415de530ac1ff1d80bc9ec48ae276ab4e7a4777305e57f143285f0",
-      "lib/models.dart": "a99b9b5a6313b1175358679026bcfec9780877932f76152f767c61ccf2216fa6",
-      "lib/motion.dart": "1530b64d185f7d730fcf55d8587c61110d44a366dc6a7fac1c7f1ed2a57e7df4",
+      "lib/measure.dart": "5e6ed958bd65898932e5e072671f2768e74810cf331b51edc3f1ac9b76d86d32",
+      "lib/metrics.dart": "5867f1deb3f0ab96a7f0e1d5883e0886c774ce78fefe1b2764e1b465c878e7af",
+      "lib/models.dart": "800c58a4c2e490a6f8e21210946236385319ed36badb62bb10e11183e45cb175",
+      "lib/motion.dart": "0ef6e538684d3fae9c4e7b468d8fea9fefc1e497bbb9b6037e38f9e7bbbe41ac",
       "lib/navigation_bar.dart": "75e311953c2715c312e0ca718fb339af2bd1828055b7e97a761395b090be999e",
-      "lib/navigation_dock.dart": "acafc3ed461f46fd81d0cd72f3f09fd9d86480ba37924fd2cab7e9baa3768cec",
-      "lib/navigator.dart": "250a220d7e25be1a61e0ccd9f8abe84e718f54fb8e88fb025d731cf1b4fd4f77",
+      "lib/navigation_dock.dart": "e5492005ae04399ac6f3e9fd14632d73e03d19ae848471dfb80645a19f51946e",
+      "lib/navigator.dart": "e5e85c259659da1455dc3f26e5bd0d78ebcba3a6d20462434231118541b1d70c",
       "lib/navigator_resizable.dart": "3798a9208525657c6d363962adfa88e319987628b2aeb68a3b9a165d20b7abfe",
-      "lib/null_status.dart": "9529f18bfa85b2358ad43bb1ab6551053b02eb75f9f8f54ca2221382d80e784e",
+      "lib/null_status.dart": "60ad6cf5a45fdbd1a6172704d197e95fe80872f749a9892ad96af0d8aec36b36",
       "lib/open_container.dart": "5de0f7860ec20f86b5d5566cba1b99963114356d9a133536bb49a810786bd164",
-      "lib/page_transition.dart": "117bd378435d5b771888c085b02e8b46b92e60d0e2c20d982d9928ac18854609",
+      "lib/page_transition.dart": "fbd7310c3b7bfd86ab29fee55918a72e47cf3b83684b359dfcab68422bf51f44",
       "lib/paged_sheet.dart": "3fc0a3e7dfc99fa77fd557e0eecdf4e37874eb529f443d17bd815314883eac73",
       "lib/pop_scope.dart": "fa4b65660a643615e5750d4d2ed296cae786957b29737a3e6e2fca627418b870",
-      "lib/popup.dart": "69ce5b8a84b5470af703105f87f1ff8ca9134cb205c9816fdeb7356d21c83de1",
+      "lib/popup.dart": "a4e8a3ab05a39af81031a875ec8557ff74f8aee1a56ba494b6069d36337f5355",
       "lib/press_region.dart": "1a190f64a4b778adfd7f328d7da6b649d87cbe30ac75d892887f9257c6be6be6",
       "lib/press_sparkle.dart": "a3a6bf01dc65ab37026a1df51efd817157206be004b26e7b96146c84613e7e81",
       "lib/press_surface.dart": "3ec0fa44403ca12680b1b356bcd022adb9c7c7ab6c8ec94851ab4c165978d394",
-      "lib/prism_list.dart": "b8fbe18ab84f0773aa19976c59eed5a59bed17efa5a4869055d469beeaff21e9",
-      "lib/prism_ui.dart": "dbee7e07fea9ca029a8958e6b88992e791a45b5d101e46223dcb8194a4cb8a25",
-      "lib/route_motion_hold.dart": "38f61dffa1a91bc8c8ae59ab52a9f48b247e7fd8b2d01256b44c326e946e87b8",
-      "lib/scaffold.dart": "67cc44845988c6643087981524229df5b6f09d4d2b75a745e60f6d010294285c",
+      "lib/prism_list.dart": "2572b6c7eeb30c1e385d3ce1421110cf3bf84f3bf846700f395a0075941cc1e2",
+      "lib/prism_ui.dart": "c06581bba7c64af29cffbf88e275a5c8812ae9e17dfb99d6d33f263b720452dc",
+      "lib/proportion_bar.dart": "a20ec396823c4c819bc806507a14f796146b18b2f047e3b2acc864881218221d",
+      "lib/route_motion_hold.dart": "e0e8107c3c33313c442a4c0ae354bced8f7f20c2065fa37ecf841ac50a070607",
+      "lib/route_scope.dart": "d0058a32a23fea65a87fe37eb362798715eff40a22127e95d2570070d1625219",
+      "lib/scaffold.dart": "b35c877e70278ffe7943872dd2da2fe61917f64298f4f6bd38c8023551064157",
       "lib/scroll.dart": "c93780f34d5773c5a781ed4c684a8aea8efb721480581030b03482371e346576",
       "lib/scroll_behavior.dart": "d7b445fe90eb960a25d21d421a578dfacfeb25e4b32a6fead7094ecbaba2a4ec",
       "lib/search_field.dart": "fe691173f3561d542505515d7ec34e449cfc424291d5a79343c5b076069319dd",
-      "lib/segmented_control.dart": "c86642505d2a9ad515b9f3627cdc40fc9bdf4e3a679b97b7e02d56a648944255",
+      "lib/segmented_control.dart": "a5ceb75c26492dfd42a634da0b4d56da8cbce722ace85f23c1f176a7e368b5c5",
       "lib/selectable_text.dart": "1dbbc58c2e37176925fdf0de6d1d12c9d7f2d54459355dfd8ed3b51fe6ba6cf3",
       "lib/selection_mark.dart": "b9dd4009ecb20b3169cba46ab4ce11da27840b8287cb7da404f5159372d5fdd5",
-      "lib/shape.dart": "2d8a73ab0dd6c1622153b5002840c2582b91b8020251b2f5b169ba9a1d5f6edf",
+      "lib/shape.dart": "27be695e42c74eab10285d5715070434ea14efc3a5ace7a381ed649faf0d87fa",
       "lib/shapes/corner_rounding.dart": "fea56acd47264a24e46d874ffa78346a8ffa53e42e6d8ef3b29d06e99cc8253f",
       "lib/shapes/cubic.dart": "f3c2f06e0f50e68942062963f22102469dc8a9777c0be1e054f5b4d6982234b4",
       "lib/shapes/feature_mapping.dart": "4ad0532c444636eeafb7a2e468b23e874a0bd064aa1fbb811dfff74794b7d791",
@@ -788,7 +806,7 @@
       "lib/shapes/utils.dart": "41a8bdcae97ab8bfbbc3555fc3c6a1e7029465d451b427ecfe548ba2233eb9f7",
       "lib/sheet.dart": "257874b90bdae1c984292db513772dbfd3f4931d226583dd89178d98823c48b6",
       "lib/sheet_header.dart": "b86eb3e100eca226010f2ce9ae1d7c949e01744f014737cc13ee2dea124eb4e7",
-      "lib/sheet_navigator.dart": "93787c532c11127428a9505b3153edf86298248c56ed96b5fa1ca9c0a593bf01",
+      "lib/sheet_navigator.dart": "d0207877902d3027f0a5bfad5eaff5a4b3500adbf44516e6a871b475d6c8f768",
       "lib/side_sheet.dart": "fac5a2e5b45df42e478cbd1251bfe11a0b217f8124d4c5d6a186079d0f50bb52",
       "lib/sidebar.dart": "cd277371c5fd4c7e278745201887b2ebdb9ad6e9db5b1886c9e23e0d237b5f94",
       "lib/skeleton.dart": "71195d322c223ea30127bbf34f5af1c518237d870d3aca9e07bf5a2d27b2a8ae",
@@ -804,26 +822,27 @@
       "lib/snap_sheet.dart": "d648c2421353c9da61dad989bc486ad5a63b7410aa2bfd672f5b5433e473600b",
       "lib/sortable.dart": "e3062ac2c75ba088e00eb49da9a5f1f86b813a84cc699f22202b1127d322c28c",
       "lib/surface.dart": "408ec6f97d923ea11b18b9e09170ce0857c99d7f0f240e8716c950de9ff75469",
-      "lib/switch.dart": "da451ab7cd9ca1690dcce88fbe5a3c2341deda2dab1769304c3540675c28f618",
+      "lib/switch.dart": "fae139d70c4e6323674e5f1a88f678efa5156d38837cf5af124f824604349da9",
       "lib/tab_view.dart": "7a15aadc2d30eeaf1b7fb87c0fb31778e22dbef1af7996998c7674c874d22fad",
-      "lib/table_layout.dart": "4ce44ad97af4ffe13819d6ce1cb674332287fcc8e95689a6e65983b874d48152",
+      "lib/table_layout.dart": "5f96218b890b49ebdf9bab7ca26f62e23dce6dc9a5b44169af15864f63604c4e",
       "lib/text.dart": "f75c9e4009fe95f7fa9b1ebefd269b29ce0b3dbd973d2f6c9091ee502468cf78",
       "lib/text_field.dart": "de140d6a0afba8a1e3aa1c9c3cdb4524137f5c4d792e1bfa3166fed76fb64d37",
       "lib/text_loupe.dart": "35135705e372b19046b37edaabcde390c6dec4890e9206f5486e8695489a620b",
       "lib/text_selection_controls.dart": "3dfe58c4c545f482a0bfee659892fad79dacb6ef9df77a67b7d3391090c3e700",
       "lib/text_selection_menu.dart": "04aeee55b0c304ccb1af33fdb8af13583e7a934e1f312e623429e1fb6149a4e0",
       "lib/text_style.dart": "17b67b0af9a9b68c5b4dbbf7c8af586b246284bc5b04aca04d2166287470b1a9",
-      "lib/theme.dart": "73669d3c7f9f2384323ba17a4236cccdb2476f4a067b5a524d40c74a7a2ae775",
+      "lib/theme.dart": "27b2e821e933beed7495f85620f68e66b10010c245158472492be470718c8342",
       "lib/theme_cross_fade.dart": "9060e030abd447e779cd67faa60ebb8d082b39e141461aa6dce86895c2c63617",
       "lib/theme_data.dart": "693a2b1c3684f22e3275c1ccc21615ea4227c2fa10d688eed3e34fe340e81649",
       "lib/tooltip.dart": "19b143dd69c6a371a445c406c6fc987ab1e066a25f1f47f5fda6eca33994cd0d",
       "lib/typography.dart": "2911e41b4f3a934ed584de823ee32aace107401501a58040e2972b7004d0fa3a",
-      "lib/view_scope.dart": "287cb67a7b05fdfc5e294b6fca351228b7015a5f597c38528d3473a36f011c0d",
+      "lib/view_scope.dart": "e843ebb6a413069b5b1b9215618515ff5914f4e8bdc8349c62a61723e5920acd",
       "lint_options.yaml": "b5a2342f33ce241f4e5bf6f9910add2341c681d6c2a66ebbe7b46a1f493a42f2",
       "pubspec.yaml": "5864aab9f0abbebed5190dd1555b553709d72e7aaa518dd1162c7b2e528212b1",
       "shaders/ink_sparkle.frag": "62de24eaa74427fbc2bb9f123df8ec4ec62a16a71d8fe69aedd25c283f9e369d",
-      "shaders/liquid_glass.frag": "13b807e3c493812bb90333ab72372f47d200045bd30341c23b28f602fbdd081e",
+      "shaders/liquid_glass.frag": "da3463ea6cfe55c1d89ae87f76b78108cc4b5f7b5a4dd70503534f174dee8a8a",
       "test/common/font_test.dart": "bd6121f0d9ae96940d1e56776f8ce28b151d6ee7973532033a96ae0341267407",
+      "test/common/glyph_painter_test.dart": "04a448075fca80872eca0233514ab1284684a23e489210acf3980ad8284fe97a",
       "test/common/measure_test.dart": "f7f6a30dda363b4474cd922e20844ec5c826cc6ba6de100314eef1dc480de9cf",
       "test/flutter_test_config.dart": "96421bbac5f7d556da39756c3d75ebb224b2da1a57d830390a8fcdbb28f4ce1e",
       "test/helpers/glyph_finders.dart": "531d315aeeeea7ca9d80899ae249590d8e191823145ad307c15270304c83855a",
@@ -832,33 +851,41 @@
       "test/helpers/test_app.dart": "e30626ea6121ca3f8ebfa4ff2f3c1119c4166be7b2a62320626a6967cd2fa43e",
       "test/widgets/animated_visibility_test.dart": "cb6cf1b918a946c42cb15c426d989281c3aa35cbd1da0ed027567a0088f54b9e",
       "test/widgets/caret_popup_test.dart": "30ebfb136acb1e12ee2c458067b6e9a52d20bccd546545a8459e66b7b2f7a6bc",
-      "test/widgets/collapsible_section_test.dart": "f0df61c5f6f51b9fd329380aafe830001076c65d07ae7d761bc143824c8feebb",
-      "test/widgets/deferred_push_test.dart": "9a0683c133191507785d4104b15744f88006b8c7ab78626b308ff77609e54ea4",
-      "test/widgets/drag_back_test.dart": "736b548a308eaeeed0dd4f5ebf1333c03ca3a5651aa1defaf95f88c9daf29014",
+      "test/widgets/chip_test.dart": "aec2204b1e9bf0f46f32eea3a62f0c39218c27ae9909aa15d54592a6dfafdded",
+      "test/widgets/collapsible_section_test.dart": "ffab3ebb0074292b000bf2c0255d404a202607971fcb96db39395a8d2569f236",
+      "test/widgets/connected_button_test.dart": "0ea9f95bc68606362d2508e795c456e439fc101549d31a05336f5dfec31c6439",
+      "test/widgets/context_menu_test.dart": "16e03af770b65d6b5da9ccd67b18a4961c5e35b9727f0161c630d887795c0a6a",
+      "test/widgets/deferred_push_test.dart": "6164fa17c05047e7d9d28f4cea945f5f6fc5ff29f360c04fbba232f4fa7b07a0",
+      "test/widgets/drag_back_test.dart": "1ac355757b15f72847dee166fb26cce32d28dac25d66498b0da8944b0022bc23",
       "test/widgets/fade_box_test.dart": "062f42c5cc2d68077632153021608d64317d349874f9e5c5092abd03d5c2c981",
       "test/widgets/floating_scrollbar_test.dart": "579a1450c41d36b71db017619f15281835dd5cbb0243b5e2ad17d6ea9c1cdac8",
       "test/widgets/goo_surface_test.dart": "a5417ad2a8268a7e42c3c4b4c6fbda0c3992118e0dba0e7588b5bbdd847028aa",
+      "test/widgets/inset_grouped_list_test.dart": "0c0abe07ea5aa388b7b04060d2ffbfff6653ff82a9b8f2e3476dd103012f0cde",
       "test/widgets/keyboard_inset_hold_test.dart": "38bf4bad6e5a4d2cc083ca650c62f3fc6dd90a6fda4711fadfc93a59136fe2df",
       "test/widgets/keyed_animated_list_test.dart": "7b4f7f2acd57f8f272d8fcf2c4e39606021f7fcbad407de769ba6885d73ea69c",
       "test/widgets/line_chart_test.dart": "7541d61c7736aacda1efe85b55dc57f26bfbbcccfda75f9d80fd477ab690df13",
-      "test/widgets/liquid_glass_host_test.dart": "c98c880aa1ff518f5b8f705c77e68d5b0c53aec301639b0dc78ebe2c06672a7e",
+      "test/widgets/liquid_glass_host_test.dart": "b8ea48442105e28d804b471177c54cea15165e732488278ecb6286cd6dca44d0",
       "test/widgets/liquid_glass_test.dart": "a575ca93b36b223a9d9fe55f70cf0481d93f8aa096853b8fe218a9a0b8cf41c2",
-      "test/widgets/list_row_separator_test.dart": "f873061d37b0bb70876bbc9cbf5827731483b6171b0c5f77bcf90eb8ffe00938",
-      "test/widgets/list_row_test.dart": "7120e31e8938a169903ffba55de0753945f02199d1a9c7c76d04364ec593dc9b",
+      "test/widgets/list_row_separator_test.dart": "303e06cc135835239a0200daeeddd674acf4a9bdf05709c0438209a7dfe32004",
+      "test/widgets/list_row_test.dart": "dc7fc63ac7579e5e6be47a972df39b6e9bf3462166f3b80795c22e322f92e713",
       "test/widgets/loading_test.dart": "b239854e40896a426e641519be8659ca2cb2ee7d0ecccfc349e68da5ec058191",
       "test/widgets/navigator_resizable_test.dart": "0c93adf5991c0fec3679edef354c00d41f6c1989ce4c190272c8de33f8fec4b9",
       "test/widgets/open_container_test.dart": "69721b0a502838e7ba2ee6cbcf99bb57c9b23a5b56e7fe62b90fcbf1f819cf7c",
-      "test/widgets/paged_sheet_test.dart": "a6f3106edef13acdf9adf9bd9aeeea851054ab119e73bf36ea2561e9ed0fd764",
-      "test/widgets/popup_test.dart": "0457563785be64ba47e14fde1926e58999b9734b0f42b822d8fc3efa9070cb44",
-      "test/widgets/press_surface_test.dart": "ad9ba2652fb50ba14f421c3f7c865a597d71d0b9c88664980faac9d00916bf15",
-      "test/widgets/prism_list_test.dart": "22c24e566059002e1448d9ea8d49be9e2ed0f9621cb8e2b79d066e04015dccc8",
+      "test/widgets/paged_sheet_test.dart": "ee5e4707d3bce980cf7b54dd7328396932aef7117e5823550ebfb4a900830999",
+      "test/widgets/popup_test.dart": "63cb902d80a73497ee864d7f169b2eb19d7ae2ae92726a58748588c93a63012c",
+      "test/widgets/press_surface_test.dart": "ccf45b9908b475647baf83fdf328824f4f1ee7b34aa2dc0620800d79e74d2679",
+      "test/widgets/prism_list_test.dart": "009b428eae5976c4cdf51e03b3898b9e30c1be4feca78d38ae23878e5735207a",
+      "test/widgets/proportion_bar_test.dart": "2368421066d703c112c444fecfafccef53829ac96cbc10102004ff0bd910dac3",
       "test/widgets/remote_focus_adapter_test.dart": "7424a7a548911b6db77582b4a10f4e8a1087f745fa5486276ea212420cb1fac5",
       "test/widgets/remote_traversal_test.dart": "c1f5aaafb27469dad8b87aa9f0e8ff23e46fb3df071d71cf641fe86027e71d94",
+      "test/widgets/route_scope_test.dart": "afd04f437f7923c8723c82ab23ecbedf115809dc5ec48b163c37f9280b971f1e",
+      "test/widgets/segmented_control_test.dart": "5dc49fe69cd78e2480ad95a85c26f1112ee26175aac7feb187cfb568ce7a1bb8",
+      "test/widgets/sheet_cover_snapshot_test.dart": "f39d40efa85faf37da9199670ca48f76a261babcd4de8026a8ca1340e8513821",
       "test/widgets/side_sheet_test.dart": "fa4530e6aef2c0fb17fa3c29b5e992eaec601f8b7435a7fe991ccb99fd63cbff",
       "test/widgets/sidebar_test.dart": "695663f2a92a080ff99a9843c0b68f56f51ea3b849dc0adf159180aa837859ac",
       "test/widgets/skeleton_test.dart": "c860a03aed1fc06246cbb083e0522f1cc1d00ffdc8f9054ef81e4a3a0aac5de1",
       "test/widgets/state_test.dart": "e770f75aab8e4b198ee400510394fe9ab6732213db6673da3ac8fc02963bc6b8",
-      "test/widgets/table_layout_test.dart": "3a7175dbce04f78a5803d047e22af3ed0d264d48e0935d8a568c1a3f2dad9ef0",
+      "test/widgets/table_layout_test.dart": "f220f86bfefad66a5106f0fecb41f9934a7f8d9a047a1e91d89589dc1afc635c",
       "test/widgets/text_loupe_test.dart": "16adbcc4c44b02b1c6921af3feb25f1d204683789f1d0634b7fd4b4302280118",
       "test/widgets/text_selection_menu_test.dart": "f4ea446a98c9196ff2bc226fc562db35b6a31972485e33ba46c8e39582242e92",
       "test/widgets/theme_cross_fade_test.dart": "7544110e05cb7e0cb20b95e7656bbe23d458f1cb90ac64109fd06e4647f8bb1e"
@@ -871,28 +898,28 @@
       },
       "lib/pages/logs.dart": {
         "source": "lib/prism_list.dart",
-        "sourceSHA256": "78671c6edad66983e1b9da7bedd2d52a6f57d2cfc942a6015f0d605d76509a3f",
+        "sourceSHA256": "ded88a75494d5e7328c4a237726c21d7b6714f31486c0458aa4f554ae2b50383",
         "changes": "B-box live logs opt into Prism UI 0.1.3 anchorAtEnd to retain the reversed feed end while variable-height rows settle. Existing follow, user-scroll pause, frozen records and resume behavior remain application-owned."
       },
       "packages/prism_ui/lib/prism_list.dart": {
         "source": "lib/prism_list.dart",
-        "sourceSHA256": "78671c6edad66983e1b9da7bedd2d52a6f57d2cfc942a6015f0d605d76509a3f",
+        "sourceSHA256": "ded88a75494d5e7328c4a237726c21d7b6714f31486c0458aa4f554ae2b50383",
         "changes": "Restore the explicit rendering import of ScrollCacheExtent required by the pinned Flutter 3.47.6 SDK. The upstream 0.1.3 revision removed its rendering import, but this SDK does not re-export the type through widgets.dart. All remaining source is unmodified."
       },
       "packages/prism_ui/lib/route_motion_hold.dart": {
         "source": "lib/route_motion_hold.dart",
-        "sourceSHA256": "118ab8b482090f89dcd8589bebfa6bb9cff942d09364cd61f0e08856da418d1d",
+        "sourceSHA256": "9e395150a3d7b0104d68c66be049acfb4a51ad7a28cc9b1f985c7b2664f24bc6",
         "changes": "Restore the explicit rendering import of ScrollCacheExtent required by the pinned Flutter 3.47.6 SDK. The upstream 0.1.3 revision removed its rendering import, but this SDK does not re-export the type through widgets.dart. All remaining source is unmodified."
       },
       "packages/prism_ui/lib/list_row.dart": {
         "source": "lib/list_row.dart",
-        "sourceSHA256": "3f779a16ff8a0c9b18eb65e511dd03d8d88e82637afca2dd4203844187f9040b",
-        "changes": "Add constrainTrailing, enabled by default, through the row render object. When disabled, retain the full side constraints and inherited trailing text wrapping used by the FlClash v0.9.3 submodule (63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185). B-box disables it only for the battery authorization prerequisite; all other rows retain Prism UI 0.1.3 truncation."
+        "sourceSHA256": "9caaa6f54b4a9f4e93f29e02b1fa208b5c2c5cfe0caeb764d2b16c1d3e075ad5",
+        "changes": "When constrainTrailing is false, use the full side constraints and inherited trailing text wrapping from the FlClash reference submodule. All other rows keep upstream truncation and sizing."
       },
       "packages/prism_ui/lib/list_selected.dart": {
         "source": "lib/list_selected.dart",
-        "sourceSHA256": "4a1c3e10bb2ef62949fe9fb16e1e0a79683c6389d5fc73e8f230d1c2ccb2d07c",
-        "changes": "Forward an optional constrainTrailing flag from DecorationListItem to ListRow, enabled by default. Only the B-box battery prerequisite disables it to preserve the pinned FlClash authorization button width. Card surfaces, separators, section corners and all remaining source are unchanged."
+        "sourceSHA256": "699455bbd14cacd49812a09387d2a64bf84be5b37e1aae8ba4153dd6228380f2",
+        "changes": "Forward constrainTrailing to ListRow and allow overriding the section corner radius and separator end inset. The battery prerequisite supplies the FlClash reference values; defaults retain upstream geometry, including while reordering."
       }
     },
     "licenseAssets": {

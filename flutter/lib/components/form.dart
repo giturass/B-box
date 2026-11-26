@@ -97,7 +97,7 @@ class FormRow extends StatelessWidget {
                     ),
                     child: Container(
                       alignment: Alignment.centerRight,
-                      height: MeasureScope.of(context).listRowHeight,
+                      height: context.listRowHeight,
                       child: DefaultTextStyle.merge(
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

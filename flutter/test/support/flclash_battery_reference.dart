@@ -15,9 +15,8 @@
 // Provider state, permission action and localization inputs become fixtures.
 // Class names/imports change to isolate the retained layout and render objects.
 // This file does not import the B-box battery component or its modified ListRow.
-// Shared Prism 0.1.3 button, surface, typography and indicator dependencies
-// retain the rendering declarations this row uses from the reference submodule;
-// their actual revision and source hashes are recorded in the provenance manifest.
+// Shared runtime dependencies and the frozen metrics have separate source pins
+// in the provenance manifest.
 // Licenses: ../../packages/prism_ui/LICENSE and ../../assets/licenses/LICENSE.
 
 // Preserve the original constructors after isolating upstream types as private.
@@ -241,7 +240,7 @@ class _FrozenDecorationListItemState extends State<_FrozenDecorationListItem> {
               title: _ListRowSeparatorStart(child: widget.title),
               subtitle: widget.subtitle,
               minVerticalPadding:
-                  widget.minVerticalPadding ?? listRowVerticalPadding,
+                  widget.minVerticalPadding ?? _frozenRowVerticalPadding,
               horizontalTitleGap: widget.horizontalTitleGap,
               trailing: sortable == null
                   ? widget.trailing
@@ -663,6 +662,9 @@ abstract final class _PixelRealignment {
 
 enum _FrozenListRowAlignment { center, top }
 
+const _frozenRowVerticalPadding = 10.0;
+const _frozenRowMinHeight = 56.0;
+
 /// A row of leading, title, subtitle and trailing laid out as a Material 3
 /// one- or two-line list tile, without the tile's ink, focus or semantics:
 /// the card or row around it answers presses.
@@ -675,8 +677,8 @@ class _FrozenListRow extends StatelessWidget {
     this.trailing,
     this.padding = const EdgeInsets.symmetric(horizontal: 16),
     this.horizontalTitleGap,
-    this.minVerticalPadding = listRowVerticalPadding,
-    this.minHeight = listRowMinHeight,
+    this.minVerticalPadding = _frozenRowVerticalPadding,
+    this.minHeight = _frozenRowMinHeight,
     this.alignment = _FrozenListRowAlignment.center,
   });
 
@@ -699,8 +701,8 @@ class _FrozenListRow extends StatelessWidget {
     final textDirection = Directionality.of(context);
     final safe = MediaQuery.paddingOf(context);
     final inset = padding.resolve(textDirection);
-    final titleStyle = context.listTitleStyle;
-    final subtitleStyle = context.listSubtitleStyle;
+    final titleStyle = AppTextStyle.body.of(context).copyWith(color: colorScheme.onSurface);
+    final subtitleStyle = AppTextStyle.subheadline.of(context).copyWith(color: colorScheme.onSurfaceVariant);
     final sideStyle = AppTextStyle.caption2
         .of(context, emphasized: true)
         .copyWith(color: colorScheme.onSurfaceVariant);

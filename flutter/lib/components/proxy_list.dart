@@ -153,7 +153,7 @@ class _GroupSliver extends StatefulWidget {
 class _GroupSliverState extends State<_GroupSliver> with SingleTickerProviderStateMixin {
   Widget? _rows;
   late final _controller = AnimationController(vsync: this, value: widget.expanded ? 1 : 0);
-  late final _unfold = UnfoldEntryTransition.curveOf(_controller);
+  late final _chevronTurns = _controller.drive(UnfoldMotion.chevronTurns);
   int get _rowCount => (widget.group.nodes.length + widget.columns - 1) ~/ widget.columns;
   double get _rowsExtent => _rowCount == 0 ? 0 : _rowCount * widget.extent + _lastRowGrowth;
 
@@ -161,12 +161,11 @@ class _GroupSliverState extends State<_GroupSliver> with SingleTickerProviderSta
     super.initState();
     _controller.addStatusListener((_) { if (mounted) setState(() {}); });
   }
-  @override void dispose() { _unfold.dispose(); _controller.dispose(); super.dispose(); }
+  @override void dispose() { _controller.dispose(); super.dispose(); }
   @override void didUpdateWidget(_GroupSliver oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.expanded != oldWidget.expanded) {
-      _controller.duration = context.motionDuration(UnfoldEntryTransition.duration);
-      widget.expanded ? _controller.forward() : _controller.reverse();
+      UnfoldMotion.run(_controller, open: widget.expanded, animate: !context.disableAnimations);
     }
     if (widget.group.group != oldWidget.group.group || !listEquals(widget.group.nodes, oldWidget.group.nodes) ||
         widget.columns != oldWidget.columns || widget.extent != oldWidget.extent || !setEquals(widget.testing, oldWidget.testing) ||
@@ -187,15 +186,13 @@ class _GroupSliverState extends State<_GroupSliver> with SingleTickerProviderSta
   );
 
   Widget _unfoldingRows(ShapeDecoration decoration) {
-    final visible = min(_rowCount.toDouble(), MediaQuery.sizeOf(context).height / widget.extent);
-    final count = min(_rowCount, visible.floor() + 1);
+    final count = min(_rowCount, MediaQuery.sizeOf(context).height ~/ widget.extent + 1);
     return Stack(clipBehavior: Clip.none, children: [
       Positioned(top: -AppCorner.xl.ap(context), left: 0, right: 0, bottom: 0, child: DecoratedBox(decoration: decoration)),
-      SizeTransition(sizeFactor: _unfold, alignment: Alignment.topCenter, child: Column(children: [
-        for (var index = 0; index < count; index++) UnfoldEntryTransition(animation: _unfold,
-          index: index, visibleCount: visible, child: SizedBox(height: widget.extent, child: _buildRow(context, index))),
+      SizeTransition(sizeFactor: _controller, alignment: Alignment.bottomCenter, child: RepaintBoundary(child: Column(children: [
+        for (var index = 0; index < count; index++) SizedBox(height: widget.extent, child: _buildRow(context, index)),
         if (count == _rowCount) const SizedBox(height: _lastRowGrowth),
-      ])),
+      ]))),
     ]);
   }
 
@@ -242,6 +239,7 @@ class _GroupSliverState extends State<_GroupSliver> with SingleTickerProviderSta
       return header = PinnedHeaderSliver(child: RepaintBoundary(child: Stack(clipBehavior: Clip.none, children: [
         Positioned(top: -cover, left: 0, right: 0, height: cover + height / 2, child: ColoredBox(color: pageColor)),
         SizedBox(height: height, child: ProxyGroupHeader(group: widget.group.group, expanded: widget.expanded,
+          chevronTurns: _chevronTurns,
           unfolded: unfolded, floating: floating, lift: lift, testing: widget.testing.contains(widget.group.name),
           onToggle: () => widget.onToggle(widget.group.name),
           onLocate: () => widget.onLocate(widget.group.name),
@@ -253,8 +251,10 @@ class _GroupSliverState extends State<_GroupSliver> with SingleTickerProviderSta
 
 class ProxyGroupHeader extends StatelessWidget {
   const ProxyGroupHeader({super.key, required this.group, required this.expanded, required this.unfolded,
+    required this.chevronTurns,
     required this.floating, required this.lift, required this.testing, required this.onToggle, required this.onLocate, required this.onTest});
   final Json group;
+  final Animation<double> chevronTurns;
   final bool expanded, unfolded, testing;
   final double floating, lift;
   final VoidCallback onToggle;
@@ -295,7 +295,8 @@ class ProxyGroupHeader extends StatelessWidget {
                   maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTextStyle.caption1.of(context, emphasized: true).toLight),
                 const SizedBox(width: 6),
                 ElasticPress(child: IconButton(tooltip: context.tr(expanded ? 'Show less' : 'Show more'),
-                  onPressed: onToggle, icon: ExpandIcon(expand: expanded))),
+                  onPressed: onToggle, icon: RotationTransition(turns: chevronTurns,
+                    child: const GlyphIcon(AppGlyphs.chevronDown)))),
               ])),
             ],
           )),

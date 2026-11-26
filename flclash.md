@@ -4,16 +4,16 @@
 
 ## 参考版本与来源清单
 
-FlClash 应用层固定参考 [chen08209/FlClash v0.9.3](https://github.com/chen08209/FlClash/tree/be84736605527034689c95bf27828ff27d912c5e)，提交 `be84736605527034689c95bf27828ff27d912c5e`（2026-11-04）。共享组件独立同步到 [prism_ui 0.1.3](https://github.com/chen08209/prism_ui/tree/7831ade349ede896aedb8a5757dc9c3fe88081d5)，提交 `7831ade349ede896aedb8a5757dc9c3fe88081d5`（2026-11-19，上游 `main` 与 `v0.1.3` 标签指向同一提交）。FlClash 参考提交中的 `plugins/prism_ui` 仍为 `63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185`，由清单的 `flclashSubmoduleCommit` 单独记录。B-box 使用其 fork [giturass/prism_ui](https://github.com/giturass/prism_ui/tree/b-box) 的 `b-box` 分支，在上述上游提交之上只增加下述 SDK 导入兼容与授权列表宽度适配提交，以 git 子模块引入到 `flutter/packages/prism_ui`；清单的 `forkCommit` 须与子模块指针一致。当前使用实际 Flutter 组件，历史 Compose 仿制按钮和卡片不再定义界面。
+FlClash 应用层固定参考 [chen08209/FlClash v0.9.3](https://github.com/chen08209/FlClash/tree/be84736605527034689c95bf27828ff27d912c5e)。其 `plugins/prism_ui` 仍是 `63450c0ac0e8e1b2c0f3ed4ad7926dc94e083185`，用于原版对照。运行时共享组件独立固定到 [prism_ui `cae9a43572bddb9b20b9350ef7fde3f434a758c7`](https://github.com/chen08209/prism_ui/tree/cae9a43572bddb9b20b9350ef7fde3f434a758c7)（2026-11-25，上游 `main`，比 `v0.1.3` 多 44 个提交；包版本仍为 `0.1.3`）。B-box 通过 `flutter/packages/prism_ui` 子模块使用 [fork 提交 `a7234e8`](https://github.com/giturass/prism_ui/tree/a7234e8aa5c4aec74f21ac9d1efa08feb5557d47)；来源清单分别记录上游 `commit`、FlClash 的 `flclashSubmoduleCommit` 和实际子模块 `forkCommit`。
 
 [flutter/flclash-manifest.json](flutter/flclash-manifest.json) 是逐文件来源清单：
 
 | 清单字段 | 使用方式 |
 | --- | --- |
-| `files` | 直接导入的 14 个 FlClash 应用层 UI 文件及两个字体；哈希对应将 Dart 包引用从 `fl_clash` 机械改名为 `b_box_ui` 后的文件 |
+| `files` | 直接导入的 12 个 FlClash 应用层 UI 文件及两个字体；哈希对应将 Dart 包引用从 `fl_clash` 机械改名为 `b_box_ui` 后的文件 |
 | `adaptedFiles` | 仪表盘、配置/代理、外观、备份、选项列表行、IP 质量查询及参考测试等适配文件；记录原始来源哈希和实际改动说明 |
 | `adaptedNativeFiles` | 核心子模块 `core/experimental/libbox/ui_egress.go` 对 FlClash IP 查询的适配来源；独立保留 v0.9.2 的 `7fd417fb9a9a277c6a9339a8ac87f907df7c25f7` 参考，不随界面升级改写原生查询 |
-| `prismUi` | 独立组件提交、fork 仓库/分支/子模块提交与 FlClash 子模块参考、189 个原样导入文件、两个 SDK 导入兼容补丁、两个授权列表宽度适配、B-box 导航栏与日志流适配及应用内许可资源；共 193 个纳入哈希核验的包文件，包含源码、生成模型、两个 shader、包配置、许可、说明和 39 个上游测试及辅助文件 |
+| `prismUi` | 独立组件提交、fork 子模块、FlClash 参考子模块、B-box 适配及许可资源。206 个包文件纳入哈希核验，202 个与上游逐字节相同；另外四个保留上游及 fork 两套哈希。包含两个 shader 和 48 个上游测试及辅助文件 |
 | `supplementalReferences` | 独立于整体 UI 基线的 MITM dev、正文查看、声明式复合匹配及脚本事件/调试补充参考，按原样导入、改写或设计参考记录源文件哈希；本地路径相对仓库根目录 |
 
 清单中 `files` 和 `adaptedFiles` 的本地路径相对 `flutter/`，`adaptedNativeFiles` 的本地路径相对仓库根目录；`source`/`sources` 指向各自固定参考提交内的上游路径。跨仓库的 `supportingSources` 单独标注 `repository` 和 `commit`，未标注的沿用所属清单参考。`prismUi.files` 相对其 `localPath`，记录实际本地文件哈希；其中的适配文件和许可资源相对 `flutter/`，适配条目单独保留原始上游 `sourceSHA256`。清单记录逐文件哈希和改动来源，本文维护使用说明，两者一并保留。
@@ -28,9 +28,9 @@ FlClash 应用层固定参考 [chen08209/FlClash v0.9.3](https://github.com/chen
 
 FlClash 应用层组件位于 [flutter/lib/ui](flutter/lib/ui)，共享控件以子模块路径包 [flutter/packages/prism_ui](https://github.com/giturass/prism_ui/tree/b-box) 使用，保留原始源码与 shader，不再依赖旧 `material_ui`/`cupertino_ui`。原始许可见 [FlClash GPL](flutter/assets/licenses/LICENSE)、[prism_ui LICENSE](https://github.com/giturass/prism_ui/blob/b-box/LICENSE) 和 [NOTICE](https://github.com/giturass/prism_ui/blob/b-box/NOTICE)。Prism 内置的 shapes、sliver list、resizable navigator 的 MIT 声明另从源文件头提取至 [应用许可资源](flutter/assets/licenses)，与 HCT/Flutter 的 Apache/BSD 及 SDK、插件许可一起在 [许可证页](flutter/lib/pages/licenses.dart) 展示。该页面按包名列出、搜索并打开可选中的完整正文。
 
-[组件 pubspec](https://github.com/giturass/prism_ui/blob/b-box/pubspec.yaml) 要求 Dart 3.10+、Flutter 3.47+；0.1.3 的 SDK 要求和依赖与此前固定版本相同。应用继续使用 [setup-flutter](.github/actions/setup-flutter/action.yml) 固定的 Flutter 3.47.6，[锁文件](flutter/pubspec.lock) 仅更新本地 Prism 包的版本。
+[组件 pubspec](https://github.com/chen08209/prism_ui/blob/cae9a43572bddb9b20b9350ef7fde3f434a758c7/pubspec.yaml) 要求 Dart 3.10+、Flutter 3.47+；包版本及依赖没有变化，无须改动[锁文件](flutter/pubspec.lock)。应用继续使用 [setup-flutter](.github/actions/setup-flutter/action.yml) 固定的 Flutter 3.47.6。
 
-0.1.3 删除了 `prism_list.dart` 与 `route_motion_hold.dart` 的显式 rendering 导入，但 Flutter 3.47.6 的 [`widgets/viewport.dart`](https://github.com/flutter/flutter/blob/3.47.6/packages/flutter/lib/src/widgets/viewport.dart#L19) 不导出这两个文件使用的 [`ScrollCacheExtent`](https://github.com/flutter/flutter/blob/3.47.6/packages/flutter/lib/src/rendering/viewport.dart#L42)。这两份文件仅恢复 `import 'package:flutter/rendering.dart' show ScrollCacheExtent;`。另在 `list_selected.dart` 与 `list_row.dart` 增加缺省开启的 `constrainTrailing` 参数；仅[忽略电池优化项](flutter/lib/components/battery_optimization.dart)关闭它，恢复 FlClash 参考子模块的尾部完整宽度与文字继承规则，避免英文及大字号授权按钮被 0.1.3 的长值限宽压缩。四份适配的原始来源哈希列入 `prismUi.adaptedFiles`，其余 189 个包文件原样保留。
+Fork 在 `prism_list.dart` 与 `route_motion_hold.dart` 显式从 rendering 导入 [`ScrollCacheExtent`](https://github.com/flutter/flutter/blob/3.47.6/packages/flutter/lib/src/rendering/viewport.dart#L42)，因为固定 SDK 的 widgets 库不导出该类型。`list_row.dart` 与 `list_selected.dart` 允许单行保留完整尾部宽度、指定分组圆角和分隔线末端缩进；仅[忽略电池优化项](flutter/lib/components/battery_optimization.dart)使用这些覆盖值，保留 FlClash 参考行的高度、边距及文字换行。其他列表项沿用上游默认几何。
 
 字体归属见 [JetBrainsMono-OFL.txt](flutter/assets/licenses/JetBrainsMono-OFL.txt) 和 [Twemoji-LICENSE.md](flutter/assets/licenses/Twemoji-LICENSE.md)。Twemoji 原始图形来自 Twitter，字体转换由 Mozilla 提供，图形未修改；字体许可同样用于应用内许可证页。
 
@@ -44,7 +44,7 @@ Flutter 承担仪表盘、配置、工具、设置及所有子页面的导航；
 
 v0.9.3 使用 `PrismApp`、Prism 主题、表面、按压反馈、输入、弹窗和返回保护；原生操作消息交给 `BannerHost`，采用 Prism 的工具栏避让间距，复制和保存失败反馈期间仍可使用顶部按钮。B-box 表单在输入框上方保留字段标签，脏草稿确认及保存期间禁止退出继续由 `BoxEditGuard` 处理。搜索使用新版回调，连接/日志的可删除关键词由页面维护，并与输入文字共同过滤；排序列表使用 Prism 的最终索引回调，代理标签页显式管理控制器并按组名保留选择。网络速度卡片跟进新版 1.45 最小比例、数值下方的背景曲线及独立重绘区域；外观预览改用逐形状模糊，调色和分组标签按新版测量接口适配。状态参考渲染器同步到 v0.9.3，采用上游普通状态，不引入其 Root 服务边框含义。
 
-Prism UI 0.1.3 原样同步列表长尾值截断、折叠分组前置内容的动态间距、反向列表初始位置、嵌套弹层返回及按压取消反馈，新增分组标题说明、成功/警告填充前景色、弹窗缩放起点和正文局部加粗接口。成功/警告容器使用新版低彩度色板；字体、生成模型、shader 及许可正文未变。列表尾部锚定改为显式选择，[日志页](flutter/lib/pages/logs.dart) 设置 `anchorAtEnd: true`，继续由应用管理跟随、滚动暂停、冻结记录和恢复；普通列表沿用新版默认行为。[选项列表行](flutter/lib/ui/list_item.dart) 的值按钮增加弹性宽度约束，长出口标签在新版尾部限宽下保留标题和选择图标，显示截断不改变实际传给后端的值；该文件由直接导入转为明确适配。配置卡的更新时间也接收尾部剩余宽度，保留既有单行省略、完整时间提示、加载动画和固定对号。固定导航栏的 64 dp 高度、主背景色和底部安全区适配继续保留。
+本次同步更新分组列表的边距和行高、折叠弹簧、导航与路由快照，同时更新按钮生成模型及 `liquid_glass.frag`；字体和许可正文未变。[代理列表](flutter/lib/components/proxy_list.dart)用同一弹簧驱动当前视口内的行与标题箭头，展开后仍按需构建；[工具栏](flutter/lib/ui/scaffold/scaffold.dart)和[搜索栏](flutter/lib/ui/scaffold/scaffold_search.dart)传入视图上下文计算边距，因此两者列为适配文件。[列表行](flutter/lib/ui/list_item.dart)保留长值截断并使用当前字号的一行或两行度量；配置卡保留两行间距、更新时间提示和固定选中标记。[日志流](flutter/lib/pages/logs.dart)继续显式启用 `anchorAtEnd`，固定导航栏继续保留 64 dp 高度及底部安全区。
 
 | 区域 | 主要实现 | 当前适配 |
 | --- | --- | --- |
@@ -241,7 +241,7 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 
 下列测试使用桥接替身和测试数据，验证交互、通知、调用和几何断言。它们不代替实际 TLS、系统证书安装、第三方应用或实机视觉验收；实际 PSS/RSS、CPU、帧耗时和加载耗时仍需在同设备、同配置下测量。原生服务重启、配置重载和内核日志级别由 [Android 仪器测试](app.md#android-仪器测试) 覆盖。
 
-[Prism 上游测试](https://github.com/giturass/prism_ui/tree/b-box/test) 原样固定到上述组件提交，包含 32 个 widget 测试文件、两个公共测量/字体测试及配置和辅助文件；覆盖长尾值与双向布局、折叠分组、可选尾部锚定、反向列表、弹层和按压反馈等组件行为。[logs_test.dart](flutter/test/logs_test.dart) 另覆盖 B-box 日志流的动态行高、跟随、滚动暂停和恢复，使用实际滚动位置与可见记录断言。 导航测试另在 320 宽、1.4 倍字号下实际选择长出口标签，核对标题、选项值与选择图标的边界，并确认诊断启动仍携带完整标签；运行截图写入 `build/screenshots/navigation/diagnostics-long-outbound-320-light-1.4.png`。
+[Prism 上游测试](https://github.com/giturass/prism_ui/tree/b-box/test) 原样固定到上述组件提交，包含 40 个 widget 测试文件、三个公共测量/字体/字形测试及配置和辅助文件；覆盖长尾值与双向布局、折叠分组、可选尾部锚定、反向列表、弹层和按压反馈等组件行为。[logs_test.dart](flutter/test/logs_test.dart) 另覆盖 B-box 日志流的动态行高、跟随、滚动暂停和恢复，使用实际滚动位置与可见记录断言。 导航测试另在 320 宽、1.4 倍字号下实际选择长出口标签，核对标题、选项值与选择图标的边界，并确认诊断启动仍携带完整标签；运行截图写入 `build/screenshots/navigation/diagnostics-long-outbound-320-light-1.4.png`。
 
 **导航、外观与关于**
 
@@ -296,6 +296,8 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 - [captured_body_test.dart](flutter/test/captured_body_test.dart)：详情内完整正文查看、自动内容识别、显示方式与原文/派生复制、原页历史和字节来源、二进制行懒加载、图片缩放/失败回退、文本横向滚动与折行；活动正文的末页追加、读取器复用、完成停轮询、迟到详情/分页以及写入追平后清除截断。完整跨页图片检查文件读取和解码尺寸；完整 JSON/Protobuf/gRPC 检查派生 UTF-8 页、独立偏移/页码、原计数和原页复制不变，以及首页识别在分页中保持、实际内容与 MIME 不一致时的显示和未知二进制回退。取消用例覆盖后台/返回前台的派生页恢复、覆盖页面、销毁、直接远程切换和同帧远程往返，确认关闭发生在迟到结果前且恢复使用新读取器；失败保留原页并可重试。窄屏大字号布局和图片交互截图由统一测试工作流生成，使用保存正文的桥接替身，不作为实机验收。
 
 ### 当前验证记录
+
+2026-11-26 Prism 同步基于 B-box `43b07cf6011194302a110c5ba33c6961f02fd88a` 的工作树，组件 SHA 见[来源清单](#参考版本与来源清单)。已在本机核对来源哈希、许可、子模块指针并运行 `git diff --check` 和 `python3 tools/verify_newui.py`。本次工作树未运行 Actions、Flutter 分析/测试、构建或设备验证；下述历史结果不覆盖本次变更。
 
 2026-11-25 请求重放、HTTP 断点页面及正文查看器拆分的功能/测试源码 `1aa3875b462b1c8e2e381647a71704cc486ef100` 已通过 [统一测试运行](https://github.com/giturass/B-box/actions/runs/45621358974) 中的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45621358974/job/139230069327)：来源/许可约束检查通过，分析为 158 项 info、0 warning/error，950 项应用与 Prism 测试全部成功，其中包含 [replay_breakpoints_test.dart](flutter/test/replay_breakpoints_test.dart) 以及拆分后的 [captured_body_test.dart](flutter/test/captured_body_test.dart) 和 [requests_test.dart](flutter/test/requests_test.dart)；AAR 构建步骤成功。重放和断点页面没有截图用例，本次也未下载或查看任何截图，这些页面及拆分后的正文查看器没有视觉或实机验收结论。核心、JVM 与 Android smoke 的结果及边界由 [应用验证记录](app.md#当前验证记录) 维护。下列既有记录只适用于各自列出的此前 SHA。
 

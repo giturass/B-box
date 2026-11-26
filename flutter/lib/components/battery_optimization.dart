@@ -80,8 +80,12 @@ class _BatteryOptimizationItemState extends State<BatteryOptimizationItem>
   @override
   Widget build(BuildContext context) => DecorationListItem(
     title: TooltipLabel(context.tr('Ignore battery optimization')),
-    // This prerequisite keeps the reference button's full natural width.
     constrainTrailing: false,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+    minHeight: 56,
+    minVerticalPadding: 10,
+    groupRadius: AppCorner.xl,
+    separatorEndIndent: 14,
     trailing: Stack(
       alignment: Alignment.centerRight,
       children: [
