@@ -92,7 +92,10 @@ void main() {
         case 'profiles.config': return wire();
         case 'profiles.moduleFetch': return await fetch;
         case 'profiles.moduleDescribe': return jsonEncode({'name':'One', 'hasScripts':true});
-        case 'profiles.write': final args = json(call.arguments); expect(args['revision'],revision); writes++; content = args['content'] as String; revision = 'r2'; return wire();
+        case 'profiles.write':
+          final args = json(call.arguments);
+          if (args['revision'] != revision) throw PlatformException(code:'conflict',message:'Stale module revision');
+          writes++; content = args['content'] as String; revision = 'r2'; return wire();
       }
       return null;
     });
@@ -131,7 +134,10 @@ void main() {
         case 'profiles.config': return wire();
         case 'profiles.moduleDescribe': return jsonEncode({'name':'First', 'hasScripts':false});
         case 'profiles.moduleDetails': return jsonEncode({'description':'Test module', 'lines':{'rule':[{'text':'DOMAIN,example.test,REJECT'}]}});
-        case 'profiles.write': final args = json(call.arguments); expect(args['revision'], revision); content = args['content'] as String; revision = 'write-${++writes}'; return wire();
+        case 'profiles.write':
+          final args = json(call.arguments);
+          if (args['revision'] != revision) throw PlatformException(code:'conflict',message:'Stale module revision');
+          content = args['content'] as String; revision = 'write-${++writes}'; return wire();
       }
       return null;
     });
