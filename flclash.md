@@ -293,6 +293,8 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 
 ### 当前验证记录
 
+2026-11-26 模块管理功能与测试源码 `ecab7c4c0a791e4718d437efe7128d512f3ca44c`，核心 `a11207f66c42a6335d1f655846d498edf60380b3`。[统一验证 #45840908000](https://github.com/giturass/B-box/actions/runs/45840908000) 全部通过：[Flutter 作业](https://github.com/giturass/B-box/actions/runs/45840908000/job/139982157737) 完成分析（159 项 info）、1021 项测试（另 1 项跳过）及 AAR 构建；另有核心、Root CA、Android JVM/APK 和 API 24、31、36（4 KiB / 16 KiB）四组 smoke。实际下载 `newui-validation`，确认 `surge-modules` 下列表、详情、规则行的三对 PNG 分别逐字节相同，且使用可读的 Roboto 字形。仅限[该节所列夹具](#surge-模块导入)，不是整个 FlClash 应用或 Android 真机全状态的零差异结论。本次未触发 Release。
+
 2026-11-26 Prism 同步基于 B-box `43b07cf6011194302a110c5ba33c6961f02fd88a` 的工作树，组件 SHA 见[来源清单](#参考版本与来源清单)。已在本机核对来源哈希、许可、子模块指针并运行 `git diff --check` 和 `python3 tools/verify_newui.py`。本次工作树未运行 Actions、Flutter 分析/测试、构建或设备验证；下述历史结果不覆盖本次变更。
 
 2026-11-25 请求重放、HTTP 断点页面及正文查看器拆分的功能/测试源码 `1aa3875b462b1c8e2e381647a71704cc486ef100` 已通过 [统一测试运行](https://github.com/giturass/B-box/actions/runs/45621358974) 中的 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/45621358974/job/139230069327)：来源/许可约束检查通过，分析为 158 项 info、0 warning/error，950 项应用与 Prism 测试全部成功，其中包含 [replay_breakpoints_test.dart](flutter/test/replay_breakpoints_test.dart) 以及拆分后的 [captured_body_test.dart](flutter/test/captured_body_test.dart) 和 [requests_test.dart](flutter/test/requests_test.dart)；AAR 构建步骤成功。重放和断点页面没有截图用例，本次也未下载或查看任何截图，这些页面及拆分后的正文查看器没有视觉或实机验收结论。核心、JVM 与 Android smoke 的结果及边界由 [应用验证记录](app.md#当前验证记录) 维护。下列既有记录只适用于各自列出的此前 SHA。
