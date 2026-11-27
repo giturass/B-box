@@ -253,7 +253,6 @@ class _SurgeModulesPageState extends State<SurgeModulesPage> {
       return SortableItem(key: ValueKey(id), index: index, child: ContextMenuRegion(menuItems: !available ? null : [
         if (remote) ...[
           PopupMenuItem(glyph: AppGlyphs.sync, label: context.tr('Update'), onPressed: () => actions.update(context, item, revision)),
-          PopupMenuItem(glyph: AppGlyphs.copy, label: context.tr('Copy URL'), onPressed: () => actions.copyUrl(context, item, revision)),
           PopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit URL'), onPressed: () => actions.update(context, item, revision, editUrl: true)),
         ] else PopupMenuItem(glyph: AppGlyphs.edit, label: context.tr('Edit'), onPressed: () => actions.edit(context, item, revision)),
         PopupMenuItem(danger: true, glyph: AppGlyphs.delete, label: context.tr('Delete'), onPressed: () async {

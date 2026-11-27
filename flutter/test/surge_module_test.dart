@@ -197,7 +197,7 @@ void main() {
     expect(find.text('Fixture unavailable'),findsNothing);
   });
 
-  testWidgets('remote module menu copies and replaces its URL; detail retries and argument switches preserve activation', (tester) async {
+  testWidgets('remote module menu edits its URL; details support copying, retries and argument switches', (tester) async {
     const channel = MethodChannel('test.module-source');
     const original = 'https://example.test/original?version=1', replacement = 'https://example.test/new?version=2';
     const source = '#!name=Remote tools\n[Unknown]\nRates=script-name=helper\n[Script]\nhelper=type=generic,script-path=helper.js';
@@ -251,7 +251,10 @@ void main() {
     Future<void> menu(String name) async { await tester.longPress(find.text(name).hitTestable()); await tester.pumpAndSettle(); }
     Future<void> tap(String label) async { await tester.tap(find.text(label).hitTestable().last); await tester.pumpAndSettle(); }
     Future<void> editUrl(String value) async {
-      await menu('Remote tools'); await tap('Edit URL');
+      await menu('Remote tools');
+      expect(find.text('Copy URL'), findsNothing);
+      expect(find.text('Update').hitTestable(), findsOneWidget); expect(find.text('Delete').hitTestable(), findsOneWidget);
+      await tap('Edit URL');
       final input = find.descendant(of: find.byType(InputDialog), matching: find.byType(EditableText));
       expect(tester.widget<EditableText>(input).controller.text, original);
       await tester.enterText(input, value); await tap('Submit');
@@ -259,8 +262,6 @@ void main() {
     await menu('Local rules');
     expect(find.text('Edit').hitTestable(), findsOneWidget); expect(find.text('Copy URL'), findsNothing);
     await tap('Delete'); await tap('Cancel'); expect(writes, 0);
-    await menu('Remote tools'); await tap('Copy URL'); expect(copied, [original]); expect(writes, 0);
-    await tester.pump(const Duration(seconds: 5)); await tester.pumpAndSettle();
     await editUrl('https://example.test/missing'); expect(remote()['url'], original); expect(writes, 0);
     await tester.pump(const Duration(seconds: 5)); await tester.pumpAndSettle();
     await editUrl(replacement); expect(fetched, ['https://example.test/missing', replacement]);
@@ -271,7 +272,11 @@ void main() {
     expect(find.textContaining('unsupported section [unknown]'), findsOneWidget);
     await tap('Enabled'); expect(writes, 2); expect(remote()['enabled'], true); expect(find.byType(AlertDialog), findsNothing);
     final argument = find.text('Feature flag');
-    final detailScroll = find.ancestor(of: find.text('Enabled').hitTestable(), matching: find.byType(Scrollable)).first;
+    final copyUrl = find.byTooltip('Copy URL');
+    await tester.ensureVisible(copyUrl); await tester.tap(copyUrl); await tester.pumpAndSettle();
+    expect(copied, [replacement]); expect(writes, 2);
+    await tester.pump(const Duration(seconds: 5)); await tester.pumpAndSettle();
+    final detailScroll = find.ancestor(of: copyUrl, matching: find.byType(Scrollable)).first;
     await tester.scrollUntilVisible(argument, 160, scrollable: detailScroll); await tap('Feature flag');
     expect(writes, 3); expect(remote()['arguments'], {'Feature flag':'true'}); expect(remote()['enabled'], true);
     expect(find.byType(AlertDialog), findsNothing);
@@ -289,9 +294,10 @@ void main() {
   testWidgets('module list pixels match the FlClash v0.9.3 fixture and edits keep the base profile', (tester) async {
     const channel = MethodChannel('test.surge-modules');
     const source = '#!name=First\n[Rule]\nDOMAIN,example.test,REJECT';
+    const hosts = ['-private.test', '*.example.test', '[2001:db8::1]:8443'];
     var content = jsonEncode({'route': {'final':'kept'}, 'experimental': {'modules': [
       {'id':'one', 'name':'First', 'content':source},
-      {'id':'two', 'name':'Second', 'url':'https://example.test/module', 'content':'[Rule]\nFINAL,DIRECT', 'enabled':true},
+      {'id':'two', 'name':'Second', 'url':'https://example.test/module', 'content':'[MITM]\nhostname = %APPEND% ${hosts.join(', ')}', 'enabled':true},
     ]}}), revision = 'initial';
     int writes = 0;
     Json wire() => {'formatted':content, 'content':content, 'revision':revision};
@@ -301,7 +307,9 @@ void main() {
         case 'ready': return {'version':'test', 'coreVersion':'test', 'preferences':{'locale':'en'}, 'dashboard':{'status':'Stopped'}};
         case 'profiles.config': return wire();
         case 'profiles.moduleDescribe': return jsonEncode({'name':'First', 'hasScripts':false, 'lines':{'rule':[{'text':'DOMAIN,example.test,REJECT'}]}});
-        case 'profiles.moduleDetails': return jsonEncode({'description':'Test module', 'lines':{'rule':[{'text':'DOMAIN,example.test,REJECT'}]}});
+        case 'profiles.moduleDetails':
+          if (json(call.arguments)['moduleId'] == 'two') return jsonEncode({'lines':{'mitm':[for (final host in hosts) {'text':host}]}});
+          return jsonEncode({'description':'Test module', 'lines':{'rule':[{'text':'DOMAIN,example.test,REJECT'}]}});
         case 'profiles.write':
           final args = json(call.arguments);
           if (args['revision'] != revision) throw PlatformException(code:'conflict',message:'Stale module revision');
@@ -342,5 +350,10 @@ void main() {
     expect(listEquals(lines, referenceLines), isTrue, reason: 'Module rule line pixels differ from the reference');
     await tester.tap(find.byType(Switch).hitTestable().first); await tester.pumpAndSettle();
     expect(writes, 1); expect(store.entries(['experimental','modules']).first['enabled'], true); expect(store.value(['route']), {'final':'kept'});
+    await tester.tap(find.text('Second').hitTestable()); await tester.pumpAndSettle();
+    final hostname = find.text('Hostname');
+    await tester.ensureVisible(hostname); expect(find.text('3 items'), findsOneWidget);
+    await tester.tap(hostname); await tester.pumpAndSettle();
+    for (final host in hosts) { expect(find.text(host), findsOneWidget); }
   });
 }

@@ -531,6 +531,8 @@ Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`ti
 
 按 [Surge 模块文档](https://manual.nssurge.com/profile/module.md)，`hostname = …` 替换基础主机列表，`%APPEND%` 追加，`%INSERT%` 前插。候选项使用运行时的主机语法校验；追加/前插中的非法正向主机不会扩大为整域。非法排除项或非法覆盖阻止配置生效，不通过丢掉约束来提高“兼容率”。保存的原文不变。
 
+`DescribeProfileSurgeModule` 的 `lines.mitm` 按本模块的前插、替换、追加结果返回，每项是一个已校验的主机模式，不包含基础配置或其他模块的主机。`DescribeSurgeModule` 的导入预览仍按指令报告，因此显式清空 `hostname =` 仍是有效操作，不会在详情中虚增一个主机名。
+
 ##### Yfamily 模块回放
 
 [回放入口](tools/surge_catalog/run.py) 从 [Yfamily 目录的固定原文快照](https://github.com/RoaycL/Surge/tree/04e93ac904d9f7a3005eea3b6f90e29b29073b66/upstreams/yfamilys) 取 422 份模块、从作者的[固定提交](https://github.com/deezertidal/Surge_Module/tree/7c1bb21e3cb86c04278c43bc22947899753c7cf4/files) 取 13 个面板脚本，另取 [BoxJS 脚本](https://github.com/chavyleung/scripts/blob/bfab3c906f3d5d126e9094f15730e025f7f32128/box/chavy.boxjs.js)及其 [0.19.30 页面](https://github.com/chavyleung/scripts/blob/6088379117e7ed224cf1f582f9abfe91b74e7619/box/chavy.boxjs.html)。清单、模块、脚本和页面均校验 SHA-256；不执行目录中的其他脚本。使用快照是因为测试时原站 `/surge` 返回 HTTP 403。
