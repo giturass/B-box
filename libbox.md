@@ -8,7 +8,7 @@
 
 核心是上游的 fork [giturass/sing-box](https://github.com/giturass/sing-box/tree/b-box) 的 `b-box` 分支，以 git 子模块引入到 [core/](.gitmodules)；本仓库不存储 AAR。该分支在上游标签之上按提交保存构建改动、XHTTP/VLESS Encryption、WARP MASQUE、HTTP 调试、抓取引擎、路由适配及所有 `ui_*.go` 和相应测试，源码位于核心内的实际位置。sing-tun、sing-vmess、Goja 和 regexp2 的修改副本提交在 [.b-box/](https://github.com/giturass/sing-box/tree/b-box/.b-box)，由 `go.mod` 的本地 `replace` 引用，对应依赖补丁保存在 `.b-box/patches/`。CI 通过 [setup-core](.github/actions/setup-core/action.yml) 检出子模块，核对它基于 `v${CORE_VERSION_NAME}` 上游标签且工作树干净，运行 [verify.py](https://github.com/giturass/sing-box/blob/b-box/.b-box/verify.py) 核对四个依赖副本，并准备版本文件指定的 Go；CI 不应用补丁，也不整理依赖。本地 `replace` 使副本不再受 `go.sum` 校验，因此该脚本在已跟踪文件的临时副本上反向应用补丁、去除 B-box 新增文件，要求结果与固定版本的 Go 模块哈希（`h1`）一致。修改核心时先向 fork 的 `b-box` 分支提交并推送，再在本仓库更新子模块指针。Android 构建由 [build-libbox](.github/actions/build-libbox/action.yml) 生成标准 `libbox.aar`。仅有上游原版 AAR 不足以编译当前 B-box，因为它没有下面的 UI 扩展绑定，也不包含本仓库的路由和自动重定向兼容补丁。
 
-此标签的[上游改动](https://github.com/SagerNet/sing-box/releases/tag/v1.15.0-alpha.14)包括 quic-go 0.66.0 和 Tailscale 1.106.1。B-box 的 XHTTP 和 WARP HTTP/3 复用上游每次握手的 ECH 配置快照；标准 MASQUE 暂停与恢复使用上游空闲连接策略，WARP 暂停时仍取消独占连接；上游调整端点生命周期后的 WARP 出站适配见 [MASQUE 出站](#masque-出站)。旧 fork 分支头保留在 [`b-box-1.15.0-alpha.13`](https://github.com/giturass/sing-box/tree/b-box-1.15.0-alpha.13)。
+此标签的[上游改动](https://github.com/SagerNet/sing-box/releases/tag/v1.15.0-alpha.14)包括 quic-go 0.66.0 和 Tailscale 1.106.1。B-box 的 XHTTP 和 WARP HTTP/3 复用上游每次握手的 ECH 配置快照；标准 MASQUE 暂停与恢复使用上游空闲连接策略，WARP 暂停时仍取消独占连接；上游调整端点生命周期、quic-go 收紧 extended CONNECT 检查后的 WARP 适配见 [MASQUE 出站](#masque-出站)。旧 fork 分支头保留在 [`b-box-1.15.0-alpha.13`](https://github.com/giturass/sing-box/tree/b-box-1.15.0-alpha.13)。
 
 | 差异 | 文件 | 作用 |
 | --- | --- | --- |
@@ -157,7 +157,7 @@ WireGuard 输出结构核对当前核心 [`v1.15.0-alpha.14` 的选项](https://
 
 可直接通过 [工具页 WARP 注册](flclash.md#配置页与内核差异) 生成节点；已有账号也可填写 [warp-masque.json](examples/warp-masque.json) 后导入。示例的 `2001:db8::2/128` 是文档地址，须替换为注册结果；没有 IPv6 隧道地址时删除该项。usque 配置的 `private_key` 对应这里的 `private_key`，`endpoint_pub_key` 对应 `peer_public_key`，`ipv4` / `ipv6` 加上主机前缀长度后填入 `address`。HTTP/3 和 HTTP/2 使用同一组 MASQUE 设备凭据；WireGuard 的 Curve25519 私钥和 peer key 不能用于这个出站。
 
-每次 TLS 握手使用已注册的私钥签发临时客户端证书；证书更新不替换注册私钥。服务端证书以注册公钥固定校验，缺少公钥、密钥格式错误、重复地址族和失败的 CONNECT 都返回错误。HTTP/3 使用核心受保护的非连接 UDP socket，保留 detour、DNS 和 QUIC 的原生 UDP 能力；发送 WARP 旧 datagram setting，在服务端未声明 extended CONNECT 时仍完成 `cf-connect-ip`，读取并丢弃有界控制 capsule，datagram 容量为 QUIC packet number 预留四字节。HTTP/2 接受 `h2` 或空 ALPN，使用普通 CONNECT 和 WARP 专用头，capsule 内直接传 IP 数据，不添加 HTTP/3 的 context ID。允许回退时 HTTP/3 握手最多等待五秒再尝试 HTTP/2，成功传输用于后续重连；握手期限不会取消已建立的隧道。
+每次 TLS 握手使用已注册的私钥签发临时客户端证书；证书更新不替换注册私钥。服务端证书以注册公钥固定校验，缺少公钥、密钥格式错误、重复地址族和失败的 CONNECT 都返回错误。HTTP/3 使用核心受保护的非连接 UDP socket，保留 detour、DNS 和 QUIC 的原生 UDP 能力；发送 WARP 旧 datagram setting，在服务端未声明 extended CONNECT 时仍完成 `cf-connect-ip`：quic-go 0.66 的请求流在发送 extended CONNECT 前也检查对端设置，[b_box_warp_http3.go](https://github.com/giturass/sing-box/blob/b-box/transport/masque/b_box_warp_http3.go) 确认 datagram 设置后将这条隧道独占连接收到的设置标为已启用（[核心提交](https://github.com/giturass/sing-box/commit/c4501eb539c557b92ca164321917b89325630784)）。握手后读取并丢弃有界控制 capsule，datagram 容量为 QUIC packet number 预留四字节。HTTP/2 接受 `h2` 或空 ALPN，使用普通 CONNECT 和 WARP 专用头，capsule 内直接传 IP 数据，不添加 HTTP/3 的 context ID。允许回退时 HTTP/3 握手最多等待五秒再尝试 HTTP/2，成功传输用于后续重连；握手期限不会取消已建立的隧道。
 
 注册地址在认证完成后配置给 IP 栈，拨号等待就绪，不等待 WARP 不发送的 `ADDRESS_ASSIGN`；普通 MASQUE 仍保留地址请求/分配。取消握手、停服和网络切换会关闭旧 TCP/QUIC 连接，已成功打开的隧道不被握手期限结束取消；重连沿用上游的退避与服务生命周期。网络切换取消会话时立即撤销其就绪状态，此后的拨号等待新隧道认证完成，不把首批报文写入已取消的旧隧道；上游客户端在重连循环回收旧会话前仍报告就绪，该修正由同一补丁维护，标准 MASQUE 端点同样生效。
 
