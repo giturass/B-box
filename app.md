@@ -121,7 +121,7 @@ XHTTP 与 VLESS Encryption 通过同一 JSON、节点导入和订阅更新入口
 
 日志原生缓冲保留最近 3000 条记录；[LogStream.kt](app/src/main/java/io/nekohasekai/sfa/flutter/LogStream.kt) 仅在前台日志页请求数据时生成桥接消息，首次订阅及恢复可见时发送快照，随后发送新增记录、最早保留 ID 和默认等级。清空或缓冲身份重置发送替换消息，单纯等级变化不重新编码记录。隐藏日志页不影响原生缓冲和当前会话的等级同步。
 
-[ConnectionStore.kt](app/src/main/java/io/nekohasekai/sfa/backend/connections/ConnectionStore.kt) 按 ID 应用当前内核的新增、计数更新和关闭事件，复用未变化的记录及不可变快照。事件语义对应核心 [command_types.go](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/experimental/libbox/command_types.go)：更新累加总量，关闭使用最终计数并归零速率，已关闭记录保留五分钟；DNS 出站继续过滤。[ConnectionStream.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ConnectionStream.kt) 在前台连接页/详情请求数据时与上次实际发送的快照比较，发送变更记录和删除 ID；首次及恢复可见时完整同步，StateFlow 合并中间状态不会漏掉变更。
+[ConnectionStore.kt](app/src/main/java/io/nekohasekai/sfa/backend/connections/ConnectionStore.kt) 按 ID 应用当前内核的新增、计数更新和关闭事件，复用未变化的记录及不可变快照。事件语义对应核心 [command_types.go](https://github.com/SagerNet/sing-box/blob/126ce6c21ddf10769fe793458d34ae3add575872/experimental/libbox/command_types.go)：更新累加总量，关闭使用最终计数并归零速率，已关闭记录保留五分钟；DNS 出站继续过滤。[ConnectionStream.kt](app/src/main/java/io/nekohasekai/sfa/flutter/ConnectionStream.kt) 在前台连接页/详情请求数据时与上次实际发送的快照比较，发送变更记录和删除 ID；首次及恢复可见时完整同步，StateFlow 合并中间状态不会漏掉变更。
 
 界面网络信息通过 [BoxDashboard.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxDashboard.kt) 的 `ConnectivityManager.registerNetworkCallback` 被动监听网络、能力和地址变化，配置、服务、运行快照及远程会话变化也触发刷新。[NetworkRefresh.kt](app/src/main/java/io/nekohasekai/sfa/flutter/NetworkRefresh.kt) 合并突发通知并串行刷新；前台且亮屏时，内网 IP 卡片/详情可见每十秒、隐藏每六十秒补查接口，覆盖缺少回调的热点变化，后台或熄屏停止监听与补查。手动刷新立即检查并允许缓存错误重试。此监听只读取界面数据，不调用网络请求、VPN 重建或服务重连；服务侧监听见 [开机恢复与默认网络](#开机恢复与默认网络)。
 
@@ -139,9 +139,9 @@ XHTTP 与 VLESS Encryption 通过同一 JSON、节点导入和订阅更新入口
 
 [DefaultInterfaceMonitor.kt](app/src/main/java/io/nekohasekai/sfa/bg/DefaultInterfaceMonitor.kt) 在独立 IO 协程串行解析接口并通知 libbox，网络或核心监听器变化取消旧结果。API 26+ 等待完整回调参数；已有接口名但系统接口编号尚未出现时，每 100 毫秒可取消地重试，直到就绪或网络、监听器、服务变化。没有网络或尚缺回调参数时发布空接口并等待事件。API 24–25 首次可只收到 `onAvailable`，因此在 worker 补查属性与能力，再发布完整快照。[PlatformInterfaceWrapper.kt](app/src/main/java/io/nekohasekai/sfa/bg/PlatformInterfaceWrapper.kt) 枚举默认网络时使用同一快照，确保内核能找到通知中的接口。
 
-核心安装监听器时，桥接在状态锁外等待首次通知完成，包括空接口通知，随后才继续核心启动和规则集下载；顺序依据当前 libbox 的 [默认接口监控实现](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/experimental/libbox/monitor.go)。后续网络变化仍异步更新，切网沿用尚未完成的首次确认；更换、移除监听器或停止 worker 取消等待，首次通知异常反馈启动调用者。默认接口调度的 16 项 [JVM 回归](app/src/test/java/io/nekohasekai/sfa/bg/DefaultInterfaceMonitorTest.kt) 覆盖首次通知返回顺序、晚到网络、切网、监听器替换、停止及异常/取消恢复。
+核心安装监听器时，桥接在状态锁外等待首次通知完成，包括空接口通知，随后才继续核心启动和规则集下载；顺序依据当前 libbox 的 [默认接口监控实现](https://github.com/SagerNet/sing-box/blob/126ce6c21ddf10769fe793458d34ae3add575872/experimental/libbox/monitor.go)。后续网络变化仍异步更新，切网沿用尚未完成的首次确认；更换、移除监听器或停止 worker 取消等待，首次通知异常反馈启动调用者。默认接口调度的 16 项 [JVM 回归](app/src/test/java/io/nekohasekai/sfa/bg/DefaultInterfaceMonitorTest.kt) 覆盖首次通知返回顺序、晚到网络、切网、监听器替换、停止及异常/取消恢复。
 
-回调时序与参数使用依据 [Android 15 ConnectivityManager 源码](https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/tags/android-15.0.0_r1/framework/src/android/net/ConnectivityManager.java)；旧系统的首次通知依据 [Android 7 ConnectivityService 源码](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-7.0.0_r1/services/core/java/com/android/server/ConnectivityService.java)。`Started` 表示核心生命周期启动成功；当前核心在默认接口缺失时 [暂停网络](https://github.com/SagerNet/sing-box/blob/824dbcfb4dd0a95921840b1737b950cde590241e/route/network.go#L533)，有效接口更新后唤醒。因此开机网络晚到须由默认接口通知恢复，服务状态本身不证明代理连通。
+回调时序与参数使用依据 [Android 15 ConnectivityManager 源码](https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/tags/android-15.0.0_r1/framework/src/android/net/ConnectivityManager.java)；旧系统的首次通知依据 [Android 7 ConnectivityService 源码](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-7.0.0_r1/services/core/java/com/android/server/ConnectivityService.java)。`Started` 表示核心生命周期启动成功；当前核心在默认接口缺失时 [暂停网络](https://github.com/SagerNet/sing-box/blob/126ce6c21ddf10769fe793458d34ae3add575872/route/network.go#L548)，有效接口更新后唤醒。因此开机网络晚到须由默认接口通知恢复，服务状态本身不证明代理连通。
 
 ## 请求抓取与 MITM
 
@@ -342,6 +342,8 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 统一工作流的 `root-ca` job 在独立 Linux PID/mount namespace 中运行 [test_mitm_ca.py](tools/test_mitm_ca.py)，使用 BusyBox 和导出的原始脚本，覆盖 APEX 延迟就绪、旧系统缺少 APEX、hash 冲突和原证书保留、已有二级后代/隐藏模块路径、同一 namespace 的重新挂载、准备失败、service 重试和禁用退出。该测试只在 Actions 运行，不对本机 Android 做 Root 挂载，也不代表真实 Magisk/KernelSU/APatch 安装与重启已验收。
 
 ### 当前验证记录
+
+2026-11-27 [核心同步](libbox.md#基线与集成方式)：应用工作树基于 `e6ddfd9e3ad1cafa201009817c35ae7083bcad4a`，固定 fork [`29655c46dcda9c7f769f3bc8d46807e85319e8a9`](https://github.com/giturass/sing-box/commit/29655c46dcda9c7f769f3bc8d46807e85319e8a9)。上游标签祖先、四份依赖的模块哈希、61 个 `experimental/libbox/ui_*.go` 文件与旧 fork 一致性、Linux/amd64 下带 QUIC/XHTTP 的 `go list -mod=readonly -deps -test` 依赖解析、`git diff --check` 和 `python3 tools/verify_newui.py` 均为静态检查。此工作树未运行 Actions，尚未生成或编译 Android 绑定、运行 Go/Flutter/JVM 与模拟器测试，也未构建或发布签名 Release。
 
 2026-11-25 请求重放、HTTP 断点及正文查看器拆分的功能/测试源码 `1aa3875b462b1c8e2e381647a71704cc486ef100` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45621358974) 的全部 8 个作业，核心子模块固定为 `94b69093d2867435035188df8e439f6f0d033a0a`。[核心作业](https://github.com/giturass/B-box/actions/runs/45621358974/job/139230069229) 中 `experimental/httpdebug` 在无 QUIC 与 `with_quic` 两次 race 运行里，`TestReplay*` 2 项和 `TestBreakpoint*` 6 项均通过；`TestUICaptureReplay*` 由 libbox 的 `^TestUI` 步骤及 race 步骤的筛选覆盖，这两步未输出逐用例结果，仅确认包测试成功且没有数据竞争报告。[Android 作业](https://github.com/giturass/B-box/actions/runs/45621358974/job/139230068867) 的 `testOtherDebugUnitTest`（含 [CaptureInjectTasksTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/CaptureInjectTasksTest.kt) 的重放用例）与 Debug APK 构建成功；API 24/31/36 及 36 的 16 KB 页 smoke 作业全部成功，但仪器测试没有重放或断点用例。Flutter 结果见 [界面验证记录](flclash.md#当前验证记录)。
 
