@@ -9,7 +9,7 @@
 | 仓库 | [giturass/B-box](https://github.com/giturass/B-box) |
 | Android 上游 | [SagerNet/sing-box-for-android](https://github.com/SagerNet/sing-box-for-android)，`dev` 分支 |
 | 已合并的比较基线 | [`a548a7903e96266a0046018562c73b192edbfc18`](https://github.com/SagerNet/sing-box-for-android/commit/a548a7903e96266a0046018562c73b192edbfc18)，`1.15.0-alpha.13` |
-| B-box 版本 / versionCode | `1.0.1` / `749`，以 [version.properties](version.properties) 的 `VERSION_NAME` / `VERSION_CODE` 为准 |
+| B-box 版本 / versionCode | `1.0.2` / `750`，以 [version.properties](version.properties) 的 `VERSION_NAME` / `VERSION_CODE` 为准 |
 | 应用名 / Gradle 根项目名 / APK 前缀 | `B-box` |
 | 安装包名 / applicationId | `io.ericlee.bfa` |
 | 源码 namespace / 包路径 | `io.nekohasekai.sfa` |
@@ -219,7 +219,7 @@ CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期�
 
 ## 应用版本与应用内更新
 
-应用从 `v1.0.1` 开始独立编号。[version.properties](version.properties) 的 `VERSION_NAME` / `VERSION_CODE` 仅用于 Android 应用、APK 名称和发布元数据；`CORE_VERSION_NAME` / `GO_VERSION` 仅用于核心准备。应用升级依据递增的 versionCode，`v1.0.1` 使用 `749`，可覆盖此前 `748` 的 B-box 安装；版本名称不与内核进行大小比较。Flutter 模块版本与应用一致，关于页仍单独显示实际 `Libbox.version()`。
+应用从 `v1.0.1` 开始独立编号。[version.properties](version.properties) 的 `VERSION_NAME` / `VERSION_CODE` 仅用于 Android 应用、APK 名称和发布元数据；`CORE_VERSION_NAME` / `GO_VERSION` 仅用于核心准备。应用升级依据递增的 versionCode：`v1.0.1` 使用 `749`，当前 `v1.0.2` 使用 `750`，可覆盖 `749` 及此前 `748` 的 B-box 安装；版本名称不与内核进行大小比较。Flutter 模块版本与应用一致，关于页仍单独显示实际 `Libbox.version()`。
 
 [BoxUpdates.kt](app/src/main/java/io/nekohasekai/sfa/flutter/BoxUpdates.kt) 读取 B-box 最近 20 条 Releases（含预发布），以 `B-box-version-metadata.json` 的 `application_id`、`version_code`、`version_name` 核对安装身份和版本。新的发布 tag 为 `v<应用版本>`，APK 为 `B-box-<应用版本>-<ABI>.apk`。元数据的 `artifacts` 数组为每个 APK 提供 `name`、`size` 和 `sha256`；只有设备 ABI 对应的唯一 APK、资产列表大小和完整性元数据一致时才启用应用内下载。旧元数据仍可用于版本展示，未提供完整性信息或匹配 APK 时进入发布页面。
 

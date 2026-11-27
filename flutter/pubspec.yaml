@@ -1,7 +1,7 @@
 name: b_box_ui
 description: B-box Android interface, using FlClash presentation and sing-box services.
 publish_to: none
-version: 1.0.1+749
+version: 1.0.2+750
 environment:
   sdk: '>=3.13.0 <4.0.0'
 dependencies:
