@@ -289,6 +289,12 @@ Cron、事件和 Generic 的已保存任务菜单提供“立即运行”，事�
 
 ### 当前验证记录
 
+2026-11-29 Surge 配置模块及信息面板移除的功能/测试源码 `8ae219688fb8ced01263506faf1a176b1ce0cf82` 已通过 [Flutter 作业](https://github.com/giturass/B-box/actions/runs/46164864541/job/141040064069)：来源/许可约束检查通过，分析为 158 项 info、0 warning/error，1018 项测试通过、1 项跳过、0 失败；ARM64 Debug/Release Flutter AAR 均构建成功。三个上游比较基线保持不变；核心、Android 与 smoke 结果由 [应用验证记录](app.md#当前验证记录) 维护。
+
+已核对 [截图产物 15271905283](https://github.com/giturass/B-box/actions/runs/46164864541/artifacts/15271905283) 的 `workflow_run.head_sha` 与上述源码一致，下载 ZIP 的 SHA-256 与 GitHub digest 一致。实际逐张查看 `360-light-1.0`、`360-dark-1.4`、`800-light-1.0` 的 `Profile-details.png` 和 `Profile-sections.png`，共六张原图；前两组为 360×800，宽屏为 800×1000。初始图显示从配置卡 Edit 入口打开的本地配置详情，末尾图显示滚动后的 MITM、HTTP rewriting、Scripts、Open configuration；这些目标文字可读、未见重叠或截断，Modules 入口已移除。窄屏使用底部弹层，宽屏使用居中弹层；滚出视口的上方字段可透过共享渐变工具栏部分显露。
+
+六张均为英文、SDK Roboto 和 Android 桥接替身下的 Linux widget 截图，统计值与背景节点来自测试夹具；不代表真实内核数据、中文/系统键盘、全部滚动状态、上游逐像素一致或 ARM64 实机视觉验收。本机仅执行源码/差异/文档静态检查并读取本次日志与原图，没有编译或运行动态测试；验证记录补记不改变上述功能/测试源码。下列记录只适用于各自列出的此前 SHA。
+
 2026-11-27 代理组按钮和证书说明修正基于 `0cd16255e306b55a2ec94acb8a60726bcf3a664b` 的工作树。本机执行 `git diff --check` 和 `python3 tools/verify_newui.py`；[证书页布局用例](flutter/test/requests_test.dart) 新增对两段页脚文字实际边界的检查，含 320 dp 中文大字号。此工作树尚未运行 Actions 或实机验证，旧截图和作业不代表本次通过。
 
 

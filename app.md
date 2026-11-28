@@ -336,6 +336,21 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 ### 当前验证记录
 
+2026-11-29 Surge 配置模块及信息面板移除的功能/测试源码 `8ae219688fb8ced01263506faf1a176b1ce0cf82` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/46164864541) 的全部 8 个作业：核心 Go、Root CA、Flutter、Android 及四组模拟器 smoke。核心子模块固定为已推送的 `23b762531c211edb1608c9b355da2f4cdf29308b`，三个上游比较基线保持不变。
+
+[核心作业](https://github.com/giturass/B-box/actions/runs/46164864541/job/141040063960) 实际使用 Go 1.27.4 linux/amd64，15 条测试命令全部通过，其中 11 条启用 race、全部使用 `-count=1`。新增三个 `TestUIProcessing*` 退役字段及注释迁移回归被普通步骤的 `^TestUI` 和 race 步骤的 `Processing` 前缀覆盖；这两步没有逐用例输出，仅确认包测试成功且无数据竞争报告。Android ingress、节点、XHTTP/VLESS/Vision、WARP/MASQUE、libbox 生命周期及有/无 QUIC 的 httpdebug/route 回归均成功。[Root CA 作业](https://github.com/giturass/B-box/actions/runs/46164864541/job/141040064003) 的 15 项发布工具、6 项实际隔离挂载/启动测试及 ShellCheck 通过。Flutter 分析、交互/布局、ARM64 Debug/Release Flutter AAR 与六张配置详情截图的结果和边界由 [界面验证记录](flclash.md#当前验证记录) 维护。
+
+[Android 作业](https://github.com/giturass/B-box/actions/runs/46164864541/job/141040063735) 完成 other Debug 应用及 AndroidTest APK 构建和 play Kotlin 编译；[JVM 报告](https://github.com/giturass/B-box/actions/runs/46164864541/artifacts/15271226871) 的 25 份 XML 包含 164 个唯一用例，失败、错误及跳过均为 0，包含独立脚本拒绝旧模块/面板参数的回归。四组 smoke 的 UI/native 均成功，每组 118 个相同的唯一原生用例严格完成一次 `1→0`，结束为 `OK (118 tests)`，失败和跳过均为 0。[ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 新增的 `retiredModulesAreRemovedFromSavesAndBackupsWithAtomicRecovery` 在四组均通过，覆盖实际 Android 绑定下旧配置保存、备份导出/恢复、修订冲突、原子写入及失败恢复。
+
+| 环境 | 实际页大小（字节） | 原生 / UI | 报告 |
+| --- | --- | --- | --- |
+| API 24 | 4096（`/proc/self/smaps`） | 118 项通过 / 通过 | [15271383704](https://github.com/giturass/B-box/actions/runs/46164864541/artifacts/15271383704) |
+| API 31 | 4096（`getconf`） | 118 项通过 / 通过 | [15271272637](https://github.com/giturass/B-box/actions/runs/46164864541/artifacts/15271272637) |
+| API 36 | 4096（`getconf`） | 118 项通过 / 通过 | [15271981353](https://github.com/giturass/B-box/actions/runs/46164864541/artifacts/15271981353) |
+| API 36 / ps16k | 16384（`getconf`） | 118 项通过 / 通过 | [15272011438](https://github.com/giturass/B-box/actions/runs/46164864541/artifacts/15272011438) |
+
+已核对五份 JVM/smoke 报告的运行 ID、`workflow_run.head_sha`、下载 ZIP 大小与 SHA-256 digest，四份设备结果的源码 SHA 均与上述提交一致。全部设备为 x86_64 模拟器，本轮没有 ARM64 实机、第三方 Root CA 模块安装/重启或真实应用 MITM 的验收结论，也未触发签名 Release 或发布。本机仅执行源码/差异/文档静态检查并读取 Actions 日志和产物，未编译或运行动态测试；后续验证记录仅补充 Markdown，功能及测试源码保持与本次 Actions 一致。下列记录只适用于各自列出的此前源码 SHA。
+
 2026-11-27 [核心同步](libbox.md#基线与集成方式)：应用工作树基于 `e6ddfd9e3ad1cafa201009817c35ae7083bcad4a`，固定 fork [`29655c46dcda9c7f769f3bc8d46807e85319e8a9`](https://github.com/giturass/sing-box/commit/29655c46dcda9c7f769f3bc8d46807e85319e8a9)。上游标签祖先、四份依赖的模块哈希、61 个 `experimental/libbox/ui_*.go` 文件与旧 fork 一致性、Linux/amd64 下带 QUIC/XHTTP 的 `go list -mod=readonly -deps -test` 依赖解析、`git diff --check` 和 `python3 tools/verify_newui.py` 均为静态检查。此工作树未运行 Actions，尚未生成或编译 Android 绑定、运行 Go/Flutter/JVM 与模拟器测试，也未构建或发布签名 Release。
 
 2026-11-25 请求重放、HTTP 断点及正文查看器拆分的功能/测试源码 `1aa3875b462b1c8e2e381647a71704cc486ef100` 已通过 [统一工作流](https://github.com/giturass/B-box/actions/runs/45621358974) 的全部 8 个作业，核心子模块固定为 `94b69093d2867435035188df8e439f6f0d033a0a`。[核心作业](https://github.com/giturass/B-box/actions/runs/45621358974/job/139230069229) 中 `experimental/httpdebug` 在无 QUIC 与 `with_quic` 两次 race 运行里，`TestReplay*` 2 项和 `TestBreakpoint*` 6 项均通过；`TestUICaptureReplay*` 由 libbox 的 `^TestUI` 步骤及 race 步骤的筛选覆盖，这两步未输出逐用例结果，仅确认包测试成功且没有数据竞争报告。[Android 作业](https://github.com/giturass/B-box/actions/runs/45621358974/job/139230068867) 的 `testOtherDebugUnitTest`（含 [CaptureInjectTasksTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/CaptureInjectTasksTest.kt) 的重放用例）与 Debug APK 构建成功；API 24/31/36 及 36 的 16 KB 页 smoke 作业全部成功，但仪器测试没有重放或断点用例。Flutter 结果见 [界面验证记录](flclash.md#当前验证记录)。
