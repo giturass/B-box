@@ -573,7 +573,7 @@ Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`ti
 
 抓包筛选为应用私有设置。`experimental.http_debug` 已退役，[兼容处理](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_capture_migration.go) 在解析前删除它，不解释、迁移或执行其中规则/脚本。旧本机 HTTPS 设置不会被提升为可执行配置，原子迁移见 [app.md](app.md#请求抓取与-mitm)。
 
-`experimental.modules` 同样作为退役字段删除，不解析或执行模块原文、附件及面板，也不转换为独立规则。清理只移除该字段，保留配置自己的 DNS、路由、入站、节点及独立 MITM、HTTP 改写和脚本设置。`CheckConfig`、`FormatConfig`、CA 需求判断及服务启动/重载共用此处理；Android 保存与备份沿用同一规范化入口，见 [应用兼容说明](app.md#已移除能力与兼容入口)。
+`experimental.modules` 同样作为退役字段删除，不解析或执行模块原文、附件及面板，也不转换为独立规则。清理保留配置自己的 DNS、路由、入站、节点及独立 MITM、HTTP 改写和脚本设置；原始数值不经浮点转换。普通 JSON 注释按字段路径保留，退役字段所属的注释随字段删除，旧嵌套 MITM/脚本的注释随迁移移动；正文排版由现有 JSON 编码器重写。`FormatConfig` 和 Android 保存/备份另保留本地节点标记。`CheckConfig`、`FormatConfig`、CA 需求判断及服务启动/重载共用此处理；Android 保存与备份沿用同一规范化入口，见 [应用兼容说明](app.md#已移除能力与兼容入口)。
 
 旧 `http_rewrite.mitm` 和 `http_rewrite.scripts` 会移到平级扩展，保留原来的应用/端口/正文范围及脚本资源；原改写关闭时迁移目标仍关闭。旧 MITM 的默认端口（含空/null 列表）显式保留为 80/443/8080/8443，避免变为任意 TLS 端口；域名空列表不解密。存在旧排除项时关闭该 MITM，待用户重新确认允许域名；排除字段被移除。若平级与嵌套字段同时存在则明确报错，不覆盖任一份配置。其他未知字段继续由核心校验。
 

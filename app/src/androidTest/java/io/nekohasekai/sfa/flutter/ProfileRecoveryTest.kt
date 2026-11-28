@@ -2102,7 +2102,8 @@ class ProfileRecoveryTest {
             }
         }""")
         val marker = "// b-box-local-nodes: [\"owned\"]\n"
-        val legacy = marker + root.toString()
+        val independentComment = "// Keep independent processing settings"
+        val legacy = marker + independentComment + "\n" + root.toString()
         val file = File(profiles.get(id).typed.path)
         val before = profiles.get(id)
         val mode = Settings.serviceMode
@@ -2123,6 +2124,7 @@ class ProfileRecoveryTest {
         val expected = jsonObject(root)
         fun assertRetained(content: String) {
             assertTrue(content.startsWith(marker))
+            assertTrue(content.contains(independentComment))
             assertEquals(expected, jsonObject(JSONObject(content)))
         }
         val imported = profiles.save(mapOf("name" to "Retired module import fixture", "content" to legacy))

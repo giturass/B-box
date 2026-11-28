@@ -257,9 +257,12 @@ void main() {
       await capture('Profile-details');
       Finder detailEntry(String title) => find.descendant(of: details, matching: find.text(title));
       final rawEntry = detailEntry('Open configuration');
-      await Scrollable.ensureVisible(tester.element(find.ancestor(of: rawEntry, matching: find.byType(ListItem)).first), alignment: 1);
+      final rawRow = find.ancestor(of: rawEntry, matching: find.byWidgetPredicate((widget) => widget is ListItem));
+      final detailsScroll = find.descendant(of: details, matching: find.byType(Scrollable));
+      await tester.scrollUntilVisible(rawRow, 200, scrollable: detailsScroll);
+      await Scrollable.ensureVisible(tester.element(rawRow), alignment: 1);
       await tester.pumpAndSettle();
-      final viewport = tester.getRect(find.descendant(of: details, matching: find.byType(Scrollable)).first);
+      final viewport = tester.getRect(detailsScroll);
       double previousBottom = viewport.top;
       for (final title in ['MITM', 'HTTP rewriting', 'Scripts', 'Open configuration']) {
         final entry = detailEntry(title);
