@@ -45,7 +45,7 @@ internal class BoxBackups(
         val origin = origin()
         val profiles = ProfileManager.list().map { profile ->
             val file = File(profile.typed.path)
-            val content = file.readText()
+            val content = ProfileContent.removeRetiredOptions(file.readText())
             BoxProfiles.validate(content)
             profile.toWire() + mapOf("key" to profileKey(profile, origin), "content" to content)
         }
@@ -71,8 +71,11 @@ internal class BoxBackups(
         require(backup["format"] == "bbox-1") { "Unsupported B-box backup format" }
         backup["origin"]?.let { require(validUUID(it)) { "Invalid backup origin" } }
         backup["createdAt"]?.let { require(integer(it, 0)) { "Invalid backup timestamp" } }
-        val entries = rows(backup["profiles"] ?: error("Backup has no profiles"))
-        require(entries.size <= 1000) { "Backup contains too many profiles" }
+        val rawEntries = rows(backup["profiles"] ?: error("Backup has no profiles"))
+        require(rawEntries.size <= 1000) { "Backup contains too many profiles" }
+        val entries = rawEntries.map { entry ->
+            entry + ("content" to ProfileContent.removeRetiredOptions(entry["content"] as? String ?: error("Missing profile content")))
+        }
         entries.forEach { entry ->
             require((entry["name"] as? String)?.let { it.isNotBlank() && it.length <= 4096 } == true) { "Profile name is required" }
             ProfileContent.validate(entry["content"] as? String ?: error("Missing profile content"))

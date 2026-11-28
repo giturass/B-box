@@ -11,8 +11,14 @@ frontend = ROOT / "flutter/lib"
 native = ROOT / "app/src/main/java/io/nekohasekai/sfa"
 glyph_source = (frontend / "ui/icons/app_glyphs.dart").read_text()
 errors = []
+surge_module_feature = re.compile(
+    r"\b(?:SurgeModulesPage|SurgePanelsPage|SurgeModuleActions|BoxPanelCache|ModuleGet|"
+    r"Describe(?:Profile)?Surge(?:Module|Panels)|NewUIModulePanelTask|RunPanel|ModuleOptions)\b"
+    r"|profiles\.module(?:File|Fetch|Describe|Details|Panels)\b", re.I)
 for path in frontend.rglob("*.dart"):
     source = path.read_text()
+    if surge_module_feature.search(source):
+        errors.append(f"{path.relative_to(ROOT)}: retired Surge module integration")
     if re.search(r"(?:import|export) ['\"]package:(?:material_ui/|cupertino_ui/|material_new_shapes/|super_sliver_list/|flutter/(?:material|cupertino)\.dart)", source):
         errors.append(f"{path.relative_to(ROOT)}: retired UI dependency; use prism_ui")
     if "ui" in path.relative_to(frontend).parts:
@@ -64,6 +70,8 @@ for path in (ROOT / "app/src").rglob("*"):
         errors.append(f"{path.relative_to(ROOT)}: retired UI/update dependency")
     if re.search(r"(?:sfa\.xposed|io\.github\.libxposed|de\.robv\.android\.xposed)\b|PrivilegeSettings|BoxPrivilege", source):
         errors.append(f"{path.relative_to(ROOT)}: retired privilege integration")
+    if surge_module_feature.search(source):
+        errors.append(f"{path.relative_to(ROOT)}: retired Surge module integration")
 for path in (ROOT / "app/build.gradle.kts", ROOT / "build.gradle.kts", ROOT / "settings.gradle.kts"):
     if re.search(r"plugin\.compose|androidx\.compose|navigation-(?:compose|fragment|ui)|sora-editor|libghostty-android-compose|app-update-ktx", path.read_text()):
         errors.append(f"{path.name}: retired UI/update build dependency")
@@ -86,6 +94,12 @@ for path in (native / "flutter").glob("*.kt"):
         errors.append(f"{path.name}: legacy navigation is not allowed")
 for retired in ("flutter/lib/pages/capture_rules.dart", "core/option/httpdebug.go", "tools/ebpf",
                 "core/experimental/httpdebug/wire.go", "flutter/lib/pages/tls_offsets.dart",
+                "flutter/lib/pages/surge_modules.dart", "flutter/lib/pages/surge_panels.dart",
+                "flutter/test/surge_module_test.dart", "tools/surge_catalog",
+                "core/experimental/libbox/ui_modules.go", "core/experimental/libbox/ui_modules_test.go",
+                "core/experimental/libbox/ui_module_rules.go", "core/experimental/libbox/ui_module_panels.go",
+                "app/src/main/java/io/nekohasekai/sfa/flutter/BoxPanelCache.kt",
+                "app/src/androidTest/java/io/nekohasekai/sfa/flutter/BoxPanelCacheTest.kt",
                 "app/src/main/java/io/nekohasekai/sfa/bg/RootCaptureSession.kt",
                 "flutter/lib/pages/privilege.dart", "third_party/libxposed-api",
                 "app/src/main/java/io/nekohasekai/sfa/xposed",
@@ -94,6 +108,10 @@ for retired in ("flutter/lib/pages/capture_rules.dart", "core/option/httpdebug.g
     path = ROOT / retired
     if path.is_file() or path.is_dir() and any(item.is_file() for item in path.rglob("*")):
         errors.append(f"{retired}: retired implementation remains")
+for directory in ("core/experimental/libbox", "core/experimental/httpdebug", "core/option"):
+    for path in (ROOT / directory).glob("*.go"):
+        if surge_module_feature.search(path.read_text()):
+            errors.append(f"{path.relative_to(ROOT)}: retired Surge module integration")
 manifest = json.loads((ROOT / "flutter/flclash-manifest.json").read_text())
 flutter = ROOT / "flutter"
 

@@ -29,6 +29,9 @@ internal object ProfileContent {
         Libbox.checkConfig(content)
     }
 
+    fun removeRetiredOptions(content: String): String =
+        Libbox.preserveUIConfigNodes(content, Libbox.removeUIRetiredCaptureOptions(content)).value
+
     fun requireStableService(status: Status = BoxService.currentStatus) {
         require(status in setOf(Status.Stopped, Status.Started) &&
             BoxService.currentStatus in setOf(Status.Stopped, Status.Started)) {
@@ -54,7 +57,7 @@ internal object ProfileContent {
         if (expectedRevision != null) {
             require(previous != null && revision(previous) == expectedRevision) { "Configuration changed; reload it before saving" }
         }
-        val removed = Libbox.preserveUIConfigNodes(content, Libbox.removeUIRetiredCaptureOptions(content)).value
+        val removed = removeRetiredOptions(content)
         val preserved = Libbox.preserveUIConfigNodes(previous.orEmpty(), removed).value
         val cleaned = if (normalizeTemplateAuto) {
             ProfileDefaultTemplate.normalizeAutoGroup(preserved, profile.typed.type, profile.typed.isDefault)

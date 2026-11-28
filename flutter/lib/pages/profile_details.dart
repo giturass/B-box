@@ -5,7 +5,6 @@ import '../components/profile_card.dart';
 import 'profiles.dart';
 import 'profile_editor.dart';
 import 'configuration.dart';
-import 'surge_modules.dart' show moduleCount;
 import 'subscriptions.dart';
 
 class ProfileDetailsPage extends StatefulWidget {
@@ -56,10 +55,6 @@ class _ProfileDetailsPageState extends State<ProfileDetailsPage> {
       generateSection(items: [
         for (final section in ProfileConfigSection.values)
           ListItem.open(leading: GlyphIcon(section.glyph), title: Text(context.tr(section.title)),
-            subtitle: section != ProfileConfigSection.modules ? null : FutureBuilder<Json>(future: box.profileStats((p['id'] as num).toInt()),
-              builder: (context, snapshot) => Text(switch (snapshot.data?['modules']) {
-                0 => context.tr('None'), final int count => moduleCount(context, count), _ => '—',
-              })),
             widget: ProfileConfigurationPage(profile: p, section: section)),
       ]),
       generateSection(items: [

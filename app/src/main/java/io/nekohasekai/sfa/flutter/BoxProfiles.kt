@@ -80,23 +80,11 @@ internal class BoxProfiles(
             "ruleSets" to (route?.optJSONArray("rule_set")?.length() ?: 0),
             "dnsServers" to (root.optJSONObject("dns")?.optJSONArray("servers")?.length() ?: 0),
             "endpoints" to (root.optJSONArray("endpoints")?.length() ?: 0),
-            "modules" to (root.optJSONObject("experimental")?.optJSONArray("modules")?.length() ?: 0),
         ))
     }
 
     suspend fun stats(id: Long): Any? = mutex.withLock {
         if (File(get(id).typed.path).length() > 8L * 1024 * 1024) null else configLocked(id)["stats"]
-    }
-
-    suspend fun <T> withRevision(id: Long, expectedRevision: String, use: (String) -> T): T = mutex.withLock {
-        val content = File(get(id).typed.path).readText()
-        require(revision(content) == expectedRevision) { "Configuration changed; reload it before saving" }
-        use(content)
-    }
-
-    suspend fun moduleDetails(id: Long, expectedRevision: String, moduleId: String? = null): String {
-        val content = withRevision(id, expectedRevision) { it }
-        return if (moduleId == null) Libbox.describeProfileSurgePanels(content) else Libbox.describeProfileSurgeModule(content, moduleId)
     }
 
     suspend fun writeContent(id: Long, content: String, expectedRevision: String): Map<String, Any?> = mutex.withLock {
@@ -254,7 +242,7 @@ internal class BoxProfiles(
             require(url.isEmpty()) { "Import node subscriptions into the selected profile" }
             Libbox.getUIDefaultConfig().value
         } else null
-        content?.let { validate(Libbox.removeUIRetiredCaptureOptions(it)) }
+        content?.let { validate(ProfileContent.removeRetiredOptions(it)) }
         return PreparedSave(id, name, url, interval, url.isNotEmpty() && args["autoUpdate"] == true,
             content, (args["updatedAt"] as? Number)?.toLong()?.takeIf { it >= 0L && args["content"] is String },
             args["revision"] as? String)
@@ -272,7 +260,7 @@ internal class BoxProfiles(
             else File(previousProfile!!.typed.path)
         val oldContent = if (file.exists()) file.readText() else null
         val supplied = request.content ?: oldContent ?: error("Profile file is missing")
-        val cleaned = Libbox.preserveUIConfigNodes(supplied, Libbox.removeUIRetiredCaptureOptions(supplied)).value
+        val cleaned = ProfileContent.removeRetiredOptions(supplied)
         val preserved = Libbox.preserveUIConfigNodes(oldContent.orEmpty(), cleaned).value
         val profileType = if (request.url.isEmpty()) TypedProfile.Type.Local else TypedProfile.Type.Remote
         val defaultProfile = previousProfile?.typed?.isDefault ?: request.isDefault

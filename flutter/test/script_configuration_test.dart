@@ -278,7 +278,7 @@ void main() {
   });
 
   for (final type in ['cron', 'event', 'generic']) {
-    testWidgets('$type saved scripts run without MITM and expose copyable panel output', (tester) async {
+    testWidgets('$type saved scripts run without MITM and expose copyable structured output', (tester) async {
       final harness = await _mount(tester, handler: (call) async => call.method == 'scripts.run'
         ? {'result': '{"title":"Report","content":"Ready"}', 'error': '', 'logs': ['completed']} : null);
       await _openList(tester, harness, type);

@@ -37,8 +37,6 @@ import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.utils.AppLifecycleObserver
 import io.nekohasekai.sfa.utils.CommandClient
 import io.nekohasekai.sfa.utils.CommandTarget
-import io.nekohasekai.sfa.utils.HTTPClient
-import io.nekohasekai.sfa.ktx.unwrap
 import io.nekohasekai.sfa.utils.RemoteControlManager
 import io.nekohasekai.sfa.vendor.PackageQueryManager
 import io.nekohasekai.sfa.vendor.PerAppProxyScanner
@@ -115,7 +113,6 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
         recover -> withContext(Dispatchers.Main) { activity.applyProfile(recover = recover) }
     }
     private val capture = BoxCapture(activity)
-    private val panels = BoxPanelCache(activity.cacheDir)
     private val scripts = BoxScripts(
         prepare = { request, created ->
             val session = CommandTarget.localSession()
@@ -315,17 +312,7 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
     }
 
     private suspend fun invokeScripts(method: String, args: Map<String, Any?>): Any? = when (method) {
-        "scripts.run" -> {
-            val request = ScriptRunRequest.read(args)
-            val session = if (request.moduleId == null) null else CommandTarget.localSession()
-            val output = scripts.run(request)
-            if (request.moduleId == null || output["error"] != "") output else localProfiles(requireNotNull(session)) {
-                profiles.withRevision(request.profileId, request.revision) {
-                    val panel = panels.save(request.profileId, request.revision, request.moduleId, requireNotNull(request.panelName), output.getValue("result") as String)
-                    mapOf("panel" to panel.toString())
-                }
-            }
-        }
+        "scripts.run" -> scripts.run(ScriptRunRequest.read(args))
         "scripts.cancel" -> scripts.cancel(args.string("requestId"))
         else -> error("Unknown script operation")
     }
@@ -511,7 +498,6 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
             "profiles.delete" -> changeProfiles { profiles.delete(args.id()) }
             "profiles.reorder" -> changeProfiles { profiles.reorder((args["ids"] as List<*>).map { (it as Number).toLong() }) }
             "profiles.importFile" -> return importProfile()
-            "profiles.moduleFile", "profiles.moduleFetch", "profiles.moduleDescribe", "profiles.moduleDetails", "profiles.modulePanels" -> return moduleInput(method, args)
             "profiles.importResource" -> return importResource(args)
             "profiles.scan.image" -> return scanImage()
             "profiles.scan" -> return withContext(Dispatchers.Default) { qrScanner.scan(args.string("session"), args.string("text")) }
@@ -540,44 +526,6 @@ internal class BoxBridge(private val activity: BoxHost, messenger: BinaryMesseng
     private suspend fun importProfile(): Map<String, Any?>? {
         val uri = activity.pickDocument() ?: return null
         return withContext(Dispatchers.IO) { decodeDocument(uri) }
-    }
-
-    private suspend fun moduleInput(method: String, args: Map<String, Any?>): Any? {
-        val session = CommandTarget.localSession()
-        val result = when (method) {
-            "profiles.moduleFile" -> {
-                val uri = activity.pickDocument() ?: return null
-                withContext(Dispatchers.IO) {
-                    val bytes = activity.contentResolver.openInputStream(uri)?.use { input ->
-                        val output = ByteArrayOutputStream()
-                        val buffer = ByteArray(8192)
-                        while (true) {
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            require(output.size() + count <= 4 * 1024 * 1024) { "Module files must not exceed 4 MiB" }
-                            output.write(buffer, 0, count)
-                        }
-                        output.toByteArray()
-                    } ?: error("Unable to read document")
-                    val name = activity.documentName(uri, "module.sgmodule").substringAfterLast('/').substringAfterLast('\\')
-                    if (args["attachment"] == true) mapOf("name" to name, "base64" to android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
-                    else mapOf("name" to name, "content" to bytes.decodeToString(throwOnInvalidSequence = true))
-                }
-            }
-            "profiles.moduleFetch" -> {
-                val url = BoxProfiles.validateUrl(args.string("url"))
-                HTTPClient.withTask { it.moduleGet(url, HTTPClient.userAgent).unwrap }
-            }
-            "profiles.moduleDescribe" -> withContext(Dispatchers.Default) { Libbox.describeSurgeModule(args.string("module")) }
-            "profiles.modulePanels" -> withContext(Dispatchers.IO) {
-                val id = args.id()
-                val revision = args.string("revision")
-                panels.withCached(id, revision, profiles.moduleDetails(id, revision))
-            }
-            else -> withContext(Dispatchers.IO) { profiles.moduleDetails(args.id(), args.string("revision"), args.string("moduleId")) }
-        }
-        CommandTarget.requireLocalSession(session)
-        return result
     }
 
     private suspend fun scanImage(): List<String>? {

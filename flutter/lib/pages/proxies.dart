@@ -4,7 +4,6 @@ import '../components/proxy_card.dart';
 import '../components/proxy_list.dart';
 import '../common/proxy_nodes.dart';
 import 'nodes.dart';
-import 'surge_panels.dart';
 
 class ProxiesPage extends StatefulWidget {
   const ProxiesPage({super.key, this.title = 'Proxies', this.header, this.emptyState, this.idleAction,
@@ -258,8 +257,6 @@ class _ProxiesPageState extends State<ProxiesPage> {
       ],
       menuItems: picked != null ? const [] : [
         ...widget.menuItems,
-        if (!box.remote && box.selectedProfile != null) PopupMenuItem(glyph: AppGlyphs.info, label: context.tr('Information panels'),
-          onPressed: () => openPage(context, const SurgePanelsPage())),
         _options('Style', AppGlyphs.appsList, 'proxyLayout', const ['Tabs', 'List'], 'Tabs',
           section: widget.menuItems.isEmpty ? null : const PopupMenuSection()),
         _options('Node sort', AppGlyphs.sort, 'proxySort', const ['Default', 'Latency', 'Name'], 'Default'),

@@ -7,7 +7,6 @@ import 'profile_editor.dart' show JsonEditorController;
 import 'mitm_certificate.dart';
 import 'capture_domains.dart';
 import '../components/form.dart';
-import 'surge_modules.dart';
 
 const configEncoder = JsonEncoder.withIndent('  ');
 
@@ -83,7 +82,7 @@ class ProfileConfigStore extends ChangeNotifier {
   String? scriptRequestId(String type, int index) => _runningScripts[(type, index)];
   bool isScriptCanceling(String type, int index) => _cancelingScripts.contains(scriptRequestId(type, index));
 
-  bool canRunScript(String type, int index, {String? moduleRevision}) {
+  bool canRunScript(String type, int index) {
     if (_disposed || !ready || loading || saving || revision.isEmpty ||
         !const {'cron', 'event', 'generic'}.contains(type) || box.remote ||
         !box.running || box.transitioning || box.serviceSettingsChanging ||
@@ -91,21 +90,18 @@ class ProfileConfigStore extends ChangeNotifier {
         (box.dashboard['processingGeneration'] as num? ?? 0) <= 0 ||
         box.selectedProfileId != profile['id'] || value([...ScriptsConfigPage.path, 'enabled']) != true ||
         isScriptRunning(type, index)) return false;
-    if (moduleRevision != null) return moduleRevision == revision && index >= 0;
     final scripts = entries([...ScriptsConfigPage.path, type]);
     return index >= 0 && index < scripts.length && scripts[index]['disabled'] != true;
   }
 
-  Future<Json?> runScript(String type, int index, {required String requestId, String? moduleRevision,
-      String? moduleId, String? panelName, bool automatic = false}) async {
-    if (!canRunScript(type, index, moduleRevision: moduleRevision)) return null;
+  Future<Json?> runScript(String type, int index, {required String requestId}) async {
+    if (!canRunScript(type, index)) return null;
     final key = (type, index);
     _runningScripts[key] = requestId;
     notifyListeners();
     try {
       final output = await box.call('scripts.run', {
         'profileId': profile['id'], 'revision': revision, 'type': type, 'index': index, 'requestId': requestId,
-        if (panelName != null) ...{'moduleId': moduleId, 'panelName': panelName, 'automatic': automatic},
       });
       return output == null ? null : json(output);
     } finally {
@@ -200,8 +196,7 @@ enum ProfileConfigSection {
   ruleSets('Rule sets', AppGlyphs.resources),
   mitm('MITM', AppGlyphs.lock),
   httpRewrite('HTTP rewriting', AppGlyphs.code),
-  scripts('Scripts', AppGlyphs.code),
-  modules('Modules', AppGlyphs.puzzle);
+  scripts('Scripts', AppGlyphs.code);
 
   const ProfileConfigSection(this.title, this.glyph);
   final String title;
@@ -248,7 +243,6 @@ class _ProfileConfigurationPageState extends State<ProfileConfigurationPage> {
         ProfileConfigSection.mitm => MitmConfigPage(store: store),
         ProfileConfigSection.httpRewrite => HttpRewriteConfigPage(store: store),
         ProfileConfigSection.scripts => ScriptsConfigPage(store: store),
-        ProfileConfigSection.modules => SurgeModulesPage(store: store),
       };
     });
   }
@@ -826,7 +820,7 @@ class _ConfigListPageState extends State<ConfigListPage> with WidgetsBindingObse
   }
 }
 
-/// Reads a panel script's text without exposing its JSON wrapper to the reader.
+/// Reads a script's text without exposing its JSON wrapper to the reader.
 String? scriptResultText(String result) {
   if (result.isEmpty) return null;
   final Object? value;

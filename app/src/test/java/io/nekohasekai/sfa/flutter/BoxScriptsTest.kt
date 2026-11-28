@@ -333,4 +333,13 @@ class BoxScriptsTest {
             assertTrue(runCatching { ScriptRunRequest.read(args + ("index" to index)) }.isFailure)
         }
     }
+
+    @Test fun retiredPanelArgumentsCannotSelectAnIndependentGenericScript() {
+        val args = mapOf("requestId" to "retired", "profileId" to 1L, "revision" to revision, "type" to "generic", "index" to 0)
+        for (retired in listOf(mapOf("moduleId" to "old"), mapOf("panelName" to "Rates"), mapOf("automatic" to false),
+            mapOf("moduleId" to "old", "panelName" to "Rates", "automatic" to true))) {
+            assertTrue(runCatching { ScriptRunRequest.read(args + retired) }.exceptionOrNull() is IllegalArgumentException)
+        }
+        ScriptRunRequest.read(args).validate()
+    }
 }

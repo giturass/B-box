@@ -519,51 +519,6 @@ Cron 规则含 `cron`、可选 `name`/`disabled`、`timezone`、`argument`、`ti
 
 协议依据为 gRPC 官方 [HTTP/2 协议](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md) 和 [gRPC-Web 协议](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-WEB.md)。Surge 脚本行为对照官方 [HTTP 请求](https://manual.nssurge.com/scripting/http-request.html)、[HTTP 响应](https://manual.nssurge.com/scripting/http-response.html)及 [JavaScript API](https://manual.nssurge.com/scripting/api.html)。B-box 不提供 WebView/Node、通知或完整 Surge 控制 API；`reject-200`/`reject-dict` 是迁移快捷动作，不将它们记为 Surge 官方 URL Rewrite 类型。
 
-#### 配置内的 Surge 模块
-
-`experimental.modules` 按顺序保存模块：唯一 `id`、`name`、`enabled`、原文 `content`、可选 `url`、`arguments`、`updated_at`（Unix 毫秒）及按文件名索引的 base64 `attachments`。格式化和备份保留原文，不把模块写进基础规则。`CheckConfig`、CA 需求判断和服务启动使用同一展开函数；禁用或删除模块后，其规则从有效配置中消失，不改变三个独立处理开关。实现与回归见 [ui_modules.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_modules.go) 和 [ui_modules_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_modules_test.go)。
-
-展开只取配置值，不将 JSON 注释写入临时的有效配置。保存的配置仍可保留[本地节点标记](#节点导入与配置合并)；模块正文、URL 和正则字符串里的 `//` 不作为 JSON 注释处理。
-
-参数只替换已声明的 `{{{名称}}}`，不递归展开；替换后变为空行或以 `#`、`;`、`//` 开头的行不执行。模块中声明过脚本仍提示来源风险。
-
-`[Rule]` 支持域名、CIDR、源/目标端口、进程、包名、SSID、网络协议及类型、配置中的规则集标签、嵌套 AND/OR/NOT 和 FINAL。DIRECT 使用只存在于有效配置的直连出口，REJECT / REJECT-DROP / REJECT-NO-DROP 使用对应拒绝动作，其他策略须为当前配置的出站或端点标签。URL-REGEX 的 REJECT / REJECT-200 / REJECT-DICT / REJECT-TINYGIF 转为 HTTP 改写，仍受改写开关限制。模块分流规则排在基础规则前；不支持的条件或修饰符跳过整行，不放宽匹配，也不隐式下载外部规则集。`[Host]` 支持精确域名的静态 IP。MITM hostname、四组改写行、HTTP/Cron/event/generic 脚本和参数均由同一解析器描述；不支持的行返回原因。Cron/event/generic 追加在基础任务后，保留调试下标。远程相对资源相对于模块 URL 解析；本地相对资源仅从该模块的附件读取。
-
-`[Panel]` 解析静态字段（含 `content` 的 `\n`）、`style`、图标、刷新间隔和 `script-name`。面板可位于脚本声明之前，只绑定本模块内唯一同名的 generic；缺失、重名或不支持的字段有诊断。面板索引包含基础任务和此前启用模块的偏移，禁用的模块不注册。实际执行与普通 generic 共用任务互斥、取消和服务生命周期；编辑器运行不会得到面板 `$input`。展示与缓存见 [界面说明](flclash.md#surge-模块导入)。
-
-按 [Surge 模块文档](https://manual.nssurge.com/profile/module.md)，`hostname = …` 替换基础主机列表，`%APPEND%` 追加，`%INSERT%` 前插。候选项使用运行时的主机语法校验；追加/前插中的非法正向主机不会扩大为整域。非法排除项或非法覆盖阻止配置生效，不通过丢掉约束来提高“兼容率”。保存的原文不变。
-
-`DescribeProfileSurgeModule` 的 `lines.mitm` 按本模块的前插、替换、追加结果返回，每项是一个已校验的主机模式，不包含基础配置或其他模块的主机。`DescribeSurgeModule` 的导入预览仍按指令报告，因此显式清空 `hostname =` 仍是有效操作，不会在详情中虚增一个主机名。
-
-##### Yfamily 模块回放
-
-[回放入口](tools/surge_catalog/run.py) 从 [Yfamily 目录的固定原文快照](https://github.com/RoaycL/Surge/tree/04e93ac904d9f7a3005eea3b6f90e29b29073b66/upstreams/yfamilys) 取 422 份模块、从作者的[固定提交](https://github.com/deezertidal/Surge_Module/tree/7c1bb21e3cb86c04278c43bc22947899753c7cf4/files) 取 13 个面板脚本，另取 [BoxJS 脚本](https://github.com/chavyleung/scripts/blob/bfab3c906f3d5d126e9094f15730e025f7f32128/box/chavy.boxjs.js)及其 [0.19.30 页面](https://github.com/chavyleung/scripts/blob/6088379117e7ed224cf1f582f9abfe91b74e7619/box/chavy.boxjs.html)。清单、模块、脚本和页面均校验 SHA-256；不执行目录中的其他脚本。使用快照是因为测试时原站 `/surge` 返回 HTTP 403。
-
-[用例](tools/surge_catalog/catalog_test.go) 分两层：全目录逐份解析并调用应用保存时使用的 `CheckConfig`；其中 **25 份**原模块另有 `StartOrReloadService` 回放，核对请求或脚本输出。代理请求走真实 SOCKS 入站，脚本通过运行服务取资源；仅测试域名可路由到回环 HTTP/TLS 源站，其余拒绝。客户端校验证书、不跟随跳转。CA 仅在进程内受信，不安装到系统；数据是可重复的测试输入，不是实时行情、榜单或第三方应用联调。
-
-| 模块 | 实际观测 | 未覆盖或已知差异 |
-| --- | --- | --- |
-| MultiSearch | 12 个快捷入口全部返回 302 和各自完整的 `Location`，包括带 `#` 的中英翻译；普通搜索透传，关闭改写总开关或禁用模块后相同输入透传，再次启用恢复跳转 | 核对 [Surge URL Rewrite 语义](https://manual.nssurge.com/http/url-rewrite.html)，未在 Surge 客户端执行 |
-| AdBlock | 264 条改写均被识别；同一 `/ad/banner` 在 HTTP 和 HTTPS 下均返回 403，没有 HTTP 请求到达源站；`/news` 透传，禁用后 `/ad/banner` 透传 | 只回放了代表路径，未逐条访问各厂商 App；403 是 B-box 的响应，不作为 Surge 状态码的实测结论 |
-| BoxJS | `http://boxjs.com/` 首次加载并注入页面数据；`POST /api/saveData` 保存测试值，服务重载后的独立 `GET /query/data/…` 读回原值；再次打开首页未重复下载 HTML | 模块的 `[General] force-http-engine-hosts` 仍忽略。原版脚本和页面经本地测试源站提供；未验证 Android 浏览器渲染、外部订阅、通知或 Surge 控制功能 |
-| 13 份信息面板 | 从注册面板执行原版 JS，断言标题及由输入算出的正文。涵盖汇率（`USD=0.125 → 8.00`、`JPY=21 → 21.00`）、加密货币的 9 次连续请求、历史上的今天、热榜、新书、汽车、两次请求的辟谣、电影、天气、电视剧、网易云音乐、QQ 音乐及 Billboard | 另以独立用例验证 [Panel](https://manual.nssurge.com/tools/panel.md) 和 [generic](https://manual.nssurge.com/scripting/generic.md) 规定的 `$input`、`button`、`auto-interval`，以及编辑器上下文隔离、错误绑定与停用；不是 UI 实机证明 |
-| 另 9 份模块的请求规则 | 每次只启用一份：4in1、知乎网页优化、喜马拉雅、知乎去广告、高德、哔哩哔哩、微博轻享版、YouTubeAd、双语字幕。逐份校验命中后的状态/跳转/空正文或 GIF，以及同主机不匹配路径确实到达源站。`REJECT-TINYGIF` 的响应以 GIF 解码器确认为 1×1 透明像素 | 对照[官方拒绝策略](https://manual.nssurge.com/policies/reject.md)；这里验证指定规则，未执行这些模块中的附带脚本，未验证拒绝风暴下的自动丢包行为 |
-
-2026-11-27 在 Termux 运行 `TMPDIR="$HOME/tmp" GOOS=linux GOARCH=arm64 CGO_ENABLED=0 GOFLAGS=-p=3 GOMAXPROCS=4 python3 tools/surge_catalog/run.py`（Go 1.27.4）。应用工作树基于 `0cd16255e306b55a2ec94acb8a60726bcf3a664b`，核心工作树基于 `666e9d8655be47e66ca9613d44a3dbf1941ded40`。修复前 `trc`、`tre` 的响应 `Location` 经客户端请求 URL 校验被丢弃，面板行被忽略，21 条透明 GIF 规则不被识别，4 份配置的主机错误只在保存阶段被发现。目录回放按需在本地启动，不加入 GitHub Actions；没有用旧 APK、发布工作流或其他提交的测试替代当前工作树的结果。
-
-此次配置校验为 **422/422**。逐行结果：**378** 份无忽略行、**42** 份部分识别、**2** 份没有可用行；后两类不能视为完整支持。`max-size=0` 不当作无限制（[文档](https://manual.nssurge.com/scripting/http-response.md) 明确指定 `-1`），URL 层的 `REJECT-DROP` 不以 403 冒充静默丢包。`--report <文件>` 保存每份模块的识别/忽略行数、原因和实际通过的测试名。`--live-rates` 另行用固定脚本、当前公开接口和独立 HTTPS 取数做联网交叉检查；默认回放不依赖行情可用性。
-
-本机带 `--live-rates --report` 的回放通过 78 个测试/子测试，包括哔哩哔哩原模块的 `[Map Local]`：实际获取哈希固定的 `reject-dict.json`，开屏请求得到 `{}`、没有到达原站。联网汇率子测试不开 MITM，原版 `rates.js` 通过服务访问公共汇率 API；面板给出 1 美元兑 **6.67 元人民币**、1 元人民币兑 **23.83 日元**，与独立 HTTPS 请求对照一致（接口数据日期 2026-11-26）。Android 主机限制了 Linux 测试进程的 netlink 接口枚举；这些用例通过明确路由运行，不代表已验证 VPN 自动接口选择。既有 `^Test(MITM|Surge|Rewrite)` 也在本机通过。
-
-2026-11-27 BoxJS 修复在 Termux 本机验证：应用工作树基于 `14948ab30500b032b1420c496f05de53c6d14a12`，核心为 `9b48041d8b4d6b9e86e67cc2d298acb5b59eaacc`。默认目录回放（不含 `--live-rates`）通过 78 个测试/子测试，含 `TestYFamilyCatalog/boxjs`；`go test ./experimental/httpdebug` 全包通过（未启用 race 或 QUIC），`python3 tools/verify_newui.py` 通过。本次未使用 GitHub Actions，也未构建或安装 APK。
-
-要在已安装 Surge 的 Mac 上对照一个原本失败的请求，启用相同快照的 MultiSearch、开启对应主机的 MITM，并使用该测试配置的本地代理端口和**公有** CA 证书。下例不跟随跳转、不需要私钥，只输出状态码与 `Location`（curl 7.84+）。应记录 Surge 版本；另一个翻译入口将 `trc` 换为 `tre`。
-
-```sh
-curl -q --noproxy '' --proxy http://127.0.0.1:6152 --cacert surge-test-ca.pem -sS --max-time 10 -o /dev/null \
-  -w '%{http_code} %header{location}\n' 'https://www.google.com/search?q=trc+sing-box&source=catalog'
-```
-
 #### 脚本解压工具
 
 [script_utils.go](https://github.com/giturass/sing-box/blob/b-box/experimental/httpdebug/script_utils.go) 向各类脚本提供 `$utils.ungzip(Uint8Array)`，支持 TypedArray 子视图，成功返回 Uint8Array，参数无效、gzip 损坏或取消返回 null。不设固定输出容量，读取计入正文缓冲统计，成功结果的登记持有至当前 VM 结束，失败立即释放。它不增加任意文件或设备控制能力。
@@ -617,6 +572,8 @@ curl -q --noproxy '' --proxy http://127.0.0.1:6152 --cacert surge-test-ca.pem -s
 ### 旧抓包配置清理
 
 抓包筛选为应用私有设置。`experimental.http_debug` 已退役，[兼容处理](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_capture_migration.go) 在解析前删除它，不解释、迁移或执行其中规则/脚本。旧本机 HTTPS 设置不会被提升为可执行配置，原子迁移见 [app.md](app.md#请求抓取与-mitm)。
+
+`experimental.modules` 同样作为退役字段删除，不解析或执行模块原文、附件及面板，也不转换为独立规则。清理只移除该字段，保留配置自己的 DNS、路由、入站、节点及独立 MITM、HTTP 改写和脚本设置。`CheckConfig`、`FormatConfig`、CA 需求判断及服务启动/重载共用此处理；Android 保存与备份沿用同一规范化入口，见 [应用兼容说明](app.md#已移除能力与兼容入口)。
 
 旧 `http_rewrite.mitm` 和 `http_rewrite.scripts` 会移到平级扩展，保留原来的应用/端口/正文范围及脚本资源；原改写关闭时迁移目标仍关闭。旧 MITM 的默认端口（含空/null 列表）显式保留为 80/443/8080/8443，避免变为任意 TLS 端口；域名空列表不解密。存在旧排除项时关闭该 MITM，待用户重新确认允许域名；排除字段被移除。若平级与嵌套字段同时存在则明确报错，不覆盖任一份配置。其他未知字段继续由核心校验。
 
@@ -672,7 +629,7 @@ HTTP 调试的 MITM 域名判断由 [mitm_hosts.go](https://github.com/giturass/
 - [ui_warp_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_warp_test.go)：MASQUE POST/PATCH 与 WireGuard 单 POST、P-256 DER/Curve25519 私钥和分配地址、peer 地址选择及 client_id reserved 数值、原生端点追加/代理组/本地标记/重复保存、完整配置校验、非法响应和错误状态、响应上限、拒绝重定向、任务单次调用及关闭/完成边界取消；步骤 3 另以 `with_quic,with_wireguard` 和 race 运行。无 `with_wireguard` 的基础检查仍验证注册请求及端点选项解码，追加/完整配置子测试在包含 WireGuard 的核心中运行。
 - [ui_capture_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_capture_test.go) 与 [ui_capture_signer_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_capture_signer_test.go)：本地抓包设置、schema 和退役字段迁移；平台签名接口的摘要、算法及返回签名校验。[ui_capture_inject.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_capture_inject.go) 增加绑定到当前处理引擎的单次注入任务，实际 Android 绑定与取消覆盖由 [应用仪器测试](app.md#android-仪器测试) 维护。
 - [replay_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/httpdebug/replay_test.go) 与 [ui_capture_replay_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_capture_replay_test.go)：重放按记录或替换字段发送并生成带来源备注的新记录、失败发送保留记录、拒绝无法复现的请求；任务单次使用、关闭取消，以及停服等待在途路由退出。[breakpoint_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/httpdebug/breakpoint_test.go)：设置校验、请求与响应的暂停及修改、中止、关闭断点时放行、引擎结束时终止等待、超限请求正文原样转发、慢响应正文按流暂停，以及预读正文的重放和来源丢失通知。
-- [ui_processing_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_processing_test.go)：改写 schema 校验与格式化、退役选项不激活新规则、一元 gRPC 与 reject 动作往返、迁移保留范围和端口缺省、脚本能力 schema，以及 Surge 字段格式化时不加载资源。[ui_processing_match_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_processing_match_test.go) 检查复合条件的完整配置校验、格式化往返、递归 schema 与非法节点/阶段拒绝。
+- [ui_processing_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_processing_test.go)：改写 schema 校验与格式化、退役选项不激活新规则、旧模块及坏附件清理不影响独立扩展/CA 判断/节点标记，且模块字段不再进入 schema，一元 gRPC 与 reject 动作往返、迁移保留范围和端口缺省、脚本能力 schema，以及 Surge 字段格式化时不加载资源。[ui_processing_match_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_processing_match_test.go) 检查复合条件的完整配置校验、格式化往返、递归 schema 与非法节点/阶段拒绝。
 - [ui_processing_tasks_test.go](https://github.com/giturass/sing-box/blob/b-box/experimental/libbox/ui_processing_tasks_test.go)：事件/Generic 的完整校验、格式化与 schema，禁用任务和原数组下标保留，真实服务下脚本/出口探测/记录并行准入及记录串行化，排队或持有重载/停服写锁时立即拒绝、旧处理和下标隔离，手动结果/日志与取消等待，以及接口回调适配的缺网、恢复、DNS 更新及旧生命周期隔离。
 
 **WARP MASQUE 传输（`./transport/masque`，步骤 3）**

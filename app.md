@@ -201,13 +201,7 @@ libbox 先规范化旧配置、校验并准备三种扩展，再关闭旧处理�
 
 一元 gRPC 脚本的 `grpc_mode` 与空响应快捷动作使用同一 JSON 校验、格式化和保存通路，不新增平台绑定。HTTP/2、消息与 trailers 处理及脚本宿主行为见 [一元 gRPC 正文脚本](libbox.md#一元-grpc-正文脚本)；脚本主动 abort 关闭当前 HTTP/1 连接或 HTTP/2 流，请求页仍保留实际错误记录。
 
-[Surge 模块页](flclash.md#surge-模块导入) 经 `profiles.moduleFile` 读取用户选取的 UTF-8 文本或二进制附件；`profiles.moduleFetch` 用可取消的 libbox HTTP 任务读取指定 URL（1 分钟期限），单次文件和响应均限 4 MiB。`profiles.moduleDescribe` 预览候选内容；`profiles.moduleDetails` 核对磁盘修订并返回当前配置中可调试任务的下标。I/O 前后检查本地会话，获取内容本身不写配置。安装、排序、开关、更新和移除仍通过 `profiles.write` 的修订检查、原子写入及服务回滚，不新建模块数据库或在启动时更新远程模块。
-
-`profiles.modulePanels` 返回指定修订中启用的面板。刷新经过本地运行服务、配置修订、模块 ID、面板名和 generic 下标核对；无 `update-interval` 的面板不能请求自动执行。脚本出错或未返回非空标题不会替换上次成功结果。[面板缓存](app/src/main/java/io/nekohasekai/sfa/flutter/BoxPanelCache.kt) 按配置、修订、模块和面板名隔离，只写显示字段和时间戳，不写脚本日志。每份配置最多使用 1 MiB 私有缓存，同目录原子替换；系统清除缓存后回退到模块静态内容。
-
 脚本持久数据保存在私有 `noBackupFilesDir/http-debug/captures/script-storage/`，使用默认共享或显式命名空间；URL 资源缓存位于同级 `resource-cache/`。二者不设固定容量配额；清空记录、启停录制不删除它们，处理配置激活时只回收已无引用的资源缓存及未提交临时文件。脚本持久数据不会因移除规则或重载自动删除。配置/备份携带资源引用、命名空间和联网限制，订阅不会导入或覆盖这些设置。实际存储值和下载缓存留在本机，不加入配置导出、应用备份或系统自动备份；应用内备份也不额外打包引用的本地文件。原子提交及失败保留旧缓存分别见 [存储](libbox.md#脚本持久存储)和[资源加载](libbox.md#文件和-url-资源加载)。
-
-2026-11-27 在 Termux 用 Kotlin/JVM、Android JSON 实现和 JUnit 4.13.2 直接运行[面板缓存测试](app/src/androidTest/java/io/nekohasekai/sfa/flutter/BoxPanelCacheTest.kt)，2 项通过：重开仍可读取最后成功值，错误输出不覆盖、配置/修订/同名面板不串值，缓存超限淘汰旧项。源码基线及核心运行记录见[模块回放](libbox.md#yfamily-模块回放)。这不是 Android 仪器测试或 Flutter 页面实测；本次未构建 APK 或触发 Actions。
 
 所有保存继续经过 ProfileContent 修订检查、完整 Libbox.checkConfig、原子写入及失败恢复。配置应用、恢复和后台启动使用同一入口；失败不能留下部分生效的处理或被报告为启动成功。旧嵌套配置的保守迁移见 [核心说明](libbox.md#旧抓包配置清理)。
 
@@ -235,6 +229,7 @@ CA 管理与服务启动共用 MitmCertificate.accessLock，加载签名器期�
 
 ## 已移除能力与兼容入口
 
+- **Surge 配置模块：** 删除配置模块管理、信息面板、导入/下载/解析桥接、专用脚本任务、面板缓存实现及专用测试/回放工具。旧配置在校验、保存和启动时经现有规范化流程清理退役字段；应用备份导出与恢复同样清理，保留本地节点标记及其他配置内容，不清空设置、数据库或脚本持久数据。独立 MITM、HTTP 改写、脚本和 MITM CA 系统信任导出继续使用原入口；核心字段及清理行为见 [libbox.md](libbox.md#旧抓包配置清理)。
 - **Xposed/LSPosed 特权增强：** 删除系统模块、VPN/HTTP 代理信息与 VPN 应用列表隐藏、接口重命名、Flutter 设置及自检/Hook 日志、Root 诊断导出，以及对应模块注册、Provider、API 依赖、许可资源和专用测试。应用查询恢复各 flavor 的普通路径：`other` 使用 PackageManager，`play` 使用保存的 Root/Shizuku 选择。普通 VPN、Root/Shizuku 查询、终端和 MITM CA 模块继续保留。从含模块的版本升级时，已注入系统进程的旧 Hook 需要在 LSPosed 中禁用 B-box 并重启 Android 后退出。
 - **Android 5/6：** 删除 `otherLegacy`、`src/minApi21`、`src/otherLegacy`、legacy 核心依赖及 API 21 专用依赖版本。`play` 和 `other` 均使用 API 24+ 实现；网络监听、通知、WebView、托管扫描和 Termux 环境也已清理低于 API 24 的分支。Android 7/8 的网络回调选择及现有 Go 栈兼容处理继续保留。Gradle 的 `useLegacyPackaging` 是原生库压缩方式，不代表仍支持旧 Android 分支。
 - **旧更新下载/静默安装：** 删除 GitHub/F-Droid/Play 旧更新器、其 APK 下载和安装工具、对应 Root/Shizuku Binder 方法及专用权限、设置和资源。设置/启动器不再显示旧自动更新询问、弹窗和徽标；当前更新由 [独立应用内更新流程](#应用版本与应用内更新) 提供。
@@ -278,11 +273,9 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 
 | 入口 | 配置的验证范围 |
 | --- | --- |
-| [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入/导出、Android 入口与进程边界、旧 UI/更新依赖、退役抓包/特权增强实现残留及 Root 事务编号的静态检查 |
+| [verify_newui.py](tools/verify_newui.py) | Flutter 字形/导入/导出、Android 入口与进程边界、旧 UI/更新依赖、退役抓包/特权增强/Surge 模块实现残留及 Root 事务编号的静态检查 |
 | [newui.yml](.github/workflows/newui.yml) | 各分支代码 push 自动触发，也支持目标为 `dev` / `newui` 的 PR 及手动触发；仅 Markdown 的 push/PR 跳过。统一运行 Root CA 挂载/补查、Go 扩展/XHTTP/VLESS Encryption/HTTP/MITM/重定向布局、Flutter 分析/交互/布局、JVM、`play` 编译及 API 24/31/36 smoke，API 36 另运行 `google_apis_ps16k`；同时构建验证所需的 AAR 和 x86_64 模拟器 APK |
 | [build-release.yml](.github/workflows/build-release.yml) | 仅手动触发；独立并行准备核心/Flutter Release 库，构建签名 ARM64 APK、校验安装身份/产物及可选发布，不运行测试 |
-
-固定来源的 Surge 模块按需在本地回放，不加入统一工作流，也不替代 Android smoke；样本、断言和与 Surge 客户端对照的边界见 [Yfamily 模块回放](libbox.md#yfamily-模块回放)。
 
 ### JVM 回归
 
@@ -295,7 +288,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 - **连接与网络刷新：** [ConnectionStreamTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/ConnectionStreamTest.kt) 检查增量计数、最终关闭计数、历史淘汰、DNS 过滤、快照隔离及 3000 条记录经过状态合并和恢复订阅后的消息内容；[NetworkRefreshTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/NetworkRefreshTest.kt) 用虚拟时间覆盖网络通知、十秒/六十秒补查、前后台/熄屏取消和突发通知合并。
 - **默认接口与开机恢复：** [DefaultInterfaceMonitorTest.kt](app/src/test/java/io/nekohasekai/sfa/bg/DefaultInterfaceMonitorTest.kt) 覆盖网络先于核心监听器到达、开机无网及接口编号超过一秒才就绪、同网络刷新、断网恢复、切网或监听器替换后的迟到结果、异常重试及停止/取消期间的等待与结果丢弃。纯 Kotlin 调度回归不代替 Android 网络回调、系统重启或实际代理连通验收。
 - **WARP 注册：** [BoxWarpTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxWarpTest.kt) 检查注册等待时配置/会话冲突、重复提交、取消及时关闭 JNI 请求、已返回凭据在取消后留待保存、失败重试复用账号及错误消敏；WireGuard 另核对所选目标、协议传递和失败重试的协议保留，并检查非法协议在准备配置及注册之前拒绝。
-- **脚本调试：** [BoxScriptsTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxScriptsTest.kt) 覆盖等待配置锁时取消、不同请求并行、重复 ID 拒绝、阻塞 JNI 及准入后尚未等待时的取消/退出等待、配置代次变化拒绝迟到结果、宿主关闭与原下标参数校验；双任务 gate 另核对已附着及关闭期间才附着的任务均在释放结果前取消协程、关闭后拒绝新准入及请求登记保留至原生任务退出。
+- **脚本调试：** [BoxScriptsTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/BoxScriptsTest.kt) 覆盖等待配置锁时取消、不同请求并行、重复 ID 拒绝、阻塞 JNI 及准入后尚未等待时的取消/退出等待、配置代次变化拒绝迟到结果、宿主关闭与原下标参数校验；旧模块面板附加参数被拒绝，不能误选独立 Generic 任务。双任务 gate 另核对已附着及关闭期间才附着的任务均在释放结果前取消协程、关闭后拒绝新准入及请求登记保留至原生任务退出。
 - **正文读取生命周期：** [CaptureBodyReadersTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/CaptureBodyReadersTest.kt) 使用阻塞原生替身检查协程取消及时传入 JNI、正常连续读取复用、同体排队与独立正文并发、取消时先结束协程再返回原生错误、在途关闭不阻塞、会话失效及缓存文件清理、宿主关闭后拒绝新读取；真实 Go 绑定及完整正文的回归见 [核心测试](libbox.md#回归文件覆盖)。替身调度断言不代替 Android 实机性能验收。
 - **数据流注入：** [CaptureInjectTasksTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/CaptureInjectTasksTest.kt) 使用阻塞原生替身检查方向/opcode/原字节传递、父调用及定向取消、重复请求拒绝、会话变化拒绝迟到成功、退出清理与关闭后拒绝准入，以及清空历史只取消正文读取而保留在途注入；重放另检查原生结果返回及任务只关闭一次、取消关闭阻塞中的原生发送并报告取消、会话变化后完成的重放不报告给新会话。断点桥接方法没有 JVM 用例。协议实际传输由 [核心回归](libbox.md#回归文件覆盖) 验证。
 - **UI 退出与终端回复：** [UiExitPolicyTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/UiExitPolicyTest.kt) 用虚拟时间检查连续后台闲置 5 分钟的边界、超时前不执行退出准备、多 Activity、反复前后台切换不累计时间、配置重建、外部交互打断后重新计时及恢复失败；[UiIdleTriggerTest.kt](app/src/test/java/io/nekohasekai/sfa/flutter/UiIdleTriggerTest.kt) 检查冻结期间等待系统触发、旧任务与截止时间校验、调度取消/失败、重复完成、恢复期间任务替换和系统停止，以及完成通知排队期间返回前台的退出取消。[TerminalReplyLedgerTest.kt](app/src/test/java/io/nekohasekai/sfa/terminal/TerminalReplyLedgerTest.kt) 检查输出确认、UI 断开后的回复恢复及有序等待。
@@ -310,7 +303,7 @@ Release 独立并行构建 ARM64 libbox 和 Flutter Release AAR；Flutter 使用
 - **Taildrop 文件交接：** [TaildropSendManagerTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/backend/tools/TaildropSendManagerTest.kt) 用真实 Android 文件描述符检查前台服务启动被拒绝和 LAZY 任务开始前取消，要求清理会话与全部文件句柄；成功交接后的发送由默认进程独立管理。
 
 - **应用更新绑定与 APK 身份：** [UpdateHTTPBindingTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/UpdateHTTPBindingTest.kt) 检查下载绑定拒绝明文地址和非法大小且不留缓存，并验证实际 JNI 元数据读取的协程取消及后续重试。[UpdateApkVerifierTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/UpdateApkVerifierTest.kt) 读取实际已安装 APK 与测试 APK 的身份/签名，覆盖相同或错误包名拒绝、摘要匹配但非 APK 的内容拒绝、非法元数据和非本仓库下载地址拒绝；API 36+ 同时经过系统签名验证接口。真实 GitHub 网络与跨版本覆盖安装的实际验收范围见 [当前验证记录](#当前验证记录)。
-- **配置应用与恢复：** [ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/完整备份恢复失败、注入的订阅应用失败恢复，以及停服和未选中配置更新的服务状态；停服 selector 回归核对已保存选择在启动时生效、运行选择在停服后保留、不改配置正文/更新时间或启动服务，并拒绝自动组、失效成员、配置选择/修订及会话冲突；另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。`failedSelectionRestoresThePreviousSelectionAndService` 连续五轮核对选配置失败恢复、停止释放核心及重新启动，防止服务清理竞态污染后续用例。
+- **配置应用与恢复：** [ProfileRecoveryTest.kt](app/src/androidTest/java/io/nekohasekai/sfa/flutter/ProfileRecoveryTest.kt) 覆盖实际 libbox 二进制导入、查询策略持久化、端口占用导致的 JSON 编辑/配置切换/完整备份恢复失败、注入的订阅应用失败恢复，以及停服和未选中配置更新的服务状态；停服 selector 回归核对已保存选择在启动时生效、运行选择在停服后保留、不改配置正文/更新时间或启动服务，并拒绝自动组、失效成员、配置选择/修订及会话冲突；另覆盖启停期间拒绝内容/备份修改、缺定位权限的重载回滚、配置表单内容与元数据共同恢复、下载等待时编辑/关闭自动更新，以及 URL/删除/会话冲突。`failedSelectionRestoresThePreviousSelectionAndService` 连续五轮核对选配置失败恢复、停止释放核心及重新启动，防止服务清理竞态污染后续用例。 `retiredModulesAreRemovedFromSavesAndBackupsWithAtomicRecovery` 另检查旧配置只读修订、模块字段清理与独立字段/节点标记保留、备份导出不修改原文件、恢复失败还原原正文/元数据/运行服务，以及成功恢复后的过期修订拒绝和端口冲突回滚。
 - **默认文件与新建模板：** `defaultProfileStaysAvailableAlongsideExistingProfiles` 检查默认文件与其他配置一同显示、持久身份、实际模板的可信库及删除限制；旧系统名称更新保持内容和更新时间，自定义名称及当前选择保留。普通模板回归通过无 `content` 参数的真实新建入口创建本地文件，保持 `isDefault=false`，分别先添加节点或先导入订阅，再执行另一种操作、刷新来源及删除最后代理，核对 auto 不混入 direct、无节点时恢复兜底、根配置和来源归属保留且停服不启动服务。负向回归将完整模板保存为 Remote，或仅修改 `log.level` 后保存为 Local，验证添加节点保留显式 direct。原始 JSON 保存回归核对混合 auto 成员的清理、本地归属注释恢复、其他分组及根配置保留，以及重复保存不刷新时间或写入代次。
 - **配置内订阅来源：** 覆盖 URL 导入保持所选默认文件的本地身份且不创建文件、来源的证书字段不覆盖本机信任策略、Clash/Base64/WireGuard 端点、空或混合非法来源拒绝、混合 KCP 的跳过报告及更新后报告清除、XHTTP/VLESS Encryption 分享链接导入及更新、多来源及本地节点隔离、改名/删除后的归属、下载期间选择和内容冲突、来源编辑后旧下载拒绝、移除来源保留本地节点、Parcel/备份回读，以及来源和内容的应用失败恢复。本地/默认文件的自动更新成功及失败重试也使用实际绑定验证。直接更新用例调用生产 `UpdateProfileWork.updateProfiles`，以受控 WorkManager 暂停周期执行，避免重复下载干扰请求计数；测试结束取消并等待任务、恢复原调度实例。这些用例验证更新逻辑及真实绑定，不验证系统后台调度的实际时序；运行结果见下文记录。
 - **配置时间与日志级别：** `localProfileTimesFollowSuccessfulContentChanges` 覆盖本地创建/内容编辑的时间记录、无变化保存和重命名不刷新时间、应用失败恢复原内容与时间；二进制订阅测试另检查手动 JSON 编辑保留导入的订阅时间。`logLevelFollowsSuccessfulConfigurationReloads` 覆盖真实内核日志订阅的默认级别、运行中修改 `log.level` 后刷新，以及移除该字段后恢复当前核心的默认值。

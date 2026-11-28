@@ -2088,6 +2088,87 @@ class ProfileRecoveryTest {
         }
     }
 
+    @Test fun retiredModulesAreRemovedFromSavesAndBackupsWithAtomicRecovery() = withRunningProfile { activity, profiles, id ->
+        val root = JSONObject("""{
+            "log":{"level":"warn"},
+            "outbounds":[{"type":"direct","tag":"direct"},{"type":"socks","tag":"owned","server":"127.0.0.1","server_port":1080}],
+            "route":{"final":"direct"},
+            "experimental":{
+                "cache_file":{"enabled":false,"cache_id":"retained-cache"},
+                "mitm":{"enabled":false,"hosts":["retained.test"]},
+                "scripts":{"enabled":true,"generic":[{"source":"${'$'}done({retained:true});"}]},
+                "http_rewrite":{"enabled":true,"url_rewrite":["^http://retained\\.test/ reject"]},
+                "modules":[{"id":"retired","enabled":true,"content":"[MITM]\nhostname = *.module-only.test\n[Unsupported]\ninvalid = true"}]
+            }
+        }""")
+        val marker = "// b-box-local-nodes: [\"owned\"]\n"
+        val legacy = marker + root.toString()
+        val file = File(profiles.get(id).typed.path)
+        val before = profiles.get(id)
+        val mode = Settings.serviceMode
+        val uiPreferences = activity.getSharedPreferences("flclash_ui", 0).getString("value", "{}")
+        // Reproduce a file written by the previous app without triggering a save.
+        ProfileContent.mutex.withLock {
+            ProfileContent.snapshotMutex.withLock { ProfileContent.write(file, legacy) }
+        }
+        Libbox.checkConfig(legacy)
+        assertFalse(Libbox.needsUIMITMCA(legacy))
+        val snapshot = profiles.config(id)
+        assertEquals(legacy, snapshot["content"])
+        assertEquals(BoxProfiles.revision(legacy), snapshot["revision"])
+        assertFalse((snapshot["stats"] as Map<*, *>).containsKey("modules"))
+        assertFalse(JSONObject(snapshot["formatted"] as String).getJSONObject("experimental").has("modules"))
+        assertFalse(Libbox.generateConfigSchema().value.contains("\"modules\""))
+        root.getJSONObject("experimental").remove("modules")
+        val expected = jsonObject(root)
+        fun assertRetained(content: String) {
+            assertTrue(content.startsWith(marker))
+            assertEquals(expected, jsonObject(JSONObject(content)))
+        }
+        val imported = profiles.save(mapOf("name" to "Retired module import fixture", "content" to legacy))
+        try { assertRetained(profiles.read(imported)) } finally { profiles.delete(imported) }
+        var rejectRestore = true
+        val rejected = IllegalStateException("Restored profile failed")
+        val backups = BoxBackups(activity, { emptyMap() }, { fail("A profile restore must preserve settings") },
+            { restart, recover ->
+                if (rejectRestore && !recover) throw rejected
+                withContext(Dispatchers.Main) { activity.applyProfile(restart, recover) }
+            }, {}, { _, _ -> }, BoxWebDAV(activity))
+        val backup = backups.create()
+        val exported = rows(backup["profiles"]).single { (it["id"] as Number).toLong() == id }
+        assertRetained(exported["content"] as String)
+        assertEquals(legacy, file.readText())
+        val oldEntries = rows(backup["profiles"]).map { entry ->
+            if ((entry["id"] as Number).toLong() == id) entry + mapOf("name" to "Restored fixture", "content" to legacy) else entry
+        }
+        val oldBackup = backups.read(backups.encode(backup + mapOf("profiles" to oldEntries)), "profiles")
+        assertSame(rejected, runCatching { backups.restore(oldBackup, "profiles", "Compatible") }.exceptionOrNull())
+        assertEquals(legacy, file.readText())
+        assertEquals(before.name, profiles.get(id).name)
+        assertEquals(before.typed.lastUpdated.time, profiles.get(id).typed.lastUpdated.time)
+        assertEquals(Status.Started, activity.serviceStatus.value)
+        rejectRestore = false
+        backups.restore(oldBackup, "profiles", "Compatible")
+        val saved = profiles.read(id)
+        assertRetained(saved)
+        assertEquals("Restored fixture", profiles.get(id).name)
+        assertEquals(before.typed.lastUpdated.time, profiles.get(id).typed.lastUpdated.time)
+        assertTrue(runCatching { profiles.writeContent(id, legacy, BoxProfiles.revision(legacy)) }.exceptionOrNull() is IllegalArgumentException)
+        assertEquals(saved, profiles.read(id))
+        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { occupied ->
+            val invalidAtRuntime = JSONObject(legacy).put("inbounds", JSONObject(occupiedPortConfig(occupied.localPort)).getJSONArray("inbounds")).toString()
+            assertNotNull(runCatching { profiles.writeContent(id, invalidAtRuntime, BoxProfiles.revision(saved)) }.exceptionOrNull())
+            assertEquals(saved, profiles.read(id))
+            assertEquals(before.typed.lastUpdated.time, profiles.get(id).typed.lastUpdated.time)
+            assertEquals(Status.Started, activity.serviceStatus.value)
+        }
+        profiles.writeContent(id, legacy, BoxProfiles.revision(saved))
+        assertRetained(profiles.read(id))
+        assertEquals(id, Settings.selectedProfile)
+        assertEquals(mode, Settings.serviceMode)
+        assertEquals(uiPreferences, activity.getSharedPreferences("flclash_ui", 0).getString("value", "{}"))
+    }
+
     @Test fun subscriptionSourcesImportEndpointsAndReplaceTheirOwnedNodesWhileStopped() = withRunningProfile { activity, profiles, id ->
         withContext(Dispatchers.Main) { activity.stopService() }
         withTimeout(15_000) { activity.serviceStatus.first { it == Status.Stopped } }

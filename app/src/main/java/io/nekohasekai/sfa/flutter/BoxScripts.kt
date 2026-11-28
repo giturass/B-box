@@ -30,26 +30,22 @@ internal data class ScriptRunRequest(
     val revision: String,
     val type: String,
     val index: Int,
-    val moduleId: String? = null,
-    val panelName: String? = null,
-    val automatic: Boolean = false,
 ) {
     fun validate() {
         require(requestId.isNotBlank() && requestId.length <= 128 && requestId.none { it.isISOControl() }) { "Invalid script request" }
         require(profileId > 0 && revision.matches(Regex("[0-9a-f]{64}"))) { "Refresh the selected profile before running its script" }
         require(type in setOf("cron", "event", "generic") && index >= 0) { "Select a Cron, event or generic script" }
-        require(if (moduleId == null) panelName == null && !automatic else type == "generic" && moduleId.isNotBlank() && !panelName.isNullOrBlank()) { "Invalid panel request" }
     }
 
     companion object {
         fun read(args: Map<String, Any?>): ScriptRunRequest {
+            require(args.keys.all { it in setOf("requestId", "profileId", "revision", "type", "index") }) { "Invalid script argument" }
             fun string(key: String) = args[key] as? String ?: error("Missing script argument: $key")
             val index = args["index"] as? Number ?: error("Missing script argument: index")
             require(index.toLong() in 0..Int.MAX_VALUE.toLong() && index.toDouble() == index.toInt().toDouble()) { "Invalid script index" }
             val profileId = args["profileId"] as? Number ?: error("Missing script argument: profileId")
             require(profileId.toDouble() == profileId.toLong().toDouble()) { "Invalid script profile" }
-            return ScriptRunRequest(string("requestId"), profileId.toLong(), string("revision"), string("type"), index.toInt(),
-                if ("moduleId" in args) string("moduleId") else null, if ("panelName" in args) string("panelName") else null, args["automatic"] == true)
+            return ScriptRunRequest(string("requestId"), profileId.toLong(), string("revision"), string("type"), index.toInt())
         }
     }
 }
@@ -205,9 +201,7 @@ internal suspend fun prepareProfileScript(
             }
             CommandTarget.requireLocalSession(session)
             currentCoroutineContext().ensureActive()
-            val task = LibboxScriptDebugTask(if (request.moduleId != null) {
-                config.server.newUIModulePanelTask(request.moduleId, requireNotNull(request.panelName), request.index, request.automatic)
-            } else config.server.newUIScriptTask(request.type, request.index))
+            val task = LibboxScriptDebugTask(config.server.newUIScriptTask(request.type, request.index))
             try {
                 // Save the holder before withContext can discard a cancelled result.
                 created(task)
