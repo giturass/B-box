@@ -13,6 +13,7 @@ import 'package:b_box_ui/pages/tools.dart';
 import 'package:b_box_ui/pages/warp.dart';
 import 'package:b_box_ui/pages/diagnostics.dart';
 import 'package:b_box_ui/pages/profiles.dart';
+import 'package:b_box_ui/pages/profile_details.dart';
 import 'package:b_box_ui/pages/proxies.dart';
 import 'package:b_box_ui/pages/dashboard.dart';
 import 'package:b_box_ui/components/navigation_bar.dart';
@@ -239,6 +240,44 @@ void main() {
         expect(find.text('Local configuration').hitTestable(), findsOneWidget);
         await capture('Profiles-scrolled');
       }
+      final localCard = find.byWidgetPredicate((widget) => widget is ProfileCard && widget.profile['id'] == 2);
+      final localName = find.descendant(of: localCard, matching: find.text('Local configuration'));
+      await Scrollable.ensureVisible(tester.element(localName), alignment: .5);
+      await tester.pumpAndSettle();
+      expect(localName.hitTestable(), findsOneWidget);
+      await tester.longPress(localName);
+      await tester.pumpAndSettle();
+      await tester.tap(find.descendant(of: find.byType(PopupMenu), matching: find.text('Edit')).hitTestable());
+      await tester.pumpAndSettle();
+      final details = find.byType(ProfileDetailsPage);
+      expect(details, findsOneWidget, reason: 'The profile context menu opens its configuration editing page.');
+      expect(tester.widget<ProfileDetailsPage>(details).profile?['id'], 2);
+      expect(box.selectedProfileId, 1, reason: 'Editing another profile must keep the selected profile.');
+      expect(tester.takeException(), isNull, reason: 'Profile-details');
+      await capture('Profile-details');
+      Finder detailEntry(String title) => find.descendant(of: details, matching: find.text(title));
+      final rawEntry = detailEntry('Open configuration');
+      await Scrollable.ensureVisible(tester.element(find.ancestor(of: rawEntry, matching: find.byType(ListItem)).first), alignment: 1);
+      await tester.pumpAndSettle();
+      final viewport = tester.getRect(find.descendant(of: details, matching: find.byType(Scrollable)).first);
+      double previousBottom = viewport.top;
+      for (final title in ['MITM', 'HTTP rewriting', 'Scripts', 'Open configuration']) {
+        final entry = detailEntry(title);
+        expect(entry.hitTestable(), findsOneWidget, reason: '$title is visible in the configuration section area.');
+        final rect = tester.getRect(entry);
+        expect(rect.top, greaterThanOrEqualTo(previousBottom));
+        expect(rect.bottom, lessThanOrEqualTo(viewport.bottom));
+        expect(rect.left, greaterThanOrEqualTo(viewport.left));
+        expect(rect.right, lessThanOrEqualTo(viewport.right));
+        previousBottom = rect.bottom;
+      }
+      expect(tester.takeException(), isNull, reason: 'Profile-sections');
+      await capture('Profile-sections');
+      tester.element(details).safeNestedPop();
+      await tester.pumpAndSettle();
+      expect(details, findsNothing);
+      expect(tester.widget<PageSwitcher>(find.byType(PageSwitcher)).index, 1);
+      expect(box.selectedProfileId, 1);
       await selectTab('Dashboard');
       final rootContext = tester.element(find.byType(HomePage));
       events.add({'type': 'connections', 'value': [

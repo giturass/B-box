@@ -2097,7 +2097,7 @@ class ProfileRecoveryTest {
                 "cache_file":{"enabled":false,"cache_id":"retained-cache"},
                 "mitm":{"enabled":false,"hosts":["retained.test"]},
                 "scripts":{"enabled":true,"generic":[{"source":"${'$'}done({retained:true});"}]},
-                "http_rewrite":{"enabled":true,"url_rewrite":["^http://retained\\.test/ reject"]},
+                "http_rewrite":{"enabled":true,"url_rewrite":["^http://retained\\.test/ - reject"]},
                 "modules":[{"id":"retired","enabled":true,"content":"[MITM]\nhostname = *.module-only.test\n[Unsupported]\ninvalid = true"}]
             }
         }""")
